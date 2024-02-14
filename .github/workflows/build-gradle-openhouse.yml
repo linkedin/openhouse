@@ -1,0 +1,23 @@
+name: Gradle Build OpenHouse
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  build-gradle-project:
+    runs-on: linux
+    env:
+      JAVA_HOME: /export/apps/jdk/JDK-1_8_0_282-msft
+    steps:
+      - name: Checkout project sources
+        uses: actions/checkout@v3
+
+      - name: Build with Gradle
+        run: export PATH=$JAVA_HOME/bin:$PATH && ./gradlew build
