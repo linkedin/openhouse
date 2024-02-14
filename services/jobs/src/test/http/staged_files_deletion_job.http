@@ -1,0 +1,27 @@
+POST {{base-url}}
+Content-Type: application/json
+
+{
+"jobName": "STAGED_FILES_DELETION_db_tb",
+"clusterId": "LocalHadoopCluster",
+"jobConf": {
+  "jobType": "STAGED_FILES_DELETION",
+  "proxyUser": "openhouse",
+  "args": [
+    "--tableName", "db.tb",
+    "--granularity", "day",
+    "--count", 2
+    ]
+  }
+}
+> {%
+client.global.set("jobId", response.body.jobId);
+%}
+
+###
+GET {{base-url}}/{{jobId}}
+Accept: application/json
+
+###
+PUT {{base-url}}/{{jobId}}/cancel
+Accept: application/json

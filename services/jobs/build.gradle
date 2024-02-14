@@ -1,0 +1,38 @@
+plugins {
+  id 'openhouse.springboot-ext-conventions'
+  id 'openhouse.hadoop-conventions'
+  id 'openhouse.iceberg-conventions'
+  /**
+   * FIXME: Ideally, the below line are also defined in shared buildSrc. But raises following error:
+   * Invalid plugin request [id: 'org.springframework.boot', version: '2.1.2.RELEASE'].
+   * Plugin requests from precompiled scripts must not include a version number.
+   * Please remove the version from the offending request and make sure the module
+   * containing the requested plugin 'org.springframework.boot' is an implementation dependency.
+   */
+  id 'org.springframework.boot' version '2.1.2.RELEASE'
+
+  /**
+   * These are the dependencies to enable client generation for the service.
+   * */
+  id 'com.github.johnrengelman.processes' version '0.5.0'
+  id 'org.springdoc.openapi-gradle-plugin' version '1.3.3'
+  id 'openhouse.service-specgen-convention'
+}
+
+dependencies {
+  implementation project(':services:common')
+  implementation project(':iceberg:openhouse:internalcatalog')
+  implementation project(':client:hts')
+  implementation project(':cluster:configs')
+  implementation project(':cluster:storage')
+  implementation project(':cluster:metrics')
+  implementation 'org.springframework.boot:spring-boot-starter-webflux:' + springVersion
+  implementation 'org.springframework.retry:spring-retry:1.3.3'
+  implementation 'io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64'
+  implementation 'org.apache.livy:livy-api:0.7.0-incubating'
+  implementation 'org.apache.livy:livy-client-common:0.7.0-incubating'
+  implementation 'org.apache.livy:livy-client-http:0.7.0-incubating'
+  testImplementation(testFixtures(project(':services:common')))
+  testImplementation "com.squareup.okhttp3:okhttp:4.0.1"
+  testImplementation "com.squareup.okhttp3:mockwebserver:4.0.1"
+}

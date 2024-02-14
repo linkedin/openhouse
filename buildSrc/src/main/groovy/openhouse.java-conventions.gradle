@@ -1,0 +1,17 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+}
+
+ext {
+  gsonVersion = '2.8.9'
+  micrometerVersion = '1.6.1'
+}
+
+dependencies {
+  implementation 'com.google.code.gson:gson:' + gsonVersion
+  testImplementation 'com.google.code.gson:gson:' + gsonVersion
+
+  implementation 'io.micrometer:micrometer-core:' + micrometerVersion
+  implementation 'io.micrometer:micrometer-registry-prometheus:' + micrometerVersion
+
+}

@@ -1,0 +1,6 @@
+cluster:
+  name: "TestCluster"
+  storage:
+    root-path: "/tmp/unittest"
+  housetables:
+    base-uri: "http://localhost:8080"

@@ -1,0 +1,15 @@
+plugins {
+  id 'openhouse.java-conventions'
+  id 'java-library'
+}
+
+dependencies {
+
+  // Additional dependencies to make objects annotated properly as spring components.
+  // Other modules depending on this module don't have redeclare the following dependencies.
+  api 'com.fasterxml.jackson.core:jackson-annotations:2.13.4'
+  api 'io.swagger.core.v3:swagger-annotations:2.1.11'
+  api 'jakarta.validation:jakarta.validation-api:2.0.2'
+  api 'org.springframework:spring-web:5.3.14'
+  api 'org.springframework:spring-webmvc:5.3.14'
+}

@@ -1,0 +1,24 @@
+POST {{base-url}}
+Content-Type: application/json
+
+{
+  "jobName": "sql_test_job",
+  "clusterId": "LocalHadoopCluster",
+  "jobConf": {
+    "jobType": "SQL_TEST",
+    "proxyUser": "DUMMY_ANONYMOUS_USER"
+  }
+}
+> {%
+    client.global.set("jobId", response.body.jobId);
+%}
+
+###
+GET {{base-url}}/{{jobId}}
+Accept: application/json
+
+###
+PUT {{base-url}}/{{jobId}}/cancel
+Accept: application/json
+
+

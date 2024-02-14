@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/app: openhouse
+    app.kubernetes.io/service: {{ .Release.Name }}
+    app.kubernetes.io/tag: {{ .Values.openhouseClusterTag }}
+spec:
+  replicas: {{ .Values.tablesService.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/service: {{ .Release.Name }}
+      app.kubernetes.io/tag: {{ .Values.openhouseClusterTag }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        app: openhouse
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.tablesService.port }}"
+        prometheus.io/path: /actuator/prometheus
+      labels:
+        app.kubernetes.io/service: {{ .Release.Name }}
+        app.kubernetes.io/tag: {{ .Values.openhouseClusterTag }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: "openhouse-{{ .Values.tablesService.appName }}"
+    spec:
+      containers:
+        - name: {{ .Values.tablesService.appName }}
+          image: "{{ $.Values.tablesService.image.repository }}:{{ default $.Chart.AppVersion }}"
+          imagePullPolicy: "{{ .Values.tablesService.image.pullPolicy }}"
+          {{- if .Values.tablesService.command }}
+          command: ["sh", "-c", "{{.Values.tablesService.command}}"]
+          {{- end }}
+          env:
+            {{- range $key, $val := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.tablesService.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml $.Values.tablesService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          volumeMounts:
+            - name: config-volume
+              mountPath: /var/config/cluster.yaml
+              subPath: cluster.yaml
+              readOnly: true
+      volumes:
+        - name: config-volume
+          configMap:
+            # Provide the name of the ConfigMap containing the files you want
+            # to add to the container
+            name: {{ .Release.Name }}-conf
+        - name: shared-volume
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2M

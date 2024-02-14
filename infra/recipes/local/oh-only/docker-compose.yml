@@ -1,0 +1,25 @@
+version: "3.3"
+services:
+  openhouse-tables:
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-tables
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - openhouse-housetables
+      - prometheus
+
+  openhouse-housetables:
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-housetables
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - prometheus
+
+  prometheus:
+    extends:
+      file: ../common/oh-services.yml
+      service: prometheus

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Yes, even though this exclusion filter file is used by SpotBugs, the top-level element is still "FindBugsFilter" -->
+<FindBugsFilter
+    xmlns="https://github.com/spotbugs/filter/3.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0 https://raw.githubusercontent.com/spotbugs/spotbugs/3.1.0/spotbugs/etc/findbugsfilter.xsd">
+  <!--
+    Allow a class to hold or return mutable objects. While this has obvious risks, it is much too
+    common a pattern to treat as a bug.
+  -->
+  <Match>
+    <Bug code="EI, EI2"/>
+  </Match>
+  <Match>
+    <Bug pattern="EI_EXPOSE_REP"/>
+  </Match>
+  <Match>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
+
+  <Match>
+    <!--  Ignoring generated code which contains client as part of package name  -->
+    <Package name="~com\.linkedin\.openhouse\.[a-z]+\.client.*"/>
+  </Match>
+
+  <Match>
+    <!--  Ignoring generated mapper class's Spotbug issue.  -->
+    <Class name="~com\.linkedin\.openhouse\.tables\.dto\.mapper\.TablesMapperImpl" />
+  </Match>
+
+  <Match>
+    <!-- Ignoring unsafe usage of default charset in Java 1.8 -->
+    <Class name="com.linkedin.openhouse.jobs.scheduler.JobsScheduler"/>
+    <Method name="readToken"/>
+    <Bug pattern="DM_DEFAULT_ENCODING"/>
+  </Match>
+
+  <Match>
+    <!--  Ignoring Spotbug issues of generated antlr grammar classes.  -->
+    <Package name="~com\.linkedin\.openhouse\.spark\.sql\.catalyst\.parser\.extensions.*" />
+  </Match>
+
+
+
+  <Match>
+    <!-- Needed for backward compatibility -->
+    <Class name="com.linkedin.openhouse.spark.OpenHouseCatalog"/>
+    <Bug pattern="NM_SAME_SIMPLE_NAME_AS_SUPERCLASS"/>
+  </Match>
+
+  <Match>
+    <!-- Raising an issue returning a singleton instance of a class -->
+    <Package name="com.linkedin.openhouse.client.ssl"/>
+    <Bug pattern="MS_EXPOSE_REP"/>
+  </Match>
+
+
+</FindBugsFilter>

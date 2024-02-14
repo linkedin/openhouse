@@ -1,0 +1,120 @@
+buildscript {
+  repositories {
+    maven {
+      url "https://repo.maven.apache.org/maven2/"
+      metadataSources {
+        gradleMetadata()
+        mavenPom()
+        artifact()
+      }
+    }
+    maven {
+      url "https://plugins.gradle.org/m2/"
+      metadataSources {
+        gradleMetadata()
+        mavenPom()
+        artifact()
+      }
+    }
+  }
+  dependencies {
+    classpath "com.diffplug.spotless:spotless-plugin-gradle:6.9.1"
+    classpath "com.diffplug.spotless:spotless-lib:2.9.0"
+    classpath "com.diffplug.spotless:spotless-lib-extra:2.9.0"
+    classpath "com.github.spotbugs:com.github.spotbugs.gradle.plugin:4.8.0"
+  }
+}
+
+ext {
+  spring_web_version = "2.6.1"
+  spark_version = "3.1.1"
+}
+
+subprojects {
+  buildDir = "${rootProject.buildDir}/${project.name}"
+}
+
+allprojects {
+  apply plugin: "com.diffplug.spotless"
+  apply plugin: "com.github.spotbugs"
+
+  repositories {
+    maven {
+      url "https://repo.maven.apache.org/maven2/"
+      metadataSources {
+        gradleMetadata()
+        mavenPom()
+        artifact()
+      }
+    }
+  }
+
+  configurations.all {
+    resolutionStrategy {
+      force 'com.fasterxml.jackson:jackson-bom:2.13.4'
+      force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
+      force 'org.apache.orc:orc-core:1.8.3'
+    }
+  }
+
+  plugins.withType(JavaPlugin) {
+    dependencies {
+
+      testImplementation "org.assertj:assertj-core:3.24.2" //assertions library
+      testImplementation "org.junit.jupiter:junit-jupiter-api:5.10.0"
+      testImplementation "org.junit.jupiter:junit-jupiter-params:5.10.0"
+      testImplementation "org.mockito:mockito-core:4.11.0"
+      testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:5.10.0"
+    }
+
+    tasks.withType(Test) {
+      useJUnitPlatform()
+    }
+
+    spotless {
+      enforceCheck = false
+      java {
+        target '**/*.java'
+        targetExclude 'client/**', 'build/**'
+
+        importOrder('', 'static ')
+        removeUnusedImports()
+        trimTrailingWhitespace()
+
+        endWithNewline()
+        googleJavaFormat()
+      }
+    }
+
+    spotbugs {
+      includeFilter = rootProject.file('gradle/spotbugs/spotbugsInclude.xml')
+      excludeFilter = rootProject.file('gradle/spotbugs/spotbugsExclude.xml')
+    }
+
+    spotbugsMain {
+      reports {
+        html {
+          required = true
+          outputLocation = file("$buildDir/reports/spotbugs/main/spotbugs.html")
+        }
+      }
+    }
+
+    spotbugsTest.enabled = false
+  }
+
+  afterEvaluate {
+    for (def task in it.tasks) {
+      if (task != rootProject.tasks.CopyGitHooksTask) {
+        task.dependsOn rootProject.tasks.CopyGitHooksTask
+      }
+    }
+  }
+}
+
+// Local Git Hooks cannot be shared, as .git directory is gitignore'd.
+tasks.register('CopyGitHooksTask', Copy) {
+  println 'Make the git hook available in .git/hooks directory.'
+  from file('scripts/git-hooks')
+  into file('.git/hooks/')
+}

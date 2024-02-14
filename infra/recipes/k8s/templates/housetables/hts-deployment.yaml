@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/app: openhouse
+    app.kubernetes.io/service: {{ .Release.Name }}
+    app.kubernetes.io/tag: {{ .Values.openhouseClusterTag }}
+spec:
+  replicas: {{ .Values.htsService.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/service: {{ .Release.Name }}
+      app.kubernetes.io/tag: {{ .Values.openhouseClusterTag }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        app: openhouse
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.htsService.port }}"
+        prometheus.io/path: /actuator/prometheus
+      labels:
+        app.kubernetes.io/service: {{ .Release.Name }}
+        app.kubernetes.io/tag: {{ .Values.openhouseClusterTag }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: "openhouse-{{ .Values.htsService.appName }}"
+    spec:
+      containers:
+        - name: {{ .Values.htsService.appName }}
+          image: "{{ $.Values.htsService.image.repository }}:{{ default $.Chart.AppVersion }}"
+          imagePullPolicy: "{{ .Values.htsService.image.pullPolicy }}"
+          {{- if .Values.htsService.command }}
+          command: ["sh", "-c", "{{.Values.htsService.command}}"]
+          {{- end }}
+          env:
+            {{- $releaseName  := .Release.Name -}}
+            {{- if .Values.htsService.mysql.enabled }}
+              {{- range $key, $val := .Values.htsService.mysql.secrets }}
+              - name: {{ $key }}
+                valueFrom:
+                  secretKeyRef:
+                    key: {{ $val | quote }}
+                    name: {{ $releaseName }}-secrets
+              {{- end }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.htsService.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml $.Values.htsService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          volumeMounts:
+            - name: config-volume
+              mountPath: /var/config/cluster.yaml
+              subPath: cluster.yaml
+              readOnly: true
+      volumes:
+        - name: config-volume
+          configMap:
+            # Provide the name of the ConfigMap containing the files you want
+            # to add to the container
+            name: {{ .Release.Name }}-conf
+        - name: shared-volume
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2M

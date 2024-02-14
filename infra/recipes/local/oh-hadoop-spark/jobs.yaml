@@ -1,0 +1,51 @@
+jobs:
+  defaults:
+    &apps-defaults
+      spark-properties: {
+        "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions",
+        "spark.sql.catalog.openhouse": "org.apache.iceberg.spark.SparkCatalog",
+        "spark.sql.catalog.openhouse.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog",
+        "spark.sql.catalog.openhouse.uri": "http://openhouse-tables:8080",
+        "spark.sql.catalog.openhouse.cluster": "LocalHadoopCluster",
+        "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0",
+        "spark.sql.autoBroadcastJoinThreshold": "-1",
+        "spark.driver.memory": "2g"
+      }
+      jar-path: local:/opt/spark/openhouse-spark-apps_2.12-latest-all.jar
+      dependencies:
+        - local:/opt/spark/openhouse-spark-runtime_2.12-latest-all.jar
+  spark:
+    engine-uri: http://spark-livy:8998
+    storage-uri: http://openhouse-housetables:8080
+    metrics-uri: http://localhost:4318
+    coordinator-class-name: com.linkedin.openhouse.jobs.services.livy.LivyJobsCoordinator
+    auth-token-path: "/var/config/openhouse.token"
+    apps:
+      - type: NO_OP
+        class-name: com.linkedin.openhouse.jobs.spark.NoOpSparkApp
+        args: []
+        << : *apps-defaults
+      - type: SQL_TEST
+        class-name: com.linkedin.openhouse.jobs.spark.OpenHouseCatalogSQLTestSparkApp
+        args: []
+        << : *apps-defaults
+      - type: RETENTION
+        class-name: com.linkedin.openhouse.jobs.spark.RetentionSparkApp
+        args: []
+        << : *apps-defaults
+      - type: DATA_COMPACTION
+        class-name: com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp
+        args: []
+        << : *apps-defaults
+      - type: SNAPSHOTS_EXPIRATION
+        class-name: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
+        args: []
+        << : *apps-defaults
+      - type: ORPHAN_FILES_DELETION
+        class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
+        args: ["--trashDir", ".trash"]
+        <<: *apps-defaults
+      - type: STAGED_FILES_DELETION
+        class-name: com.linkedin.openhouse.jobs.spark.StagedFilesDeletionSparkApp
+        args: []
+        <<: *apps-defaults

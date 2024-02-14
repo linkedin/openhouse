@@ -1,0 +1,30 @@
+namespace: "default"
+
+openhouseClusterTag: "openhouse"
+
+clusterPropertiesPath: "config/minikube/cluster.yaml"
+
+htsService:
+  replicaCount: 1
+  image:
+    repository: "openhouse-housetables-service"
+    tag: "latest"
+    pullPolicy: Never
+  service:
+    type: ClusterIP
+    port: 8080
+  port: 8080
+  resources:
+    requests:
+      cpu: 2
+      memory: 1G
+    limits:
+      cpu: 2
+      memory: 2G
+  mysql:
+    enabled: false
+    secrets:
+      HTS_DB_USER: MYSQL_USER
+      HTS_DB_PASSWORD: MYSQL_PASSWORD
+  command: "java -Xmx1024M -Xms128M -XX:NativeMemoryTracking=summary -cp housetables.jar -Dloader.main=com.linkedin.openhouse.HouseTablesSpringApplication org.springframework.boot.loader.PropertiesLauncher $APP_NAME.jar $@"
+  appName: housetables-service

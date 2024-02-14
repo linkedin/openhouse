@@ -1,0 +1,45 @@
+version: "3.3"
+services:
+  spark-master:
+    build:
+      context: ../../../../
+      dockerfile: infra/recipes/local/common/spark/spark-base-hadoop3.2.dockerfile
+    ports:
+      - 9001:8080
+      - 7077:7077
+    volumes:
+      - ./spark/apps:/opt/spark-apps
+    environment:
+      - SPARK_LOCAL_IP=spark-master
+      - SPARK_WORKLOAD=master
+    env_file:
+      - hadoop/hadoop.env
+  spark-worker-a:
+    build:
+      context: ../../../../
+      dockerfile: infra/recipes/local/common/spark/spark-base-hadoop3.2.dockerfile
+    ports:
+      - 9002:8080
+      - 7000:7000
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_DRIVER_MEMORY=1G
+      - SPARK_EXECUTOR_MEMORY=1G
+      - SPARK_WORKLOAD=worker
+      - SPARK_LOCAL_IP=spark-worker-a
+    env_file:
+      - hadoop/hadoop.env
+  spark-livy:
+    build:
+      context: ../../../../
+      dockerfile: infra/recipes/local/common/spark/spark-base-hadoop3.2.dockerfile
+    ports:
+      - 9003:8998
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKLOAD=livy
+      - LIVY_PORT=8998
+    env_file:
+      - hadoop/hadoop.env

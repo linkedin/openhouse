@@ -1,0 +1,58 @@
+pluginManagement {
+  plugins {
+  }
+  resolutionStrategy {
+  }
+  repositories {
+    maven {
+      url "https://repo.maven.apache.org/maven2/"
+      metadataSources {
+        gradleMetadata()
+        mavenPom()
+        artifact()
+      }
+    }
+    maven {
+      url "https://plugins.gradle.org/m2/"
+      metadataSources {
+        mavenPom()
+        artifact()
+      }
+    }
+  }
+}
+
+rootProject.name = 'openhouse'
+
+include ':apps:spark'
+
+include ':client:common'
+include ':client:hts'
+include ':client:jobsclient'
+include ':client:tableclient'
+include ':client:secureclient'
+
+include ':integrations:spark:openhouse-spark-runtime'
+include ':integrations:spark:openhouse-spark-itest'
+include ':integrations:spark-extensions'
+include ':integrations:java:openhouse-java-runtime'
+include ':integrations:java:openhouse-java-itest'
+
+include ':iceberg:openhouse:htscatalog'
+include ':iceberg:openhouse:internalcatalog'
+
+include ':services:common'
+include ':services:housetables'
+include ':services:jobs'
+include ':services:tables'
+include ':tables-test-fixtures'
+
+include ':cluster:configs'
+include ':cluster:storage'
+include ':cluster:metrics'
+
+include ':scripts:java:tools:dummytokens'
+
+project(':integrations:spark:openhouse-spark-runtime').name = 'openhouse-spark-runtime_2.12'
+project(':apps:spark').name = 'openhouse-spark-apps_2.12'
+project(':tables-test-fixtures').name = 'tables-test-fixtures_2.12'

@@ -1,0 +1,526 @@
+package com.linkedin.openhouse.tables.repository.impl;
+
+import static com.linkedin.openhouse.common.metrics.MetricsConstant.*;
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.HTS_FIELD_NAMES;
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
+import static com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils.*;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Iterators;
+import com.google.common.collect.Maps;
+import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
+import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.common.metrics.MetricsConstant;
+import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
+import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
+import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
+import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
+import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
+import com.linkedin.openhouse.tables.dto.mapper.iceberg.TableTypeMapper;
+import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
+import com.linkedin.openhouse.tables.repository.SchemaValidator;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.Transaction;
+import org.apache.iceberg.UpdateProperties;
+import org.apache.iceberg.UpdateSchema;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.io.FileIO;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+/**
+ * Implementation for Repository that uses Iceberg Catalog to store or retrieve Iceberg table TODO:
+ * Unit test for this class
+ */
+@Component
+@Slf4j
+public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalRepository {
+
+  private static final String TABLE_TYPE_KEY = "tableType";
+  @Autowired Catalog catalog;
+
+  @Autowired TablesMapper mapper;
+
+  @Autowired PoliciesSpecMapper policiesMapper;
+
+  @Autowired PartitionSpecMapper partitionSpecMapper;
+
+  @Autowired TableTypeMapper tableTypeMapper;
+
+  @Autowired FsStorageProvider fsStorageProvider;
+
+  @Autowired FileIO fileIO;
+
+  @Autowired MeterRegistry meterRegistry;
+
+  @Autowired SchemaValidator schemaValidator;
+
+  @Autowired ClusterProperties clusterProperties;
+
+  @Autowired PreservedKeyChecker preservedKeyChecker;
+
+  @Override
+  public TableDto save(TableDto tableDto) {
+    TableIdentifier tableIdentifier =
+        TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
+    Table table;
+    Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
+    PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
+    boolean existed =
+        existsById(
+            TableDtoPrimaryKey.builder()
+                .tableId(tableDto.getTableId())
+                .databaseId(tableDto.getDatabaseId())
+                .build());
+    if (!existed) {
+      versionCheck(null, tableDto);
+      log.info(
+          "Creating a new user table: {} with schema: {} and partitionSpec: {}",
+          tableIdentifier,
+          writeSchema,
+          partitionSpec);
+      table =
+          catalog.createTable(
+              tableIdentifier,
+              writeSchema,
+              partitionSpec,
+              constructTablePath(
+                      fsStorageProvider,
+                      tableDto.getDatabaseId(),
+                      tableDto.getTableId(),
+                      tableDto.getTableUUID())
+                  .toString(),
+              computePropsForTableCreation(tableDto));
+      meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
+    } else {
+      table = catalog.loadTable(tableIdentifier);
+      Transaction transaction = table.newTransaction();
+      versionCheck(table, tableDto);
+      checkIfPreservedTblPropsModified(tableDto, table);
+      checkIfTableTypeModified(tableDto, table);
+      handlePartitionEvolution(partitionSpec, table.spec());
+
+      boolean schemaUpdated =
+          doUpdateSchemaIfNeeded(transaction, writeSchema, table.schema(), tableDto);
+      UpdateProperties updateProperties = transaction.updateProperties();
+
+      boolean propsUpdated = doUpdatePropsIfNeeded(updateProperties, tableDto, table);
+      boolean policiesUpdated =
+          doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+      // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
+      // tableType
+      boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
+      updateProperties.set(COMMIT_KEY, tableDto.getTableVersion());
+      updateProperties.commit();
+
+      // No new metadata.json shall be generated if nothing changed.
+      if (schemaUpdated || propsUpdated || policiesUpdated || tableTypeAdded) {
+        transaction.commitTransaction();
+        meterRegistry.counter(MetricsConstant.REPO_TABLE_UPDATED_CTR).increment();
+      }
+    }
+    return convertToTableDto(
+        table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper);
+  }
+
+  /**
+   * Ensure existing table's tableLocation (path to metadata.json) matches user provided baseVersion
+   * (path to metadata.json of the table where the updates are based upon)
+   */
+  private void versionCheck(Table existingTable, TableDto mergedTableDto) {
+    String baseTableVersion = mergedTableDto.getTableVersion();
+
+    if (existingTable != null) {
+      String head = existingTable.properties().get(getCanonicalFieldName("tableLocation"));
+      if (!getSchemeLessPath(baseTableVersion).equals(getSchemeLessPath(head))) {
+        throw new CommitFailedException(
+            String.format(
+                "Conflict detected for databaseId: %s, tableId: %s, expected version: %s actual version %s: %s",
+                mergedTableDto.getDatabaseId(),
+                mergedTableDto.getTableId(),
+                head,
+                baseTableVersion,
+                "The requested user table has been modified/created by other processes."));
+      }
+    } else {
+      if (!ValidatorConstants.INITIAL_TABLE_VERSION.equals(baseTableVersion)) {
+        throw new RequestValidationFailureException(
+            String.format(
+                "Request body contains incorrect version :%s, when request table doesn't exist and requested to be created. "
+                    + "This might occur when updating a table that has been deleted already.",
+                baseTableVersion));
+      }
+    }
+  }
+
+  /**
+   * Validate that user is not attempting to add, alter or drop table properties under openhouse
+   * namespace.
+   *
+   * @param tableDto Container of provided table metadata
+   * @param table Container of existing table metadata
+   */
+  private void checkIfPreservedTblPropsModified(TableDto tableDto, Table table) {
+    Map<String, String> existingTableProps = table == null ? Maps.newHashMap() : table.properties();
+    Map<String, String> providedTableProps =
+        tableDto.getTableProperties() == null ? Maps.newHashMap() : tableDto.getTableProperties();
+
+    Map<String, String> extractedExistingProps = extractPreservedProps(existingTableProps);
+    Map<String, String> extractedProvidedProps = extractPreservedProps(providedTableProps);
+    if (!extractedExistingProps.equals(extractedProvidedProps)) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+          String.format(
+              "Bad tblproperties provided: Can't add, alter or drop table properties due to the restriction: [%s], "
+                  + "diff in existing & provided table properties: %s",
+              preservedKeyChecker.describePreservedSpace(),
+              (new GsonBuilder().setPrettyPrinting().create())
+                  .toJson(Maps.difference(extractedExistingProps, extractedProvidedProps))));
+    }
+  }
+
+  private void checkIfTableTypeModified(TableDto tableDto, Table table) {
+    Map<String, String> existingTableProps = table == null ? Maps.newHashMap() : table.properties();
+    if (existingTableProps.containsKey(getCanonicalFieldName(TABLE_TYPE_KEY))
+        && !existingTableProps
+            .get(getCanonicalFieldName(TABLE_TYPE_KEY))
+            .equals(tableDto.getTableType().toString())) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.ALTER_TABLE_TYPE,
+          String.format(
+              "Bad tableType provided: Can't update tableType to [%s], "
+                  + "existing table is of type [%s]",
+              tableDto.getTableType(),
+              existingTableProps.get(getCanonicalFieldName(TABLE_TYPE_KEY))));
+    }
+  }
+
+  /** Provides definition on what is reserved properties and extract them from tblproperties map */
+  @VisibleForTesting
+  public Map<String, String> extractPreservedProps(Map<String, String> inputPropMaps) {
+    return inputPropMaps.entrySet().stream()
+        .filter(e -> preservedKeyChecker.isKeyPreserved(e.getKey()))
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
+  /**
+   * computePropForNewTbl takes a tableDTO and returns a Map<String, String> representing {@link
+   * Table} properties. policies from tableDTO is massaged into the properties map so that it can be
+   * stored as part of properties in metadata.json
+   *
+   * @param tableDto
+   * @return
+   */
+  private Map<String, String> computePropsForTableCreation(TableDto tableDto) {
+    // Populate non-preserved keys, mainly user defined properties.
+    Map<String, String> propertiesMap =
+        tableDto.getTableProperties().entrySet().stream()
+            .filter(entry -> !preservedKeyChecker.isKeyPreserved(entry.getKey()))
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+    // Populate server reserved properties
+    Map<String, String> dtoMap = tableDto.convertToMap();
+    for (String htsFieldName : HTS_FIELD_NAMES) {
+      if (dtoMap.get(htsFieldName) != null) {
+        propertiesMap.put(getCanonicalFieldName(htsFieldName), dtoMap.get(htsFieldName));
+      }
+    }
+
+    String policiesString = policiesMapper.toPoliciesJsonString(tableDto);
+    propertiesMap.put(InternalRepositoryUtils.POLICIES_KEY, policiesString);
+
+    if (!CollectionUtils.isEmpty(tableDto.getJsonSnapshots())) {
+      meterRegistry.counter(REPO_TABLE_CREATED_WITH_DATA).increment();
+      propertiesMap.put(
+          SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializeList(tableDto.getJsonSnapshots()));
+    }
+    if (tableDto.getTableType() != null) {
+      propertiesMap.put(getCanonicalFieldName(TABLE_TYPE_KEY), tableDto.getTableType().toString());
+    }
+
+    if (tableDto.isStageCreate()) {
+      meterRegistry.counter(REPO_TABLE_CREATED_CTR_STAGED).increment();
+      propertiesMap.put(IS_STAGE_CREATE_KEY, String.valueOf(tableDto.isStageCreate()));
+    }
+
+    propertiesMap.put(
+        TableProperties.DEFAULT_FILE_FORMAT,
+        clusterProperties.getClusterIcebergWriteFormatDefault());
+    propertiesMap.put(
+        TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
+        Boolean.toString(
+            clusterProperties.isClusterIcebergWriteMetadataDeleteAfterCommitEnabled()));
+    propertiesMap.put(
+        TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
+        Integer.toString(clusterProperties.getClusterIcebergWriteMetadataPreviousVersionsMax()));
+    propertiesMap.put(
+        TableProperties.FORMAT_VERSION,
+        Integer.toString(clusterProperties.getClusterIcebergFormatVersion()));
+
+    return propertiesMap;
+  }
+
+  /**
+   * Helper method to encapsulate handling of partitionSpec's evolution, for readability of main
+   * {@link #save(TableDto)} method.
+   */
+  private void handlePartitionEvolution(PartitionSpec newSpec, PartitionSpec oldSpec) {
+    if (!arePartitionColumnNamesSame(newSpec, oldSpec)) {
+      meterRegistry.counter(REPO_TABLE_UNSUPPORTED_PARTITIONSPEC_EVOLUTION).increment();
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.PARTITION_EVOLUTION,
+          "Evolution of table partitioning and clustering columns are not supported, recreate the table with "
+              + "new partition spec.");
+    }
+  }
+
+  /**
+   * @param transaction
+   * @param writeSchema
+   * @param tableSchema
+   * @param tableDto
+   * @return Whether there are any schema-updates actually materialized.
+   */
+  private boolean doUpdateSchemaIfNeeded(
+      Transaction transaction, Schema writeSchema, Schema tableSchema, TableDto tableDto) {
+    if (!writeSchema.sameSchema(tableSchema)) {
+      try {
+        UpdateSchema update = transaction.updateSchema().unionByNameWith(writeSchema);
+        schemaValidator.validateWriteSchema(
+            tableSchema, writeSchema, update.apply(), tableDto.getTableUri());
+        update.commit();
+        return true;
+      } catch (Exception e) {
+        // TODO: Make upstream change to have explicit SchemaEvolutionFailureException
+        // Currently(0.12.1) org.apache.iceberg.SchemaUpdate.updateColumn doesn't throw specific
+        // exception.
+        meterRegistry.counter(REPO_TABLE_INVALID_SCHEMA_EVOLUTION).increment();
+        throw new InvalidSchemaEvolutionException(
+            tableDto.getTableUri(), tableDto.getSchema(), tableSchema.toString(), e);
+      }
+    } else {
+      return false;
+    }
+  }
+
+  /**
+   * @param updateProperties
+   * @param providedTableDto
+   * @return Whether there are any properties-updates actually materialized.
+   */
+  private boolean doUpdatePropsIfNeeded(
+      UpdateProperties updateProperties, TableDto providedTableDto, Table existingTable) {
+    // Only check user-defined props.
+    Map<String, String> existingTableProps =
+        getUserDefinedTblProps(existingTable.properties(), preservedKeyChecker);
+    Map<String, String> providedTableProps =
+        providedTableDto.getTableProperties() == null
+            ? null
+            : getUserDefinedTblProps(providedTableDto.getTableProperties(), preservedKeyChecker);
+
+    boolean propertiesUpdated =
+        InternalRepositoryUtils.alterPropIfNeeded(
+            updateProperties, existingTableProps, providedTableProps);
+
+    // Obtain serialized json snapshots if exist
+    if (!CollectionUtils.isEmpty(providedTableDto.getJsonSnapshots())) {
+      propertiesUpdated = true;
+      updateProperties.set(
+          SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializeList(providedTableDto.getJsonSnapshots()));
+    }
+
+    return propertiesUpdated;
+  }
+
+  /**
+   * @param updateProperties
+   * @param tableDto
+   * @param existingTableProps
+   * @return Whether there are any policies-updates actually materialized in properties.
+   */
+  private boolean doUpdatePoliciesIfNeeded(
+      UpdateProperties updateProperties,
+      TableDto tableDto,
+      Map<String, String> existingTableProps) {
+    boolean policiesUpdated;
+    String tableDtoPolicyString = policiesMapper.toPoliciesJsonString(tableDto);
+    /*
+    This means if tableDto has null values set as policies and tableProperties,
+    then the policies will be updated to null
+     */
+    if (!existingTableProps.containsKey(InternalRepositoryUtils.POLICIES_KEY)) {
+      updateProperties.set(InternalRepositoryUtils.POLICIES_KEY, tableDtoPolicyString);
+      policiesUpdated = true;
+    } else {
+      String policiesJsonString = existingTableProps.get(InternalRepositoryUtils.POLICIES_KEY);
+      policiesUpdated =
+          InternalRepositoryUtils.alterPoliciesIfNeeded(
+              updateProperties, tableDtoPolicyString, policiesJsonString);
+    }
+
+    return policiesUpdated;
+  }
+
+  /**
+   * check if an existing table has tableType set in table properties, if not the put operation
+   * should add an explicit entry in tableProperties for openhouse.tableType = "PRIMARY_TABLE"
+   */
+  // TODO remove after all existing tables have been back-filled to have a tableType
+  private boolean checkIfTableTypeAdded(
+      UpdateProperties updateProperties, Map<String, String> existingTableProps) {
+    boolean tableTypeAdded;
+    if (existingTableProps.containsKey(getCanonicalFieldName(TABLE_TYPE_KEY))) {
+      tableTypeAdded = false;
+    } else {
+      updateProperties.set(
+          getCanonicalFieldName(TABLE_TYPE_KEY), TableType.PRIMARY_TABLE.toString());
+      tableTypeAdded = true;
+    }
+    return tableTypeAdded;
+  }
+
+  @Override
+  public Optional<TableDto> findById(TableDtoPrimaryKey tableDtoPrimaryKey) {
+    Table table;
+    TableIdentifier tableId =
+        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId());
+    try {
+      table = catalog.loadTable(tableId);
+    } catch (NoSuchTableException exception) {
+      log.debug("User table does not exist:  " + tableId + " is required.");
+      return Optional.empty();
+    }
+    return Optional.of(
+        convertToTableDto(
+            table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper));
+  }
+
+  // FIXME: Likely need a cache layer to avoid expensive tableScan.
+  @Override
+  public boolean existsById(TableDtoPrimaryKey tableDtoPrimaryKey) {
+    return catalog.tableExists(
+        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()));
+  }
+
+  @Override
+  public void deleteById(TableDtoPrimaryKey tableDtoPrimaryKey) {
+    catalog.dropTable(
+        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()),
+        true);
+  }
+
+  @Override
+  public List<TableDto> findAllByDatabaseId(String databaseId) {
+    List<Table> tables =
+        catalog.listTables(Namespace.of(databaseId)).stream()
+            .map(tableIdentifier -> catalog.loadTable(tableIdentifier))
+            .collect(Collectors.toList());
+    return tables.stream()
+        .map(
+            table ->
+                convertToTableDto(
+                    table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper))
+        .collect(Collectors.toList());
+  }
+
+  @Override
+  public List<TableDto> searchTables(String databaseId) {
+    return catalog.listTables(Namespace.of(databaseId)).stream()
+        .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
+        .collect(Collectors.toList());
+  }
+
+  @Override
+  public List<TableDtoPrimaryKey> findAllIds() {
+    return catalog.listTables(Namespace.empty()).stream()
+        .map(key -> mapper.toTableDtoPrimaryKey(key))
+        .collect(Collectors.toList());
+  }
+
+  /* IMPLEMENT AS NEEDED */
+  @Override
+  public Iterable<TableDto> findAll() {
+    List<Table> tables =
+        catalog.listTables(Namespace.empty()).stream()
+            .map(tableIdentifier -> catalog.loadTable(tableIdentifier))
+            .collect(Collectors.toList());
+    return tables.stream()
+        .map(
+            table ->
+                convertToTableDto(
+                    table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper))
+        .collect(Collectors.toList());
+  }
+
+  @Override
+  public Iterable<TableDto> findAllById(Iterable<TableDtoPrimaryKey> tablePrimaryKeys) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public <S extends TableDto> Iterable<S> saveAll(Iterable<S> entities) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public long count() {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public void delete(TableDto entity) {
+    /** Temporarily implemented for testing purposes. Need further work before productionization. */
+    catalog.dropTable(TableIdentifier.of(entity.getDatabaseId(), entity.getTableId()));
+  }
+
+  @Override
+  public void deleteAllById(Iterable<? extends TableDtoPrimaryKey> tablePrimaryKeys) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public void deleteAll(Iterable<? extends TableDto> entities) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public void deleteAll() {
+    throw getUnsupportedException();
+  }
+
+  private UnsupportedOperationException getUnsupportedException() {
+    return new UnsupportedOperationException(
+        "Only save, findById, existsById supported for OpenHouseCatalog");
+  }
+
+  private Boolean arePartitionColumnNamesSame(PartitionSpec before, PartitionSpec newSpec) {
+    return Iterators.elementsEqual(
+        before.fields().stream().map(PartitionField::name).iterator(),
+        newSpec.fields().stream().map(PartitionField::name).iterator());
+  }
+}

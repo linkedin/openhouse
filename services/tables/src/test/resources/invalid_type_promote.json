@@ -1,0 +1,35 @@
+{
+  "type": "struct",
+  "fields": [
+    {
+      "id": 1,
+      "required": true,
+      "name": "id",
+      "type": "string"
+    },
+    {
+      "id": 2,
+      "required": true,
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "id": 3,
+      "required": true,
+      "name": "timestampCol",
+      "type": "timestamp"
+    },
+    {
+      "id": 4,
+      "required": true,
+      "name": "stats",
+      "type": "long"
+    },
+    {
+      "id": 5,
+      "required": true,
+      "name": "count",
+      "type": "int"
+    }
+  ]
+}

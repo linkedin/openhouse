@@ -1,0 +1,6 @@
+services:
+  openhouse-jobs:
+    ports:
+      - 6005:6005
+    environment:
+      - JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket,server=y,address=6005,suspend=n

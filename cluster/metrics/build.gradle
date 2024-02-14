@@ -1,0 +1,7 @@
+plugins {
+  id 'openhouse.java-conventions'
+}
+
+dependencies {
+  implementation project(':cluster:configs')
+}

@@ -1,0 +1,28 @@
+plugins {
+  id 'maven-publish'
+}
+
+def pomPath = "$buildDir/${name}.pom"
+model {
+  tasks.generatePomFileForMavenJavaPublication {
+    destination = file("$pomPath")
+  }
+  tasks.jar {
+    dependsOn tasks.generatePomFileForMavenJavaPublication
+  }
+}
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      from components.java
+    }
+  }
+  repositories {
+    mavenLocal()
+  }
+}
+
+artifacts {
+  archives file: file("$pomPath"), name: "$name", type: "pom"
+  archives jar
+}

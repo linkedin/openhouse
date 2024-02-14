@@ -1,0 +1,19 @@
+// plugin for extensible springboot apps
+plugins {
+  id 'openhouse.springboot-conventions'
+}
+
+jar {
+  enabled = true
+  archiveClassifier = 'lib'
+}
+
+tasks.named("bootJar") {
+  manifest {
+    // Default springboot app launcher class is JarLauncher which doesn't allow to load classes from external jars
+    // (jars not packaged within the app fat jar). PropertiesLauncher allows to extend list of paths
+    // where to load classes from with the loader.path property, or LOADER_PATH env var.
+    // More info: https://docs.spring.io/spring-boot/docs/current/reference/html/executable-jar.html#appendix.executable-jar.launching.
+    attributes ('Main-Class': 'org.springframework.boot.loader.PropertiesLauncher')
+  }
+}

@@ -1,0 +1,75 @@
+plugins {
+  id 'java'
+  id 'com.github.johnrengelman.shadow' version '6.0.0'
+}
+
+import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer
+
+configurations {
+  all {
+    exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+  }
+}
+
+dependencies {
+  implementation 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+  implementation 'org.springframework.boot:spring-boot-starter-test:' + spring_web_version
+  implementation(project(':services:tables'))
+  compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
+  compileOnly('org.apache.spark:spark-sql_2.12:' + spark_version){
+    // These classes are available from `client-codegen-convention.gradle`
+    exclude group: "io.netty"
+  }
+
+  implementation 'org.springframework.boot:spring-boot-starter-webflux:' + spring_web_version
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:' + spring_web_version
+  implementation 'org.springframework.boot:spring-boot-starter-actuator:2.3.8.RELEASE'
+  compileOnly('org.projectlombok:lombok:' + '1.18.20')
+  implementation project(':cluster:storage')
+  implementation project(':iceberg:openhouse:internalcatalog')
+
+
+  testImplementation('org.apache.hadoop:hadoop-common:3.2.0'){
+    transitive = false
+  }
+  testRuntime("org.eclipse.jetty:jetty-server:11.0.2")
+
+
+}
+
+shadowJar {
+  zip64 = true
+  // Required for Spring
+  mergeServiceFiles()
+  append 'META-INF/spring.handlers'
+  append 'META-INF/spring.schemas'
+  append 'META-INF/spring.tooling'
+  transform(PropertiesFileTransformer) {
+    paths = ['META-INF/spring.factories' ]
+    mergeStrategy = "append"
+  }
+
+  dependencies {
+    exclude(dependency('org.apache.logging.log4j::'))
+    exclude(dependency('org.slf4j::'))
+    exclude(dependency('org.log4j::'))
+    exclude(dependency('org.apache.log4j::'))
+    exclude(dependency('ch.qos.logback::'))
+    exclude(dependency('com.fasterxml.jackson.module::'))
+    exclude(dependency('com.fasterxml.jackson.core::'))
+    relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
+    relocate ('com.jayway.jsonpath', 'openhouse.relocated.com.jayway.jsonpath')
+    relocate ('org.json', 'openhouse.relocated.org.json')
+    relocate ('com.google', 'openhouse.relocated.com.google') {
+      // dynamically loaded classes
+      // e.g. java.lang.NoClassDefFoundError: openhouse/relocated/com/google/protobuf/GeneratedMessageV3
+      // when users use fixtures library in their tests
+      exclude 'com.google.protobuf.**'
+    }
+  }
+}
+
+// https://github.com/johnrengelman/shadow/issues/335
+// By default shadow doesn't configure the build task to depend on the shadowJar task.
+tasks.build.dependsOn tasks.shadowJar
+

@@ -1,0 +1,6 @@
+plugins {
+    id 'openhouse.springboot-conventions'
+    id 'openhouse.hadoop-conventions'
+    id 'openhouse.iceberg-conventions'
+}
+

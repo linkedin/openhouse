@@ -1,0 +1,40 @@
+plugins {
+  id 'openhouse.java-conventions'
+}
+
+configurations {
+  compileOnly {
+    extendsFrom annotationProcessor
+  }
+}
+
+ext {
+  springVersion = '2.6.1'
+  springLog4jVersion = '2.3.4.RELEASE'
+}
+
+configurations {
+  // Excluding these libraries avoids competing implementations for LoggerFactory
+  // Standardizing on slf4j + log4j2 as implementation.
+  all*.exclude module : 'spring-boot-starter-logging'
+  all*.exclude module : 'logback-classic'
+}
+
+dependencies {
+  implementation 'org.springframework.boot:spring-boot-starter-web:' + springVersion
+
+  implementation 'org.springframework.boot:spring-boot-starter-log4j2:' + springLog4jVersion
+  implementation 'org.springframework.boot:spring-boot-starter-actuator:2.3.8.RELEASE'
+  implementation 'org.springframework.boot:spring-boot-starter-validation:' + springVersion
+  annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:' + springVersion
+  testImplementation 'org.springframework.boot:spring-boot-starter-test:' + springVersion
+
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:' + springVersion
+  implementation 'com.h2database:h2:' + '2.1.210'
+
+  implementation 'org.springdoc:springdoc-openapi-ui:1.6.1'
+  implementation 'org.springdoc:springdoc-openapi-data-rest:1.6.1'
+  implementation 'io.swagger.core.v3:swagger-annotations:2.1.11'
+
+  implementation("javax.servlet:javax.servlet-api:4.0.1")
+}

@@ -1,0 +1,49 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+}
+
+dependencies {
+
+  testImplementation(project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow'))
+
+  testImplementation("org.apache.spark:spark-sql_2.12:" + spark_version){
+    // These classes are available from `client-codegen-convention.gradle`
+    exclude group: "io.netty"
+  }
+
+  // Required to test /tables mockserver
+  testImplementation "com.squareup.okhttp3:okhttp:4.0.1"
+  testImplementation "com.squareup.okhttp3:mockwebserver:4.0.1"
+  // Otherwise throws the error: Scala module 2.10.0 requires Jackson Databind version >= 2.10.0 and < 2.11.0
+  testImplementation "com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1"
+  testImplementation "org.openapitools:jackson-databind-nullable:0.2.1"
+  testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"
+}
+
+// Adding testing resources from :services:tables module
+// this is to avoid duplicating schema.json files used for evolution tests.
+sourceSets {
+  test {
+    resources {
+      srcDirs += [
+          project(':services:tables').sourceSets.test.resources
+      ]
+    }
+  }
+}
+
+// Specify order of tests to avoid spark session conflicts
+// Non-openhouse catalog tests should run before e2e tests start
+task statementTest(type: Test) {
+  filter {
+    includeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
+  }
+}
+
+test {
+  filter {
+    excludeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
+  }
+}
+
+test.dependsOn statementTest

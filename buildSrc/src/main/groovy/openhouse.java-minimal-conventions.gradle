@@ -1,0 +1,51 @@
+plugins {
+  id 'checkstyle'
+  id 'java'
+  id 'jacoco'
+}
+
+group = 'com.linkedin.openhouse'
+version = '1.0-SNAPSHOT'
+sourceCompatibility = '1.8'
+
+ext {
+  lombokVersion = '1.18.20'
+  mapStructVersion = '1.5.0.Beta1'
+}
+
+checkstyle {
+  configFile = rootProject.file('gradle/checkstyle/checkstyle.xml')
+  configDirectory = rootProject.file('gradle/checkstyle')
+}
+
+dependencies {
+  implementation 'org.mapstruct:mapstruct:' + mapStructVersion
+  compileOnly 'org.projectlombok:lombok:' + lombokVersion
+  annotationProcessor 'org.mapstruct:mapstruct-processor:' + mapStructVersion, 'org.projectlombok:lombok:' + lombokVersion
+  testCompileOnly 'org.projectlombok:lombok:' + lombokVersion
+  testAnnotationProcessor 'org.projectlombok:lombok:' + lombokVersion
+
+  annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
+
+  testImplementation 'org.junit.jupiter:junit-jupiter:5.8.1'
+  testImplementation "org.mockito:mockito-core:4.10.0"
+
+  implementation("javax.servlet:javax.servlet-api:4.0.1")
+
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
+}
+
+jacocoTestReport {
+  dependsOn test
+  reports {
+    html.enabled true
+  }
+  afterEvaluate {
+    classDirectories.setFrom(files(classDirectories.files.collect {
+      fileTree(dir: it, exclude: ['com/linkedin/openhouse/tables/client/**'])
+    }))
+  }
+}

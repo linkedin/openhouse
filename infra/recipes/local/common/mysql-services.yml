@@ -1,0 +1,11 @@
+version: "3.3"
+services:
+  mysql:
+    image: mysql:8
+    ports:
+      - 3306:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=oh_root_password
+      - MYSQL_PASSWORD=oh_password
+      - MYSQL_USER=oh_user
+      - MYSQL_DATABASE=oh_db

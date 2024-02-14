@@ -1,0 +1,10 @@
+plugins {
+  id 'java'
+  id 'openhouse.client-codegen-convention'
+}
+
+ext {
+  codeGenForService = ":services:tables"
+}
+
+apply from: "${project(':client:common').file("codegen.build.gradle")}"

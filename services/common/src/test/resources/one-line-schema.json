@@ -1,0 +1,1 @@
+{"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"string"},{"id":2,"name":"name","required":true,"type":"string"}]}

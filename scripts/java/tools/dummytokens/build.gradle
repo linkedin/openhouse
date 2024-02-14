@@ -1,0 +1,32 @@
+plugins {
+    id 'openhouse.java-conventions'
+    id 'application'
+}
+apply plugin: 'application'
+mainClassName = 'com.linkedin.openhouse.tools.dummytokens.DummyTokenGenerator'
+
+dependencies {
+    implementation project(':services:common')
+    implementation 'commons-cli:commons-cli:1.5.0'
+    implementation 'org.codehaus.jettison:jettison:1.3.8'
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'com.linkedin.openhouse.tools.dummytokens.DummyTokenGenerator'
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
+task generateTokens(type: Exec) {
+    dependsOn jar
+    group = "Execution"
+    description = "Generate dummy tokens for jobs docker compose services"
+    commandLine "java", "-jar", jar.archiveFile.get(), "-d", project.getRootDir().getAbsolutePath() + "/infra/recipes/local/oh-hadoop-spark/"
+}
+
+tasks.named("build") { finalizedBy("generateTokens") }

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: openhouse-tables-service
+description: A Helm chart for deploying openhouse-tables-services (aka Catalog) to Kubernetes
+version: 0.1.0
+appVersion: latest

@@ -1,0 +1,51 @@
+version: "3.3"
+services:
+  openhouse-tables:
+    container_name: local.openhouse-tables
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-tables
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - openhouse-housetables
+      - namenode
+      - datanode
+      - prometheus
+
+  openhouse-housetables:
+    container_name: local.openhouse-housetables
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-housetables
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - namenode
+      - datanode
+      - prometheus
+
+  prometheus:
+    extends:
+      file: ../common/oh-services.yml
+      service: prometheus
+
+  namenode:
+    container_name: local.namenode
+    extends:
+      file: ../common/hdfs-services.yml
+      service: namenode
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+
+  datanode:
+    container_name: local.datanode
+    extends:
+      file: ../common/hdfs-services.yml
+      service: datanode
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:

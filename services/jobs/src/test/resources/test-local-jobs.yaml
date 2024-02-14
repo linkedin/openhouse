@@ -1,0 +1,40 @@
+jobs:
+  defaults:
+    &apps-defaults
+      spark-properties: {
+        "dp1": "dv1",
+        "dp2": "dv2"
+      }
+      executionTags:
+        "pool": "dev"
+      jar-path: "default-jar-path"
+  spark:
+    engine-uri: test-uri
+    storage-uri: test-uri
+    coordinator-class-name: test-class-name
+    apps:
+      - type: test-job-1
+        class-name: job-class-name
+        args: ["arg1", "arg2"]
+        jar-path: job-jar-path
+        dependencies: ["d1"]
+        spark-properties: {
+          p1: "v1",
+          p2: "v2"
+        }
+      - type: test-job-2
+        class-name: job-class-name-2
+        << : *apps-defaults
+      - type: test-job-3
+        class-name: job-3-class-name
+        dependencies: ["d3"]
+        << : *apps-defaults
+      - type: RETENTION
+        class-name: job-3-class-name
+        dependencies: [ "d3" ]
+        <<: *apps-defaults
+      - type: ORPHAN_FILES_DELETION
+        class-name: job-3-class-name
+        dependencies: [ "d3" ]
+        args: ["--trashDir", ".trash"]
+        <<: *apps-defaults

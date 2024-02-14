@@ -1,0 +1,26 @@
+cluster:
+  name: "LocalHadoopCluster"
+  storage:
+    type: "hadoop"
+    uri: "hdfs://namenode:9000/"
+    root-path: "/data/openhouse"
+  iceberg:
+    write:
+      format:
+        default: "orc"
+      metadata:
+        previous-versions-max: 28
+        delete-after-commit:
+          enabled: true
+  housetables:
+    base-uri: "http://openhouse-housetables:8080"
+    database:
+      type: "MYSQL"
+      url: "jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false"
+  security:
+    token:
+      interceptor:
+        classname: "com.linkedin.openhouse.common.security.DummyTokenInterceptor"
+    tables:
+      authorization:
+        enabled: true

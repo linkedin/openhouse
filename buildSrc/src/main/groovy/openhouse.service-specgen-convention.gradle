@@ -1,0 +1,20 @@
+plugins {
+  id 'com.github.johnrengelman.processes'
+  id 'org.springdoc.openapi-gradle-plugin'
+}
+
+/**
+ * Customization for `generateOpenApiDocs` task is needed since:
+ * - Default API doc URL is pointing to v3 at 9000 port number.
+ * - We need to make depending task aware of the location for the output.
+ */
+openApi {
+  outputDir.set(file("$buildDir/specs"))
+  outputFileName.set("${project.name}.json")
+  waitTimeInSeconds.set(60)
+}
+
+task openApiOutput {
+  dependsOn('generateOpenApiDocs')
+  it.outputs.file(file("$buildDir/specs/${project.name}.json"))
+}

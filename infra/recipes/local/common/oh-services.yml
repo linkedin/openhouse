@@ -1,0 +1,31 @@
+version: "3.3"
+services:
+  openhouse-tables:
+    build:
+      context: ../../../..
+      dockerfile: tables-service.Dockerfile
+    ports:
+      - 8000:8080
+  openhouse-housetables:
+    build:
+      context: ../../../..
+      dockerfile: housetables-service.Dockerfile
+    ports:
+      - 8001:8080
+  openhouse-jobs:
+    build:
+      context: ../../../..
+      dockerfile: jobs-service.Dockerfile
+    ports:
+      - 8002:8080
+  openhouse-jobs-scheduler:
+    build:
+      context: ../../../..
+      dockerfile: jobs-scheduler.Dockerfile
+  prometheus:
+    image: prom/prometheus:v2.21.0
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus:/etc/prometheus/
+    command: --web.enable-lifecycle --config.file=/etc/prometheus/prometheus.yml

@@ -1,0 +1,23 @@
+POST {{base-url}}
+Content-Type: application/json
+
+{
+  "jobName": "RETENTION_db_tb",
+  "clusterId": "LocalHadoopCluster",
+  "jobConf": {
+    "jobType": "RETENTION",
+    "proxyUser": "DUMMY_ANONYMOUS_USER",
+    "args": ["--columnName", "ts", "--tableName", "db.tb", "--granularity", "day", "--count", 3]
+  }
+}
+> {%
+    client.global.set("jobId", response.body.jobId);
+%}
+
+###
+GET {{base-url}}/{{jobId}}
+Accept: application/json
+
+###
+PUT {{base-url}}/{{jobId}}/cancel
+Accept: application/json

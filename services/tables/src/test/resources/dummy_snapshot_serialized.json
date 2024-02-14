@@ -1,0 +1,19 @@
+{
+  "snapshot-id" : 6509092076245313362,
+  "timestamp-ms" : 1661463827467,
+  "summary" : {
+    "operation" : "append",
+    "added-data-files" : "1",
+    "added-records" : "1",
+    "added-files-size" : "10",
+    "changed-partition-count" : "1",
+    "total-records" : "1",
+    "total-files-size" : "10",
+    "total-data-files" : "1",
+    "total-delete-files" : "0",
+    "total-position-deletes" : "0",
+    "total-equality-deletes" : "0"
+  },
+  "manifest-list" : "/var/folders/cr/k9w0lym10tqcw0r_lcn7kln4000mp0/T/unittest4119925226031407025/d1/ebd6e2f0-4c92-4a23-b0a7-9f36d1e407f9/metadata/snap-6509092076245313362-1-5e1367d2-a1a7-46ac-bfe9-c92169e92e75.avro",
+  "schema-id" : 0
+}
