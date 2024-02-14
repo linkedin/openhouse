@@ -12,12 +12,24 @@ on:
 
 jobs:
   build-gradle-project:
-    runs-on: linux
-    env:
-      JAVA_HOME: /export/apps/jdk/JDK-1_8_0_282-msft
+    name: Build tagged commit
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout project sources
         uses: actions/checkout@v3
+        with:
+          - fetch-depth: 0
+
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'microsoft'
+          java-version: '1.8'
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/wrapper-validation-action@v1
 
       - name: Build with Gradle
-        run: export PATH=$JAVA_HOME/bin:$PATH && ./gradlew build
+        run: gradle/gradle-build-action@v2
+        with:
+          arguments: clean build
