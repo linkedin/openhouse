@@ -31,8 +31,7 @@ public class AuthorizationInterceptor implements AuthorizationManager<MethodInvo
    * @param authenticationSupplier the {@link Supplier} of the {@link Authentication} to check
    * @param methodInvocation the {@link MethodInvocation} to check
    * @return an {@link AuthorizationDecision} to capture authorization decision.
-   * @throws {@link org.springframework.security.access.AccessDeniedException} if authorization
-   *     fails
+   * @throws org.springframework.security.access.AccessDeniedException if authorization fails
    */
   @Override
   public AuthorizationDecision check(

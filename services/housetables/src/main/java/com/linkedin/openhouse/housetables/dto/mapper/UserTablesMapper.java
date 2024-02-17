@@ -27,7 +27,7 @@ import org.mapstruct.Mapping;
 public interface UserTablesMapper {
 
   /**
-   * From a source {@link UserTable}, prepare a {@Link UserTableRow} object which is compliant with
+   * From a source {@link UserTable}, prepare a {@link UserTableRow} object which is compliant with
    * the storage {@link
    * com.linkedin.openhouse.housetables.repository.impl.iceberg.UserTableHtsRepository},
    * particularly wrt its {@link Long} version requirements.

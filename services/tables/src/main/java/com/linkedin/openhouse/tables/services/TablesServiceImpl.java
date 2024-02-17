@@ -46,7 +46,7 @@ public class TablesServiceImpl implements TablesService {
    * @param databaseId
    * @param tableId
    * @return Table DTO object.
-   * @throws {@link com.linkedin.openhouse.common.exception.NoSuchUserTableException}
+   * @throws com.linkedin.openhouse.common.exception.NoSuchUserTableException if table is not found.
    */
   @Override
   public TableDto getTable(String databaseId, String tableId, String actingPrincipal) {

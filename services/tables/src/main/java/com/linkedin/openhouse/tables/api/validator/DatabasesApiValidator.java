@@ -9,7 +9,8 @@ public interface DatabasesApiValidator {
    *
    * @param databaseId
    * @param updateAclPoliciesRequestBody
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateUpdateAclPolicies(
       String databaseId, UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody);

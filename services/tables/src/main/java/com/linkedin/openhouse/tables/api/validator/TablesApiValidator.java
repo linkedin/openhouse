@@ -10,7 +10,8 @@ public interface TablesApiValidator {
    *
    * @param databaseId
    * @param tableId
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateGetTable(String databaseId, String tableId);
 
@@ -18,7 +19,8 @@ public interface TablesApiValidator {
    * Function to validate a request to get all Table Resources in a given databaseId
    *
    * @param databaseId
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateGetAllTables(String databaseId);
 
@@ -27,7 +29,8 @@ public interface TablesApiValidator {
    * requested columns.
    *
    * @param databaseId
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateSearchTables(String databaseId);
 
@@ -37,7 +40,8 @@ public interface TablesApiValidator {
    * @param clusterId
    * @param databaseId
    * @param createUpdateTableRequestBody
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateCreateTable(
       String clusterId,
@@ -51,7 +55,8 @@ public interface TablesApiValidator {
    * @param databaseId
    * @param tableId
    * @param createUpdateTableRequestBody
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateUpdateTable(
       String clusterId,
@@ -64,7 +69,8 @@ public interface TablesApiValidator {
    *
    * @param databaseId
    * @param tableId
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateDeleteTable(String databaseId, String tableId);
 
@@ -75,7 +81,8 @@ public interface TablesApiValidator {
    * @param databaseId
    * @param tableId
    * @param updateAclPoliciesRequestBody
-   * @throws {@link com.linkedin.openhouse.common.exception.RequestValidationFailureException}
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
    */
   void validateUpdateAclPolicies(
       String databaseId, String tableId, UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody);

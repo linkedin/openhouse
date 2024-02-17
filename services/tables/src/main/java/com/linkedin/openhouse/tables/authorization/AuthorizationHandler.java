@@ -9,7 +9,7 @@ import java.util.List;
 public interface AuthorizationHandler {
 
   /**
-   * Method to check if {@param principal} has {@param privilege} on {@param databaseDto}.
+   * Method to check if principal has privilege on databaseDto.
    *
    * @param principal
    * @param databaseDto
@@ -19,7 +19,7 @@ public interface AuthorizationHandler {
   boolean checkAccessDecision(String principal, DatabaseDto databaseDto, Privileges privilege);
 
   /**
-   * Method to check if {@param principal} has {@param privilege} on {@param tableDto}.
+   * Method to check if principal has privilege on tableDto.
    *
    * @param principal
    * @param tableDto
@@ -29,8 +29,7 @@ public interface AuthorizationHandler {
   boolean checkAccessDecision(String principal, TableDto tableDto, Privileges privilege);
 
   /**
-   * Method to assign {@param role} to {@param principal} on {@param databaseDto}, for granting
-   * access to a database
+   * Method to assign role to principal on databaseDto, for granting access to a database
    *
    * @param role
    * @param principal User principal to grant the access to.
@@ -39,8 +38,7 @@ public interface AuthorizationHandler {
   void grantRole(String role, String principal, DatabaseDto databaseDto);
 
   /**
-   * Method to assign {@param role} to {@param principal} on {@param tableDto}, for granting access
-   * to a table
+   * Method to assign role to principal on tableDto, for granting access to a table
    *
    * @param role
    * @param principal User principal to grant the access to.
@@ -49,8 +47,7 @@ public interface AuthorizationHandler {
   void grantRole(String role, String principal, TableDto tableDto);
 
   /**
-   * Method to revoke {@param role} from {@param principal} on {@param databaseDto}, for restricting
-   * access to a database
+   * Method to revoke role from principal on databaseDto, for restricting access to a database
    *
    * @param role
    * @param principal User principal to revoke the access from.
@@ -59,8 +56,7 @@ public interface AuthorizationHandler {
   void revokeRole(String role, String principal, DatabaseDto databaseDto);
 
   /**
-   * Method to revoke {@param role} from {@param principal} on {@param tableDto}, for restricting
-   * access to a table
+   * Method to revoke role from principal on tableDto, for restricting access to a table
    *
    * @param role
    * @param principal User principal to revoke the access from.
@@ -69,7 +65,7 @@ public interface AuthorizationHandler {
   void revokeRole(String role, String principal, TableDto tableDto);
 
   /**
-   * Method to list all aclPolicies defined on {@param tableDto}
+   * Method to list all aclPolicies defined on tableDto
    *
    * @param tableDto
    * @return list of principal, role mappings on tableDto
@@ -77,7 +73,7 @@ public interface AuthorizationHandler {
   List<AclPolicy> listAclPolicies(TableDto tableDto);
 
   /**
-   * Method to list all aclPolicies defined on {@param tableDto} for the userPrincipal
+   * Method to list all aclPolicies defined on tableDto for the userPrincipal
    *
    * @param tableDto
    * @return list of role mappings on tableDto for the userPrincipal
@@ -85,7 +81,7 @@ public interface AuthorizationHandler {
   List<AclPolicy> listAclPolicies(TableDto tableDto, String userPrincipal);
 
   /**
-   * Method to list all aclPolicies defined on {@param databaseDto}
+   * Method to list all aclPolicies defined on databaseDto
    *
    * @param databaseDto
    * @return list of principal, role mappings on databaseDto

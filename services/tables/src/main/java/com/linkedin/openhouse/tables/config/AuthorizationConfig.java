@@ -31,8 +31,7 @@ public class AuthorizationConfig {
    * org.springframework.security.access.annotation.Secured}. Note, we don't enable the default bean
    * for {@link org.springframework.security.access.annotation.Secured}
    *
-   * @return {@Advisor} Action to take at the Joinpoint, i.e. method to call at the site of
-   *     annotation.
+   * @return Advisor Action to take at the Joinpoint, i.e. method to call at the site of annotation.
    */
   @Bean
   @ConditionalOnProperty(
