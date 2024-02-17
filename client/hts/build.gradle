@@ -1,6 +1,7 @@
 plugins {
   id 'java'
   id 'openhouse.client-codegen-convention'
+  id 'openhouse.maven-publish'
 }
 
 ext {

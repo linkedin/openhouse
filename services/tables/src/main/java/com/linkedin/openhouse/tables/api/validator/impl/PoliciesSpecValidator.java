@@ -31,7 +31,7 @@ public class PoliciesSpecValidator {
    * @param policies {@link Policies} Policies object that needs to be validated and set. null
    *     policy object is accepted.
    * @param timePartitioning {@link TimePartitionSpec} TimePartitionSpec containing the granularity
-   *     against which policies->retention->granularity is validated
+   *     against which policies.retention.granularity is validated
    * @param schema {@link String} Raw schema representation deserialized from wire.
    * @return Boolean validity of constraint
    */

@@ -20,7 +20,7 @@ public interface SupportsGrantRevoke {
   /**
    * updateAclPolicies for an OH table.
    *
-   * <p>The following SQL command: GRANT <privilege> ON TABLE <db.table> TO <principal>
+   * <p>The following SQL command: GRANT [privilege] ON TABLE [db.table] TO [principal]
    *
    * <p>can be converted into following parameters
    *
@@ -35,7 +35,7 @@ public interface SupportsGrantRevoke {
   /**
    * get AclPolicies for an OH table.
    *
-   * <p>The following SQL command: SHOW GRANTS ON TABLE <db.table>
+   * <p>The following SQL command: SHOW GRANTS ON TABLE [db.table]
    *
    * <p>can be converted into following parameters
    *
@@ -47,7 +47,7 @@ public interface SupportsGrantRevoke {
   /**
    * updateAclPolicies for an OH database.
    *
-   * <p>The following SQL command: GRANT <privilege> ON DATABASE <db> TO <principal>
+   * <p>The following SQL command: GRANT [privilege] ON DATABASE [db] TO [principal]
    *
    * <p>can be converted into following parameters
    *
@@ -62,7 +62,7 @@ public interface SupportsGrantRevoke {
   /**
    * get AclPolicies for an OH database.
    *
-   * <p>The following SQL command: SHOW GRANTS ON DATABASE <db>
+   * <p>The following SQL command: SHOW GRANTS ON DATABASE [db]
    *
    * <p>can be converted into following parameters
    *

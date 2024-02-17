@@ -1,6 +1,7 @@
 plugins {
   id 'java'
   id 'com.github.johnrengelman.shadow' version '6.0.0'
+  id 'openhouse.maven-publish'
 }
 
 import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer

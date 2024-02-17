@@ -11,6 +11,12 @@ model {
     dependsOn tasks.generatePomFileForMavenJavaPublication
   }
 }
+
+java {
+  withSourcesJar()
+  withJavadocJar()
+}
+
 publishing {
   publications {
     mavenJava(MavenPublication) {
@@ -24,5 +30,5 @@ publishing {
 
 artifacts {
   archives file: file("$pomPath"), name: "$name", type: "pom"
-  archives jar
+  archives jar, sourcesJar, javadocJar
 }
