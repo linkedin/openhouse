@@ -3,11 +3,6 @@ plugins {
   id 'openhouse.springboot-conventions'
 }
 
-jar {
-  enabled = true
-  archiveClassifier = 'lib'
-}
-
 tasks.named("bootJar") {
   manifest {
     // Default springboot app launcher class is JarLauncher which doesn't allow to load classes from external jars

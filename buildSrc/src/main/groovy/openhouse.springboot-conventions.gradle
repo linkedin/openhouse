@@ -8,6 +8,11 @@ configurations {
   }
 }
 
+jar {
+  enabled = true
+  archiveClassifier = 'lib'
+}
+
 ext {
   springVersion = '2.6.1'
   springLog4jVersion = '2.3.4.RELEASE'
