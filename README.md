@@ -6,11 +6,6 @@
     Control Plane for Tables in Open Data Lakehouses
   </h3>
   <div align="center">
-      <a href="https://github.com/linkedin/openhouse/actions?query=branch%3Amain">
-        <img src="https://img.shields.io/github/actions/workflow/status/linkedin/openhouse/build-gradle-openhouse.yml" alt="CI">
-      </a>
-  </div>
-  <div align="center">
       <a href="https://github.com/linkedin/openhouse">
         <img src="https://img.shields.io/badge/github-%23121011.svg?logo=github&logoColor=white" alt="GitHub">
       </a>
