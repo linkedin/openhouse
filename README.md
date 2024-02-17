@@ -5,6 +5,19 @@
   <h3 align="center">
     Control Plane for Tables in Open Data Lakehouses
   </h3>
+  <div align="center">
+      <a href="https://github.com/linkedin/openhouse/actions?query=branch%3Amain">
+        <img src="https://img.shields.io/github/actions/workflow/status/linkedin/openhouse/build-gradle-openhouse.yml" alt="CI">
+      </a>
+  </div>
+  <div align="center">
+      <a href="https://github.com/linkedin/openhouse">
+        <img src="https://img.shields.io/badge/github-%23121011.svg?logo=github&logoColor=white" alt="GitHub">
+      </a>
+      <a href="https://join.slack.com/t/openhouse-bap9266/shared_invite/zt-2bsi0t8pi-wUOeDvQr8j8d5yl3X8WQJQ">
+        <img src="https://img.shields.io/badge/Slack-4A154B?logo=slack&logoColor=white" alt="Slack">
+      </a>
+  </div>
 </html>
 
 OpenHouse is an open source control plane designed for efficient management of tables within open data lakehouse
