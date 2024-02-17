@@ -2,7 +2,6 @@ plugins {
   id 'openhouse.springboot-conventions'
   id 'openhouse.hadoop-conventions'
   id 'openhouse.iceberg-conventions'
-  id 'openhouse.maven-publish'
   /**
    * FIXME: Ideally, the below line are also defined in shared buildSrc. But raises following error:
    * Invalid plugin request [id: 'org.springframework.boot', version: '2.1.2.RELEASE'].
