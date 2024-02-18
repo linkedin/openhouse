@@ -4,7 +4,6 @@ plugins {
   id 'jacoco'
 }
 
-group = 'com.linkedin.openhouse'
 sourceCompatibility = '1.8'
 
 ext {
