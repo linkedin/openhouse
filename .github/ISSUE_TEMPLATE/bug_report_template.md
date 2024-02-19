@@ -86,7 +86,7 @@ body:
   required: false
   - label: "`Documentation`: This is the documentation for OpenHouse. `docs`"
   required: false
-  - label: "`Local Docker`: This is the local Docker environment for OpenHouse. `infra/recipes/local`"
+  - label: "`Local Docker`: This is the local Docker environment for OpenHouse. `infra/recipes/docker-compose`"
   required: false
   - label: "`Other`: Please specify the component."
   required: false

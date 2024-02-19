@@ -32,7 +32,7 @@ RUN curl --no-verbose -o maven.tgz https://dlcdn.apache.org/maven/maven-3/${MAVE
 
 # build with patch and install apache livy
 ARG ARCHIVE_FILENAME="apache-livy-${LIVY_VERSION}-bin"
-COPY /infra/recipes/local/common/spark/livy_spark3_hadoop3.patch /
+COPY /infra/recipes/docker-compose/common/spark/livy_spark3_hadoop3.patch /
 RUN git clone https://github.com/apache/incubator-livy \
     && cd incubator-livy \
     && git checkout 4d8a912699683b973eee76d4e91447d769a0cb0d \
@@ -79,7 +79,7 @@ WORKDIR $LIVY_HOME
 
 RUN mkdir -p "${LIVY_HOME}/logs"
 
-COPY /infra/recipes/local/common/spark/start-spark.sh /
+COPY /infra/recipes/docker-compose/common/spark/start-spark.sh /
 COPY /build/openhouse-spark-runtime_2.12/libs/*[^sources][^javadoc].jar $SPARK_HOME/openhouse-spark-runtime_2.12-latest-all.jar
 COPY /build/openhouse-spark-apps_2.12/libs/openhouse-spark-apps_2.12-*-all.jar $SPARK_HOME/openhouse-spark-apps_2.12-latest-all.jar
 COPY /build/dummytokens/libs/dummytokens*.jar /dummytokens.jar

@@ -3,7 +3,7 @@ services:
   spark-master:
     build:
       context: ../../../../
-      dockerfile: infra/recipes/local/common/spark/spark-base-hadoop3.2.dockerfile
+      dockerfile: infra/recipes/docker-compose/common/spark/spark-base-hadoop3.2.dockerfile
     ports:
       - 9001:8080
       - 7077:7077
@@ -17,7 +17,7 @@ services:
   spark-worker-a:
     build:
       context: ../../../../
-      dockerfile: infra/recipes/local/common/spark/spark-base-hadoop3.2.dockerfile
+      dockerfile: infra/recipes/docker-compose/common/spark/spark-base-hadoop3.2.dockerfile
     ports:
       - 9002:8080
       - 7000:7000
@@ -34,7 +34,7 @@ services:
   spark-livy:
     build:
       context: ../../../../
-      dockerfile: infra/recipes/local/common/spark/spark-base-hadoop3.2.dockerfile
+      dockerfile: infra/recipes/docker-compose/common/spark/spark-base-hadoop3.2.dockerfile
     ports:
       - 9003:8998
     environment:

@@ -8,7 +8,7 @@ Use this guide to setup local development environment for OpenHouse using docker
 
 ## Build Containers
 
-Recipes for setting up OpenHouse in local docker are available [here](infra/recipes/local)
+Recipes for setting up OpenHouse in local docker are available [here](infra/recipes/docker-compose)
 
 docker-compose.yml files are provided to build multiple container Docker applications to be able to run a fully functional
 OpenHouse locally on laptop. Script has been tested to work fine on MacOS.
@@ -483,9 +483,9 @@ root@aa91a7bc8575:/# hdfs dfsadmin -safemode leave
 
 ### Q. Which directory should I run docker compose commands from?
 
-Pick your recipe and `cd` into the directory that contains docker-compose.yml  See [Build Containers](#build-containers) for options
+Pick your recipe and `cd` into the directory that contains docker-compose.yml  See `Build Containers` for options
 ```
-cd infra/recipes/local/{docker-compose-directory}
+cd infra/recipes/docker-compose/{recipe-directory}
 ```
 
 ### Q. How do I monitor metrics emitted by my service?
@@ -514,7 +514,7 @@ Step 2: Running `docker compose -f docker-compose.yml -f ../common/debug-profile
 The `tables.yml` adds the required configuration and merge with base `docker-compose` file.
 
 Step 3: Start remote debugger process on intelliJ with "Attached to remote JVM option".
-![See the picture as example](infra/recipes/local/common/intellij-setup.png)
+![See the picture as example](infra/recipes/docker-compose/common/intellij-setup.png)
 
 Step 4: Set the breakpoint in the line of interests.
 
