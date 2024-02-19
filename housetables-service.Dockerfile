@@ -25,6 +25,7 @@ COPY $JAR_FILES ./
 RUN ls ./
 RUN find . -name "*-sources.jar" -delete
 RUN find . -name "*-javadoc.jar" -delete
+RUN find . -name "*-lib.jar" -delete
 
 # Rename the JAR file.
 RUN ls ./
