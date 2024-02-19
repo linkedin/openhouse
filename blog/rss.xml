@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+    <channel>
+        <title>OpenHouse Blog</title>
+        <link>https://your-docusaurus-site.example.com/openhouse/blog</link>
+        <description>OpenHouse Blog</description>
+        <lastBuildDate>Wed, 19 Jul 2023 00:00:00 GMT</lastBuildDate>
+        <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
+        <generator>https://github.com/jpmonette/feed</generator>
+        <language>en</language>
+        <item>
+            <title><![CDATA[Taking Charge of Tables, Introducing OpenHouse for Big Data Management]]></title>
+            <link>https://your-docusaurus-site.example.com/openhouse/blog/introduction-oh</link>
+            <guid>https://your-docusaurus-site.example.com/openhouse/blog/introduction-oh</guid>
+            <pubDate>Wed, 19 Jul 2023 00:00:00 GMT</pubDate>
+            <description><![CDATA[<Link]]></description>
+            <content:encoded><![CDATA[<a href="https://www.linkedin.com/blog/engineering/data-management/taking-charge-of-tables--introducing-openhouse-for-big-data-mana" target="_blank" rel="noopener noreferrer" class="button button--primary button--small"><small> Read More </small></a>]]></content:encoded>
+            <category>openhouse</category>
+            <category>introduction</category>
+            <category>big data</category>
+        </item>
+    </channel>
+</rss>
