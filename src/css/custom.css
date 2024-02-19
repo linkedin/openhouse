@@ -1,0 +1,51 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+
+  --ifm-navbar-background-color: #00a2e2;
+  --ifm-navbar-shadow:hsla(0, 0%, 0%, 0);
+
+ */
+
+/* You can override the default Infima variables here. */
+:root {
+  --ifm-color-primary: #00a2e2;
+  --ifm-color-primary-dark: #0098d4;
+  --ifm-color-primary-darker: #0088be;
+  --ifm-color-primary-darkest: #007eb0;
+  --ifm-color-primary-light: #00b2f9;
+  --ifm-color-primary-lighter: #05b8ff;
+  --ifm-color-primary-lightest: #27c2ff;
+  --ifm-link-color: #01587a;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --ifm-background-color: #f6fdff;
+  --ifm-navbar-background-color: #f6fdff;
+}
+
+/* For readability concerns, you should choose a lighter palette in dark mode. */
+[data-theme='dark'] {
+  --ifm-color-primary: #00a2e2;
+  --ifm-color-primary-light: #0098d4;
+  --ifm-color-primary-lighter: #0088be;
+  --ifm-color-primary-lightest: #007eb0;
+  --ifm-color-primary-dark: #00b2f9;
+  --ifm-color-primary-darker: #05b8ff;
+  --ifm-color-primary-darkest: #27c2ff;
+  --ifm-link-color: #27c2ff;
+  --ifm-background-color: #000000;
+  --ifm-navbar-background-color: #000000;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+@font-face {
+  font-family: 'OpenHouseFont'; 
+  src: url('/font/openhouse_font.ttf')
+}
+
+.navbar__title {
+  font-family: 'OpenHouseFont';
+  font-size: 23px;
+  letter-spacing: .1rem; 
+}
