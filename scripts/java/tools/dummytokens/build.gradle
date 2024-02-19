@@ -26,7 +26,7 @@ task generateTokens(type: Exec) {
     dependsOn jar
     group = "Execution"
     description = "Generate dummy tokens for jobs docker compose services"
-    commandLine "java", "-jar", jar.archiveFile.get(), "-d", project.getRootDir().getAbsolutePath() + "/infra/recipes/local/oh-hadoop-spark/"
+    commandLine "java", "-jar", jar.archiveFile.get(), "-d", project.getRootDir().getAbsolutePath() + "/infra/recipes/docker-compose/oh-hadoop-spark/"
 }
 
 tasks.named("build") { finalizedBy("generateTokens") }
