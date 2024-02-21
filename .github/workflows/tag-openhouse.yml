@@ -1,10 +1,5 @@
 name: Bump version and push tag
 on:
-  pull_request:
-    types:
-      - closed
-    branches:
-      - main
   workflow_run:
     workflows: ["Gradle Build OpenHouse"]
     types:
@@ -30,5 +25,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WITH_V: true # prefix for tag "v"
           DEFAULT_BUMP: patch # major, minor, patch
-          DRY_RUN: false # if true, will not push tag
+          DRY_RUN: true # if true, will not push tag
           INITIAL_VERSION: 0.5.0 # if no tags, will use this version
