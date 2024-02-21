@@ -1,4 +1,4 @@
-// plugin for extensible springboot apps
+// plugin for extensible springboot services
 plugins {
   id 'openhouse.springboot-conventions'
 }
@@ -15,5 +15,12 @@ tasks.named("bootJar") {
     // where to load classes from with the loader.path property, or LOADER_PATH env var.
     // More info: https://docs.spring.io/spring-boot/docs/current/reference/html/executable-jar.html#appendix.executable-jar.launching.
     attributes ('Main-Class': 'org.springframework.boot.loader.PropertiesLauncher')
+  }
+}
+
+configurations {
+  [apiElements, runtimeElements].each {
+    it.outgoing.artifacts.removeIf { it.buildDependencies.getDependencies(null).contains(jar) }
+    it.outgoing.artifact(bootJar)
   }
 }

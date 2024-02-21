@@ -2,6 +2,23 @@ plugins {
   id 'maven-publish'
 }
 
+task sourcesJar(type: Jar) {
+  classifier = "sources"
+  from sourceSets.main.allSource
+}
+
+task javadocJar(type: Jar) {
+  classifier = "javadoc"
+  from javadoc.destinationDir
+}
+
+[jar, sourcesJar, javadocJar].each { task ->
+  task.from(rootDir) {
+    include 'LICENSE'
+    include 'NOTICE'
+  }
+}
+
 def pomPath = "$buildDir/${name}.pom"
 model {
   tasks.generatePomFileForMavenJavaPublication {
@@ -12,15 +29,32 @@ model {
   }
 }
 
-java {
-  withSourcesJar()
-  withJavadocJar()
-}
-
 publishing {
   publications {
     mavenJava(MavenPublication) {
       from components.java
+
+      artifact sourcesJar
+      artifact javadocJar
+
+      pom {
+        name = 'OpenHouse'
+        description = 'Control Plane for Tables in Open Data Lakehouse'
+        url = 'https://github.com/linkedin/openhouse'
+
+        licenses {
+          license {
+            name = 'BSD 2-Clause License'
+            url = 'https://raw.githubusercontent.com/linkedin/openhouse/main/LICENSE'
+          }
+        }
+
+        scm {
+          connection = 'scm:git:git://github.com/linkedin/openhouse.git'
+          developerConnection = 'scm:git:ssh://github.com/linkedin/openhouse.git'
+          url = 'https://github.com/linkedin/openhouse'
+        }
+      }
     }
   }
   repositories {
@@ -29,6 +63,8 @@ publishing {
 }
 
 artifacts {
-  archives file: file("$pomPath"), name: "$name", type: "pom"
-  archives jar, sourcesJar, javadocJar
+  archives file: file('$pomPath'), name: '$name', type: 'pom'
+  archives jar
+  archives sourcesJar
+  archives javadocJar
 }

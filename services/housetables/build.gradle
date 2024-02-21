@@ -1,5 +1,5 @@
 plugins {
-  id 'openhouse.springboot-conventions'
+  id 'openhouse.springboot-ext-conventions'
   id 'openhouse.hadoop-conventions'
   id 'openhouse.iceberg-conventions'
   id 'openhouse.maven-publish'
@@ -8,7 +8,8 @@ plugins {
    * Invalid plugin request [id: 'org.springframework.boot', version: '2.1.2.RELEASE'].
    * Plugin requests from precompiled scripts must not include a version number.
    * Please remove the version from the offending request and make sure the module
-   * containing the requested plugin 'org.springframework.boot' is an implementation dependency.*/
+   * containing the requested plugin 'org.springframework.boot' is an implementation dependency.
+   */
   id 'org.springframework.boot' version '2.1.2.RELEASE'
 
   /**
