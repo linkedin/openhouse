@@ -1,0 +1,34 @@
+name: Bump version and push tag
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+  workflow_run:
+    workflows: ["Gradle Build OpenHouse"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  build:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: '0'
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@1.64.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true # prefix for tag "v"
+          DEFAULT_BUMP: patch # major, minor, patch
+          DRY_RUN: false # if true, will not push tag
+          INITIAL_VERSION: 0.5.0 # if no tags, will use this version
