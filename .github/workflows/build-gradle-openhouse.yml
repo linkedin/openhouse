@@ -3,7 +3,7 @@ name: Gradle Build OpenHouse
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     types:
       - opened
