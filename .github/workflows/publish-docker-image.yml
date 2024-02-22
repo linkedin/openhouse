@@ -1,9 +1,11 @@
 name: OpenHouse Table Service Image
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - Gradle Build, Tag, and Publish OpenHouse
+    types:
+      - completed
 
 jobs:
   docker:
