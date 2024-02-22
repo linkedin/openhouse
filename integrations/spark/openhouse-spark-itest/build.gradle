@@ -1,5 +1,6 @@
 plugins {
   id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
 }
 
 dependencies {
