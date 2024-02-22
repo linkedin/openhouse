@@ -62,11 +62,9 @@ publishing {
     maven {
       name = 'LinkedInJFrog'
       url = 'https://linkedin.jfrog.io/artifactory/openhouse'
-      if (System.getenv('JFROG_USERNAME') != null && System.getenv('JFROG_API_KEY') != null) {
-        credentials {
-          username System.getenv('JFROG_USERNAME')
-          password System.getenv('JFROG_API_KEY')
-        }
+      credentials {
+        username System.getenv('JFROG_USERNAME')
+        password System.getenv('JFROG_PASSWORD')
       }
     }
   }

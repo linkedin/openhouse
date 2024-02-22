@@ -47,5 +47,5 @@ jobs:
         if: ${{ success() }}
         env:
           JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
-          JFROG_API_KEY: ${{ secrets.JFROG_API_KEY }}
+          JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
         run: ./gradlew publish -Pversion=${{ steps.get_tag.outputs.semVer }}
