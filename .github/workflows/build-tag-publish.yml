@@ -48,4 +48,4 @@ jobs:
 
       - name: Publish with Gradle
         if: ${{ success() }}
-        run: ./gradlew publish -pVersion=${{ steps.get_tag.outputs.semVer }}
+        run: ./gradlew publish -Pversion=${{ steps.get_tag.outputs.semVer }}
