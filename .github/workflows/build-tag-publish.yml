@@ -37,3 +37,15 @@ jobs:
           DEFAULT_BUMP: patch # major, minor, patch
           DRY_RUN: false # if true, will not push tag
           INITIAL_VERSION: 0.5.0 # if no tags, will use this version
+
+      - name: Get the latest tag
+        id: get_tag
+        if: ${{ success() }}
+        run: |
+          latest_tag=$(git describe --tags --abbrev=0 main)
+          semVer=${latest_tag:1} # Remove the first character ('v')
+          echo "::set-output name=semVer::${semVer}"
+
+      - name: Publish with Gradle
+        if: ${{ success() }}
+        run: ./gradlew publish -pVersion=${{ steps.get_tag.outputs.semVer }}
