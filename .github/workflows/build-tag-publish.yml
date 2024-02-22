@@ -45,10 +45,3 @@ jobs:
           latest_tag=$(git describe --tags --abbrev=0 main)
           semVer=${latest_tag:1} # Remove the first character ('v')
           echo "::set-output name=semVer::${semVer}"
-
-      - name: Publish with Gradle
-        if: ${{ success() }}
-        env:
-          JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
-          JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
-        run: ./gradlew publish -Pversion=${{ steps.get_tag.outputs.semVer }}
