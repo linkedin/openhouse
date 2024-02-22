@@ -63,7 +63,7 @@ all the OpenHouse services, and deploy them to a Kubernetes cluster using Helm.
 OpenHouse is built with the following versions of the open-source projects:
 
 | Project | Version |
-| --- |---|
+| --- | --- |
 | [Apache Iceberg](https://iceberg.apache.org/releases/#120-release) | 1.2.0 |
 | [Apache Spark](https://spark.apache.org/releases/) | 3.1.2 |
 | [Apache Livy](https://livy.apache.org/) | 0.7.0-incubating |
