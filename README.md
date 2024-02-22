@@ -68,7 +68,7 @@ OpenHouse is built with the following versions of the open-source projects:
 | [Apache Spark](https://spark.apache.org/releases/) | 3.1.2 |
 | [Apache Livy](https://livy.apache.org/) | 0.7.0-incubating |
 | [Apache Hadoop Client](https://hadoop.apache.org/releases.html) | 2.10.0 |
-| [Springboot Framework](https://spring.io/projects/spring-boot) | 2.6.1 |
+| [Springboot Framework](https://spring.io/projects/spring-boot) | 2.6.6 |
 | [OpenAPI](https://swagger.io/specification/) | 3.0.3 |
 
 ## Contributing
