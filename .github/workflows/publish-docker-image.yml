@@ -1,11 +1,9 @@
 name: OpenHouse Table Service Image
 
 on:
-  workflow_run:
-    workflows:
-      - Gradle Build, Tag, and Publish OpenHouse
-    types:
-      - completed
+  push:
+    branches:
+      - main
 
 jobs:
   docker:
@@ -13,14 +11,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Get the latest tag
-        id: get_tag
-        if: ${{ success() }}
-        run: |
-          latest_tag=$(git describe --tags --abbrev=0 main)
-          semVer=${latest_tag:1} # Remove the first character ('v')
-          echo "::set-output name=semVer::${semVer}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -38,22 +28,22 @@ jobs:
         uses: docker/build-push-action@v5
         if: ${{ github.ref_name == 'main' }}
         env:
-          IMAGE_TAG: ${{ steps.get_tag.outputs.semVer }}
+          IMAGE_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
         with:
           context: ./
           file: tables-service.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: sushihub/tables-service:latest,sushihub/tables-service:${{ steps.get_tag.outputs.semVer }}
+          tags: sushihub/tables-service:latest,sushihub/tables-service:${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build and Push
         uses: docker/build-push-action@v5
         if: ${{ github.ref_name == 'main' }}
         env:
-          IMAGE_TAG: ${{ steps.get_tag.outputs.semVer }}
+          IMAGE_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
         with:
           context: ./
           file: jobs-service.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: sushihub/jobs-service:latest,sushihub/jobs-service:${{ steps.get_tag.outputs.semVer }}
+          tags: sushihub/jobs-service:latest,sushihub/jobs-service:${{ github.run_id }}-${{ github.run_attempt }}
