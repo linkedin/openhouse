@@ -1,6 +1,6 @@
 <html>
   <div align="center">
-    <img src="docs/static/images/openhouse-logo.jpeg" alt="OpenHouse" width="400" height="300">
+    <img src="docs/images/openhouse-logo.jpeg" alt="OpenHouse" width="400" height="300">
   </div>
   <h3 align="center">
     Control Plane for Tables in Open Data Lakehouses
@@ -20,7 +20,7 @@ data services.
 
 <html>
   <div align="center">
-    <img src="docs/static/images/openhouse-controlplane.jpeg">
+    <img src="docs/images/openhouse-controlplane.jpeg">
   </div>
 </html>
 
