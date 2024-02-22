@@ -26,7 +26,7 @@ jobs:
         uses: gradle/wrapper-validation-action@v1
 
       - name: Build with Gradle
-        run: ./gradlew clean build -x test # temporarily disable tests to speed up dev iteration.
+        run: ./gradlew clean build
 
       - name: Bump version and push tag
         if: ${{ success() }}
@@ -35,5 +35,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WITH_V: true # prefix for tag "v"
           DEFAULT_BUMP: patch # major, minor, patch
-          DRY_RUN: true # if true, will not push tag
+          DRY_RUN: false # if true, will not push tag
           INITIAL_VERSION: 0.5.0 # if no tags, will use this version
