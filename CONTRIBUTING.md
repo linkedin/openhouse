@@ -56,7 +56,15 @@ maintainers) who will help through the feature delivery, define an execution pla
 PR into smaller PRs. Please expect more scrutiny if there are API changes. For any API changes, the [specs](docs/specs) need
 to be updated, see instructions [here](docs/specs/README.md).
 
-[3] Documentation (#docs): Kinds of documentation include README, API documentation, etc.
+[3] Documentation (#docs): Kinds of documentation include README, API documentation, Documentation website etc.
+
+#### Documentation Website Contribution
+
+Documentation website is hosted on a different branch [docsite](https://github.com/linkedin/openhouse/tree/docsite). Instructions to build the documentation site
+can be found at the root [README.md](https://github.com/linkedin/openhouse/blob/docsite/README.md). 
+
+Create a PR against the branch `docsite` for your documentation website changes. When changes are merged into `docsite`, a GitHub Action will automatically publish static HTML files to the `gh_pages` branch. These files will then be deployed to the website. Note: `gh_pages` is a gh-action built branch, PR shouldn't be raised against it.
+
 
 ## Code of Conduct
 

@@ -1,6 +1,6 @@
 <html>
   <div align="center">
-    <img src="docs/static/images/openhouse-logo.jpeg" alt="OpenHouse" width="400" height="300">
+    <img src="docs/images/openhouse-logo.jpeg" alt="OpenHouse" width="400" height="300">
   </div>
 </html>
 
@@ -8,7 +8,7 @@
 
 Following figure shows how OpenHouse control plane fits into a broader open source data lakehouse deployment.
 
-![High Level Overview](docs/static/images/openhouse-controlplane.jpeg)
+![High Level Overview](docs/images/openhouse-controlplane.jpeg)
 
 ### Catalog Service
 
@@ -109,7 +109,7 @@ Trino and Flink engines follow a similar pattern of integration with OpenHouse a
 
 ## Deployed System Architecture
 
-![Example Deployed System Architecture](docs/static/images/openhouse-deployed-architecture.jpeg)
+![Example Deployed System Architecture](docs/images/openhouse-deployed-architecture.jpeg)
 
 The figure above shows system components of OpenHouse deployed at LinkedIn. Each component is numbered and its purpose
 is as follows:
