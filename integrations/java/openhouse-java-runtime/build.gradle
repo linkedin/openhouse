@@ -22,7 +22,7 @@ configurations {
 ext {
   icebergVersion = '1.2.0'
   sparkVersion = '3.1.1'
-  springVersion = '2.6.1'
+  springVersion = '2.6.6'
   hadoopVersion = '2.10.0'
 }
 

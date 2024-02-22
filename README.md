@@ -1,3 +1,4 @@
+
 <html>
   <div align="center">
     <img src="docs/images/openhouse-logo.jpeg" alt="OpenHouse" width="400" height="300">
@@ -62,14 +63,14 @@ all the OpenHouse services, and deploy them to a Kubernetes cluster using Helm.
 
 OpenHouse is built with the following versions of the open-source projects:
 
-| Project | Version |
-| --- | --- |
-| [Apache Iceberg](https://iceberg.apache.org/releases/#120-release) | 1.2.0 |
-| [Apache Spark](https://spark.apache.org/releases/) | 3.1.2 |
+| Project | Version          |
+| --- |------------------|
+| [Apache Iceberg](https://iceberg.apache.org/releases/#120-release) | 1.2.0            |
+| [Apache Spark](https://spark.apache.org/releases/) | 3.1.2            |
 | [Apache Livy](https://livy.apache.org/) | 0.7.0-incubating |
-| [Apache Hadoop Client](https://hadoop.apache.org/releases.html) | 2.10.0 |
-| [Springboot Framework](https://spring.io/projects/spring-boot) | 2.6.1 |
-| [OpenAPI](https://swagger.io/specification/) | 3.0.3 |
+| [Apache Hadoop Client](https://hadoop.apache.org/releases.html) | 2.10.0           |
+| [Springboot Framework](https://spring.io/projects/spring-boot) | 2.6.6            |
+| [OpenAPI](https://swagger.io/specification/) | 3.0.3            |
 
 ## Contributing
 
