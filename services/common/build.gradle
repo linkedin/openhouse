@@ -2,6 +2,7 @@ plugins {
   id 'openhouse.java-conventions'
   id 'openhouse.iceberg-conventions'
   id 'openhouse.hadoop-conventions'
+  id 'openhouse.maven-publish'
   id 'java-test-fixtures'
 }
 

@@ -1,5 +1,6 @@
 plugins {
     id 'openhouse.java-conventions'
+    id 'openhouse.maven-publish'
     id 'application'
 }
 apply plugin: 'application'
