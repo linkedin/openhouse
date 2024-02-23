@@ -15,10 +15,6 @@ To bring up the service, run:
 $ npm run start
 ```
 
-```
-$ npm i --save redocusaurus
-
-
 This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
 Server should be brought up at http://localhost:3000/
 
