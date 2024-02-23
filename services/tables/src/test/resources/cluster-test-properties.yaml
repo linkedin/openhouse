@@ -4,3 +4,8 @@ cluster:
     root-path: "/tmp/unittest"
   housetables:
     base-uri: "http://localhost:8080"
+  security:
+    tables:
+      authorizations:
+        opa:
+          base-uri: "http://localhost:8181"

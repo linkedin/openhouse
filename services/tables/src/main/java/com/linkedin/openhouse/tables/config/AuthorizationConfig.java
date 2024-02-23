@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.config;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.tables.authorization.AuthorizationInterceptor;
+import com.linkedin.openhouse.tables.authorization.OpaHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.Advisor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,5 +50,17 @@ public class AuthorizationConfig {
     authorizationManagerBeforeMethodInterceptor.setOrder(
         AuthorizationInterceptorsOrder.SECURED.getOrder());
     return authorizationManagerBeforeMethodInterceptor;
+  }
+
+  /**
+   * Inject a bean that calls OpaHandler for Authorization to use Opa for maintaining authorization
+   * policies.
+   */
+  @Bean
+  @ConditionalOnProperty(
+      value = "cluster.security.tables.authorization.opa.base-uri",
+      matchIfMissing = false)
+  public OpaHandler getOpaHandler() {
+    return new OpaHandler(clusterProperties.getClusterSecurityTablesAuthorizationOpaBaseUri());
   }
 }

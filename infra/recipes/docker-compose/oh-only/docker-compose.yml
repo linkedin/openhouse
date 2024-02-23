@@ -9,6 +9,7 @@ services:
     depends_on:
       - openhouse-housetables
       - prometheus
+      - opa
 
   openhouse-housetables:
     extends:
@@ -23,3 +24,9 @@ services:
     extends:
       file: ../common/oh-services.yml
       service: prometheus
+
+  opa:
+    container_name: local.opa
+    extends:
+      file: ../common/opa-services.yml
+      service: opa

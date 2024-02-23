@@ -4,9 +4,11 @@ import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
 import com.linkedin.openhouse.tables.client.model.AclPolicy;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
+@Slf4j
 public final class SparkMapper {
   private SparkMapper() {}
 

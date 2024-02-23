@@ -79,6 +79,7 @@ livy-server|9003
 hdfs-namenode|9870
 mysql|3306
 spark-livy|8998
+opa|8181
 
 ## Test Services
 

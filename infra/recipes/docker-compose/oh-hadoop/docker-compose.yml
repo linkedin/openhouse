@@ -12,6 +12,7 @@ services:
       - namenode
       - datanode
       - prometheus
+      - opa
 
   openhouse-housetables:
     container_name: local.openhouse-housetables
@@ -45,6 +46,12 @@ services:
       service: datanode
     volumes:
       - hadoop_datanode:/hadoop/dfs/data
+
+  opa:
+    container_name: local.opa
+    extends:
+      file: ../common/opa-services.yml
+      service: opa
 
 volumes:
   hadoop_namenode:
