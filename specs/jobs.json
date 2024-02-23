@@ -1,0 +1,267 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "OpenHouse APIs",
+    "description": "API description for OpenHouse API",
+    "termsOfService": "http://swagger.io/terms",
+    "license": {
+      "name": "Apache 2.0",
+      "url": "http://springdoc.org"
+    },
+    "version": "v0.0.1"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Generated server url"
+    }
+  ],
+  "paths": {
+    "/jobs/{jobId}/cancel": {
+      "put": {
+        "tags": [
+          "Job"
+        ],
+        "summary": "Cancel Job",
+        "description": "Cancels the job given jobId",
+        "operationId": "cancelJob",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Job ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job PUT: UPDATED"
+          },
+          "404": {
+            "description": "Job PUT: NOT_FOUND"
+          },
+          "409": {
+            "description": "Job PUT: CONFLICT"
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "post": {
+        "tags": [
+          "Job"
+        ],
+        "summary": "Submit a Job",
+        "description": "Submits a Job and returns a Job resource.",
+        "operationId": "createJob",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "description": "Job POST: BAD_REQUEST",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponseBody"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Job POST: CREATED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponseBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{jobId}": {
+      "get": {
+        "tags": [
+          "Job"
+        ],
+        "summary": "Get Job",
+        "description": "Returns a Job resource identified by jobId.",
+        "operationId": "getJob",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Job ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Job GET: NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponseBody"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Job GET: OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponseBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateJobRequestBody": {
+        "required": [
+          "clusterId",
+          "jobName"
+        ],
+        "type": "object",
+        "properties": {
+          "jobName": {
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "type": "string",
+            "description": "Name of a job, doesn\u0027t need to be unique",
+            "example": "my_job"
+          },
+          "clusterId": {
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "type": "string",
+            "description": "Unique identifier for the cluster",
+            "example": "my_cluster"
+          },
+          "jobConf": {
+            "$ref": "#/components/schemas/JobConf"
+          }
+        },
+        "description": "Request containing details of the Job to be created"
+      },
+      "JobConf": {
+        "type": "object",
+        "properties": {
+          "jobType": {
+            "type": "string",
+            "enum": [
+              "NO_OP",
+              "SQL_TEST",
+              "RETENTION",
+              "ORPHAN_FILES_DELETION",
+              "SNAPSHOTS_EXPIRATION",
+              "STAGED_FILES_DELETION"
+            ]
+          },
+          "proxyUser": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Job config",
+        "example": "{\u0027jobType\u0027: \u0027RETENTION\u0027, \u0027table\u0027: \u0027db.tb\u0027}"
+      },
+      "JobResponseBody": {
+        "required": [
+          "clusterId",
+          "creationTimeMs",
+          "jobId",
+          "jobName",
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "type": "string",
+            "description": "Unique auto-generated identifier for job prefixed with jobName",
+            "example": "my_job_8347adee-65b7-4e05-86fc-196af04f4e68"
+          },
+          "jobName": {
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "type": "string",
+            "description": "Name of a job, doesn\u0027t need to be unique",
+            "example": "my_job"
+          },
+          "clusterId": {
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "type": "string",
+            "description": "Unique identifier for the cluster",
+            "example": "my_cluster"
+          },
+          "state": {
+            "type": "string",
+            "description": "Current job state, possible states: QUEUED, ACTIVE, CANCELLED, FAILED, SUCCEEDED",
+            "example": "SUCCEEDED",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "CANCELLED",
+              "FAILED",
+              "SUCCEEDED"
+            ]
+          },
+          "creationTimeMs": {
+            "type": "integer",
+            "description": "Job creation time in unix epoch milliseconds",
+            "format": "int64",
+            "example": 1651002318265
+          },
+          "startTimeMs": {
+            "type": "integer",
+            "description": "Job start time in unix epoch milliseconds",
+            "format": "int64",
+            "example": 1651002318265
+          },
+          "finishTimeMs": {
+            "type": "integer",
+            "description": "Job finish time in unix epoch milliseconds",
+            "format": "int64",
+            "example": 1651002318265
+          },
+          "lastUpdateTimeMs": {
+            "type": "integer",
+            "description": "Job contents last update time in unix epoch milliseconds",
+            "format": "int64",
+            "example": 1651002318265
+          },
+          "jobConf": {
+            "$ref": "#/components/schemas/JobConf"
+          },
+          "executionId": {
+            "type": "string",
+            "description": "Execution ID generated from engine where job is submitted"
+          }
+        }
+      }
+    }
+  }
+}
