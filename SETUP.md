@@ -333,7 +333,8 @@ res1: org.apache.spark.sql.Row =
 
 #### GRANT / REVOKE
 
-Note: Table Sharing is WIP for local docker setup. Below commands are provided for illustration purposes only.
+Table Sharing is enabled using OPA for local docker setup. By default, sharing is disabled. To enable sharing, run the
+following command in spark-shell.
 
 ```
 scala> spark.sql("ALTER TABLE openhouse.db.tb SET POLICY ( SHARING=true )").show
@@ -366,6 +367,13 @@ scala> spark.sql("GRANT SELECT ON TABLE openhouse.db.tb TO user").show
 ++
 ++
 
+scala> spark.sql("SHOW GRANTS ON TABLE openhouse.db.tb").show
++---------+---------+
+|privilege|principal|
++---------+---------+
+|   SELECT|     user|
++---------+---------+
+
 scala> spark.sql("REVOKE SELECT ON TABLE openhouse.db.tb FROM user").show
 ++
 ||
@@ -396,17 +404,20 @@ scala> spark.sql("REVOKE MANAGE GRANTS ON TABLE openhouse.db.tb FROM user").show
 ++
 ++
 
-scala> spark.sql("SHOW GRANTS ON TABLE openhouse.db.tb").show
+
+scala> spark.sql("GRANT SELECT ON DATABASE openhouse.db TO dbReader").show
+++
+||
+++
+++
+
+scala> spark.sql("SHOW GRANTS ON DATABASE openhouse.db.tb").show
 +---------+---------+
 |privilege|principal|
 +---------+---------+
+|   SELECT|  dbReader|
 +---------+---------+
 
-scala> spark.sql("SHOW GRANTS ON DATABASE openhouse.db").show
-+---------+---------+
-|privilege|principal|
-+---------+---------+
-+---------+---------+
 ```
 
 ### Test through Livy
