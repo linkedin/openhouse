@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkdocs=self.webpackChunkdocs||[]).push([[2177],{1648:s=>{s.exports=JSON.parse('{"label":"Jobs","permalink":"/docs/tags/jobs","allTagsPath":"/docs/tags","count":1,"items":[{"id":"User Guide/Jobs/JobSpec","title":"Spec","description":"","permalink":"/docs/User Guide/Jobs/JobSpec"}],"unlisted":false}')}}]);

@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkdocs=self.webpackChunkdocs||[]).push([[959],{9826:e=>{e.exports=JSON.parse('{"label":"Table","permalink":"/docs/tags/table","allTagsPath":"/docs/tags","count":1,"items":[{"id":"User Guide/Catalog/TableSpec","title":"Spec","description":"","permalink":"/docs/User Guide/Catalog/TableSpec"}],"unlisted":false}')}}]);

@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkdocs=self.webpackChunkdocs||[]).push([[6583],{5705:s=>{s.exports=JSON.parse('{"label":"SQL","permalink":"/docs/tags/sql","allTagsPath":"/docs/tags","count":1,"items":[{"id":"User Guide/Catalog/SQL","title":"SQL","description":"Data Definition Language (DDL)","permalink":"/docs/User Guide/Catalog/SQL"}],"unlisted":false}')}}]);

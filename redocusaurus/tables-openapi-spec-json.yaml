@@ -1,0 +1,1572 @@
+openapi: 3.0.1
+info:
+  title: OpenHouse Tables APIs
+  description: API description for OpenHouse Tables API
+  termsOfService: http://swagger.io/terms
+  license:
+    name: Apache 2.0
+    url: http://springdoc.org
+  version: v0.1
+servers:
+  - url: http://localhost:8080
+    description: Generated server url
+paths:
+  /v1/databases/{databaseId}/tables/{tableId}/iceberg/v2/snapshots:
+    put:
+      tags:
+        - Snapshot
+      summary: Puts Iceberg snapshots to Table
+      description: Puts Iceberg snapshots to Table
+      operationId: putSnapshotsV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IcebergSnapshotsRequestBody'
+        required: true
+      responses:
+        '200':
+          description: 'Iceberg snapshot PUT: UPDATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '201':
+          description: 'Iceberg snapshot PUT: CREATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '400':
+          description: 'Iceberg snapshot PUT: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '409':
+          description: 'Iceberg snapshot PUT: CONFLICT'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+  /v0/databases/{databaseId}/tables/{tableId}/iceberg/v2/snapshots:
+    put:
+      tags:
+        - Snapshot
+      summary: Puts Iceberg snapshots to Table
+      description: Puts Iceberg snapshots to Table
+      operationId: putSnapshotsV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IcebergSnapshotsRequestBody'
+        required: true
+      responses:
+        '200':
+          description: 'Iceberg snapshot PUT: UPDATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '201':
+          description: 'Iceberg snapshot PUT: CREATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '400':
+          description: 'Iceberg snapshot PUT: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '409':
+          description: 'Iceberg snapshot PUT: CONFLICT'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+  /v0/databases/{databaseId}/tables/{tableId}:
+    get:
+      tags:
+        - Table
+      summary: Get Table in a Database
+      description: >-
+        Returns a Table resource identified by tableId in the database
+        identified by databaseId.
+      operationId: getTableV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Table GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '401':
+          description: 'Table GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '403':
+          description: 'Table GET: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '404':
+          description: 'Table GET: NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+    put:
+      tags:
+        - Table
+      summary: Update a Table
+      description: >-
+        Updates or creates a Table and returns the Table resources. If the table
+        does not exist, it will be created. If the table exists, it will be
+        updated.
+      operationId: updateTableV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpdateTableRequestBody'
+        required: true
+      responses:
+        '200':
+          description: 'Table PUT: UPDATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '201':
+          description: 'Table PUT: CREATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '400':
+          description: 'Table PUT: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '401':
+          description: 'Table PUT: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '403':
+          description: 'Table PUT: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '404':
+          description: 'Table PUT: DB_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+    delete:
+      tags:
+        - Table
+      summary: DELETE Table
+      description: Deletes a table resource
+      operationId: deleteTableV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 'Table DELETE: NO_CONTENT'
+        '400':
+          description: 'Table DELETE: BAD_REQUEST'
+        '401':
+          description: 'Table DELETE: UNAUTHORIZED'
+        '403':
+          description: 'Table DELETE: FORBIDDEN'
+        '404':
+          description: 'Table DELETE: TBL_DB_NOT_FOUND'
+  /v1/databases/{databaseId}/tables/{tableId}:
+    get:
+      tags:
+        - Table
+      summary: Get Table in a Database
+      description: >-
+        Returns a Table resource identified by tableId in the database
+        identified by databaseId.
+      operationId: getTableV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Table GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '401':
+          description: 'Table GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '403':
+          description: 'Table GET: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '404':
+          description: 'Table GET: NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+    put:
+      tags:
+        - Table
+      summary: Update a Table
+      description: >-
+        Updates or creates a Table and returns the Table resources. If the table
+        does not exist, it will be created. If the table exists, it will be
+        updated.
+      operationId: updateTableV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpdateTableRequestBody'
+        required: true
+      responses:
+        '200':
+          description: 'Table PUT: UPDATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '201':
+          description: 'Table PUT: CREATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '400':
+          description: 'Table PUT: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '401':
+          description: 'Table PUT: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '403':
+          description: 'Table PUT: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '404':
+          description: 'Table PUT: DB_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+    delete:
+      tags:
+        - Table
+      summary: DELETE Table
+      description: Deletes a table resource
+      operationId: deleteTableV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 'Table DELETE: NO_CONTENT'
+        '400':
+          description: 'Table DELETE: BAD_REQUEST'
+        '401':
+          description: 'Table DELETE: UNAUTHORIZED'
+        '403':
+          description: 'Table DELETE: FORBIDDEN'
+        '404':
+          description: 'Table DELETE: TBL_DB_NOT_FOUND'
+  /v0/databases/{databaseId}/tables/search:
+    post:
+      tags:
+        - Table
+      summary: Search Tables in a Database
+      description: >-
+        Returns a list of Table resources present in a database. Only filter
+        supported is 'database_id'.
+      operationId: searchTablesV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Table SEARCH: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '400':
+          description: 'Table SEARCH: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '401':
+          description: 'Table SEARCH: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '403':
+          description: 'Table SEARCH: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '404':
+          description: 'Table SEARCH: NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+  /v1/databases/{databaseId}/tables/search:
+    post:
+      tags:
+        - Table
+      summary: Search Tables in a Database
+      description: >-
+        Returns a list of Table resources present in a database. Only filter
+        supported is 'database_id'.
+      operationId: searchTablesV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Table SEARCH: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '400':
+          description: 'Table SEARCH: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '401':
+          description: 'Table SEARCH: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '403':
+          description: 'Table SEARCH: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '404':
+          description: 'Table SEARCH: NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+  /v0/databases/{databaseId}/tables:
+    get:
+      tags:
+        - Table
+      summary: List Tables in a Database
+      description: >-
+        Returns a list of Table resources present in a database identified by
+        databaseId.
+      operationId: getAllTablesV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Table GET_ALL: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '401':
+          description: 'Table GET_ALL: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '404':
+          description: 'Table GET_ALL: DB NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+    post:
+      tags:
+        - Table
+      summary: Create a Table
+      description: >-
+        Creates and returns a Table resource in a database identified by
+        databaseId
+      operationId: createTableV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpdateTableRequestBody'
+        required: true
+      responses:
+        '201':
+          description: 'Table POST: CREATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '400':
+          description: 'Table POST: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '401':
+          description: 'Table POST: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '403':
+          description: 'Table POST: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '404':
+          description: 'Table POST: DB_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '409':
+          description: 'Table POST: TBL_EXISTS'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+  /v1/databases/{databaseId}/tables:
+    get:
+      tags:
+        - Table
+      summary: List Tables in a Database
+      description: >-
+        Returns a list of Table resources present in a database identified by
+        databaseId.
+      operationId: getAllTablesV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Table GET_ALL: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '401':
+          description: 'Table GET_ALL: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+        '404':
+          description: 'Table GET_ALL: DB NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllTablesResponseBody'
+    post:
+      tags:
+        - Table
+      summary: Create a Table
+      description: >-
+        Creates and returns a Table resource in a database identified by
+        databaseId
+      operationId: createTableV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpdateTableRequestBody'
+        required: true
+      responses:
+        '201':
+          description: 'Table POST: CREATED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '400':
+          description: 'Table POST: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '401':
+          description: 'Table POST: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '403':
+          description: 'Table POST: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '404':
+          description: 'Table POST: DB_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+        '409':
+          description: 'Table POST: TBL_EXISTS'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetTableResponseBody'
+  /v0/databases/{databaseId}/tables/{tableId}/aclPolicies:
+    get:
+      tags:
+        - Table
+      summary: Get AclPolicies for Table
+      description: >-
+        Returns principal to role mappings on Table resource identified by
+        databaseId and tableId.
+      operationId: getAclPoliciesV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'AclPolicies GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '400':
+          description: 'AclPolicies GET: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '401':
+          description: 'AclPolicies GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '403':
+          description: 'AclPolicies GET: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '404':
+          description: 'AclPolicies GET: TABLE_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+    patch:
+      tags:
+        - Table
+      summary: Update AclPolicies for Table
+      description: Updates role for principal on Table identified by databaseId and tableId
+      operationId: updateAclPoliciesV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAclPoliciesRequestBody'
+        required: true
+      responses:
+        '204':
+          description: 'AclPolicies PATCH: NO_CONTENT'
+        '400':
+          description: 'AclPolicies PATCH: BAD_REQUEST'
+        '401':
+          description: 'AclPolicies PATCH: UNAUTHORIZED'
+        '403':
+          description: 'AclPolicies PATCH: FORBIDDEN'
+        '404':
+          description: 'AclPolicies PATCH: TABLE_NOT_FOUND'
+  /v1/databases/{databaseId}/tables/{tableId}/aclPolicies:
+    get:
+      tags:
+        - Table
+      summary: Get AclPolicies for Table
+      description: >-
+        Returns principal to role mappings on Table resource identified by
+        databaseId and tableId.
+      operationId: getAclPoliciesV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'AclPolicies GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '400':
+          description: 'AclPolicies GET: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '401':
+          description: 'AclPolicies GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '403':
+          description: 'AclPolicies GET: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '404':
+          description: 'AclPolicies GET: TABLE_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+    patch:
+      tags:
+        - Table
+      summary: Update AclPolicies for Table
+      description: Updates role for principal on Table identified by databaseId and tableId
+      operationId: updateAclPoliciesV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAclPoliciesRequestBody'
+        required: true
+      responses:
+        '204':
+          description: 'AclPolicies PATCH: NO_CONTENT'
+        '400':
+          description: 'AclPolicies PATCH: BAD_REQUEST'
+        '401':
+          description: 'AclPolicies PATCH: UNAUTHORIZED'
+        '403':
+          description: 'AclPolicies PATCH: FORBIDDEN'
+        '404':
+          description: 'AclPolicies PATCH: TABLE_NOT_FOUND'
+  /v0/databases/{databaseId}/aclPolicies:
+    get:
+      tags:
+        - Database
+      summary: Get AclPolicies on Database
+      description: Returns principal to role mappings on resource identified by databaseId.
+      operationId: getDatabaseAclPoliciesV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'AclPolicies GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '400':
+          description: 'AclPolicies GET: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '401':
+          description: 'AclPolicies GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '404':
+          description: 'AclPolicies GET: DB_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+    patch:
+      tags:
+        - Database
+      summary: Update AclPolicies on database
+      description: Updates role for principal on database identified by databaseId
+      operationId: updateDatabaseAclPoliciesV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAclPoliciesRequestBody'
+        required: true
+      responses:
+        '200':
+          description: 'AclPolicies PATCH: UPDATED'
+        '400':
+          description: 'AclPolicies PATCH: BAD_REQUEST'
+        '401':
+          description: 'AclPolicies PATCH: UNAUTHORIZED'
+        '403':
+          description: 'AclPolicies PATCH: FORBIDDEN'
+        '404':
+          description: 'AclPolicies PATCH: DB_NOT_FOUND'
+  /v1/databases/{databaseId}/aclPolicies:
+    get:
+      tags:
+        - Database
+      summary: Get AclPolicies on Database
+      description: Returns principal to role mappings on resource identified by databaseId.
+      operationId: getDatabaseAclPoliciesV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'AclPolicies GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '400':
+          description: 'AclPolicies GET: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '401':
+          description: 'AclPolicies GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '404':
+          description: 'AclPolicies GET: DB_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+    patch:
+      tags:
+        - Database
+      summary: Update AclPolicies on database
+      description: Updates role for principal on database identified by databaseId
+      operationId: updateDatabaseAclPoliciesV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAclPoliciesRequestBody'
+        required: true
+      responses:
+        '200':
+          description: 'AclPolicies PATCH: UPDATED'
+        '400':
+          description: 'AclPolicies PATCH: BAD_REQUEST'
+        '401':
+          description: 'AclPolicies PATCH: UNAUTHORIZED'
+        '403':
+          description: 'AclPolicies PATCH: FORBIDDEN'
+        '404':
+          description: 'AclPolicies PATCH: DB_NOT_FOUND'
+  /v1/databases/{databaseId}/tables/{tableId}/aclPolicies/{principal}:
+    get:
+      tags:
+        - Table
+      summary: Get AclPolicies for user principal on a table
+      description: >-
+        Returns role mappings, access information for a principal on resource
+        identified by databaseId and tableId.
+      operationId: getAclPoliciesForUserPrincipalV1
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+        - name: principal
+          in: path
+          description: Principal
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'AclPolicies GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '400':
+          description: 'AclPolicies GET: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '401':
+          description: 'AclPolicies GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '403':
+          description: 'AclPolicies GET: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '404':
+          description: 'AclPolicies GET: TABLE_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+  /v0/databases/{databaseId}/tables/{tableId}/aclPolicies/{principal}:
+    get:
+      tags:
+        - Table
+      summary: Get AclPolicies for user principal on a table
+      description: >-
+        Returns role mappings, access information for a principal on resource
+        identified by databaseId and tableId.
+      operationId: getAclPoliciesForUserPrincipalV0
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+        - name: tableId
+          in: path
+          description: Table ID
+          required: true
+          schema:
+            type: string
+        - name: principal
+          in: path
+          description: Principal
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'AclPolicies GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '400':
+          description: 'AclPolicies GET: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '401':
+          description: 'AclPolicies GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '403':
+          description: 'AclPolicies GET: FORBIDDEN'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '404':
+          description: 'AclPolicies GET: TABLE_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+  /databases/{databaseId}/aclPolicies:
+    get:
+      tags:
+        - Database
+      summary: Get AclPolicies on Database
+      description: Returns principal to role mappings on resource identified by databaseId.
+      operationId: getDatabaseAclPolicies
+      parameters:
+        - name: databaseId
+          in: path
+          description: Database ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'AclPolicies GET: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '400':
+          description: 'AclPolicies GET: BAD_REQUEST'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '401':
+          description: 'AclPolicies GET: UNAUTHORIZED'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+        '404':
+          description: 'AclPolicies GET: DB_NOT_FOUND'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAclPoliciesResponseBody'
+  /v0/databases:
+    get:
+      tags:
+        - Database
+      summary: List all Databases
+      description: Returns a list of Database resources.
+      operationId: getAllDatabasesV0
+      responses:
+        '200':
+          description: 'Database GET_ALL: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllDatabasesResponseBody'
+  /v1/databases:
+    get:
+      tags:
+        - Database
+      summary: List all Databases
+      description: Returns a list of Database resources.
+      operationId: getAllDatabasesV1
+      responses:
+        '200':
+          description: 'Database GET_ALL: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllDatabasesResponseBody'
+components:
+  schemas:
+    ClusteringColumn:
+      required:
+        - columnName
+      type: object
+      properties:
+        columnName:
+          type: string
+          description: >-
+            Name of the clustering column in provided schema. The column should
+            be of the type 'String'.Nested columns can also be provided with a
+            dot-separated name (for example: 'eventHeader.countryCode').Column
+            name is case-sensitive.
+          example: clusteringColumn
+      description: Clustering columns for the table
+      nullable: true
+      example: '"clustering":[{"columnName":"country"},{"columnName":"city"}]'
+    CreateUpdateTableRequestBody:
+      required:
+        - baseTableVersion
+        - clusterId
+        - databaseId
+        - schema
+        - tableId
+        - tableProperties
+      type: object
+      properties:
+        tableId:
+          maxLength: 128
+          minLength: 0
+          pattern: ^[a-zA-Z0-9_]+$
+          type: string
+          description: Unique Resource identifier for a table within a Database
+          example: my_table
+        databaseId:
+          maxLength: 128
+          minLength: 0
+          pattern: ^[a-zA-Z0-9_]+$
+          type: string
+          description: Unique Resource identifier for the Database containing the Table
+          example: my_database
+        clusterId:
+          pattern: ^[a-zA-Z0-9-_]+$
+          type: string
+          description: Unique Resource identifier for the Cluster containing the Database
+          example: my_cluster
+        schema:
+          type: string
+          description: >-
+            Schema of the table. OpenHouse tables use Iceberg schema
+            specification
+          example: >-
+            {"type":"struct","fields":[{"id":1,"required":true,"name":"id","type":"string"},{"id":2,"required":true,"name":"name","type":"string"},{"id":3,"required":true,"name":"timestampColumn","type":"timestamp"}]}
+        timePartitioning:
+          $ref: '#/components/schemas/TimePartitionSpec'
+        clustering:
+          type: array
+          description: Clustering columns for the table
+          nullable: true
+          example: '"clustering":[{"columnName":"country"},{"columnName":"city"}]'
+          items:
+            $ref: '#/components/schemas/ClusteringColumn'
+        tableProperties:
+          type: object
+          additionalProperties:
+            type: string
+            description: Table properties
+            example: '{"key":"value"}'
+          description: Table properties
+          example:
+            key: value
+        policies:
+          $ref: '#/components/schemas/Policies'
+        stageCreate:
+          type: boolean
+          description: Boolean that determines creating a staged table
+          example: false
+          default: false
+        baseTableVersion:
+          type: string
+          description: The version of table that the current update is based upon
+        tableType:
+          type: string
+          description: The type of a table
+          enum:
+            - PRIMARY_TABLE
+            - REPLICA_TABLE
+      description: Request containing details of the Table to be created
+    IcebergSnapshotsRequestBody:
+      required:
+        - baseTableVersion
+      type: object
+      properties:
+        baseTableVersion:
+          type: string
+          description: Base Table Version
+          example: Base table version to apply the change to
+        jsonSnapshots:
+          type: array
+          description: List of json serialized snapshots to put
+          items:
+            type: string
+            description: List of json serialized snapshots to put
+        createUpdateTableRequestBody:
+          $ref: '#/components/schemas/CreateUpdateTableRequestBody'
+      description: Request containing a list of JSON serialized Iceberg Snapshots to be put
+    Policies:
+      type: object
+      properties:
+        retention:
+          $ref: '#/components/schemas/Retention'
+        sharingEnabled:
+          type: boolean
+          description: >-
+            Whether data sharing needs to enabled for the table in /tables API
+            request. Sharing is disabled by default
+          example: false
+        columnTags:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/PolicyTag'
+          description: Policy tags applied to columns in /tables API request.
+          example: '{''colName'': [PII, HC]}'
+      description: Policies of the table
+      nullable: true
+    PolicyTag:
+      type: object
+      properties:
+        tags:
+          uniqueItems: true
+          type: array
+          description: Policy tags
+          example: PII, HC
+          items:
+            type: string
+            description: Policy tags
+            example: PII, HC
+            enum:
+              - PII
+              - HC
+      description: Policy tags applied to columns in /tables API request.
+      example: '{''colName'': [PII, HC]}'
+    Retention:
+      required:
+        - count
+        - granularity
+      type: object
+      properties:
+        count:
+          type: integer
+          description: >-
+            time period in count <granularity> for which the retention on table
+            will be applied
+          format: int32
+        granularity:
+          type: string
+          description: >-
+            time period granularity for which the retention on table will be
+            applied
+          example: hour, day, month, year
+          enum:
+            - HOUR
+            - DAY
+            - MONTH
+            - YEAR
+        columnPattern:
+          $ref: '#/components/schemas/RetentionColumnPattern'
+      description: >-
+        Retention as required in /tables API request. The column holds the
+        retention part or Policies.
+      example: '{retention:{count:3, granularity: ''day''}}'
+    RetentionColumnPattern:
+      required:
+        - columnName
+        - pattern
+      type: object
+      properties:
+        columnName:
+          type: string
+          description: Name of retention column
+          example: datepartition
+        pattern:
+          type: string
+          description: >-
+            Pattern for the value of the retention column following
+            java.time.format.DateTimeFormatter standard. Defaults to
+            'yyyy-MM-dd' day format if empty.
+          example: yyyy-MM-dd-HH
+      description: >-
+        Optional object to specify retention column in case where timestamp is
+        represented as a string
+      example: '{columnName:datepartition, pattern: yyyy-MM-dd-HH}'
+    TimePartitionSpec:
+      required:
+        - columnName
+        - granularity
+      type: object
+      properties:
+        columnName:
+          type: string
+          description: >-
+            Name of the timestamp column in provided schema. The column should
+            be of the type 'Timestamp'. Nested columns can also be provided with
+            a dot-separated name (for example: 'eventHeader.timeColumn').Column
+            name is case-sensitive.
+          example: timestampColumn
+        granularity:
+          type: string
+          description: Granularity of the time partition.
+          enum:
+            - HOUR
+            - DAY
+            - MONTH
+            - YEAR
+      description: Time partitioning of the table
+      nullable: true
+      example: '"timePartitioning":{"columnName":"timestampCol","granularity":"HOUR"}'
+    GetTableResponseBody:
+      type: object
+      properties:
+        tableId:
+          type: string
+          description: Unique Resource identifier for a table within a Database
+          readOnly: true
+          example: my_table
+        databaseId:
+          type: string
+          description: Unique Resource identifier for the Database containing the Table
+          readOnly: true
+          example: my_database
+        clusterId:
+          type: string
+          description: Unique Resource identifier for the Cluster containing the Database
+          readOnly: true
+          example: my_cluster
+        tableUri:
+          type: string
+          description: Fully Qualified Resource URI for the table
+          readOnly: true
+          example: my_cluster.my_database.my_table
+        tableUUID:
+          type: string
+          description: Table UUID
+          readOnly: true
+          example: 73ea0d21-3c89-4987-a6cf-26e4f86bdcee
+        tableLocation:
+          type: string
+          description: Location of Table in File System / Blob Store
+          readOnly: true
+          example: >-
+            <fs>://<hostname>/<openhouse_namespace>/<database_name>/<tableUUID>/metadata/<uuid>.metadata.json
+        tableVersion:
+          type: string
+          description: Current Version of the Table.
+          readOnly: true
+        tableCreator:
+          type: string
+          description: Authenticated user principal that created the Table.
+          readOnly: true
+          example: bob
+        schema:
+          type: string
+          description: Schema of the Table in Iceberg
+          readOnly: true
+          example: >-
+            {"type":"struct","fields":[{"id":1,"required":true,"name":"id","type":"string"},{"id":2,"required":true,"name":"name","type":"string"}]}
+        lastModifiedTime:
+          type: integer
+          description: >-
+            Last modification epoch time in UTC measured in milliseconds of a
+            table.
+          format: int64
+          readOnly: true
+          example: 1651002318265
+        creationTime:
+          type: integer
+          description: >-
+            Table creation epoch time measured in UTC in milliseconds of a
+            table.
+          format: int64
+          readOnly: true
+          example: 1651002318265
+        tableProperties:
+          type: object
+          additionalProperties:
+            type: string
+            description: A map of table properties
+            example: '{"key":"value"}'
+          description: A map of table properties
+          readOnly: true
+          example:
+            key: value
+        timePartitioning:
+          $ref: '#/components/schemas/TimePartitionSpec'
+        clustering:
+          type: array
+          description: Clustering columns for the table
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ClusteringColumn'
+        policies:
+          $ref: '#/components/schemas/Policies'
+        tableType:
+          type: string
+          description: The type of a table
+          readOnly: true
+          example: PRIMARY_TABLE
+          enum:
+            - PRIMARY_TABLE
+            - REPLICA_TABLE
+    GetAllTablesResponseBody:
+      type: object
+      properties:
+        results:
+          type: array
+          description: List of Table objects in a database
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/GetTableResponseBody'
+    UpdateAclPoliciesRequestBody:
+      required:
+        - operation
+        - principal
+        - role
+      type: object
+      properties:
+        role:
+          type: string
+          description: Role that is being granted/revoked.
+        principal:
+          type: string
+          description: Grantee principal whose role is being updated
+        operation:
+          type: string
+          description: Whether this is a grant/revoke request
+          example: GRANT
+          enum:
+            - GRANT
+            - REVOKE
+      description: Request containing aclPolicies of the Database to be updated
+    AclPolicy:
+      type: object
+      properties:
+        principal:
+          type: string
+          description: Principal with the role on the table/database
+          readOnly: true
+        role:
+          type: string
+          description: Role associated with the principal
+          readOnly: true
+        properties:
+          type: object
+          additionalProperties:
+            type: string
+            description: Optional properties to accept key-value pair
+          description: Optional properties to accept key-value pair
+          readOnly: true
+      description: List of acl policies associated with table/database
+    GetAclPoliciesResponseBody:
+      type: object
+      properties:
+        results:
+          type: array
+          description: List of acl policies associated with table/database
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/AclPolicy'
+    GetAllDatabasesResponseBody:
+      type: object
+      properties:
+        results:
+          type: array
+          description: List of Database objects
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/GetDatabaseResponseBody'
+    GetDatabaseResponseBody:
+      type: object
+      properties:
+        databaseId:
+          type: string
+          description: Unique Resource identifier for the Database
+          readOnly: true
+          example: my_database
+        clusterId:
+          type: string
+          description: Unique Resource identifier for the Cluster containing the Database
+          readOnly: true
+          example: my_cluster
+      description: List of Database objects
