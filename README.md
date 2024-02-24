@@ -21,4 +21,7 @@ Server should be brought up at http://localhost:3000/
 ### Adding new documentation
 Follow user guide in [docusaurus.io/docs](https://docusaurus.io/docs/category/guides) to add new documentation. Particularly [Pages](https://docusaurus.io/docs/creating-pages), [Docs](https://docusaurus.io/docs/docs-introduction), [Blog](https://docusaurus.io/docs/blog).
 
-A special flavor of markdown [MDX](https://docusaurus.io/docs/markdown-features) is used by default for all md files by Docusaurus. It is more powerful with its javascript integration. 
+A special flavor of markdown [MDX](https://docusaurus.io/docs/markdown-features) is used by default for all md files by Docusaurus. It is more powerful with its javascript integration.
+
+#### Updating OpenAPI Specification
+Instructions to update specification can be found at [/specs](specs/README.md).

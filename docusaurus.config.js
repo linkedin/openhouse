@@ -57,7 +57,21 @@ const config = {
           customCss: './src/css/custom.css',
         },
       }),
-    ],
+    ],[
+      'redocusaurus',
+      {
+        specs: [
+          {
+            id: 'tables-openapi-spec-json',
+            spec: 'specs/tables.json'
+          },
+          {
+            id: 'jobs-openapi-spec-json',
+            spec: 'specs/jobs.json'
+          }
+        ],
+      },
+    ]
   ],
 
   themeConfig:
