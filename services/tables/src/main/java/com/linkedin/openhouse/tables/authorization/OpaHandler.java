@@ -31,7 +31,6 @@ public class OpaHandler {
 
   private WebClient webClient;
 
-  /** Instantiates OpaHandler */
   public OpaHandler(String baseURI) {
     this.webClient = createWebClient(baseURI);
   }
