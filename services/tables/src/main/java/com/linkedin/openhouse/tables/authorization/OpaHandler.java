@@ -27,10 +27,8 @@ import reactor.netty.http.client.HttpClient;
 public class OpaHandler {
 
   /**
-   * <<<<<<< Updated upstream Opa endpoint to retrieve and store user to role mappings. More details
-   * on opa REST API can be found at https://www.openpolicyagent.org/docs/latest/rest-api/ =======
    * Opa endpoint to retrieve and store user to role mappings. More details on opa REST API can be
-   * found at https://www.openpolicyagent.org/docs/latest/rest-api/ >>>>>>> Stashed changes
+   * found at https://www.openpolicyagent.org/docs/latest/rest-api/
    */
   private static final String USER_ROLES_ENDPOINT = "/v1/data/user_roles";
 

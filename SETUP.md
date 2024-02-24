@@ -333,8 +333,7 @@ res1: org.apache.spark.sql.Row =
 
 #### GRANT / REVOKE
 
-Table Sharing is enabled using OPA for local docker setup. By default, sharing is disabled. To enable sharing, run the
-following command in spark-shell.
+Table Sharing is enabled using OPA for local docker setup. By default, sharing is disabled. To enable sharing, run the following command in spark-shell.
 
 ```
 scala> spark.sql("ALTER TABLE openhouse.db.tb SET POLICY ( SHARING=true )").show
