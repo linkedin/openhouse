@@ -25,9 +25,15 @@ import reactor.netty.http.client.HttpClient;
  */
 @Slf4j
 public class OpaHandler {
-  private static final String CHECK_ACCESS_ENDPOINT = "/v1/data/openhouse/authorization";
 
+  /** Opa endpoint to retrieve and store user to role mappings. */
   private static final String USER_ROLES_ENDPOINT = "/v1/data/user_roles";
+
+  /**
+   * Opa endpoint to check access decisions on a user for a privilege on a resource. The policy
+   * rules evaluate the request sent through POST against the existing user to role mappings.
+   */
+  private static final String CHECK_ACCESS_ENDPOINT = "/v1/data/openhouse/authorization";
 
   private WebClient webClient;
 

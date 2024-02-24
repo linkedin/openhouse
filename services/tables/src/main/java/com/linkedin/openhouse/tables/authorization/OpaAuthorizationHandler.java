@@ -18,7 +18,8 @@ import org.springframework.stereotype.Component;
  * metadata RBAC for service. This implementation stores the user-principal, resource and role
  * mapping in OPA. It is expected that a service running OPA is available and configured in the
  * cluster and base URI is provided in the cluster properties. Given this implementation does not
- * provide integration with storage system for data ACLs it should be extended before production use.
+ * provide integration with storage system for data ACLs it should be extended before production
+ * use.
  */
 @Component
 @Slf4j
