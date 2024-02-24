@@ -360,20 +360,58 @@ res1: org.apache.spark.sql.Row =
   }
 }]
 
-scala> spark.sql("GRANT SELECT ON TABLE openhouse.db.tb TO user").show
+```
+
+Login to spark-shell as user `u_tableowner` and try to access the table.
+
+```
+docker exec -it local.spark-master /bin/bash -u u_tableowner
+
+scala> spark.sql("select * from openhouse.db.tb").show()
+com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException: 403 Forbidden , {"status":"FORBIDDEN","error":"Forbidden","message":"Operation on table db.tb failed as user u_tableowner is unauthorized","stacktrace":null,"cause":"Not Available"}
+
+
+```
+
+Now `openHouse` user has to grant read access to user `u_tableowner` on the table.
+
+```
+
+scala> spark.sql("GRANT SELECT ON TABLE openhouse.db.tb TO u_tableowner").show
 ++
 ||
 ++
 ++
 
 scala> spark.sql("SHOW GRANTS ON TABLE openhouse.db.tb").show
-+---------+---------+
-|privilege|principal|
-+---------+---------+
-|   SELECT|     user|
-+---------+---------+
++---------+--------------+
+|privilege|principal     |
++---------+--------------+
+|   SELECT| u_tableowner |
++---------+--------------+
 
-scala> spark.sql("REVOKE SELECT ON TABLE openhouse.db.tb FROM user").show
+```
+
+Now user `u_tableowner` can access the table.
+
+```
+scala> spark.sparkContext.sparkUser
+res8: String = u_tableowner
+
+scala> spark.sql("select * from openhouse.db.tb").show()
++--------------------+----+----+
+|                  ts|col1|col2|
++--------------------+----+----+
+|2024-02-24 22:42:...|val1|val2|
++--------------------+----+----+
+
+```
+
+Some more examples of GRANT / REVOKE
+
+``` 
+
+scala> spark.sql("REVOKE SELECT ON TABLE openhouse.db.tb FROM u_tableowner").show
 ++
 ||
 ++
