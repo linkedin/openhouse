@@ -15,7 +15,6 @@ public enum Privileges {
   DELETE_TABLE(Privilege.DELETE_TABLE),
   UPDATE_ACL(Privilege.UPDATE_ACL),
   SYSTEM_ADMIN(Privilege.SYSTEM_ADMIN),
-
   SELECT(Privilege.SELECT);
 
   private String privilege;

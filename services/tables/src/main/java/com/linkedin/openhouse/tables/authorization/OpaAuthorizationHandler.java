@@ -148,7 +148,6 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
     try {
       Map<String, List<String>> allRolesOnResource =
           opaHandler.getAllRolesOnResource(tableDto.getDatabaseId(), tableDto.getTableId());
-      log.info("Values: {}", allRolesOnResource);
 
       List<AclPolicy> result =
           allRolesOnResource.entrySet().stream()
@@ -159,7 +158,6 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
                               role ->
                                   AclPolicy.builder().principal(entry.getKey()).role(role).build()))
               .collect(Collectors.toList());
-      log.info("Result: {}", result);
       return result;
     } catch (Exception e) {
       throw new AuthorizationServiceException("Cannot perform Opa list ACL policies", e);

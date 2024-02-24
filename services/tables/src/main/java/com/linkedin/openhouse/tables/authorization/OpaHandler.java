@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -199,6 +198,13 @@ public class OpaHandler {
     return currentRoles;
   }
 
+  /**
+   * Get all roles for a principal on a table in a given database.
+   *
+   * @param databaseId
+   * @param tableId
+   * @return
+   */
   public Map<String, List<String>> getAllRolesOnResource(String databaseId, String tableId) {
     String endpoint = String.format(USER_ROLES_ENDPOINT + "/%s/%s", databaseId, tableId);
 
@@ -231,6 +237,12 @@ public class OpaHandler {
     return currentRoles;
   }
 
+  /**
+   * Get all roles for a principal on a database.
+   *
+   * @param databaseId
+   * @return
+   */
   public Map<String, List<String>> getAllRolesOnResource(String databaseId) {
     String endpoint = String.format(USER_ROLES_ENDPOINT + "/%s", databaseId);
 
@@ -332,20 +344,5 @@ public class OpaHandler {
     JsonObject body = new JsonObject();
     body.add("input", new Gson().toJsonTree(userPrivilege));
     return body.toString();
-  }
-
-  private List<String> extractRoles(JsonNode userNode) {
-    JsonNode rolesNode = userNode.path("roles");
-    if (rolesNode != null && rolesNode.isArray()) {
-      log.info("rolesNode not empty: {}", rolesNode);
-      List<String> roles = new ArrayList<>();
-      for (JsonNode roleNode : rolesNode) {
-        roles.add(roleNode.asText());
-      }
-      return roles;
-    } else {
-      // Handle the case where "roles" is missing or not an array
-      return Collections.emptyList();
-    }
   }
 }
