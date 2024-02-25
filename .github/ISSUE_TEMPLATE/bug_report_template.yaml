@@ -71,7 +71,7 @@ body:
 - type: checkboxes
   id: component
   attributes:
-    label: What component(s) does this bug affect?
+    label: What component does this bug affect?
     description: Please choose one or more components below.
     options:
     - label: "`Table Service`: This is the RESTful catalog service that stores table metadata. `:services:tables`"
