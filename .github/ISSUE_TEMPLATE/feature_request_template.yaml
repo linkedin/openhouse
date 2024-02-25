@@ -15,7 +15,7 @@ body:
     id: contribution
     attributes:
       label: Willingness to contribute
-      description: The OpenHouse Community encourages bug fix contributions. Would you or another member of your organization be willing to contribute a fix for this issue or bug to the OpenHouse code base?
+      description: The OpenHouse Community encourages feature contributions. Would you or another member of your organization be willing to contribute a fix for this issue to the OpenHouse code base?
       options:
         - Yes. I can contribute a fix for this bug independently.
         - Yes. I would be willing to contribute a fix for this bug with guidance from the OpenHouse community.
