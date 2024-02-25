@@ -1,5 +1,5 @@
 name: Feature Request
-description: Use this template for feature requests.
+description: Use this template for submitting a feature requests.
 labels: 'feat'
 title: '[Feature]'
 
@@ -62,7 +62,7 @@ body:
     required: false
   - label: "`Other`: Please specify the component."
     required: false
-  
+
 - type: textarea
   attributes:
   label: Details
