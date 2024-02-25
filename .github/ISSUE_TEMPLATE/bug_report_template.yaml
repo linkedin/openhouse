@@ -75,18 +75,18 @@ body:
     description: Please choose one or more components below.
     options:
       - label: "`Table Service`: This is the RESTful catalog service that stores table metadata. `:services:tables`"
-      required: false
+        required: false
       - label: "`Jobs Service`: This is the job orchestrator that submits data services for table maintenance. `:services:jobs`"
-      required: false
+        required: false
       - label: "`Data Services`: This is the jobs that performs table maintenance. `apps:spark`"
-      required: false
+        required: false
       - label: "`Iceberg internal catalog`: This is the internal Iceberg catalog for OpenHouse Catalog Service. `:iceberg:openhouse`"
-      required: false
+        required: false
       - label: "`Spark Client Integration`: This is the Apache Spark integration for OpenHouse catalog. `:integration:spark`"
-      required: false
+        required: false
       - label: "`Documentation`: This is the documentation for OpenHouse. `docs`"
-      required: false
+        required: false
       - label: "`Local Docker`: This is the local Docker environment for OpenHouse. `infra/recipes/docker-compose`"
-      required: false
+        required: false
       - label: "`Other`: Please specify the component."
-      required: false
+        required: false
