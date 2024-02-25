@@ -47,9 +47,9 @@ Please refer to our [Pull Request Template](.github/pull_request_template.md) fo
 
 ### Types of Contributions
 
-[1] Bug Fixes (#bug): Create a new issue with a tag `bug` and add details like show [here](.github/ISSUE_TEMPLATE/bug_report_template.md). 
+[1] Bug Fixes (#bug): Create a new issue with a tag `bug` and add details like show [here](.github/ISSUE_TEMPLATE/bug_report_template.yaml). 
 
-[2] New Features (#feat): Create a new issue with a tag `feat` and add details like show [here](.github/ISSUE_TEMPLATE/feature_request_template.md).
+[2] New Features (#feat): Create a new issue with a tag `feat` and add details like show [here](.github/ISSUE_TEMPLATE/feature_request_template.yaml).
 Once there is an issue please engage with the maintainers to discuss the feature and drive alignment on the need and on 
 the execution plan before starting the coding work. If this is a large feature, identify a champion (one of the existing
 maintainers) who will help through the feature delivery, define an execution plan that includes breakdown of feature 
