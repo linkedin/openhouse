@@ -1,0 +1,32 @@
+RFC (Request for Comments):
+  name: RFC (Request for Comments)
+  about: Request for comments on a feature
+  title: "[RFC] "
+  labels:
+    - feat
+  body:
+    - type: markdown
+      attributes:
+        value: |
+          **Proposal**
+          A clear and concise description of the proposed idea or feature.
+    - type: textarea
+      id: motivation
+      attributes:
+        label: Motivation
+        description: Why do you think this idea or feature is important?
+    - type: textarea
+      id: proposal
+      attributes:
+        label: Proposal
+        description: Describe the proposed solution or implementation.
+    - type: textarea
+      id: alternatives
+      attributes:
+        label: Alternatives
+        description: Have you considered any alternatives? If so, please describe them.
+    - type: textarea
+      id: additional_notes
+      attributes:
+        label: Additional Notes
+        description: Add any additional notes or context about the proposal.
