@@ -31,8 +31,8 @@ body:
       label: Feature Request Proposal
       description: |
         In 2-3 lines provide a clear high-level description of feature request proposal.
-      validations:
-        required: true
+    validations:
+      required: true
   
   - type: textarea
     attributes:
@@ -41,8 +41,8 @@ body:
         How would this feature request help OpenHouse users?
       value: |
         > #### What is the use case for this feature?
-      validations:
-        required: true
+    validations:
+      required: true
   
   - type: checkboxes
     id: component
@@ -72,5 +72,5 @@ body:
       label: Details
       description: |
         Provide more details on feature requested.
-      validations:
-        required: false
+    validations:
+      required: false
