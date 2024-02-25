@@ -190,7 +190,7 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2
   --conf spark.sql.catalog.openhouse.catalog-impl=com.linkedin.openhouse.spark.OpenHouseCatalog     \
   --conf spark.sql.catalog.openhouse.metrics-reporter-impl=com.linkedin.openhouse.javaclient.OpenHouseMetricsReporter    \
   --conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
-  --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/<user>.token) \
+  --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
   --conf spark.sql.catalog.openhouse.cluster=LocalHadoopCluster
 ```
 
