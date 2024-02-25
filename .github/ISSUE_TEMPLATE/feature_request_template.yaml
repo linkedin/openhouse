@@ -7,8 +7,8 @@ body:
 - type: markdown
   attributes:
   value: |
-  Thank you for submitting an issue.
-  #### Please fill in this bug report template to ensure a timely and thorough response.
+    Thank you for submitting an issue.
+    #### Please fill in this bug report template to ensure a timely and thorough response.
 
 - type: dropdown
   id: contribution
