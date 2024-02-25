@@ -26,7 +26,7 @@ body:
   attributes:
   label: Feature Request Proposal
   description: |
-  In 2-3 lines provide a clear high-level description of feature request proposal.
+    In 2-3 lines provide a clear high-level description of feature request proposal.
   validations:
   required: true
 
