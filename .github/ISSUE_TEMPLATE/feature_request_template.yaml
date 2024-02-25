@@ -5,69 +5,69 @@ labels:
 title: '[Feature] '
 
 body:
-- type: markdown
-  attributes:
-  value: |
-    Thank you for submitting an issue.
-    #### Please fill in this bug report template to ensure a timely and thorough response.
-
-- type: dropdown
-  id: contribution
-  attributes:
-  label: Willingness to contribute
-  description: The OpenHouse Community encourages bug fix contributions. Would you or another member of your organization be willing to contribute a fix for this issue or bug to the OpenHouse code base?
-  options:
-    - Yes. I can contribute a fix for this bug independently.
-    - Yes. I would be willing to contribute a fix for this bug with guidance from the OpenHouse community.
-    - No. I cannot contribute a bug fix at this time.
-  validations:
-    required: true
-
-- type: textarea
-  attributes:
-  label: Feature Request Proposal
-  description: |
-    In 2-3 lines provide a clear high-level description of feature request proposal.
-  validations:
-    required: true
-
-- type: textarea
-  attributes:
-  label: Motivation
-  description: |
-    How would this feature request help OpenHouse users?
-  value: |
-    > #### What is the use case for this feature?
-  validations:
-    required: true
-
-- type: checkboxes
-  id: component
-  attributes:
-  label: What component(s) does this feature affect?
-  description: Please choose one or more components below.
-  options:
-    - label: "`Table Service`: This is the RESTful catalog service that stores table metadata. `:services:tables`"
-      required: false
-    - label: "`Jobs Service`: This is the job orchestrator that submits data services for table maintenance. `:services:jobs`"
-      required: false
-    - label: "`Data Services`: This is the jobs that performs table maintenance. `apps:spark`"
-      required: false
-    - label: "`Iceberg internal catalog`: This is the internal Iceberg catalog for OpenHouse Catalog Service. `:iceberg:openhouse`"
-      required: false
-    - label: "`Spark Client Integration`: This is the Apache Spark integration for OpenHouse catalog. `:integration:spark`"
-      required: false
-    - label: "`Documentation`: This is the documentation for OpenHouse. `docs`"
-      required: false
-    - label: "`Local Docker`: This is the local Docker environment for OpenHouse. `infra/recipes/docker-compose`"
-      required: false
-    - label: "`Other`: Please specify the component."
-      required: false
-
-- type: textarea
-  attributes:
-  label: Details
-  description: |
-    Provide more details on feature requested.
-  validations:
-  required: false
+  - type: markdown
+    attributes:
+    value: |
+      Thank you for submitting an issue.
+      #### Please fill in this bug report template to ensure a timely and thorough response.
+  
+  - type: dropdown
+    id: contribution
+    attributes:
+    label: Willingness to contribute
+    description: The OpenHouse Community encourages bug fix contributions. Would you or another member of your organization be willing to contribute a fix for this issue or bug to the OpenHouse code base?
+    options:
+      - Yes. I can contribute a fix for this bug independently.
+      - Yes. I would be willing to contribute a fix for this bug with guidance from the OpenHouse community.
+      - No. I cannot contribute a bug fix at this time.
+    validations:
+      required: true
+  
+  - type: textarea
+    attributes:
+    label: Feature Request Proposal
+    description: |
+      In 2-3 lines provide a clear high-level description of feature request proposal.
+    validations:
+      required: true
+  
+  - type: textarea
+    attributes:
+    label: Motivation
+    description: |
+      How would this feature request help OpenHouse users?
+    value: |
+      > #### What is the use case for this feature?
+    validations:
+      required: true
+  
+  - type: checkboxes
+    id: component
+    attributes:
+    label: What component(s) does this feature affect?
+    description: Please choose one or more components below.
+    options:
+      - label: "`Table Service`: This is the RESTful catalog service that stores table metadata. `:services:tables`"
+        required: false
+      - label: "`Jobs Service`: This is the job orchestrator that submits data services for table maintenance. `:services:jobs`"
+        required: false
+      - label: "`Data Services`: This is the jobs that performs table maintenance. `apps:spark`"
+        required: false
+      - label: "`Iceberg internal catalog`: This is the internal Iceberg catalog for OpenHouse Catalog Service. `:iceberg:openhouse`"
+        required: false
+      - label: "`Spark Client Integration`: This is the Apache Spark integration for OpenHouse catalog. `:integration:spark`"
+        required: false
+      - label: "`Documentation`: This is the documentation for OpenHouse. `docs`"
+        required: false
+      - label: "`Local Docker`: This is the local Docker environment for OpenHouse. `infra/recipes/docker-compose`"
+        required: false
+      - label: "`Other`: Please specify the component."
+        required: false
+  
+  - type: textarea
+    attributes:
+    label: Details
+    description: |
+      Provide more details on feature requested.
+    validations:
+    required: false
