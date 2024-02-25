@@ -34,9 +34,9 @@ body:
   attributes:
   label: Motivation
   description: |
-  How would this feature request help OpenHouse users?
+    How would this feature request help OpenHouse users?
   value: |
-  > #### What is the use case for this feature?
+    > #### What is the use case for this feature?
   validations:
   required: true
 
@@ -67,6 +67,6 @@ body:
   attributes:
   label: Details
   description: |
-  Provide more details on feature requested.
+    Provide more details on feature requested.
   validations:
   required: false
