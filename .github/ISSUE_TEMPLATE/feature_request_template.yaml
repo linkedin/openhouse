@@ -28,21 +28,21 @@ body:
   
   - type: textarea
     attributes:
-    label: Feature Request Proposal
-    description: |
-      In 2-3 lines provide a clear high-level description of feature request proposal.
-    validations:
-      required: true
+      label: Feature Request Proposal
+      description: |
+        In 2-3 lines provide a clear high-level description of feature request proposal.
+      validations:
+        required: true
   
   - type: textarea
     attributes:
-    label: Motivation
-    description: |
-      How would this feature request help OpenHouse users?
-    value: |
-      > #### What is the use case for this feature?
-    validations:
-      required: true
+      label: Motivation
+      description: |
+        How would this feature request help OpenHouse users?
+      value: |
+        > #### What is the use case for this feature?
+      validations:
+        required: true
   
   - type: checkboxes
     id: component
@@ -69,8 +69,8 @@ body:
   
   - type: textarea
     attributes:
-    label: Details
-    description: |
-      Provide more details on feature requested.
-    validations:
-      required: false
+      label: Details
+      description: |
+        Provide more details on feature requested.
+      validations:
+        required: false
