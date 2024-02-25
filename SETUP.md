@@ -173,10 +173,15 @@ Use the recipe in oh-hadoop-spark to start a spark cluster.
 
 Bash onto the `local.spark-master` container:
 ```
+docker exec -it local.spark-master /bin/bash -u <user>
+
+```
+By default it picks up `openhouse` user.  
+```
 docker exec -it local.spark-master /bin/bash
 ```
 
-Start `spark-shell` with the following command:
+Start `spark-shell` with the following command: Available users are `openhouse` and `u_tableowner`.
 ```
 bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0   \
   --jars openhouse-spark-runtime_2.12-*-all.jar  \
@@ -185,7 +190,7 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2
   --conf spark.sql.catalog.openhouse.catalog-impl=com.linkedin.openhouse.spark.OpenHouseCatalog     \
   --conf spark.sql.catalog.openhouse.metrics-reporter-impl=com.linkedin.openhouse.javaclient.OpenHouseMetricsReporter    \
   --conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
-  --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/openhouse.token) \
+  --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/<user>.token) \
   --conf spark.sql.catalog.openhouse.cluster=LocalHadoopCluster
 ```
 
@@ -334,9 +339,10 @@ res1: org.apache.spark.sql.Row =
 #### GRANT / REVOKE
 
 Table Sharing is enabled using OPA for local docker setup. By default, sharing is disabled. To enable sharing, run the following command in spark-shell.
+This can be done only by the user who created the table. Besides `openhouse` user has global access to manage all tables and can also manage grants on table.
 
 ```
-scala> spark.sql("ALTER TABLE openhouse.db.tb SET POLICY ( SHARING=true )").show
+scala> spark.sql("ALTER TABLE openhouse.db.tb SET POLICY (SHARING=true)").show
 ++
 ||
 ++
@@ -362,21 +368,17 @@ res1: org.apache.spark.sql.Row =
 
 ```
 
-Login to spark-shell as user `u_tableowner` and try to access the table.
+As user `u_tableowner` , exec into spark container, login to spark-shell and try to access the table. 403 is expected since user does not have read access.
 
 ```
-docker exec -it local.spark-master /bin/bash -u u_tableowner
-
 scala> spark.sql("select * from openhouse.db.tb").show()
 com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException: 403 Forbidden , {"status":"FORBIDDEN","error":"Forbidden","message":"Operation on table db.tb failed as user u_tableowner is unauthorized","stacktrace":null,"cause":"Not Available"}
 
-
 ```
 
-Now `openHouse` user has to grant read access to user `u_tableowner` on the table.
+Now `openHouse` user can to grant read access to user `u_tableowner` on the table.
 
 ```
-
 scala> spark.sql("GRANT SELECT ON TABLE openhouse.db.tb TO u_tableowner").show
 ++
 ||
@@ -389,10 +391,9 @@ scala> spark.sql("SHOW GRANTS ON TABLE openhouse.db.tb").show
 +---------+--------------+
 |   SELECT| u_tableowner |
 +---------+--------------+
-
 ```
 
-Now user `u_tableowner` can access the table.
+Now user `u_tableowner` can repeat the earlier steps and can access the table.
 
 ```
 scala> spark.sparkContext.sparkUser
@@ -407,7 +408,7 @@ scala> spark.sql("select * from openhouse.db.tb").show()
 
 ```
 
-Some more examples of GRANT / REVOKE
+Some more examples of GRANT / REVOKE commands that are supported.
 
 ``` 
 
