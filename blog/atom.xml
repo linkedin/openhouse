@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-    <id>https://your-docusaurus-site.example.com/blog</id>
+    <id>https://www.openhousedb.org/blog</id>
     <title>OpenHouse Blog</title>
     <updated>2023-07-19T00:00:00.000Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
-    <link rel="alternate" href="https://your-docusaurus-site.example.com/blog"/>
+    <link rel="alternate" href="https://www.openhousedb.org/blog"/>
     <subtitle>OpenHouse Blog</subtitle>
-    <icon>https://your-docusaurus-site.example.com/ui/openhouse_logo_without_text.png</icon>
+    <icon>https://www.openhousedb.org/ui/openhouse_logo_without_text.png</icon>
     <entry>
         <title type="html"><![CDATA[Taking Charge of Tables, Introducing OpenHouse for Big Data Management]]></title>
-        <id>https://your-docusaurus-site.example.com/blog/introduction-oh</id>
-        <link href="https://your-docusaurus-site.example.com/blog/introduction-oh"/>
+        <id>https://www.openhousedb.org/blog/introduction-oh</id>
+        <link href="https://www.openhousedb.org/blog/introduction-oh"/>
         <updated>2023-07-19T00:00:00.000Z</updated>
         <summary type="html"><![CDATA[<Link]]></summary>
         <content type="html"><![CDATA[<a href="https://www.linkedin.com/blog/engineering/data-management/taking-charge-of-tables--introducing-openhouse-for-big-data-mana" target="_blank" rel="noopener noreferrer" class="button button--primary button--small"><small> Read More </small></a>]]></content>
