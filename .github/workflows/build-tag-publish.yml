@@ -50,11 +50,8 @@ jobs:
       - name: Stop Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
 
-      - name: Wait for Docker Containers to stop
-        run: sleep 30
-
       - name: Bump version and push tag
-        if: ${{ success() }}
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
         uses: anothrNick/github-tag-action@1.64.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,14 +62,14 @@ jobs:
 
       - name: Get the latest tag
         id: get_tag
-        if: ${{ success() }}
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
         run: |
           latest_tag=$(git describe --tags --abbrev=0 main)
           semVer=${latest_tag:1} # Remove the first character ('v')
           echo "::set-output name=semVer::${semVer}"
 
       - name: Publish with Gradle
-        if: ${{ success() }}
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
         env:
           JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
           JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
