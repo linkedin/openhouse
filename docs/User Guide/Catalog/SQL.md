@@ -5,13 +5,17 @@ tags:
   - SQL
   - API
   - OpenHouse
+  - Iceberg
 ---
 
 ## Data Definition Language (DDL)
 
-### CREATE TABLE
-To create an OpenHouse table, run following SQL in Spark.
+OpenHouse tables supports [Apache Iceberg](https://iceberg.apache.org/) as the underlying table format. You can use native
+Spark syntax to create, alter, and drop tables, but do note there are some constraints OpenHouse imposes.
 
+### CREATE TABLE
+
+To create an OpenHouse table, run following SQL in Spark.
 ```sql
 CREATE TABLE openhouse.db.table (id bigint COMMENT 'unique id', data string);
 ```
@@ -20,23 +24,25 @@ OpenHouse supports following Create clauses:
 - `PARTITIONED BY`
 - `TBLPROPERTIES (‘key’=’value’,..)`
 
+List of supported DataTypes are the same as found in [Iceberg Spark Types](https://iceberg.apache.org/docs/latest/spark-writes/#spark-type-to-iceberg-type).
+
+:::warning
 OpenHouse does not support following Create clauses:
 - `LOCATION (*)`
 - `CLUSTERED BY (*)`
 - `COMMENT ‘table documentation’`
-
-List of supported DataTypes can be seen in [Iceberg Spark Types](https://iceberg.apache.org/docs/latest/spark-writes/#spark-type-to-iceberg-type).
+:::
 
 #### PARTITIONED BY
-OpenHouse supports single timestamp column to be specified in the partitioning scheme. It also supports upto three string or integer type column based partitioning scheme.
 
+OpenHouse supports single timestamp column to be specified in the partitioning scheme. It also supports upto three string or integer type column based partitioning scheme.
 To partition your table, you can use the following SQL syntax
 ```sql
 CREATE TABLE openhouse.db.table(datepartition string, epoch_ts timestamp)
 PARTITIONED BY (
     days(epoch_ts),
     datepartition
-    )
+)
 ```
 - `days(epoch_ts)`: partitions data by applying day-granularity on the timestamp-type column "epoch_ts". 
 
@@ -47,11 +53,14 @@ Other granularities supported are:
 
 You can also partition your data based on string column by using identity partitioning (for example: `datepartition`).
 
-Constraints: 
-- Other iceberg transforms such as bucket, truncate are not supported on timestamp column. 
-- No transformation is supported  on string or integer type partition column. Only timestamp-type column allows transformation.
+:::warning
+- Iceberg transforms such as bucket, truncate are not supported on timestamp column. 
+- No transformation is supported on string or integer type partition column.
+:::
 
 #### TBLPROPERTIES
+
+To set table properties, you can use the following SQL syntax
 ```sql
 CREATE TABLE openhouse.db.table(
     data string
@@ -63,18 +72,21 @@ TBLPROPERTIES (
 ```
 :::warning
 Keys with the prefix “openhouse.” (for example: “openhouse.tableId”) are preserved and cannot be set/modified. 
-Additionally, all Iceberg [TableProperties](https://github.com/apache/iceberg/blob/master/core/src/main/java/org/apache/iceberg/TableProperties.java) are also preserved.
+Additionally, all Iceberg [TableProperties](https://github.com/apache/iceberg/blob/master/core/src/main/java/org/apache/iceberg/TableProperties.java)
+are also preserved. 
+Catalog service has the ability to set these preserved properties as it finds suit.
 :::
 
 #### CREATE TABLE AS SELECT (CTAS)
+
 To create an OpenHouse table with some data, run following SQL in Spark.
 ```sql
 CREATE TABLE openhouse.db.table
 AS
-SELECT * FROM anyCatalog.srcDb.srcTable WHERE data = 'v1';
+SELECT * FROM hive.srcDb.srcTable WHERE data = 'v1';
 ```
 
-:::tip
+:::warning
 `Create table like tableName` is not supported. You can use `create table A as select * from B limit 0`  to achieve same effect
 :::
 
@@ -92,6 +104,7 @@ DROP TABLE openhouse.db.table;
 ```
 
 ### ALTER TABLE
+
 OpenHouse supports following ALTER statements
 - Setting or removing table properties.
 - Schema Evolution:
@@ -99,31 +112,35 @@ OpenHouse supports following ALTER statements
   - Widening the type of int, float, and decimal fields.
   - Making required columns optional. 
 
-OpenHouse doesn’t support for now
+:::warning
+OpenHouse doesn’t allow the following:
 - Schema evolution: Drop, rename and reordering.
 - Renaming a table.
 - Adding, removing, and changing partitioning.
 - Other iceberg alters such as: `write ordered by` / `write distributed by`
+:::
 
 #### ALTER TABLE ... SET TBLPROPERTIES
-To set table properties
 
+To set table properties, you can use the following SQL syntax
 ```sql
 ALTER TABLE openhouse.db.table SET TBLPROPERTIES (
   'key1' = 'value1',
   'key2' = 'value2'
 )
 ```
-To unset table properties
+To unset table properties, you can use the following SQL syntax
 ```sql
 ALTER TABLE openhouse.db.table UNSET TBLPROPERTIES ('key1', 'key2')
 ```
 :::warning
 Keys with the prefix “openhouse.” (for example: “openhouse.tableId”) are preserved and cannot be set/modified. 
 Additionally, all Iceberg [TableProperties](https://github.com/apache/iceberg/blob/master/core/src/main/java/org/apache/iceberg/TableProperties.java) are also preserved.
+Catalog service has the ability to set these preserved properties as it finds suit.
 :::
 
 #### ALTER TABLE ... ADD COLUMN
+
 Adding column is a supported schema evolution, to add a new column:
 ```sql
 ALTER TABLE openhouse.db.table
@@ -131,9 +148,9 @@ ADD COLUMNS (
     new_column string comment 'new_column docs'
 )
 ```
+
 Multiple columns can be added separated by comma.
 Nested columns can be added as follows:
-
 ```sql
 -- create a struct column
 ALTER TABLE openhouse.db.table
@@ -153,6 +170,7 @@ ADD COLUMN points array<struct<x: double, y: double>>;
 ALTER TABLE openhouse.db.table
 ADD COLUMN points.element.z double
 ```
+
 ```sql
 -- create a map column of struct key and struct value
 ALTER TABLE openhouse.db.table
@@ -254,7 +272,9 @@ Note: response of the table is cached for the duration of the session. In order 
 :::
 
 ### SELECT FROM w/ Time-Travel
-OpenHouse uses Iceberg as the table format. Iceberg generates a version/snapshot for every update to the table. A snapshot captures the state of the table at a specific point in time. We can query iceberg tables using the snapshot ID or timestamp from the past. Unlike Hive, Iceberg guarantees query reproducibility when querying historical data.
+OpenHouse uses Iceberg as the table format. Iceberg generates a version/snapshot for every update to the table. A
+snapshot captures the state of the table at a specific point in time. We can query iceberg tables using the snapshot ID
+or timestamp from the past. Unlike Hive, Iceberg guarantees query reproducibility when querying historical data.
 
 Time-travel is supported through following syntax.
 ```sql

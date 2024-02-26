@@ -5,36 +5,36 @@ tags:
   - Scala
   - API
   - OpenHouse
+  - Iceberg
 ---
 
 ##  Data Definition Language (DDL)
-For DDLs such as `CREATE TABLE`, `ALTER TABLE`, `GRANT/REVOKE` etc; use `.sql()` in SparkSession. Native Scala APIs for achieving those outcomes aren't available currently.
 
-```scala
--- Create Table
-spark.sql("CREATE TABLE openhouse.db.table (id bigint COMMENT 'unique id', data string)")
+OpenHouse tables supports [Apache Iceberg](https://iceberg.apache.org/) as the underlying table format. You can use native
+Spark syntax to create, alter, and drop tables, but do note there are some constraints OpenHouse imposes.
 
--- Alter Table
-spark.sql("""ALTER TABLE openhouse.db.table SET TBLPROPERTIES (
-  'key1' = 'value1',
-  'key2' = 'value2'
-)""")
+For DDLs such as `CREATE TABLE`, `ALTER TABLE`, `GRANT/REVOKE` etc; use `.sql()` in SparkSession. You can also use
+native Spark Scala syntax that creates table if not exists.
 
--- Grant Select
-spark.sql("GRANT SELECT ON TABLE openhouse.db.table TO <user>;")
+```sql
+import org.apache.spark.sql.functions;
+ 
+// Your code preparing DataFrame
+ 
+df.writeTo("openhouse.<dbName>.<tableName>").create()
 ```
 
-[See all available DDL commands here.](SQL.md#data-definition-language-ddl)
+[SQL DDL commands](SQL.md#data-definition-language-ddl)
 
 ## Reads
 To query a table, run the following:
 
-```scala
+```sql
 val df = spark.table("openhouse.db.table")
 ```
 
 You can also filter data using custom filters as follows:
-```scala
+```sql
 val filtered_df = df.filter(col("datepartition") > "2022-05-10")
 ```
 
