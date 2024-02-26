@@ -24,3 +24,5 @@ cluster:
     tables:
       authorization:
         enabled: true
+        opa:
+          base-uri: "http://opa:8181"

@@ -1,0 +1,16 @@
+version: "3.3"
+services:
+  opa:
+    image: openpolicyagent/opa:latest
+    ports:
+      - 8181:8181
+    expose:
+      - 8181
+    volumes:
+      - ./opa/policy.rego:/policy.rego
+      - ./opa/data.json:/data
+    command:
+      - "run"
+      - "--server"
+      - "policy.rego"
+      - "data"

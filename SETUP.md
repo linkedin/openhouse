@@ -79,6 +79,7 @@ livy-server|9003
 hdfs-namenode|9870
 mysql|3306
 spark-livy|8998
+opa|8181
 
 ## Test Services
 
@@ -165,6 +166,52 @@ curl "${curlArgs[@]}" -XGET http://localhost:8000/v1/databases/d3/tables/
 curl "${curlArgs[@]}" -XDELETE http://localhost:8000/v1/databases/d3/tables/t1
 ```
 
+### Grant / Revoke
+
+Note: Ensure sharing is enabled for this table.
+
+Example request to create table with sharing Enabled:
+
+```
+curl "${curlArgs[@]}" -XPOST http://localhost:8000/v1/databases/d3/tables/ \
+--data-raw '{
+  "tableId": "t4",
+  "databaseId": "d3",
+  "baseTableVersion": "INITIAL_VERSION",
+  "clusterId": "LocalFSCluster",
+  "schema": "{\"type\": \"struct\", \"fields\": [{\"id\": 1,\"required\": true,\"name\": \"id\",\"type\": \"string\"},{\"id\": 2,\"required\": true,\"name\": \"name\",\"type\": \"string\"},{\"id\": 3,\"required\": true,\"name\": \"ts\",\"type\": \"timestamp\"}]}",
+  "timePartitioning": {
+    "columnName": "ts",
+    "granularity": "HOUR"
+  },
+  "clustering": [
+    {
+      "columnName": "name"
+    }
+  ],
+  "tableProperties": {
+    "key": "value"
+  },
+  "policies": {
+    "sharingEnabled": "true"
+  }
+}'
+```
+Update can also be done to enable sharing on an existing table.
+
+REST API call to grant a role to a user on a table.
+
+```
+curl "${curlArgs[@]}" -v -X PATCH http://localhost:8000/v1/databases/d3/tables/t1/aclPolicies -d \
+'{"role":"TABLE_CREATOR","principal":"urn:li:griduser:DUMMY_AUTHENTICATED_USER","operation":"GRANT"}'
+```
+
+### List acl policies
+
+```
+curl "${curlArgs[@]}" -XGET http://localhost:8000/v1/databases/d3/aclPolicies/tables/t1/
+
+```
 
 ### Test through Spark-shell
 
@@ -172,10 +219,15 @@ Use the recipe in oh-hadoop-spark to start a spark cluster.
 
 Bash onto the `local.spark-master` container:
 ```
+docker exec -it local.spark-master /bin/bash -u <user>
+
+```
+By default it picks up `openhouse` user.  
+```
 docker exec -it local.spark-master /bin/bash
 ```
 
-Start `spark-shell` with the following command:
+Start `spark-shell` with the following command: Available users are `openhouse` and `u_tableowner`.
 ```
 bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0   \
   --jars openhouse-spark-runtime_2.12-*-all.jar  \
@@ -184,7 +236,7 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2
   --conf spark.sql.catalog.openhouse.catalog-impl=com.linkedin.openhouse.spark.OpenHouseCatalog     \
   --conf spark.sql.catalog.openhouse.metrics-reporter-impl=com.linkedin.openhouse.javaclient.OpenHouseMetricsReporter    \
   --conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
-  --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/openhouse.token) \
+  --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
   --conf spark.sql.catalog.openhouse.cluster=LocalHadoopCluster
 ```
 
@@ -332,10 +384,11 @@ res1: org.apache.spark.sql.Row =
 
 #### GRANT / REVOKE
 
-Note: Table Sharing is WIP for local docker setup. Below commands are provided for illustration purposes only.
+Table Sharing is enabled using OPA for local docker setup. By default, sharing is disabled. To enable sharing, run the following command in spark-shell.
+This can be done only by the user who created the table. Besides `openhouse` user has global access to manage all tables and can also manage grants on table.
 
 ```
-scala> spark.sql("ALTER TABLE openhouse.db.tb SET POLICY ( SHARING=true )").show
+scala> spark.sql("ALTER TABLE openhouse.db.tb SET POLICY (SHARING=true)").show
 ++
 ||
 ++
@@ -359,13 +412,53 @@ res1: org.apache.spark.sql.Row =
   }
 }]
 
-scala> spark.sql("GRANT SELECT ON TABLE openhouse.db.tb TO user").show
+```
+
+As user `u_tableowner` , exec into spark container, login to spark-shell and try to access the table. 403 is expected since user does not have read access.
+
+```
+scala> spark.sql("select * from openhouse.db.tb").show()
+com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException: 403 Forbidden , {"status":"FORBIDDEN","error":"Forbidden","message":"Operation on table db.tb failed as user u_tableowner is unauthorized","stacktrace":null,"cause":"Not Available"}
+
+```
+
+Now `openhouse` user can to grant read access to user `u_tableowner` on the table.
+
+```
+scala> spark.sql("GRANT SELECT ON TABLE openhouse.db.tb TO u_tableowner").show
 ++
 ||
 ++
 ++
 
-scala> spark.sql("REVOKE SELECT ON TABLE openhouse.db.tb FROM user").show
+scala> spark.sql("SHOW GRANTS ON TABLE openhouse.db.tb").show
++---------+--------------+
+|privilege|principal     |
++---------+--------------+
+|   SELECT| u_tableowner |
++---------+--------------+
+```
+
+Now user `u_tableowner` can repeat the earlier steps and can access the table.
+
+```
+scala> spark.sparkContext.sparkUser
+res8: String = u_tableowner
+
+scala> spark.sql("select * from openhouse.db.tb").show()
++--------------------+----+----+
+|                  ts|col1|col2|
++--------------------+----+----+
+|2024-02-24 22:42:...|val1|val2|
++--------------------+----+----+
+
+```
+
+Some more examples of GRANT / REVOKE commands that are supported.
+
+``` 
+
+scala> spark.sql("REVOKE SELECT ON TABLE openhouse.db.tb FROM u_tableowner").show
 ++
 ||
 ++
@@ -395,17 +488,20 @@ scala> spark.sql("REVOKE MANAGE GRANTS ON TABLE openhouse.db.tb FROM user").show
 ++
 ++
 
-scala> spark.sql("SHOW GRANTS ON TABLE openhouse.db.tb").show
+
+scala> spark.sql("GRANT SELECT ON DATABASE openhouse.db TO dbReader").show
+++
+||
+++
+++
+
+scala> spark.sql("SHOW GRANTS ON DATABASE openhouse.db.tb").show
 +---------+---------+
 |privilege|principal|
 +---------+---------+
+|   SELECT|  dbReader|
 +---------+---------+
 
-scala> spark.sql("SHOW GRANTS ON DATABASE openhouse.db").show
-+---------+---------+
-|privilege|principal|
-+---------+---------+
-+---------+---------+
 ```
 
 ### Test through Livy

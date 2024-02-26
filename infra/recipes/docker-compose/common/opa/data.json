@@ -1,0 +1,20 @@
+{
+  "user_roles": {
+  },
+  "privileges": {
+    "TABLE_VIEWER": [
+      "GET_TABLE_METADATA"
+    ],
+    "ACL_EDITOR": [
+      "UPDATE_ACL"
+    ],
+    "TABLE_ADMIN": [
+      "ALTER_TABLE",
+      "DELETE_TABLE",
+      "UPDATE_TABLE_METADATA"
+    ],
+    "TABLE_CREATOR": [
+      "CREATE_TABLE"
+    ]
+  }
+}

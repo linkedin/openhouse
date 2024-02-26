@@ -12,6 +12,7 @@ services:
       - namenode
       - datanode
       - prometheus
+      - opa
 
   openhouse-jobs:
     container_name: local.openhouse-jobs
@@ -101,6 +102,11 @@ services:
       file: ../common/mysql-services.yml
       service: mysql
 
+  opa:
+    container_name: local.opa
+    extends:
+      file: ../common/opa-services.yml
+      service: opa
 
 volumes:
   hadoop_namenode:
