@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   build-gradle-project:
@@ -26,7 +28,30 @@ jobs:
         uses: gradle/wrapper-validation-action@v1
 
       - name: Build with Gradle
-        run: ./gradlew clean build
+        run: ./gradlew clean build -x test
+
+      - name: Start Docker Containers
+        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
+
+      - name: Wait for Docker Containers to start
+        run: sleep 30
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Integration Tests
+        run: python scripts/python/integration_test.py ./tables-test-fixtures/src/main/resources/dummy.token
+
+      - name: Stop Docker Containers
+        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
+
+      - name: Wait for Docker Containers to stop
+        run: sleep 30
 
       - name: Bump version and push tag
         if: ${{ success() }}
