@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   build-gradle-project:
@@ -28,8 +30,28 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build
 
+      - name: Start Docker Containers
+        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
+
+      - name: Wait for Docker Containers to start
+        run: sleep 30
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install -r scripts/python/requirements.txt
+
+      - name: Run Integration Tests
+        run: python scripts/python/integration_test.py ./tables-test-fixtures/src/main/resources/dummy.token
+
+      - name: Stop Docker Containers
+        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
+
       - name: Bump version and push tag
-        if: ${{ success() }}
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
         uses: anothrNick/github-tag-action@1.64.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -40,14 +62,14 @@ jobs:
 
       - name: Get the latest tag
         id: get_tag
-        if: ${{ success() }}
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
         run: |
           latest_tag=$(git describe --tags --abbrev=0 main)
           semVer=${latest_tag:1} # Remove the first character ('v')
           echo "::set-output name=semVer::${semVer}"
 
       - name: Publish with Gradle
-        if: ${{ success() }}
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
         env:
           JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
           JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
