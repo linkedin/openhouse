@@ -42,7 +42,7 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r scripts/python/requirements.txt
 
       - name: Run Integration Tests
         run: python scripts/python/integration_test.py ./tables-test-fixtures/src/main/resources/dummy.token
