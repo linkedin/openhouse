@@ -166,6 +166,52 @@ curl "${curlArgs[@]}" -XGET http://localhost:8000/v1/databases/d3/tables/
 curl "${curlArgs[@]}" -XDELETE http://localhost:8000/v1/databases/d3/tables/t1
 ```
 
+### Grant / Revoke
+
+Note: Ensure sharing is enabled for this table.
+
+Example request to create table with sharing Enabled:
+
+```
+curl "${curlArgs[@]}" -XPOST http://localhost:8000/v1/databases/d3/tables/ \
+--data-raw '{
+  "tableId": "t4",
+  "databaseId": "d3",
+  "baseTableVersion": "INITIAL_VERSION",
+  "clusterId": "LocalFSCluster",
+  "schema": "{\"type\": \"struct\", \"fields\": [{\"id\": 1,\"required\": true,\"name\": \"id\",\"type\": \"string\"},{\"id\": 2,\"required\": true,\"name\": \"name\",\"type\": \"string\"},{\"id\": 3,\"required\": true,\"name\": \"ts\",\"type\": \"timestamp\"}]}",
+  "timePartitioning": {
+    "columnName": "ts",
+    "granularity": "HOUR"
+  },
+  "clustering": [
+    {
+      "columnName": "name"
+    }
+  ],
+  "tableProperties": {
+    "key": "value"
+  },
+  "policies": {
+    "sharingEnabled": "true"
+  }
+}'
+```
+Update can also be done to enable sharing on an existing table.
+
+REST API call to grant a role to a user on a table.
+
+```
+curl "${curlArgs[@]}" -v -X PATCH http://localhost:8000/v1/databases/d3/tables/t1/aclPolicies -d \
+'{"role":"TABLE_CREATOR","principal":"urn:li:griduser:DUMMY_AUTHENTICATED_USER","operation":"GRANT"}'
+```
+
+### List acl policies
+
+```
+curl "${curlArgs[@]}" -XGET http://localhost:8000/v1/databases/d3/aclPolicies/tables/t1/
+
+```
 
 ### Test through Spark-shell
 
