@@ -38,11 +38,13 @@ allow {
   # Check if privileges that the user has matches the privilege requested
   privilege == input.privilege_to_check
 }
+
 # Granting all access for default user
 allow {
   input.user == "DUMMY_ANONYMOUS_USER"
 }
-# OpenHouse is granted all access
+
+# openhouse is granted all access
 allow {
   input.user == "openhouse"
 }

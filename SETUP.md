@@ -422,7 +422,7 @@ com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageExceptio
 
 ```
 
-Now `openHouse` user can to grant read access to user `u_tableowner` on the table.
+Now `openhouse` user can to grant read access to user `u_tableowner` on the table.
 
 ```
 scala> spark.sql("GRANT SELECT ON TABLE openhouse.db.tb TO u_tableowner").show
