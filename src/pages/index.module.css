@@ -7,6 +7,8 @@
   padding: 12rem 0;
   text-align: left;
   position: relative;
+  display: flex;
+  flex-grow: 1;
   overflow: hidden;
   background: linear-gradient(110deg, var(--ifm-color-primary-darkest) 52%, var(--ifm-color-primary) 48%);
 }
