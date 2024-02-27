@@ -13,7 +13,7 @@ const config = {
   favicon: 'ui/openhouse_logo_without_text.png',
 
   // Set the production url of your site here
-  url: 'https://your-docusaurus-site.example.com',
+  url: 'https://www.openhousedb.org',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: '/',
@@ -110,6 +110,10 @@ const config = {
                 label: 'Overview',
                 to: '/docs/intro',
               },
+              {
+                label: 'User Guide',
+                to: '/docs/category/user-guide',
+              }
             ],
           },
           {
