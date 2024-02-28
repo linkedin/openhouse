@@ -16,6 +16,11 @@
 @media screen and (max-width: 996px) {
   .heroBanner {
     padding: 2rem;
+    text-align: center;
+  }
+
+  .heroBannerImage {
+    padding: 3rem;
   }
 }
 
