@@ -3,7 +3,7 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import HomepageFeatures from '@site/src/components/HomepageFeatures';
-import DocusaurusImageUrl from '@site/static/ui/openhouse_logo.png';
+import OpenHouseImageUrl from '@site/static/ui/openhouse_logo.png';
 
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
@@ -26,7 +26,7 @@ function HomepageHeader() {
             </Link>
           </div>
           <div class="col col--4 col--offset-2">
-            <img src={DocusaurusImageUrl} />
+            <img className={styles.heroBannerImage} src={OpenHouseImageUrl} />
           </div>
         </div>
       </div>
