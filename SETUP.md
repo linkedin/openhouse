@@ -100,13 +100,15 @@ echo ${curlArgs[@]}
 
 #### Create a Table
 
+Note: clusterId is LocalFSCluster for local docker setup and LocalHadoopCluster for setups that involve HDFS.
+
 ```
 curl "${curlArgs[@]}" -XPOST http://localhost:8000/v1/databases/d3/tables/ \
 --data-raw '{
   "tableId": "t1",
   "databaseId": "d3",
   "baseTableVersion": "INITIAL_VERSION",
-  "clusterId": "local-cluster",
+  "clusterId": "LocalFSCluster",
   "schema": "{\"type\": \"struct\", \"fields\": [{\"id\": 1,\"required\": true,\"name\": \"id\",\"type\": \"string\"},{\"id\": 2,\"required\": true,\"name\": \"name\",\"type\": \"string\"},{\"id\": 3,\"required\": true,\"name\": \"ts\",\"type\": \"timestamp\"}]}",
   "timePartitioning": {
     "columnName": "ts",
@@ -137,7 +139,7 @@ curl "${curlArgs[@]}" -XPUT http://localhost:8000/v1/databases/d3/tables/t1 \
   "tableId": "t1",
   "databaseId": "d3",
   "baseTableVersion":<fill in previous version>
-  "clusterId": "local-cluster",
+  "clusterId": "<fill in cluster id>",
   "schema": "{\"type\": \"struct\", \"fields\": [{\"id\": 1,\"required\": true,\"name\": \"id\",\"type\": \"string\"},{\"id\": 2,\"required\": true,\"name\": \"name\",\"type\": \"string\"},{\"id\": 3,\"required\": true,\"name\": \"ts\",\"type\": \"timestamp\"}, {\"id\": 4,\"required\": true,\"name\": \"country\",\"type\": \"string\"}]}",
   "timePartitioning": {
     "columnName": "ts",
