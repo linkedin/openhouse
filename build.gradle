@@ -60,6 +60,7 @@ allprojects {
       force 'com.fasterxml.jackson:jackson-bom:2.13.4'
       force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
       force 'org.apache.orc:orc-core:1.8.3'
+      force 'org.springframework:spring-webmvc:5.3.18'
     }
   }
 
