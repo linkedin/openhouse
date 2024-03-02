@@ -51,7 +51,7 @@ jobs:
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
 
       - name: Bump version and push tag
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         uses: anothrNick/github-tag-action@1.64.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -62,21 +62,21 @@ jobs:
 
       - name: Get the latest tag
         id: get_tag
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
           latest_tag=$(git describe --tags --abbrev=0 main)
           semVer=${latest_tag:1} # Remove the first character ('v')
           echo "::set-output name=semVer::${semVer}"
 
       - name: Publish with Gradle
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         env:
           JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
           JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
         run: ./gradlew publish -Pversion=${{ steps.get_tag.outputs.semVer }}
 
       - name: Login to LinkedIn Jfrog Docker artifactory
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         uses: docker/login-action@v3
         with:
           registry: linkedin-openhouse-docker.jfrog.io
@@ -84,25 +84,25 @@ jobs:
           password: ${{ secrets.JFROG_DOCKER_PASSWORD }}
 
       - name: Build and push Docker image for Tables Service
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ steps.get_tag.outputs.semVer }} -f tables-service.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for House Tables Service
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }} -f housetables-service.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for Jobs Service
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ steps.get_tag.outputs.semVer }} -f jobs-service.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for Jobs Scheduler
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ steps.get_tag.outputs.semVer }} -f jobs-scheduler.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ steps.get_tag.outputs.semVer }}
