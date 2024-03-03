@@ -79,8 +79,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "databaseId : provided %s, doesn't match with the RequestBody %s",
               databaseId, createUpdateTableRequestBody.getDatabaseId()));
     }
-    if (createUpdateTableRequestBody.getSchema() != null
-        && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema()).columns().isEmpty()) {
+    if (createUpdateTableRequestBody.getSchema() == null) {
       validationFailures.add(
           String.format(
               "schema : provided %s, should contain at least one column",
@@ -192,8 +191,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "tableId : provided %s, doesn't match with the RequestBody %s",
               tableId, createUpdateTableRequestBody.getTableId()));
     }
-    if (createUpdateTableRequestBody.getSchema() != null
-        && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema()).columns().isEmpty()) {
+    if (createUpdateTableRequestBody.getSchema() != null) {
       validationFailures.add(
           String.format(
               "schema : provided %s, should contain at least one column",

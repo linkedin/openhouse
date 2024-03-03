@@ -20,6 +20,10 @@ plugins {
   id 'openhouse.service-specgen-convention'
 }
 
+repositories {
+  mavenCentral()
+}
+
 dependencies {
   implementation project(':services:common')
   implementation project(':iceberg:openhouse:internalcatalog')
@@ -27,6 +31,7 @@ dependencies {
   implementation project(':cluster:configs')
   implementation project(':cluster:storage')
   implementation project(':cluster:metrics')
+  implementation("io.delta:delta-standalone_2.12:0.5.0")
   implementation 'org.springframework.security:spring-security-config:' + '5.7.2'
   implementation 'org.springframework.boot:spring-boot-starter-webflux:2.6.6'
   testCompile 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
