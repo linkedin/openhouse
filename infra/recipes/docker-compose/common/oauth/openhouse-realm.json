@@ -75,7 +75,7 @@
               "user.attribute": "username",
               "id.token.claim": "true",
               "access.token.claim": "true",
-              "claim.name": "username",
+              "claim.name": "preferred_username",
               "jsonType.label": "String"
             }
           }

@@ -14,6 +14,6 @@ TOKEN="$1"
 USERNAME=$(curl -X GET \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -H "Authorization: Bearer $TOKEN" \
-  "$KEYCLOAK_URL/realms/$REALM/protocol/openid-connect/userinfo" | jq -r '.username')
+  "$KEYCLOAK_URL/realms/$REALM/protocol/openid-connect/userinfo" | jq -r '.preferred_username')
 
 echo "$USERNAME"
