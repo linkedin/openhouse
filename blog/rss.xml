@@ -4,10 +4,21 @@
         <title>OpenHouse Blog</title>
         <link>https://www.openhousedb.org/blog</link>
         <description>OpenHouse Blog</description>
-        <lastBuildDate>Wed, 19 Jul 2023 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Mon, 04 Mar 2024 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
         <language>en</language>
+        <item>
+            <title><![CDATA[Open Sourcing OpenHouse, A Control Plane for Managing Tables in a Data Lakehouse]]></title>
+            <link>https://www.openhousedb.org/blog/opensourcing-oh</link>
+            <guid>https://www.openhousedb.org/blog/opensourcing-oh</guid>
+            <pubDate>Mon, 04 Mar 2024 00:00:00 GMT</pubDate>
+            <description><![CDATA[<Link]]></description>
+            <content:encoded><![CDATA[<a href="https://www.linkedin.com/blog/engineering/open-source/open-sourcing-openhouse" target="_blank" rel="noopener noreferrer" class="button button--primary button--small"><small> Read More </small></a>]]></content:encoded>
+            <category>openhouse</category>
+            <category>big data</category>
+            <category>opensource</category>
+        </item>
         <item>
             <title><![CDATA[Taking Charge of Tables, Introducing OpenHouse for Big Data Management]]></title>
             <link>https://www.openhousedb.org/blog/introduction-oh</link>
