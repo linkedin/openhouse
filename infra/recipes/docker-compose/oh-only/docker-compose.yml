@@ -30,3 +30,9 @@ services:
     extends:
       file: ../common/opa-services.yml
       service: opa
+
+  oauth:
+    container_name: local.oauth
+    extends:
+      file: ../common/oauth-services.yml
+      service: oauth

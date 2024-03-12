@@ -1,0 +1,85 @@
+{
+  "realm": "openhouse",
+  "enabled": true,
+  "users": [
+    {
+      "username": "openhouse",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "openhouse"
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ]
+    }, {
+        "username": "u_tableowner",
+        "enabled": true,
+        "credentials": [
+            {
+            "type": "password",
+            "value": "u_tableowner"
+            }
+        ],
+        "realmRoles": [
+            "user"
+        ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Admin role"
+      },
+      {
+        "name": "user",
+        "description": "User role"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "openhouse-services",
+      "defaultClientScopes": [
+        "openid"
+      ],
+      "directAccessGrantsEnabled": true,
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "redirectUris": [
+        "*"
+      ],
+      "serviceAccountsEnabled": true
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "openid",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.id.token": "true",
+        "include.in.access.token": "true",
+        "display.on.consent.screen": "true"
+      },
+      "protocolMappers": [
+          {
+            "name": "username",
+            "protocol": "openid-connect",
+            "protocolMapper": "oidc-usermodel-attribute-mapper",
+            "config": {
+              "userinfo.token.claim": "true",
+              "user.attribute": "username",
+              "id.token.claim": "true",
+              "access.token.claim": "true",
+              "claim.name": "preferred_username",
+              "jsonType.label": "String"
+            }
+          }
+      ]
+    }
+  ]
+}
