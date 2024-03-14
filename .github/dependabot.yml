@@ -11,3 +11,6 @@ updates:
           - "*"  # Group all Actions updates into a single larger pull request
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "actions/setup-java"
+      - dependency-name: "gradle/wrapper-validation-action"
