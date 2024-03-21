@@ -44,6 +44,8 @@ public class DoCommitTest {
 
   private TableMetadata baseWithPropsChange;
 
+  private TableMetadata baseWithPartitionChange;
+
   private TableMetadata baseWithInvalidPartitionChange;
 
   @TempDir Path tempDir;
@@ -85,7 +87,7 @@ public class DoCommitTest {
             UUID.randomUUID().toString(),
             ImmutableMap.of("k", "v"));
 
-    baseWithInvalidPartitionChange =
+    baseWithPartitionChange =
         TableMetadata.newTableMetadata(
             new Schema(
                 Types.NestedField.required(1, "stringId", Types.StringType.get()),
@@ -96,6 +98,21 @@ public class DoCommitTest {
                         Types.NestedField.required(
                             2, "timestampCol", Types.TimestampType.withoutZone())))
                 .truncate("stringId", 10)
+                .build(),
+            UUID.randomUUID().toString(),
+            ImmutableMap.of());
+
+    baseWithInvalidPartitionChange =
+        TableMetadata.newTableMetadata(
+            new Schema(
+                Types.NestedField.required(1, "stringId", Types.StringType.get()),
+                Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone())),
+            PartitionSpec.builderFor(
+                    new Schema(
+                        Types.NestedField.required(1, "stringId", Types.StringType.get()),
+                        Types.NestedField.required(
+                            2, "timestampCol", Types.TimestampType.withoutZone())))
+                .bucket("stringId", 10)
                 .build(),
             UUID.randomUUID().toString(),
             ImmutableMap.of());
@@ -174,6 +191,10 @@ public class DoCommitTest {
 
     mockTableService.enqueue(validResponse);
     ops.doCommit(base, baseWithPropsChange);
+    Assertions.assertTimeout(Duration.ofSeconds(1), () -> mockTableService.takeRequest());
+
+    mockTableService.enqueue(validResponse);
+    ops.doCommit(base, baseWithPartitionChange);
     Assertions.assertTimeout(Duration.ofSeconds(1), () -> mockTableService.takeRequest());
   }
 

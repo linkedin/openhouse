@@ -19,7 +19,7 @@ pull request in 2-3 lines.
 
 For all the boxes checked, please include additional details of the changes made in this pull request.  
 
-## Testing
+## Testing Done
 <!--- Check any relevant boxes with "x" -->
 
 - [ ] Manually Tested on local docker setup. Please include commands ran, and their output.

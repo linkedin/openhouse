@@ -26,6 +26,7 @@ public class TableRetentionTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
+    TableMetadata tableMetadata = getMetadata();
     RetentionConfig config = tablesClient.getTableRetention(tableMetadata).get();
     String columnName = config.getColumnName();
     List<String> jobArgs =
@@ -49,6 +50,6 @@ public class TableRetentionTask extends TableOperationTask {
 
   @Override
   protected boolean shouldRun() {
-    return tablesClient.canRunRetention(tableMetadata);
+    return tablesClient.canRunRetention(getMetadata());
   }
 }

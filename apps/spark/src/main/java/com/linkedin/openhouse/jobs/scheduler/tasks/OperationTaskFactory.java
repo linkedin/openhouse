@@ -4,21 +4,21 @@ import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
-import com.linkedin.openhouse.jobs.util.TableMetadata;
+import com.linkedin.openhouse.jobs.util.Metadata;
 import java.lang.reflect.InvocationTargetException;
 import lombok.AllArgsConstructor;
 
 /** Factory class for creating tasks of the given type per table. */
 @AllArgsConstructor
-public class TableOperationTaskFactory<T extends TableOperationTask> {
+public class OperationTaskFactory<T extends OperationTask> {
   private Class<T> cls;
   private JobsClientFactory jobsClientFactory;
   private TablesClientFactory tablesClientFactory;
 
-  public TableOperationTask create(TableMetadata tableMetadata)
+  public <S extends Metadata> T create(S metadata)
       throws NoSuchMethodException, InvocationTargetException, InstantiationException,
-          IllegalAccessException {
-    return cls.getDeclaredConstructor(JobsClient.class, TablesClient.class, TableMetadata.class)
-        .newInstance(jobsClientFactory.create(), tablesClientFactory.create(), tableMetadata);
+          IllegalAccessException, IllegalStateException {
+    return cls.getDeclaredConstructor(JobsClient.class, TablesClient.class, metadata.getClass())
+        .newInstance(jobsClientFactory.create(), tablesClientFactory.create(), metadata);
   }
 }

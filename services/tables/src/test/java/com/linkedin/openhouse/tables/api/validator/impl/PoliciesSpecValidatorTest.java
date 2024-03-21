@@ -77,6 +77,18 @@ class PoliciesSpecValidatorTest {
     Assertions.assertTrue(
         validator.validatePatternIfPresent(
             retention3, TableUri.builder().build(), getSchemaJsonFromSchema(nestedSchema)));
+
+    // Empty pattern is valid
+    pattern = RetentionColumnPattern.builder().pattern("").columnName("top1.aa").build();
+    Retention retention4 =
+        Retention.builder()
+            .columnPattern(pattern)
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .build();
+    Assertions.assertTrue(
+        validator.validatePatternIfPresent(
+            retention4, TableUri.builder().build(), getSchemaJsonFromSchema(nestedSchema)));
   }
 
   @Test
@@ -208,6 +220,29 @@ class PoliciesSpecValidatorTest {
     Assertions.assertTrue(
         ((String) org.springframework.util.ReflectionUtils.getField(failedMsg, validator))
             .contains("You can only specify retention column pattern on non-timestampPartitioned"));
+
+    // Negative: having granularity not supported by defaultColumPattern
+    RetentionColumnPattern defaultPattern =
+        RetentionColumnPattern.builder().columnName("aa").pattern("").build();
+    Retention retention5 =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.MONTH)
+            .columnPattern(defaultPattern)
+            .build();
+    Policies policies5 = Policies.builder().retention(retention5).build();
+    Assertions.assertFalse(
+        validator.validate(
+            policies5, null, TableUri.builder().build(), getSchemaJsonFromSchema(dummySchema)));
+
+    failedMsg =
+        org.springframework.util.ReflectionUtils.findField(
+            PoliciesSpecValidator.class, "failureMessage");
+    Assertions.assertNotNull(failedMsg);
+    org.springframework.util.ReflectionUtils.makeAccessible(failedMsg);
+    Assertions.assertTrue(
+        ((String) org.springframework.util.ReflectionUtils.getField(failedMsg, validator))
+            .contains("Please define pattern in retention config"));
 
     // The granularity mismatch is covered in
     // com.linkedin.openhouse.tables.e2e.h2.TablesControllerTest.testCreateRequestFailsForWithGranularityDifferentFromTimePartitionSpec

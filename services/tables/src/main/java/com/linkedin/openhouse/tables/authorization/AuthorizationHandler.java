@@ -4,6 +4,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
+import java.util.Map;
 
 /**
  * OpenHouse table sharing specification divides table-level access control into two parts:
@@ -53,9 +54,16 @@ public interface AuthorizationHandler {
    *
    * @param role
    * @param principal User principal to grant the access to.
+   * @param expirationEpochTimeSeconds optional epoch time in seconds for the role to expire
+   * @param properties Optional properties to accept key-value pair
    * @param tableDto
    */
-  void grantRole(String role, String principal, TableDto tableDto);
+  void grantRole(
+      String role,
+      String principal,
+      Long expirationEpochTimeSeconds,
+      Map<String, String> properties,
+      TableDto tableDto);
 
   /**
    * Method to revoke role from principal on databaseDto, for restricting access to a database

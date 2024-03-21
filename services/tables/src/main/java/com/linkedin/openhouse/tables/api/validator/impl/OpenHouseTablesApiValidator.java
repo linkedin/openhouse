@@ -16,7 +16,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.IntStream;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import org.apache.commons.lang.StringUtils;
@@ -29,6 +28,8 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   @Autowired private Validator validator;
 
   @Autowired private PoliciesSpecValidator policiesSpecValidator;
+
+  @Autowired private ClusteringSpecValidator clusteringSpecValidator;
 
   @Override
   public void validateGetTable(String databaseId, String tableId) {
@@ -86,32 +87,17 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "schema : provided %s, should contain at least one column",
               createUpdateTableRequestBody.getSchema()));
     }
-    if (createUpdateTableRequestBody.getClustering() != null) {
-      if (createUpdateTableRequestBody.getClustering().size() > MAX_ALLOWED_CLUSTERING_COLUMNS) {
-        validationFailures.add(
-            String.format(
-                "table %s.%s has %s clustering columns specified, max clustering columns supported is %d",
-                databaseId,
-                createUpdateTableRequestBody.getTableId(),
-                createUpdateTableRequestBody.getClustering().size(),
-                MAX_ALLOWED_CLUSTERING_COLUMNS));
-      }
-      IntStream.range(0, createUpdateTableRequestBody.getClustering().size())
-          .forEach(
-              idx -> {
-                if (createUpdateTableRequestBody.getClustering().get(idx) == null) {
-                  validationFailures.add(
-                      String.format(
-                          "table %s.%s clustering[%d] : cannot be null",
-                          databaseId, createUpdateTableRequestBody.getTableId(), idx));
-                }
-              });
-    }
     validationFailures.addAll(validateUUIDForReplicaTable(createUpdateTableRequestBody));
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
+    if (createUpdateTableRequestBody.getClustering() != null) {
+      clusteringSpecValidator.validate(
+          createUpdateTableRequestBody.getClustering(),
+          databaseId,
+          createUpdateTableRequestBody.getTableId());
+    }
   }
 
   /**
@@ -219,6 +205,12 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
+    if (createUpdateTableRequestBody.getClustering() != null) {
+      clusteringSpecValidator.validate(
+          createUpdateTableRequestBody.getClustering(),
+          databaseId,
+          createUpdateTableRequestBody.getTableId());
+    }
   }
 
   @Override

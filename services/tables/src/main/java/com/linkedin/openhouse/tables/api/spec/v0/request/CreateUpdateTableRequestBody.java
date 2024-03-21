@@ -76,7 +76,9 @@ public class CreateUpdateTableRequestBody {
   @Schema(
       nullable = true,
       description = "Clustering columns for the table",
-      example = "\"clustering\":[{\"columnName\":\"country\"},{\"columnName\":\"city\"}]")
+      example =
+          "\"clustering\":[{\"columnName\":\"country\"},"
+              + "{\"columnName\":\"city\",\"transform\":{\"transformType\":\"TRUNCATE\",\"transformParams\":[\"1000\"]}}]")
   @Valid
   private List<ClusteringColumn> clustering;
 

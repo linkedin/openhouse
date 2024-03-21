@@ -4,6 +4,7 @@ package com.linkedin.openhouse.jobs.util;
 public final class AppConstants {
 
   public static final String TABLE_NAME = "table_name";
+  public static final String TABLE_DIRECTORY_PATH = "table_directory_path";
   public static final String JOB_NAME = "job_name";
 
   // Spark App observability constants
@@ -15,6 +16,8 @@ public final class AppConstants {
   public static final String EXPIRED_FILE_COUNT = "expired_file_count";
   public static final String ORPHAN_FILE_COUNT = "orphan_file_count";
   public static final String STAGED_FILE_COUNT = "staged_file_count";
+  public static final String ORPHAN_DIRECTORY_COUNT = "orphan_directory_count";
+  public static final String STAGED_DIRECTORY_COUNT = "staged_directory_count";
   public static final String ADDED_DATA_FILE_COUNT = "added_data_file_count";
   public static final String REWRITTEN_DATA_FILE_COUNT = "rewritten_data_file_count";
   public static final String REWRITTEN_DATA_FILE_BYTES = "rewritten_data_file_bytes";

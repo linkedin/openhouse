@@ -47,6 +47,39 @@ public class CreateTablePartitionedTest {
   }
 
   @Test
+  public void testCreateTimePartitionAndTransformClusteredTable() {
+    String tbName = "tbpartitionedtransformclustered";
+    mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
+    mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
+    mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
+
+    mockTableService.enqueue(
+        mockResponse(
+            201,
+            mockGetTableResponseBody(
+                "dbCreate",
+                tbName,
+                "c1",
+                "dbCreate.tbpartitionedclustered.c1",
+                "UUID",
+                mockTableLocation(
+                    TableIdentifier.of("dbDesc", tbName),
+                    convertSchemaToDDLComponent(baseSchema),
+                    "PARTITIONED BY (days(timestampCol), truncate(100, name))"),
+                "v1",
+                baseSchema,
+                null,
+                null))); // doCommit()
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            spark.sql(
+                "CREATE TABLE openhouse.dbCreate.$TB_NAME ($SCHEMA) USING ICEBERG PARTITIONED BY (days(timestampCol), truncate(100, name))"
+                    .replace("$TB_NAME", tbName)
+                    .replace("$SCHEMA", convertSchemaToDDLComponent(baseSchema))));
+  }
+
+  @Test
   public void testCreateTimePartitionedTableSuccessful() {
     for (String transform : ImmutableList.of("days", "months", "hours", "years")) {
       String tbName = "tbpartitioned" + transform;
@@ -85,8 +118,10 @@ public class CreateTablePartitionedTest {
   @Test
   public void testCreateStringClusteringTableSuccessful() {
     for (String transform :
-        ImmutableList.of("identity(name)", "name", "identity(count)", "count")) {
-      String tbName = "tbclustered_" + transform.replace('(', '_').replace(')', '_');
+        ImmutableList.of(
+            "identity(name)", "name", "identity(count)", "count", "truncate(10, timeLong)")) {
+      String tbName =
+          "tbclustered_" + transform.replace('(', '_').replace(')', '_').replace(", ", "_");
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
@@ -121,9 +156,7 @@ public class CreateTablePartitionedTest {
 
   @Test
   public void testCreatePartitionedTableUnsupported() {
-    for (String transform :
-        ImmutableList.of(
-            "truncate(2, name)", "bucket(2, name)", "truncate(2, count)", "bucket(2, count)")) {
+    for (String transform : ImmutableList.of("bucket(2, name)", "bucket(2, count)")) {
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()

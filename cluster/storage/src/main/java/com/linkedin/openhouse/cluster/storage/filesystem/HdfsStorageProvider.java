@@ -22,7 +22,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class HdfsStorageProvider implements FsStorageProvider {
   @Autowired protected ClusterProperties clusterProperties;
-
   private FileSystem fs;
   private Map<String, String> storageProperties;
 
@@ -42,6 +41,11 @@ public class HdfsStorageProvider implements FsStorageProvider {
   }
 
   @Override
+  public String storageType() {
+    return clusterProperties.getClusterStorageType();
+  }
+
+  @Override
   public Map<String, String> storageProperties() {
     try {
       initializeClient();
@@ -49,11 +53,6 @@ public class HdfsStorageProvider implements FsStorageProvider {
     } catch (IOException ioe) {
       throw new UncheckedIOException("Not able to initialize the storage client due to:", ioe);
     }
-  }
-
-  @Override
-  public String storageType() {
-    return clusterProperties.getClusterStorageType();
   }
 
   @Override
@@ -93,7 +92,7 @@ public class HdfsStorageProvider implements FsStorageProvider {
             "currentClass:" + this.getClass().getName());
       }
     } else {
-      log.debug("Obtaining initialized file system object reference directly: " + fs);
+      log.debug("Obtaining initialized file system object reference directly: {}", fs);
     }
   }
 }

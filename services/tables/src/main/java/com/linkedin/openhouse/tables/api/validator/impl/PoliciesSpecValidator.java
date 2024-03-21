@@ -6,7 +6,9 @@ import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -59,7 +61,16 @@ public class PoliciesSpecValidator {
         }
       }
 
-      // Two invalid case regarding the integrity of retention object.
+      // invalid cases regarding the integrity of retention object.
+      if (!validateGranularityWithPattern(policies.getRetention())) {
+        failureMessage =
+            String.format(
+                "Provided Retention Granularity[%s] is not supported with default pattern. "
+                    + "Please define pattern in retention config or use one of supported granularity: %s",
+                policies.getRetention().getGranularity().name(),
+                Arrays.toString(DefaultColumnPattern.values()));
+        return false;
+      }
       if (!validatePatternIfPresent(policies.getRetention(), tableUri, schema)) {
         failureMessage =
             String.format(
@@ -87,6 +98,36 @@ public class PoliciesSpecValidator {
       if (retention.getColumnPattern().getColumnName() != null
           && !columnExists(
               getSchemaFromSchemaJson(schema), retention.getColumnPattern().getColumnName())) {
+        return false;
+      }
+      return isPatternValid(retention.getColumnPattern().getPattern(), tableUri);
+    }
+
+    return true;
+  }
+
+  protected boolean isPatternValid(String pattern, TableUri tableUri) {
+    try {
+      DateTimeFormatter.ofPattern(pattern);
+    } catch (IllegalArgumentException illegalArgumentException) {
+      log.warn(
+          "The pattern provided {} cannot be parsed correctly for the table {}", pattern, tableUri);
+      return false;
+    }
+
+    return true;
+  }
+
+  /** validate the granularity provided is supported by default {@link DefaultColumnPattern} */
+  protected boolean validateGranularityWithPattern(Retention retention) {
+    if (retention.getColumnPattern() != null
+        && retention.getColumnPattern().getPattern().isEmpty()) {
+      try {
+        DefaultColumnPattern.valueOf(retention.getGranularity().name());
+      } catch (IllegalArgumentException e) {
+        log.warn(
+            "Retention Granularity {} is not supported with default retention column pattern",
+            retention.getGranularity().name());
         return false;
       }
       return isPatternValid(retention.getColumnPattern().getPattern(), tableUri);

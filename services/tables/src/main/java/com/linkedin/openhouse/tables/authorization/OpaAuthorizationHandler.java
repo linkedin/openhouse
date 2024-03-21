@@ -81,7 +81,12 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
   }
 
   @Override
-  public void grantRole(String role, String principal, TableDto tableDto) {
+  public void grantRole(
+      String role,
+      String principal,
+      Long expirationEpochTimeSeconds,
+      Map<String, String> properties,
+      TableDto tableDto) {
     log.info(
         "Granting role {} to principal {} on database {} table {}",
         role,

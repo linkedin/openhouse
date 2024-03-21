@@ -3,12 +3,15 @@ package com.linkedin.openhouse.tables.mock.mapper;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
+import java.util.Collections;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -89,6 +92,79 @@ public class TablesMapperTest {
     Assertions.assertEquals(tableDto1.getTableId(), TABLE_DTO.getTableId());
     Assertions.assertEquals(tableDto1.getClusterId(), TABLE_DTO.getClusterId());
     Assertions.assertEquals(tableDto1.getTableType(), TableType.REPLICA_TABLE);
+  }
+
+  @Test
+  public void testToTableDtoWithEmptyPolicyColumnPattern() {
+    //  case 1 - when granularity is DAY
+    TableDto tableDto1 =
+        tablesMapper.toTableDto(
+            TABLE_DTO,
+            TableModelConstants.CREATE_TABLE_REQUEST_BODY
+                .toBuilder()
+                .policies(TABLE_POLICIES_WITH_EMPTY_PATTERN)
+                .build());
+    Assertions.assertEquals(tableDto1.getDatabaseId(), CREATE_TABLE_REQUEST_BODY.getDatabaseId());
+    Assertions.assertEquals(tableDto1.getTableId(), CREATE_TABLE_REQUEST_BODY.getTableId());
+    Assertions.assertEquals(tableDto1.getClusterId(), CREATE_TABLE_REQUEST_BODY.getClusterId());
+    Assertions.assertEquals(
+        tableDto1.getPolicies().getRetention().getColumnPattern().getPattern(),
+        DefaultColumnPattern.HOUR.getPattern());
+    Assertions.assertEquals(
+        tableDto1.getPolicies().getRetention().getColumnPattern().getColumnName(), "name");
+
+    // case 2 - when granularity is HOUR
+    TableDto tableDto2 =
+        tablesMapper.toTableDto(
+            TABLE_DTO,
+            TableModelConstants.CREATE_TABLE_REQUEST_BODY
+                .toBuilder()
+                .policies(
+                    TABLE_POLICIES_WITH_EMPTY_PATTERN
+                        .toBuilder()
+                        .retention(
+                            RETENTION_POLICY_WITH_EMPTY_PATTERN
+                                .toBuilder()
+                                .granularity(TimePartitionSpec.Granularity.DAY)
+                                .build())
+                        .build())
+                .build());
+    Assertions.assertEquals(tableDto2.getDatabaseId(), CREATE_TABLE_REQUEST_BODY.getDatabaseId());
+    Assertions.assertEquals(tableDto2.getTableId(), CREATE_TABLE_REQUEST_BODY.getTableId());
+    Assertions.assertEquals(tableDto2.getClusterId(), CREATE_TABLE_REQUEST_BODY.getClusterId());
+    Assertions.assertEquals(
+        tableDto2.getPolicies().getRetention().getColumnPattern().getPattern(),
+        DefaultColumnPattern.DAY.getPattern());
+    Assertions.assertEquals(
+        tableDto2.getPolicies().getRetention().getColumnPattern().getColumnName(), "name");
+  }
+
+  @Test
+  public void testToTableDtoWithPutSnapshotsEmptyPolicyColumnPattern() {
+    IcebergSnapshotsRequestBody icebergSnapshotsRequestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion("v1")
+            .createUpdateTableRequestBody(
+                CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST
+                    .toBuilder()
+                    .policies(TABLE_POLICIES_WITH_EMPTY_PATTERN)
+                    .build())
+            .jsonSnapshots(Collections.singletonList("dummy"))
+            .build();
+    TableDto tableDto1 = tablesMapper.toTableDto(TABLE_DTO, icebergSnapshotsRequestBody);
+    Assertions.assertEquals(
+        tableDto1.getDatabaseId(),
+        CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getDatabaseId());
+    Assertions.assertEquals(
+        tableDto1.getTableId(), CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getTableId());
+    Assertions.assertEquals(
+        tableDto1.getClusterId(),
+        CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getClusterId());
+    Assertions.assertEquals(
+        tableDto1.getPolicies().getRetention().getColumnPattern().getPattern(),
+        DefaultColumnPattern.HOUR.getPattern());
+    Assertions.assertEquals(
+        tableDto1.getPolicies().getRetention().getColumnPattern().getColumnName(), "name");
   }
 
   @Test

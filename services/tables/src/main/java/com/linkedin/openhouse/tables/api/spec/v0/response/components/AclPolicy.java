@@ -18,6 +18,10 @@ public class AclPolicy {
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String role;
 
+  @Schema(description = "Optional epoch time in seconds for the role to expire")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private Long expirationEpochTimeSeconds;
+
   @Schema(description = "Optional properties to accept key-value pair")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   @Nullable

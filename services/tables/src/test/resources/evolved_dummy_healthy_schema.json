@@ -33,6 +33,12 @@
     },
     {
       "id": 6,
+      "required": true,
+      "name": "timeLong",
+      "type": "long"
+    },
+    {
+      "id": 7,
       "required": false,
       "name": "favorite_number",
       "type": "int",

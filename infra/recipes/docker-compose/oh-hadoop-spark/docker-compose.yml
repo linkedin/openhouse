@@ -36,6 +36,8 @@ services:
       - openhouse-tables
       - openhouse-jobs
       - prometheus
+      - namenode
+
     profiles:
       - with_jobs_scheduler
 

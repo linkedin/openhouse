@@ -8,6 +8,7 @@ import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBo
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
+import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.util.Arrays;
@@ -98,6 +99,10 @@ public class OpenHouseTableOperationsTest {
         .thenReturn(Mono.error(mock(WebClientResponseException.NotFound.class)));
     Assertions.assertThrows(
         NoSuchTableException.class, () -> openHouseTableOperations.doCommit(base, metadata));
+    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.error(mock(WebClientRequestException.class)));
+    Assertions.assertThrows(
+        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
   }
 
   @Test

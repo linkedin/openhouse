@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.client;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
+import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
@@ -21,12 +22,13 @@ public class TablesClientFactory {
   private final String basePath;
   private final DatabaseTableFilter filter;
   private final @Nullable String token;
+  private final FsStorageProvider fsStorageProvider;
 
   public TablesClient create() {
     return create(RetryUtil.getTablesApiRetryTemplate());
   }
 
-  public TablesClient create(RetryTemplate retryTemplate) {
+  private TablesClient create(RetryTemplate retryTemplate) {
     ApiClient client = null;
     try {
       client = TablesApiClientFactory.getInstance().createApiClient(basePath, token, null);
@@ -35,11 +37,19 @@ public class TablesClientFactory {
           "Tables Client initialization failed: Failure while initializing ApiClient", e);
     }
     client.setBasePath(basePath);
-    return create(retryTemplate, new TableApi(client), new DatabaseApi(client));
+    return create(
+        retryTemplate,
+        new TableApi(client),
+        new DatabaseApi(client),
+        new StorageClient(fsStorageProvider));
   }
 
   @VisibleForTesting
-  public TablesClient create(RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi) {
-    return new TablesClient(retryTemplate, tableApi, dbApi, filter);
+  public TablesClient create(
+      RetryTemplate retryTemplate,
+      TableApi tableApi,
+      DatabaseApi dbApi,
+      StorageClient storageClient) {
+    return new TablesClient(retryTemplate, tableApi, dbApi, filter, storageClient);
   }
 }

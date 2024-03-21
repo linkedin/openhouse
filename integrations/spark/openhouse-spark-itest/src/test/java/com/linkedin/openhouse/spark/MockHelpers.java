@@ -283,7 +283,11 @@ public class MockHelpers {
    */
   public static List<String[]> convertSchemaToFieldArray(String icebergSchema) {
     return SchemaParser.fromJson(icebergSchema).columns().stream()
-        .map(x -> Arrays.asList(x.name(), x.type().toString(), "").toArray(new String[3]))
+        .map(
+            x ->
+                x.type().toString().equals("long")
+                    ? Arrays.asList(x.name(), "bigint", "").toArray(new String[3])
+                    : Arrays.asList(x.name(), x.type().toString(), "").toArray(new String[3]))
         .collect(Collectors.toList());
   }
 

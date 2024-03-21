@@ -6,6 +6,7 @@ import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Arrays;
 import java.util.Collections;
@@ -13,6 +14,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -34,9 +37,11 @@ public class PartitionSpecMapper {
   private static final Type.TypeID ALLOWED_PARTITION_TYPEID = Type.TypeID.TIMESTAMP;
   private static final Set<Type.TypeID> ALLOWED_CLUSTERING_TYPEIDS =
       Collections.unmodifiableSet(
-          new HashSet<Type.TypeID>(Arrays.asList(Type.TypeID.STRING, Type.TypeID.INTEGER)));
+          new HashSet<Type.TypeID>(
+              Arrays.asList(Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG)));
+  private static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
   private static final Set<String> SUPPORTED_TRANSFORMS =
-      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity")));
+      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));
 
   /**
    * Given an Iceberg {@link Table}, extract OpenHouse {@link TimePartitionSpec} If Table is
@@ -90,7 +95,8 @@ public class PartitionSpecMapper {
         return;
       }
     } else if (ALLOWED_CLUSTERING_TYPEIDS.contains(typeID)) {
-      if (SUPPORTED_TRANSFORMS.contains(partitionField.transform().toString())) {
+      String transform = partitionField.transform().toString();
+      if (SUPPORTED_TRANSFORMS.stream().anyMatch(pattern -> transform.matches(pattern))) {
         return;
       }
     }
@@ -129,7 +135,12 @@ public class PartitionSpecMapper {
     if (!clusteringFields.isEmpty()) {
       clustering =
           clusteringFields.stream()
-              .map(x -> ClusteringColumn.builder().columnName(x.name()).build())
+              .map(
+                  x ->
+                      ClusteringColumn.builder()
+                          .columnName(table.schema().findColumnName(x.sourceId()))
+                          .transform(toTransform(x).orElse(null))
+                          .build())
               .collect(Collectors.toList());
     }
     return clustering;
@@ -189,17 +200,23 @@ public class PartitionSpecMapper {
                     "Column name %s of type %s is not supported clustering type",
                     clusteringField.getColumnName(), typeID.name()));
           }
-          String optimalTransform =
-              evaluateOptimalTransform(tableDto, clusteringField.getColumnName());
-          switch (optimalTransform) {
-            case "identity":
-              partitionSpecBuilder.identity(clusteringField.getColumnName());
-              break;
-            default:
-              throw new IllegalArgumentException(
-                  String.format(
-                      "Unsupported transform %s for clustering column %s",
-                      optimalTransform, clusteringField.getColumnName()));
+          if (clusteringField.getTransform() != null) {
+            Transform transform = clusteringField.getTransform();
+            switch (transform.getTransformType()) {
+              case TRUNCATE:
+                partitionSpecBuilder.truncate(
+                    clusteringField.getColumnName(),
+                    Integer.parseInt(transform.getTransformParams().get(0)));
+                break;
+              default:
+                throw new IllegalArgumentException(
+                    String.format(
+                        "Unsupported transform %s for clustering column %s",
+                        transform.getTransformType().toString(), clusteringField.getColumnName()));
+            }
+          } else {
+            // identity transform
+            partitionSpecBuilder.identity(clusteringField.getColumnName());
           }
         }
       }
@@ -209,10 +226,6 @@ public class PartitionSpecMapper {
           "Adding partition spec failed:" + ex.getMessage());
     }
     return partitionSpecBuilder.build();
-  }
-
-  private String evaluateOptimalTransform(TableDto tableDto, String columnName) {
-    return "identity";
   }
 
   /**
@@ -243,5 +256,28 @@ public class PartitionSpecMapper {
         break;
     }
     return Optional.ofNullable(granularity);
+  }
+
+  /**
+   * Given a {@link PartitionField}, determine if its transformation is a clustering one, ie.
+   * truncate, and return the corresponding transform.
+   *
+   * @param partitionField partitionField
+   * @return Transform
+   */
+  private Optional<Transform> toTransform(PartitionField partitionField) {
+    /* String based comparison is necessary as the classes are package-private */
+    Transform transform = null;
+    String icebergTransform = partitionField.transform().toString();
+    Matcher truncateMatcher = Pattern.compile(TRUNCATE_REGEX).matcher(icebergTransform);
+    if (truncateMatcher.matches()) {
+      String width = truncateMatcher.group(1);
+      transform =
+          Transform.builder()
+              .transformType(Transform.TransformType.TRUNCATE)
+              .transformParams(Arrays.asList(width))
+              .build();
+    }
+    return Optional.ofNullable(transform);
   }
 }

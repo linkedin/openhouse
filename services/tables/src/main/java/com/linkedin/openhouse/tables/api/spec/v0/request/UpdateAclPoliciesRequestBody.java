@@ -2,6 +2,8 @@ package com.linkedin.openhouse.tables.api.spec.v0.request;
 
 import com.google.gson.GsonBuilder;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Map;
+import javax.annotation.Nullable;
 import javax.validation.Valid;
 import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.NotNull;
@@ -30,6 +32,16 @@ public class UpdateAclPoliciesRequestBody {
   @NotNull(message = "operation value is incorrect")
   @Valid
   Operation operation;
+
+  @Schema(
+      description = "Optional epoch time in seconds for the role to expire",
+      example = "1707791165")
+  @Nullable
+  Long expirationEpochTimeSeconds;
+
+  @Schema(description = "Optional properties to accept key-value pair")
+  @Nullable
+  Map<String, String> properties;
 
   public enum Operation {
     GRANT,

@@ -48,6 +48,7 @@
     <Class name="com.linkedin.openhouse.spark.OpenHouseCatalog"/>
     <Bug pattern="NM_SAME_SIMPLE_NAME_AS_SUPERCLASS"/>
   </Match>
+<<<<<<<< HEAD:gradle/spotbugs/spotbugsExclude.xml
 
   <Match>
     <!-- Raising an issue returning a singleton instance of a class -->
@@ -56,4 +57,6 @@
   </Match>
 
 
+========
+>>>>>>>> internal/master:ligradle/spotbugs/spotbugsExclude.xml
 </FindBugsFilter>

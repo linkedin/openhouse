@@ -12,10 +12,10 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryTimeoutException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryUnavailableException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnkownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +61,8 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
    * disallow declaring retryOn and notRetryOn at the same time.
    */
   @VisibleForTesting
-  protected synchronized RetryTemplate getHtsRetryTemplate() {
+  protected synchronized RetryTemplate getHtsRetryTemplate(
+      List<Class<? extends Throwable>> throwables) {
     if (retryTemplate == null) {
       RetryTemplateBuilder builder = new RetryTemplateBuilder();
       // Timeout on Mono block/blockOptional method throws java.lang.IllegalStateException on
@@ -71,9 +72,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
           builder
               .maxAttempts(HtsRetryUtils.MAX_RETRY_ATTEMPT)
               .customBackoff(HtsRetryUtils.DEFAULT_HTS_BACKOFF_POLICY)
-              .retryOn(HouseTableRepositoryTimeoutException.class)
-              .retryOn(HouseTableRepositoryUnavailableException.class)
-              .retryOn(IllegalStateException.class)
+              .retryOn(throwables)
               .build();
     }
     return retryTemplate;
@@ -86,7 +85,9 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
       params.put("databaseId", databaseId);
     }
 
-    return getHtsRetryTemplate()
+    return getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
         .execute(
             context ->
                 apiInstance
@@ -106,7 +107,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
     CreateUpdateEntityRequestBodyUserTable requestBody =
         new CreateUpdateEntityRequestBodyUserTable().entity(houseTableMapper.toUserTable(entity));
 
-    return getHtsRetryTemplate()
+    return getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
         .execute(
             context ->
                 apiInstance
@@ -120,7 +121,9 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   @Override
   public Optional<HouseTable> findById(HouseTablePrimaryKey houseTablePrimaryKey) {
 
-    return getHtsRetryTemplate()
+    return getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
         .execute(
             context ->
                 apiInstance
@@ -153,24 +156,17 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
               "[Client side failure]Error status code for HTS:"
                   + ((WebClientResponseException) e).getStatusCode(),
               e));
-    } else if (e instanceof WebClientResponseException.InternalServerError
-        || e instanceof WebClientResponseException.ServiceUnavailable
-        || e instanceof WebClientResponseException.BadGateway) {
+    } else if (e instanceof WebClientResponseException
+        && ((WebClientResponseException) e).getStatusCode().is5xxServerError()) {
       return Mono.error(
-          new HouseTableRepositoryUnavailableException(
-              "[Server side failure]Error status code for HTS:"
-                  + ((WebClientResponseException) e).getStatusCode(),
-              e));
-    } else if (e instanceof WebClientResponseException.GatewayTimeout) {
-      return Mono.error(
-          new HouseTableRepositoryTimeoutException(
+          new HouseTableRepositoryStateUnkownException(
               "Cannot determine if HTS has persisted the proposed change", e));
     } else if (ExceptionUtils.indexOfThrowable(e, DnsNameResolverTimeoutException.class)
         != -1) { // DnsNameResolverTimeoutException appears nested within exception causes and
       // ExceptionUtils class is used to match the occurrence of this failure. Retry is done
       // for this failure using existing retry template.
       return Mono.error(
-          new HouseTableRepositoryTimeoutException(
+          new HouseTableRepositoryStateUnkownException(
               "HTS service could not be resolved due to DNS lookup timeout", e));
     } else {
       return Mono.error(new RuntimeException("UNKNOWN and unhandled failure from HTS:", e));
@@ -179,7 +175,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public void deleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    getHtsRetryTemplate()
+    getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
         .execute(
             context ->
                 apiInstance

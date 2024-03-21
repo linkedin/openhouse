@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
  * Policies is the entity for holding Policy specification for a table in request body. Using this
  * class to deserialize policies Json from request
  */
-@Builder
+@Builder(toBuilder = true)
 @EqualsAndHashCode
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)

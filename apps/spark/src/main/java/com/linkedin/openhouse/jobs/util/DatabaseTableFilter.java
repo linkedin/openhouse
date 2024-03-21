@@ -23,4 +23,8 @@ public class DatabaseTableFilter {
   public boolean applyTableName(String tableName) {
     return tablePattern.matcher(tableName).matches();
   }
+
+  public boolean applyTableDirectoryPath(String tableDirectoryName) {
+    return tablePattern.matcher(tableDirectoryName).matches();
+  }
 }

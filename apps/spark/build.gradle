@@ -25,6 +25,7 @@ dependencies {
     implementation project(':client:tableclient')
     implementation project(':client:secureclient')
     implementation project(':services:common')
+    implementation project(':cluster:storage')
     compileOnly project(':integrations:spark:openhouse-spark-runtime_2.12')
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
@@ -32,6 +33,7 @@ dependencies {
     implementation ('org.apache.spark:spark-sql_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
     }
+    implementation 'org.apache.hadoop:hadoop-common:2.10.0'
     implementation 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
     implementation 'commons-cli:commons-cli:1.5.0'
     implementation 'org.reflections:reflections:0.10.2'
@@ -74,6 +76,7 @@ test.dependsOn ':integrations:spark:openhouse-spark-runtime_2.12:build'
 
 shadowJar {
     zip64 = true
+    mergeServiceFiles() // merge META-INF/services configuration files to allow FileSystem to be discovered
     dependencies {
         // unnecessary dependencies from iceberg-spark3-runtime
         exclude(dependency('org.apache.iceberg::'))
@@ -87,14 +90,14 @@ shadowJar {
             exclude 'com.linkedin.openhouse.**' // don't want our classes to be shaded
             exclude 'com.ctc.wstx.**' // dynamically loaded classes
             exclude 'com.squareup.**'
+            exclude '%regex[com.sun.security.*]'
         }
-
         relocate 'okhttp3', 'openhouse.relocated.okhttp3'
         relocate 'okio', 'openhouse.relocated.okio'
         relocate 'reactor', 'openhouse.relocated.reactor'
         relocate('org','openhouse.relocated.org') {
             exclude 'org.apache.iceberg.**' // these are runtime classes, we shouldn't relocate them unless we shade them
-            exclude 'org.apache.hadoop.**' // these are runtime classes too
+            exclude '%regex[org.apache.hadoop.*]' // these are runtime classes too, use regex to exclude string literals
             exclude 'org.apache.commons.**' // these are part of method signatures reused in sub-classes
             exclude 'org.apache.avro.**' // these runtime classes too
             exclude 'org.apache.spark.**' // these runtime classes too
@@ -104,6 +107,8 @@ shadowJar {
             exclude 'org.apache.log4j.**'
             exclude 'org.apache.logging.**' // otherwise fails with add log4j-core to the classpath
             exclude 'org.xml.sax.**' // otherwise fails with NoClassDefFoundError: org/xml/sax/ContentHandler
+            exclude '%regex[org.w3c.*]'
+            exclude '%regex[org.ietf.*]'
         }
     }
 }

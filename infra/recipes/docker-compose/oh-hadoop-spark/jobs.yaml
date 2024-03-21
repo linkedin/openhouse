@@ -49,3 +49,7 @@ jobs:
         class-name: com.linkedin.openhouse.jobs.spark.StagedFilesDeletionSparkApp
         args: []
         <<: *apps-defaults
+      - type: ORPHAN_DIRECTORY_DELETION
+        class-name: com.linkedin.openhouse.jobs.spark.OrphanDirectoryDeletionSparkApp
+        args: [ "--trashDir", ".trash" ]
+        <<: *apps-defaults

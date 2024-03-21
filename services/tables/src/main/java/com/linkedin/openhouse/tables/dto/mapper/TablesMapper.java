@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
@@ -23,8 +24,10 @@ import org.mapstruct.Mappings;
       Table.class,
       IcebergSchemaHelper.class,
       TablesMapperHelper.class,
+      PoliciesSpecMapper.class,
       HashMap.class,
-      TableType.class
+      TableType.class,
+      DefaultColumnPattern.class
     },
     uses = {PartitionSpecMapper.class, PoliciesSpecMapper.class})
 public interface TablesMapper {
@@ -47,7 +50,7 @@ public interface TablesMapper {
     @Mapping(source = "requestBody.timePartitioning", target = "timePartitioning"),
     @Mapping(source = "requestBody.clustering", target = "clustering"),
     @Mapping(source = "requestBody.tableProperties", target = "tableProperties"),
-    @Mapping(source = "requestBody.policies", target = "policies"),
+    @Mapping(source = "requestBody.policies", target = "policies", qualifiedByName = "mapPolicies"),
     @Mapping(source = "requestBody.stageCreate", target = "stageCreate"),
     @Mapping(
         source = "requestBody.tableType",
@@ -74,6 +77,7 @@ public interface TablesMapper {
     @Mapping(source = "tableDto.databaseId", target = "databaseId"),
     @Mapping(source = "tableDto.clusterId", target = "clusterId"),
     @Mapping(source = "requestBody.jsonSnapshots", target = "jsonSnapshots"),
+    @Mapping(source = "requestBody.snapshotRefs", target = "snapshotRefs"),
     @Mapping(
         source = "requestBody.baseTableVersion",
         target = "tableVersion"), /* store base version to check later */
@@ -85,7 +89,10 @@ public interface TablesMapper {
         source = "requestBody.createUpdateTableRequestBody.timePartitioning",
         target = "timePartitioning"),
     @Mapping(source = "requestBody.createUpdateTableRequestBody.clustering", target = "clustering"),
-    @Mapping(source = "requestBody.createUpdateTableRequestBody.policies", target = "policies"),
+    @Mapping(
+        source = "requestBody.createUpdateTableRequestBody.policies",
+        target = "policies",
+        qualifiedByName = "mapPolicies"),
     @Mapping(
         source = "requestBody.createUpdateTableRequestBody.stageCreate",
         target = "stageCreate"),

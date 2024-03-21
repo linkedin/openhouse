@@ -12,12 +12,11 @@ import com.linkedin.openhouse.housetables.client.model.UserTable;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.*;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import okhttp3.mockwebserver.MockResponse;
@@ -31,9 +30,11 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.util.ReflectionUtils;
 
 /** As part of prerequisite of this test, bring up the /hts Springboot application. */
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 @SpringBootTest
 public class HouseTableRepositoryImplTest {
 
@@ -365,7 +366,11 @@ public class HouseTableRepositoryImplTest {
             .build();
 
     CustomRetryListener retryListener = new CustomRetryListener();
-    ((HouseTableRepositoryImpl) htsRepo).getHtsRetryTemplate().registerListener(retryListener);
+    ((HouseTableRepositoryImpl) htsRepo)
+        .getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+        .registerListener(retryListener);
     Assertions.assertThrows(
         HouseTableConcurrentUpdateException.class, () -> htsRepo.findById(testKey));
     int actualRetryCount = retryListener.getRetryCount();
@@ -374,30 +379,23 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
-  public void testRetryForSaveHtsCall() {
+  public void testNoRetryForStateUnkown() {
 
-    mockHtsServer.enqueue(
-        new MockResponse()
-            .setResponseCode(503)
-            .setBody("")
-            .addHeader("Content-Type", "application/json"));
-    mockHtsServer.enqueue(
-        new MockResponse()
-            .setResponseCode(502)
-            .setBody("")
-            .addHeader("Content-Type", "application/json"));
-    mockHtsServer.enqueue(
-        new MockResponse()
-            .setResponseCode(400)
-            .setBody("")
-            .addHeader("Content-Type", "application/json"));
-
-    CustomRetryListener retryListener = new CustomRetryListener();
-    ((HouseTableRepositoryImpl) htsRepo).getHtsRetryTemplate().registerListener(retryListener);
-
-    Assertions.assertThrows(HouseTableCallerException.class, () -> htsRepo.save(HOUSE_TABLE));
-    int actualRetryCount = retryListener.getRetryCount();
-    Assertions.assertEquals(actualRetryCount, HtsRetryUtils.MAX_RETRY_ATTEMPT);
+    for (int i : Arrays.asList(500, 501, 502, 503, 504)) {
+      mockHtsServer.enqueue(
+          new MockResponse()
+              .setResponseCode(i)
+              .setBody("")
+              .addHeader("Content-Type", "application/json"));
+      CustomRetryListener retryListener = new CustomRetryListener();
+      ((HouseTableRepositoryImpl) htsRepo)
+          .getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+          .registerListener(retryListener);
+      Assertions.assertThrows(
+          HouseTableRepositoryStateUnkownException.class, () -> htsRepo.save(HOUSE_TABLE));
+      int actualRetryCount = retryListener.getRetryCount();
+      Assertions.assertEquals(actualRetryCount, 1);
+    }
   }
 
   @Test
@@ -409,7 +407,11 @@ public class HouseTableRepositoryImplTest {
             .addHeader("Content-Type", "application/json"));
 
     CustomRetryListener retryListener = new CustomRetryListener();
-    ((HouseTableRepositoryImpl) htsRepo).getHtsRetryTemplate().registerListener(retryListener);
+    ((HouseTableRepositoryImpl) htsRepo)
+        .getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+        .registerListener(retryListener);
 
     HouseTablePrimaryKey testKey =
         HouseTablePrimaryKey.builder()

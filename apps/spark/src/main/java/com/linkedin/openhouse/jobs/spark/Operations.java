@@ -1,8 +1,11 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import avro.shaded.com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
+import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.Meter;
@@ -23,8 +26,10 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.ExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
@@ -71,6 +76,12 @@ public final class Operations implements AutoCloseable {
   public Table getTable(String fqtn) {
     Catalog catalog = getCatalog();
     return catalog.loadTable(TableIdentifier.parse(fqtn));
+  }
+
+  @VisibleForTesting
+  protected Transaction createTransaction(String fqtn, Schema schema) {
+    Catalog catalog = getCatalog();
+    return catalog.buildTable(TableIdentifier.parse(fqtn), schema).createTransaction();
   }
 
   /**
@@ -131,6 +142,69 @@ public final class Operations implements AutoCloseable {
               }
             });
     return operation.execute();
+  }
+
+  /**
+   * Run deleteOrphanDirectory operation on the given table directory path with time filter, moves
+   * files to the given trash subdirectory if the table is created older than the provided
+   * timestamp.
+   */
+  public boolean deleteOrphanDirectory(
+      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
+    List<Path> matchingFiles = Lists.newArrayList();
+    listFiles(tableDirectoryPath, file -> true, true, matchingFiles);
+
+    boolean anyMatched = false;
+    // if there is one file that satisfy predicate, all files should go into trash
+    try {
+      FileSystem fileSystem = fs();
+      for (Path matchingFile : matchingFiles) {
+        FileStatus filestatus = fileSystem.getFileStatus(matchingFile);
+        if (filestatus.getModificationTime() < olderThanTimestampMillis) {
+          anyMatched = true;
+          break;
+        }
+      }
+    } catch (IOException e) {
+      log.error("Error fetching the file system given path: {}", tableDirectoryPath);
+    }
+
+    if (!anyMatched) {
+      return false;
+    }
+
+    for (Path matchingFile : matchingFiles) {
+      if (!matchingFile.toString().contains(trashDir)) {
+        Path trashPath =
+            getTrashPath(tableDirectoryPath.toString(), matchingFile.toString(), trashDir);
+        try {
+          rename(matchingFile, trashPath);
+        } catch (IOException e) {
+          log.error(
+              String.format("Move operation failed for file path: %s", tableDirectoryPath), e);
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Remove staged orphan files in the staged trash directory and eventually delete the table
+   * directory
+   */
+  public void deleteStagedOrphanDirectory(
+      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
+    Path trashFolderPath = new Path(tableDirectoryPath, trashDir);
+    try {
+      deleteStagedFiles(trashFolderPath, olderThanTimestampMillis, true);
+      if (!fs().delete(tableDirectoryPath, true)) {
+        log.error(String.format("Failed to delete directory %s", tableDirectoryPath));
+      }
+    } catch (IOException e) {
+      log.error(
+          String.format("Delete staged files failed for orphan directory: %s", tableDirectoryPath),
+          e);
+    }
   }
 
   /** Run ExpireSnapshots operation on a given fully-qualified table name. */
@@ -212,35 +286,29 @@ public final class Operations implements AutoCloseable {
     }
   }
 
+  private Path getTrashPath(String path, String filePath, String trashDir) {
+    return new Path(filePath.replace(path, new Path(path, trashDir).toString()));
+  }
+
   /**
    * Get trash path location for a file in a table. It replaces the tableLocation part from filePath
    * with trashPath which contains <tableLocation>+/.trash
    */
   public Path getTrashPath(Table table, String filePath, String trashDir) {
-    return new Path(
-        filePath.replace(table.location(), new Path(table.location(), trashDir).toString()));
+    return getTrashPath(table.location(), filePath, trashDir);
   }
 
-  /**
-   * Run deleteStagedFiles operation for the given table with time filter. It deletes files older
-   * than the provided timestamp from the staged directory.
-   */
-  public List<Path> deleteStagedFiles(Path baseDir, int olderThanDays, boolean recursive)
+  private List<Path> deleteStagedFiles(Path baseDir, long modTimeThreshold, boolean recursive)
       throws IOException {
     List<Path> matchingFiles = Lists.newArrayList();
-    Predicate<FileStatus> predicate =
-        file ->
-            file.getModificationTime()
-                < System.currentTimeMillis() - TimeUnit.DAYS.toMillis(olderThanDays);
+    Predicate<FileStatus> predicate = file -> file.getModificationTime() < modTimeThreshold;
     FileSystem fs = fs();
     if (fs.exists(baseDir)) {
       listFiles(baseDir, predicate, recursive, matchingFiles);
-      Long modTimeThreshold = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(olderThanDays);
       log.info(
-          "Deleting {} files from {} that are older than {} modificationTimeThreshold {}",
+          "Deleting {} files from {} that are older than modificationTimeThreshold {}",
           matchingFiles.size(),
           baseDir,
-          olderThanDays,
           modTimeThreshold);
       for (Path p : matchingFiles) {
         try {
@@ -255,6 +323,16 @@ public final class Operations implements AutoCloseable {
       log.info("Trash dir {} does not exist", baseDir);
     }
     return matchingFiles;
+  }
+
+  /**
+   * Run deleteStagedFiles operation for the given table with time filter. It deletes files older
+   * than the provided number of days from the staged directory.
+   */
+  public List<Path> deleteStagedFiles(Path baseDir, int olderThanDays, boolean recursive)
+      throws IOException {
+    return deleteStagedFiles(
+        baseDir, System.currentTimeMillis() - TimeUnit.DAYS.toMillis(olderThanDays), recursive);
   }
 
   /**
@@ -398,5 +476,25 @@ public final class Operations implements AutoCloseable {
     }
     ret.append("}");
     return ret.toString();
+  }
+
+  /**
+   * Collect and publish table stats for a given fully-qualified table name.
+   *
+   * @param fqtn fully-qualified table name
+   */
+  public IcebergTableStats collectTableStats(String fqtn) {
+    Table table = getTable(fqtn);
+
+    TableStatsCollector tableStatsCollector;
+    try {
+      tableStatsCollector = new TableStatsCollector(fs(), spark, fqtn, table);
+    } catch (IOException e) {
+      log.error("Unable to initialize file system for table stats collection", e);
+      return null;
+    }
+
+    IcebergTableStats tableStats = tableStatsCollector.collectAndPublishTableStats();
+    return tableStats;
   }
 }

@@ -24,7 +24,7 @@ public class TableStagedFilesDeletionTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
-    return Arrays.asList("--tableName", tableMetadata.fqtn());
+    return Arrays.asList("--tableName", getMetadata().fqtn());
   }
 
   @Override

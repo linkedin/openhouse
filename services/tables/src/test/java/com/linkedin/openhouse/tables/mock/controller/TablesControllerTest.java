@@ -1,7 +1,10 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.*;
+import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
+import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.*;
@@ -15,14 +18,13 @@ import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.controller.TablesController;
+import com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletRequest;
 import org.codehaus.jettison.json.JSONException;
@@ -36,6 +38,7 @@ import org.mockito.internal.matchers.apachecommons.ReflectionEquals;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -378,5 +381,57 @@ public class TablesControllerTest {
     assertTrue(
         new ReflectionEquals(SERVICE_AUDIT_EVENT_RUNTIME_EXCEPTION, excludeFields)
             .matches(actualEvent));
+  }
+
+  @Test
+  public void testCreateUpdateResponseCodeForVariousExceptions() throws Exception {
+    List<AbstractMap.SimpleEntry<String, Integer>> list =
+        Arrays.asList(
+            new AbstractMap.SimpleEntry<>(
+                "entityconcurrentmodificationexception", HttpStatus.CONFLICT.value()),
+            new AbstractMap.SimpleEntry<>(
+                "openhousecommitstateunknownexception", HttpStatus.SERVICE_UNAVAILABLE.value()),
+            new AbstractMap.SimpleEntry<>(
+                "requestvalidationfailureexception", HttpStatus.BAD_REQUEST.value()),
+            new AbstractMap.SimpleEntry<>(
+                "unprocessableentityexception", HttpStatus.UNPROCESSABLE_ENTITY.value()),
+            new AbstractMap.SimpleEntry<>("alreadyexistsexception", HttpStatus.CONFLICT.value()),
+            new AbstractMap.SimpleEntry<>(
+                "orgapacheicebergexceptionsalreadyexistsexception", HttpStatus.CONFLICT.value()),
+            new AbstractMap.SimpleEntry<>(
+                "invalidschemaevolutionexception", HttpStatus.BAD_REQUEST.value()),
+            new AbstractMap.SimpleEntry<>(
+                "unsupportedclientoperationexception", HttpStatus.BAD_REQUEST.value()),
+            new AbstractMap.SimpleEntry<>("accessdeniedexception", HttpStatus.FORBIDDEN.value()),
+            new AbstractMap.SimpleEntry<>(
+                "illegalstateexception", HttpStatus.INTERNAL_SERVER_ERROR.value()),
+            new AbstractMap.SimpleEntry<>(
+                "authorizationserviceexception", HttpStatus.SERVICE_UNAVAILABLE.value()),
+            new AbstractMap.SimpleEntry<>("exception", HttpStatus.INTERNAL_SERVER_ERROR.value()));
+
+    for (AbstractMap.SimpleEntry<String, Integer> pair : list) {
+      String error = pair.getKey();
+      int status = pair.getValue();
+      GetTableResponseBody responseBodyForException =
+          GET_TABLE_RESPONSE_BODY.toBuilder().databaseId("dException").tableId(error).build();
+      mvcUnauthenticated
+          .perform(
+              MockMvcRequestBuilders.put(
+                      String.format(
+                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                              + "/databases/%s/tables/%s",
+                          responseBodyForException.getDatabaseId(),
+                          responseBodyForException.getTableId()))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      buildCreateUpdateTableRequestBody(responseBodyForException)
+                          .toBuilder()
+                          .baseTableVersion(INITIAL_TABLE_VERSION)
+                          .build()
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().is(status))
+          .andReturn();
+    }
   }
 }

@@ -12,6 +12,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.attribute.ClusteringSpecConverter;
@@ -40,6 +41,8 @@ public class TableModelConstants {
   public static Retention RETENTION_POLICY;
 
   public static Retention RETENTION_POLICY_WITH_PATTERN;
+  public static Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
+  public static Policies TABLE_POLICIES_WITH_EMPTY_PATTERN;
   public static Policies TABLE_POLICIES;
 
   public static Policies TABLE_POLICIES_COMPLEX;
@@ -62,10 +65,18 @@ public class TableModelConstants {
             .columnPattern(COL_PAT)
             .build();
 
+    RETENTION_POLICY_WITH_EMPTY_PATTERN =
+        RETENTION_POLICY_WITH_PATTERN
+            .toBuilder()
+            .columnPattern(COL_PAT.toBuilder().pattern("").build())
+            .build();
+
     TABLE_POLICIES = Policies.builder().retention(RETENTION_POLICY).build();
     TABLE_POLICIES_COMPLEX = Policies.builder().retention(RETENTION_POLICY_WITH_PATTERN).build();
     SHARED_TABLE_POLICIES =
         Policies.builder().retention(RETENTION_POLICY).sharingEnabled(true).build();
+    TABLE_POLICIES_WITH_EMPTY_PATTERN =
+        Policies.builder().retention(RETENTION_POLICY_WITH_EMPTY_PATTERN).build();
     TEST_USER = "testUser";
     TEST_USER_PRINCIPAL = "testUserPrincipal";
     CLUSTER_NAME = "local-cluster";
@@ -168,7 +179,14 @@ public class TableModelConstants {
           .clustering(
               Arrays.asList(
                   ClusteringColumn.builder().columnName("id").build(),
-                  ClusteringColumn.builder().columnName("name").build()))
+                  ClusteringColumn.builder()
+                      .columnName("name")
+                      .transform(
+                          Transform.builder()
+                              .transformType(Transform.TransformType.TRUNCATE)
+                              .transformParams(Arrays.asList("10"))
+                              .build())
+                      .build()))
           .build();
 
   public static final GetTableResponseBody GET_TABLE_RESPONSE_BODY_RESERVED_PROP =

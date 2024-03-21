@@ -4,10 +4,13 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotRefParser;
 import org.apache.iceberg.io.FileIO;
 import org.springframework.data.util.Pair;
 
@@ -63,5 +66,26 @@ public final class SnapshotsUtil {
         second.stream()
             .filter(s -> !firstSnapshotIds.contains(s.snapshotId()))
             .collect(Collectors.toList()));
+  }
+
+  /** Serialize map of strings as json */
+  public static String serializeMap(Map<String, String> map) {
+    return new GsonBuilder().create().toJson(map);
+  }
+
+  /** Parse serialized map of serialized snapshotRefs */
+  public static Map<String, SnapshotRef> parseSnapshotRefs(String data) {
+    Map<String, String> jsonSnapshotRefs =
+        new GsonBuilder()
+            .create()
+            .fromJson(data, new TypeToken<Map<String, String>>() {}.getType());
+    return parseSnapshotRefs(jsonSnapshotRefs);
+  }
+
+  /** Parse map of serialized snapshotRef */
+  public static Map<String, SnapshotRef> parseSnapshotRefs(Map<String, String> jsonSnapshotRefs) {
+    return jsonSnapshotRefs.entrySet().stream()
+        .collect(
+            Collectors.toMap(Map.Entry::getKey, e -> SnapshotRefParser.fromJson(e.getValue())));
   }
 }
