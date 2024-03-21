@@ -41,14 +41,11 @@
     <Package name="~com\.linkedin\.openhouse\.spark\.sql\.catalyst\.parser\.extensions.*" />
   </Match>
 
-
-
   <Match>
     <!-- Needed for backward compatibility -->
     <Class name="com.linkedin.openhouse.spark.OpenHouseCatalog"/>
     <Bug pattern="NM_SAME_SIMPLE_NAME_AS_SUPERCLASS"/>
   </Match>
-<<<<<<<< HEAD:gradle/spotbugs/spotbugsExclude.xml
 
   <Match>
     <!-- Raising an issue returning a singleton instance of a class -->
@@ -56,7 +53,4 @@
     <Bug pattern="MS_EXPOSE_REP"/>
   </Match>
 
-
-========
->>>>>>>> internal/master:ligradle/spotbugs/spotbugsExclude.xml
 </FindBugsFilter>

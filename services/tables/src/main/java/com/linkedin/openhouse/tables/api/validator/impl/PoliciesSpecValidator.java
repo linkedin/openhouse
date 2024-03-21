@@ -130,19 +130,6 @@ public class PoliciesSpecValidator {
             retention.getGranularity().name());
         return false;
       }
-      return isPatternValid(retention.getColumnPattern().getPattern(), tableUri);
-    }
-
-    return true;
-  }
-
-  protected boolean isPatternValid(String pattern, TableUri tableUri) {
-    try {
-      DateTimeFormatter.ofPattern(pattern);
-    } catch (IllegalArgumentException illegalArgumentException) {
-      log.warn(
-          "The pattern provided {} cannot be parsed correctly for the table {}", pattern, tableUri);
-      return false;
     }
 
     return true;
