@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SnapshotRefParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
@@ -226,7 +227,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     if (base == null) {
       return !newMetadata.snapshots().isEmpty();
     }
-    return !base.snapshots().equals(newMetadata.snapshots());
+    return !base.snapshots().equals(newMetadata.snapshots())
+        || !base.refs().equals(newMetadata.refs());
   }
 
   /**
@@ -243,6 +245,10 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
     icebergSnapshotsRequestBody.jsonSnapshots(
         newMetadata.snapshots().stream().map(SnapshotParser::toJson).collect(Collectors.toList()));
+    icebergSnapshotsRequestBody.snapshotRefs(
+        newMetadata.refs().entrySet().stream()
+            .collect(
+                Collectors.toMap(Map.Entry::getKey, e -> SnapshotRefParser.toJson(e.getValue()))));
     icebergSnapshotsRequestBody.createUpdateTableRequestBody(createUpdateTableRequestBody);
 
     snapshotApi
@@ -278,8 +284,15 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       return Mono.error(
           new BadRequestException(
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
-    } else {
+    } else if (e instanceof WebClientResponseException) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
+    } else {
+      /**
+       * This serves as a catch-all for any other exceptions that are not
+       * WebClientResponseException. It helps in skipping any unexpected cleanup that could occur
+       * when a commit aborts at the caller, thus avoiding any potential data loss.
+       */
+      return Mono.error(new CommitStateUnknownException(e));
     }
   }
 }

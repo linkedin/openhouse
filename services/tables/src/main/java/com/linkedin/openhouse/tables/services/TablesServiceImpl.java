@@ -19,6 +19,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -178,6 +179,8 @@ public class TablesServiceImpl implements TablesService {
 
     String role = updateAclPoliciesRequestBody.getRole();
     String granteePrincipal = updateAclPoliciesRequestBody.getPrincipal();
+    Long expirationEpochTimeSeconds = updateAclPoliciesRequestBody.getExpirationEpochTimeSeconds();
+    Map<String, String> properties = updateAclPoliciesRequestBody.getProperties();
 
     switch (updateAclPoliciesRequestBody.getOperation()) {
       case GRANT:
@@ -186,7 +189,8 @@ public class TablesServiceImpl implements TablesService {
               UnsupportedClientOperationException.Operation.GRANT_ON_UNSHARED_TABLES,
               String.format("%s.%s is not a shared table", databaseId, tableId));
         }
-        authorizationHandler.grantRole(role, granteePrincipal, tableDto);
+        authorizationHandler.grantRole(
+            role, granteePrincipal, expirationEpochTimeSeconds, properties, tableDto);
         break;
       case REVOKE:
         authorizationHandler.revokeRole(role, granteePrincipal, tableDto);

@@ -10,8 +10,7 @@ import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryTimeoutException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryUnavailableException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnkownException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -95,6 +94,11 @@ public class OpenHouseInternalTableOperationsTest {
         Mockito.mockStatic(TableMetadataParser.class)) {
       properties.put(
           CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+                  testSnapshots.get(testSnapshots.size() - 1))));
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
@@ -103,7 +107,7 @@ public class OpenHouseInternalTableOperationsTest {
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
           4,
-          updatedProperties.size()); /*location, lastModifiedTime, version and deleted_snapshots*/
+          updatedProperties.size()); /*location, lastModifiedTime, version and appended_snapshots*/
       Assertions.assertEquals(
           "INITIAL_VERSION", updatedProperties.get(getCanonicalFieldName("tableVersion")));
       Assertions.assertEquals(
@@ -130,6 +134,11 @@ public class OpenHouseInternalTableOperationsTest {
       // add all snapshots to new metadata
       properties.put(
           CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+                  testSnapshots.get(testSnapshots.size() - 1))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
       TableMetadata metadata = base.replaceProperties(properties);
@@ -175,6 +184,11 @@ public class OpenHouseInternalTableOperationsTest {
       newSnapshots.addAll(extraTestSnapshots);
       properties.put(
           CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(newSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+                  newSnapshots.get(newSnapshots.size() - 1))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
       TableMetadata metadata = base.replaceProperties(properties);
@@ -224,6 +238,11 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_JSON_KEY,
           SnapshotsUtil.serializedSnapshots(testSnapshots.subList(2, 4)));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+                  testSnapshots.get(testSnapshots.size() - 1))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
       TableMetadata metadata = base.replaceProperties(properties);
@@ -291,12 +310,7 @@ public class OpenHouseInternalTableOperationsTest {
         CommitFailedException.class,
         () -> openHouseInternalTableOperations.doCommit(base, metadata));
     when(mockHouseTableRepository.save(Mockito.any(HouseTable.class)))
-        .thenThrow(HouseTableRepositoryUnavailableException.class);
-    Assertions.assertThrows(
-        CommitFailedException.class,
-        () -> openHouseInternalTableOperations.doCommit(base, metadata));
-    when(mockHouseTableRepository.save(Mockito.any(HouseTable.class)))
-        .thenThrow(HouseTableRepositoryTimeoutException.class);
+        .thenThrow(HouseTableRepositoryStateUnkownException.class);
     Assertions.assertThrows(
         CommitStateUnknownException.class,
         () -> openHouseInternalTableOperations.doCommit(base, metadata));
@@ -311,6 +325,11 @@ public class OpenHouseInternalTableOperationsTest {
     properties.put(
         CatalogConstants.SNAPSHOTS_JSON_KEY,
         SnapshotsUtil.serializedSnapshots(testSnapshots.subList(1, 3)));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+                testSnapshots.get(testSnapshots.size() - 1))));
     properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
     metadata = metadata.replaceProperties(properties);
     TableMetadata metadataWithSnapshots =
@@ -327,5 +346,278 @@ public class OpenHouseInternalTableOperationsTest {
         () ->
             openHouseInternalTableOperations.doCommit(
                 metadataWithSnapshots, metadataWithSnapshotsDeleted));
+  }
+
+  @Test
+  void testDoCommitAppendStageOnlySnapshotsInitialVersion() throws IOException {
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 2);
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testWapSnapshots));
+      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
+
+      // verify snapshots are staged but not appended
+      Assertions.assertEquals(
+          testWapSnapshots.stream()
+              .map(s -> Long.toString(s.snapshotId()))
+              .collect(Collectors.joining(",")),
+          updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  @Test
+  void testDoCommitAppendStageOnlySnapshotsExistingVersion() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 2);
+    // add 1 snapshot to the base metadata
+    TableMetadata base =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA)
+            .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+            .build();
+    List<Snapshot> newSnapshots = new ArrayList<>();
+    newSnapshots.add(testSnapshots.get(0));
+    newSnapshots.addAll(testWapSnapshots);
+    Map<String, String> properties = new HashMap<>(base.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      // add staged snapshots to the new metadata
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(newSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(newSnapshots.get(0))));
+      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata metadata = base.replaceProperties(properties);
+      openHouseInternalTableOperations.doCommit(base, metadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
+
+      // verify snapshots are staged but not appended
+      Assertions.assertEquals(
+          testWapSnapshots.stream()
+              .map(s -> Long.toString(s.snapshotId()))
+              .collect(Collectors.joining(",")),
+          updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  @Test
+  void testDoCommitAppendSnapshotsToNonMainBranch() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY,
+          SnapshotsUtil.serializedSnapshots(testSnapshots.subList(0, 1)));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testSnapshots.get(0), "branch")));
+      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      // verify throw an error when committing to non-main branch.
+      Assertions.assertThrows(
+          CommitStateUnknownException.class,
+          () -> openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata));
+    }
+  }
+
+  @Test
+  void testAppendSnapshotsWithOldSnapshots() throws IOException {
+    TableMetadata metadata =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA)
+            .setPreviousFileLocation("tmp_location")
+            .setLocation(BASE_TABLE_METADATA.metadataFileLocation())
+            .build();
+    // all snapshots are from the past and snapshots add should fail the validation
+    List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            openHouseInternalTableOperations.maybeAppendSnapshots(
+                metadata, snapshots, ImmutableMap.of(), false));
+    // the latest snapshots have larger timestamp than the previous metadata timestamp, so it should
+    // pass the validation
+    snapshots.addAll(IcebergTestUtil.getFutureSnapshots());
+    openHouseInternalTableOperations.maybeAppendSnapshots(
+        metadata, snapshots, ImmutableMap.of(), false);
+  }
+
+  @Test
+  void testDoCommitCherryPickSnapshotBaseUnchanged() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots();
+    // add 1 snapshot and 1 staged snapshot to the base metadata
+    TableMetadata base =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA)
+            .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+            .addSnapshot(testWapSnapshots.get(0))
+            .build();
+    List<Snapshot> newSnapshots = new ArrayList<>();
+    newSnapshots.add(testSnapshots.get(0));
+    newSnapshots.add(testWapSnapshots.get(0));
+    Map<String, String> properties = new HashMap<>(base.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      // cherry pick the staged snapshot
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(newSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testWapSnapshots.get(0))));
+      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata metadata = base.replaceProperties(properties);
+      openHouseInternalTableOperations.doCommit(base, metadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
+
+      // verify the staged snapshot is cherry picked by use the existing one
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertEquals(
+          Long.toString(testWapSnapshots.get(0).snapshotId()),
+          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  @Test
+  void testDoCommitCherryPickSnapshotBaseChanged() throws IOException {
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots();
+    // add 1 snapshot and 1 staged snapshot to the base metadata
+    TableMetadata base =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA)
+            .setBranchSnapshot(testWapSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+            .addSnapshot(testWapSnapshots.get(1))
+            .build();
+    Map<String, String> properties = new HashMap<>(base.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      // cherry pick the staged snapshot whose base has changed
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testWapSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+                  testWapSnapshots.get(2)))); // new snapshot
+      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata metadata = base.replaceProperties(properties);
+      openHouseInternalTableOperations.doCommit(base, metadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
+
+      // verify the staged snapshot is cherry picked by creating a new snapshot and append it
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertEquals(
+          Long.toString(testWapSnapshots.get(2).snapshotId()),
+          updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertEquals(
+          Long.toString(testWapSnapshots.get(1).snapshotId()),
+          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  @Test
+  void testDoCommitCherryPickFirstSnapshot() throws IOException {
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 1);
+    // add 1 staged snapshot to the base metadata
+    TableMetadata base =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA).addSnapshot(testWapSnapshots.get(0)).build();
+    Map<String, String> properties = new HashMap<>(base.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      // cherry pick the staged snapshot
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testWapSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testWapSnapshots.get(0))));
+      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata metadata = base.replaceProperties(properties);
+      openHouseInternalTableOperations.doCommit(base, metadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
+
+      // verify the staged snapshot is cherry picked by using the existing one
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertEquals(
+          Long.toString(testWapSnapshots.get(0).snapshotId()),
+          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  @Test
+  void testDoCommitDeleteLastStagedSnapshotWhenNoRefs() throws IOException {
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 1);
+    // add 1 staged snapshot to the base metadata
+    TableMetadata base =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA).addSnapshot(testWapSnapshots.get(0)).build();
+    Map<String, String> properties = new HashMap<>(base.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      // delete staged snapshots in the new metadata
+      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata metadata = base.replaceProperties(properties);
+      openHouseInternalTableOperations.doCommit(base, metadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
+
+      // verify nothing happens
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertEquals(
+          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
   }
 }

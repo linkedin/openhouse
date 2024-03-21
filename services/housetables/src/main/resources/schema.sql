@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS user_table_row (
 -- FIXME: Index is not added at this point.
 -- FIXME: Types of timestamp column to be discussed.
 CREATE TABLE IF NOT EXISTS job_row (
-    job_id                  VARCHAR (128)     NOT NULL,
+    job_id                  VARCHAR (359)     NOT NULL,
     state                   VARCHAR (128)     NOT NULL,
     version                 BIGINT            ,
     job_name                VARCHAR (128)     NOT NULL,

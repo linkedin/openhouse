@@ -66,6 +66,8 @@ public class TableDto {
 
   @ElementCollection private List<String> jsonSnapshots;
 
+  @ElementCollection private Map<String, String> snapshotRefs;
+
   @Convert(converter = PoliciesSpecConverter.class)
   private Policies policies;
 

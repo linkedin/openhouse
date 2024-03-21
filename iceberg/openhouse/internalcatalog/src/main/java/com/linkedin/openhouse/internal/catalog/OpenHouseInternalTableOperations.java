@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import static com.linkedin.openhouse.internal.catalog.CatalogConstants.COMMIT_KEY;
-import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 
 import com.google.common.cache.Cache;
@@ -16,9 +14,9 @@ import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryUnavailableException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,9 +27,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableProperties;
@@ -46,12 +47,6 @@ import org.springframework.data.util.Pair;
 @AllArgsConstructor
 @Slf4j
 public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperations {
-
-  private static final String INITIAL_VERSION = "INITIAL_VERSION";
-
-  public static final String SNAPSHOTS_JSON_KEY = "snapshotsJsonToBePut";
-
-  public static final String IS_STAGE_CREATE_KEY = "isStageCreate";
 
   HouseTableRepository houseTableRepository;
 
@@ -97,7 +92,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           "Currently there's no entry that exists in House table for the key {}.{}",
           tableIdentifier.namespace().toString(),
           tableIdentifier.name());
-      metricsReporter.count(NO_TABLE_WHEN_REFRESH);
+      metricsReporter.count(InternalCatalogMetricsConstant.NO_TABLE_WHEN_REFRESH);
     }
     if (!houseTable.isPresent() && currentMetadataLocation() != null) {
       throw new IllegalStateException(
@@ -113,7 +108,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
     Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc);
     if (needToReload) {
-      metricsReporter.executeWithStats(r, METADATA_RETRIEVAL_LATENCY);
+      metricsReporter.executeWithStats(
+          r, InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY);
     } else {
       r.run();
     }
@@ -157,7 +153,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    */
   @Override
   public void commit(TableMetadata base, TableMetadata metadata) {
-    boolean isStageCreate = Boolean.parseBoolean(metadata.properties().get(IS_STAGE_CREATE_KEY));
+    boolean isStageCreate =
+        Boolean.parseBoolean(metadata.properties().get(CatalogConstants.IS_STAGE_CREATE_KEY));
     super.commit(base, metadata);
     if (isStageCreate) {
       disableRefresh(); /* disable forced refresh */
@@ -186,11 +183,14 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
       properties.put(
           getCanonicalFieldName("tableVersion"),
-          properties.getOrDefault(getCanonicalFieldName("tableLocation"), INITIAL_VERSION));
+          properties.getOrDefault(
+              getCanonicalFieldName("tableLocation"), CatalogConstants.INITIAL_VERSION));
       properties.put(getCanonicalFieldName("tableLocation"), newMetadataLocation);
 
-      String serializedSnapshotsToPut = properties.remove(SNAPSHOTS_JSON_KEY);
-      boolean isStageCreate = Boolean.parseBoolean(properties.remove(IS_STAGE_CREATE_KEY));
+      String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
+      String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
+      boolean isStageCreate =
+          Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
       logPropertiesMap(properties);
 
       TableMetadata updatedMetadata = metadata.replaceProperties(properties);
@@ -198,13 +198,18 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (serializedSnapshotsToPut != null) {
         List<Snapshot> snapshotsToPut =
             SnapshotsUtil.parseSnapshots(fileIO, serializedSnapshotsToPut);
-        Pair<List<Snapshot>, List<Snapshot>> diff =
+        Pair<List<Snapshot>, List<Snapshot>> snapshotsDiff =
             SnapshotsUtil.symmetricDifferenceSplit(snapshotsToPut, updatedMetadata.snapshots());
-        List<Snapshot> appendedSnapshots = diff.getFirst();
-        List<Snapshot> deletedSnapshots = diff.getSecond();
+        List<Snapshot> appendedSnapshots = snapshotsDiff.getFirst();
+        List<Snapshot> deletedSnapshots = snapshotsDiff.getSecond();
         snapshotInspector.validateSnapshotsUpdate(
             updatedMetadata, appendedSnapshots, deletedSnapshots);
-        updatedMetadata = maybeAppendSnapshots(updatedMetadata, appendedSnapshots, true);
+        Map<String, SnapshotRef> snapshotRefs =
+            serializedSnapshotRefs == null
+                ? new HashMap<>()
+                : SnapshotsUtil.parseSnapshotRefs(serializedSnapshotRefs);
+        updatedMetadata =
+            maybeAppendSnapshots(updatedMetadata, appendedSnapshots, snapshotRefs, true);
         updatedMetadata = maybeDeleteSnapshots(updatedMetadata, deletedSnapshots);
       }
 
@@ -212,7 +217,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       metricsReporter.executeWithStats(
           () ->
               TableMetadataParser.write(updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
-          METADATA_UPDATE_LATENCY);
+          InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY);
 
       houseTable = houseTableMapper.toHouseTable(updatedMetadata);
 
@@ -232,7 +237,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     } catch (CommitFailedException e) {
       throw e;
     } catch (HouseTableCallerException
-        | HouseTableRepositoryUnavailableException
         | HouseTableNotFoundException
         | HouseTableConcurrentUpdateException e) {
       throw new CommitFailedException(e);
@@ -264,10 +268,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     } finally {
       switch (commitStatus) {
         case FAILURE:
-          metricsReporter.count(COMMIT_FAILED_CTR);
+          metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
           break;
         case UNKNOWN:
-          metricsReporter.count(COMMIT_STATE_UNKNOWN);
+          metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
@@ -281,8 +285,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * inform users.
    */
   private void failIfRetryUpdate(Map<String, String> properties) {
-    if (properties.containsKey(COMMIT_KEY)) {
-      String userProvidedTblVer = properties.get(COMMIT_KEY);
+    if (properties.containsKey(CatalogConstants.COMMIT_KEY)) {
+      String userProvidedTblVer = properties.get(CatalogConstants.COMMIT_KEY);
 
       // If the commit is ever seen in the past, that indicates this commit is a retry and should
       // abort
@@ -295,24 +299,25 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         CACHE.put(userProvidedTblVer, 1);
       }
 
-      properties.remove(COMMIT_KEY);
+      properties.remove(CatalogConstants.COMMIT_KEY);
     } else {
       // This should never occur except table-creation. However, when table-creation hits
       // concurrency issue
       // it throw AlreadyExistsException and will not trigger retry.
-      metricsReporter.count(MISSING_COMMIT_KEY);
+      metricsReporter.count(InternalCatalogMetricsConstant.MISSING_COMMIT_KEY);
     }
   }
 
-  public TableMetadata maybeDeleteSnapshots(TableMetadata metadata, List<Snapshot> snapshots) {
+  public TableMetadata maybeDeleteSnapshots(
+      TableMetadata metadata, List<Snapshot> snapshotsToDelete) {
     TableMetadata result = metadata;
-    if (!snapshots.isEmpty()) {
+    if (CollectionUtils.isNotEmpty(snapshotsToDelete)) {
       Set<Long> snapshotIds =
-          snapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+          snapshotsToDelete.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
       Map<String, String> updatedProperties = new HashMap<>(result.properties());
       updatedProperties.put(
-          getCanonicalFieldName("deleted_snapshots"),
-          snapshots.stream()
+          getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
+          snapshotsToDelete.stream()
               .map(s -> Long.toString(s.snapshotId()))
               .collect(Collectors.joining(",")));
       result =
@@ -320,34 +325,106 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               .setProperties(updatedProperties)
               .build()
               .removeSnapshotsIf(s -> snapshotIds.contains(s.snapshotId()));
-      metricsReporter.count(SNAPSHOTS_DELETED_CTR, snapshots.size());
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, snapshotsToDelete.size());
     }
     return result;
   }
 
   public TableMetadata maybeAppendSnapshots(
-      TableMetadata metadata, List<Snapshot> snapshots, boolean recordAction) {
-    TableMetadata result = metadata;
-    if (!snapshots.isEmpty()) {
-      for (Snapshot snapshot : snapshots) {
-        snapshotInspector.validateSnapshot(snapshot);
-        result =
-            TableMetadata.buildFrom(result)
-                .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
-                .build();
-      }
-      if (recordAction) {
-        Map<String, String> updatedProperties = new HashMap<>(result.properties());
-        updatedProperties.put(
-            getCanonicalFieldName("appended_snapshots"),
-            snapshots.stream()
-                .map(s -> Long.toString(s.snapshotId()))
-                .collect(Collectors.joining(",")));
-        result = TableMetadata.buildFrom(result).setProperties(updatedProperties).build();
-        metricsReporter.count(SNAPSHOTS_ADDED_CTR, snapshots.size());
+      TableMetadata metadata,
+      List<Snapshot> snapshotsToAppend,
+      Map<String, SnapshotRef> snapshotRefs,
+      boolean recordAction) {
+    TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
+    List<String> appendedSnapshots = new ArrayList<>();
+    List<String> stagedSnapshots = new ArrayList<>();
+    List<String> cherryPickedSnapshots = new ArrayList<>();
+    // Throw an exception if client sent request that included non-main branches in the
+    // snapshotRefs.
+    for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
+      if (!entry.getKey().equals(SnapshotRef.MAIN_BRANCH)) {
+        throw new UnsupportedOperationException("OpenHouse supports only MAIN branch");
       }
     }
-    return result;
+    /**
+     * First check if there are new snapshots to be appended to current TableMetadata. If yes,
+     * following are the cases to be handled:
+     *
+     * <p>[1] A regular (non-wap) snapshot is being added to the MAIN branch.
+     *
+     * <p>[2] A staged (wap) snapshot is being created on top of current snapshot as its base.
+     * Recognized by STAGED_WAP_ID_PROP.
+     *
+     * <p>[3] A staged (wap) snapshot is being cherry picked to the MAIN branch wherein current
+     * snapshot in the MAIN branch is not the same as the base snapshot the staged (wap) snapshot
+     * was created on. Recognized by SOURCE_SNAPSHOT_ID_PROP. This case is called non-fast forward
+     * cherry pick.
+     *
+     * <p>In case no new snapshots are to be appended to current TableMetadata, there could be a
+     * cherrypick of a staged (wap) snapshot on top of the current snapshot in the MAIN branch which
+     * is the same as the base snapshot the staged (wap) snapshot was created on. This case is
+     * called fast forward cherry pick.
+     */
+    if (CollectionUtils.isNotEmpty(snapshotsToAppend)) {
+      for (Snapshot snapshot : snapshotsToAppend) {
+        snapshotInspector.validateSnapshot(snapshot);
+        if (snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)) {
+          // a stage only snapshot using wap.id
+          metadataBuilder.addSnapshot(snapshot);
+          stagedSnapshots.add(String.valueOf(snapshot.snapshotId()));
+        } else if (snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)) {
+          // a snapshot created on a non fast-forward cherry-pick snapshot
+          metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
+          appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
+          cherryPickedSnapshots.add(
+              String.valueOf(snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)));
+        } else {
+          // a regular snapshot
+          metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
+          appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
+        }
+      }
+    } else if (MapUtils.isNotEmpty(snapshotRefs)) {
+      // Updated ref in the main branch with no new snapshot means this is a
+      // fast-forward cherry-pick or rollback operation.
+      long newSnapshotId = snapshotRefs.get(SnapshotRef.MAIN_BRANCH).snapshotId();
+      // Either the current snapshot is null or the current snapshot is not equal
+      // to the new snapshot indicates an update. The first case happens when the
+      // stage/wap snapshot being cherry-picked is the first snapshot.
+      if (MapUtils.isEmpty(metadata.refs())
+          || metadata.refs().get(SnapshotRef.MAIN_BRANCH).snapshotId() != newSnapshotId) {
+        metadataBuilder.setBranchSnapshot(newSnapshotId, SnapshotRef.MAIN_BRANCH);
+        cherryPickedSnapshots.add(String.valueOf(newSnapshotId));
+      }
+    }
+    if (recordAction) {
+      Map<String, String> updatedProperties = new HashMap<>(metadata.properties());
+      if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
+        updatedProperties.put(
+            getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
+            appendedSnapshots.stream().collect(Collectors.joining(",")));
+        metricsReporter.count(
+            InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedSnapshots.size());
+      }
+      if (CollectionUtils.isNotEmpty(stagedSnapshots)) {
+        updatedProperties.put(
+            getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
+            stagedSnapshots.stream().collect(Collectors.joining(",")));
+        metricsReporter.count(
+            InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, stagedSnapshots.size());
+      }
+      if (CollectionUtils.isNotEmpty(cherryPickedSnapshots)) {
+        updatedProperties.put(
+            getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
+            cherryPickedSnapshots.stream().collect(Collectors.joining(",")));
+        metricsReporter.count(
+            InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR,
+            cherryPickedSnapshots.size());
+      }
+      metadataBuilder.setProperties(updatedProperties);
+    }
+    return metadataBuilder.build();
   }
 
   /** Helper function to dump contents for map in debugging mode. */

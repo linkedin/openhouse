@@ -41,8 +41,6 @@
     <Package name="~com\.linkedin\.openhouse\.spark\.sql\.catalyst\.parser\.extensions.*" />
   </Match>
 
-
-
   <Match>
     <!-- Needed for backward compatibility -->
     <Class name="com.linkedin.openhouse.spark.OpenHouseCatalog"/>
@@ -54,6 +52,5 @@
     <Package name="com.linkedin.openhouse.client.ssl"/>
     <Bug pattern="MS_EXPOSE_REP"/>
   </Match>
-
 
 </FindBugsFilter>

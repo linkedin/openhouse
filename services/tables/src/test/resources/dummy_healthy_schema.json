@@ -30,6 +30,12 @@
       "required": true,
       "name": "count",
       "type": "int"
+    },
+    {
+      "id": 6,
+      "required": true,
+      "name": "timeLong",
+      "type": "long"
     }
   ]
 }

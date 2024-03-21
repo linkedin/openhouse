@@ -122,8 +122,8 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
       OpenHouseCommitStateUnknownException e) {
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
-            .status(HttpStatus.GATEWAY_TIMEOUT)
-            .error(HttpStatus.GATEWAY_TIMEOUT.getReasonPhrase())
+            .status(HttpStatus.SERVICE_UNAVAILABLE)
+            .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
             .message(
                 String.format(COMMIT_STATE_UNKNOWN_TMPL, e.getTableId(), e.getCause().getMessage()))
             .stacktrace(getAbbreviatedStackTrace(e))

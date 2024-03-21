@@ -1,10 +1,7 @@
 package com.linkedin.openhouse.tables.mock;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
-import com.linkedin.openhouse.common.exception.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
-import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
+import com.linkedin.openhouse.common.exception.*;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -13,6 +10,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.stereotype.Component;
 
@@ -86,6 +84,8 @@ public class MockTablesApiHandler implements TablesApiHandler {
       case "d409":
         throw new AlreadyExistsException(
             "Table", String.format("%s.%s", databaseId, createUpdateTableRequestBody.getTableId()));
+      case "dException":
+        throwTableException(createUpdateTableRequestBody.getTableId());
       default:
         return null;
     }
@@ -112,6 +112,8 @@ public class MockTablesApiHandler implements TablesApiHandler {
         throw new RequestValidationFailureException();
       case "d404":
         throw new NoSuchUserTableException(databaseId, tableId);
+      case "dException":
+        throwTableException(createUpdateTableRequestBody.getTableId());
       default:
         return null;
     }
@@ -190,6 +192,42 @@ public class MockTablesApiHandler implements TablesApiHandler {
         throw new AuthorizationServiceException("Internal authz service not available");
       default:
         return null;
+    }
+  }
+
+  private void throwTableException(String tableId) {
+    switch (tableId) {
+      case "entityconcurrentmodificationexception":
+        throw new EntityConcurrentModificationException(
+            tableId, "Entity Concurrent Modification Exception", new RuntimeException());
+      case "openhousecommitstateunknownexception":
+        throw new OpenHouseCommitStateUnknownException(
+            tableId, "Open House Commit State Unknown Exception", new RuntimeException());
+      case "requestvalidationfailureexception":
+        throw new RequestValidationFailureException("Request Validation Failure Exception");
+      case "unprocessableentityexception":
+        throw new UnprocessableEntityException("Unprocessable Entity Exception");
+      case "alreadyexistsexception":
+        throw new AlreadyExistsException("tableType", "tableId", new RuntimeException());
+      case "orgapacheicebergexceptionsalreadyexistsexception":
+        throw new org.apache.iceberg.exceptions.AlreadyExistsException("Already Exists Exception");
+      case "invalidschemaevolutionexception":
+        throw new InvalidSchemaEvolutionException(
+            "Invalid Schema Evolution Exception", "oldSchema", "newSchema");
+      case "unsupportedclientoperationexception":
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.ALTER_TABLE_TYPE,
+            "Unsupported Client Operation Exception");
+      case "accessdeniedexception":
+        throw new AccessDeniedException("Access Denied Exception");
+      case "illegalstateexception":
+        throw new IllegalStateException("Illegal State Exception");
+      case "authorizationserviceexception":
+        throw new AuthorizationServiceException("Authorization Service Exception");
+      case "exception":
+        throw new RuntimeException(tableId + "Exception");
+      default:
+        throw new RuntimeException("Unknown tableId: " + tableId);
     }
   }
 }

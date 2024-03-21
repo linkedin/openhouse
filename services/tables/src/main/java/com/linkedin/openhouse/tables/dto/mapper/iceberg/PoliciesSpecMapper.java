@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import com.linkedin.openhouse.tables.model.TableDto;
 import org.mapstruct.Mapper;
 import org.mapstruct.Named;
@@ -46,5 +48,47 @@ public class PoliciesSpecMapper {
       }
     }
     return null;
+  }
+
+  /**
+   * mapPolicies is a mapStruct function which assigns default pattern in retention config if the
+   * pattern is empty. Default values for pattern are defined at {@link DefaultColumnPattern} based
+   * on granularity.
+   *
+   * @param policies for Openhouse table
+   * @return mapped policies object
+   */
+  @Named("mapPolicies")
+  public Policies mapPolicies(Policies policies) {
+    String defaultPattern;
+    if (policies != null
+        && policies.getRetention() != null
+        && policies.getRetention().getColumnPattern() != null
+        && policies.getRetention().getColumnPattern().getPattern().isEmpty()) {
+      if (policies
+          .getRetention()
+          .getGranularity()
+          .name()
+          .equals(DefaultColumnPattern.HOUR.toString())) {
+        defaultPattern = DefaultColumnPattern.HOUR.getPattern();
+      } else {
+        defaultPattern = DefaultColumnPattern.DAY.getPattern();
+      }
+      Retention retentionPolicy =
+          policies
+              .getRetention()
+              .toBuilder()
+              .columnPattern(
+                  policies
+                      .getRetention()
+                      .getColumnPattern()
+                      .toBuilder()
+                      .pattern(defaultPattern)
+                      .build())
+              .build();
+      return policies.toBuilder().retention(retentionPolicy).build();
+    } else {
+      return policies;
+    }
   }
 }

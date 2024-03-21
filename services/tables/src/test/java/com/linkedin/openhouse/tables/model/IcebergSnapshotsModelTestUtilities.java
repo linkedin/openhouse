@@ -13,7 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
@@ -21,6 +23,8 @@ import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotRefParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -46,6 +50,14 @@ public class IcebergSnapshotsModelTestUtilities {
 
   public static List<Snapshot> obtainSnapshotsFromTableLoc(String tableLoc) {
     return Lists.newArrayList(new HadoopTables().load(tableLoc).snapshots().iterator());
+  }
+
+  public static Map<String, String> obtainSnapshotRefsFromSnapshot(String jsonSnapshot) {
+    Map<String, String> snapshotRefs = new HashMap<>();
+    Snapshot snapshot = SnapshotParser.fromJson(jsonSnapshot);
+    SnapshotRef snapshotRef = SnapshotRef.branchBuilder(snapshot.snapshotId()).build();
+    snapshotRefs.put(SnapshotRef.MAIN_BRANCH, SnapshotRefParser.toJson(snapshotRef));
+    return snapshotRefs;
   }
 
   public static DataFile createDummyDataFile(String dataPath, PartitionSpec partitionSpec)
@@ -142,6 +154,7 @@ public class IcebergSnapshotsModelTestUtilities {
         .baseTableVersion(baseTableVersion)
         .jsonSnapshots(
             snapshotsToPut.stream().map(SnapshotParser::toJson).collect(Collectors.toList()))
+        .snapshotRefs(obtainSnapshotRefsFromSnapshot(SnapshotParser.toJson(appendedSnapshot)))
         .createUpdateTableRequestBody(createUpdateTableRequestBody)
         .build();
   }

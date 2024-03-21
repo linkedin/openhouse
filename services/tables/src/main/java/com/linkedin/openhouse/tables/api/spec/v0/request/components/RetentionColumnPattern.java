@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
  * pattern when dealing with tables like those are partitioned by a string-type column with
  * timestamp semantic.
  */
-@Builder
+@Builder(toBuilder = true)
 @EqualsAndHashCode
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)

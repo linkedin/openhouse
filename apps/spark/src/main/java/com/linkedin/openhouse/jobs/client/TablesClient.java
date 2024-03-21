@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.client;
 
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
+import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
@@ -14,12 +15,17 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.arrow.util.VisibleForTesting;
+import org.apache.hadoop.fs.Path;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
 
@@ -27,13 +33,15 @@ import org.springframework.retry.support.RetryTemplate;
  * A read-only client for interacting with /tables service. Supports limited operations necessary
  * for reading tables metadata for scheduling.
  */
+@Slf4j
 @AllArgsConstructor
 public class TablesClient {
   private static final int REQUEST_TIMEOUT_SECONDS = 60;
   private final RetryTemplate retryTemplate;
-  private final TableApi api;
+  private final TableApi tableApi;
   private final DatabaseApi databaseApi;
-  private final DatabaseTableFilter filter;
+  private final DatabaseTableFilter databaseFilter;
+  @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
@@ -75,7 +83,8 @@ public class TablesClient {
             retryTemplate,
             (RetryCallback<GetTableResponseBody, Exception>)
                 context ->
-                    api.getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
+                    tableApi
+                        .getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
                         .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
             null);
     return response;
@@ -115,26 +124,96 @@ public class TablesClient {
   public List<TableMetadata> getTables() {
     List<TableMetadata> ret = new ArrayList<>();
     for (String dbName : getDatabases()) {
-      if (filter.applyDatabaseName(dbName)) {
+      if (databaseFilter.applyDatabaseName(dbName)) {
         ret.addAll(
             RetryUtil.executeWithRetry(
                 retryTemplate,
                 (RetryCallback<List<TableMetadata>, Exception>)
                     context -> {
                       GetAllTablesResponseBody response =
-                          api.getAllTablesV0(dbName)
+                          tableApi
+                              .getAllTablesV0(dbName)
                               .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
                       return Optional.ofNullable(response.getResults())
                           .map(Collection::stream)
                           .orElseGet(Stream::empty)
                           .map(this::parseGetTableResponse)
-                          .filter(filter::apply)
+                          .filter(databaseFilter::apply)
                           .collect(Collectors.toList());
                     },
                 Collections.emptyList()));
       }
     }
     return ret;
+  }
+
+  /**
+   * For the given database name, get all registered tables
+   *
+   * @param dbName database name
+   * @return a set of registered table names
+   */
+  public Set<String> getTableNamesForDbName(String dbName) {
+    Set<String> tableNames = new HashSet<>();
+    if (databaseFilter.applyDatabaseName(dbName)) {
+      tableNames.addAll(
+          RetryUtil.executeWithRetry(
+              retryTemplate,
+              (RetryCallback<Set<String>, Exception>)
+                  context -> {
+                    GetAllTablesResponseBody response =
+                        tableApi
+                            .getAllTablesV1(dbName)
+                            .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+                    return Optional.ofNullable(response.getResults())
+                        .map(Collection::stream)
+                        .orElseGet(Stream::empty)
+                        .map(this::parseGetTableResponseToTableDirectoryName)
+                        .filter(databaseFilter::applyTableDirectoryPath)
+                        .collect(Collectors.toSet());
+                  },
+              Collections.emptySet()));
+    }
+    return tableNames;
+  }
+
+  /**
+   * Given a database path, get all orphan table directories under that path.
+   *
+   * @param dbPath database path to get table directories from
+   * @return a list of DirectoryMetadata that are not registered
+   */
+  @VisibleForTesting
+  public List<DirectoryMetadata> getOrphanTableDirectories(Path dbPath) {
+    List<DirectoryMetadata> orphanTableDirectories = new ArrayList<>();
+    // a set of directory names
+    Set<String> registeredTableDirectories = getTableNamesForDbName(dbPath.getName());
+    List<DirectoryMetadata> allTableDirectories = storageClient.getSubDirectoriesWithOwners(dbPath);
+    orphanTableDirectories.addAll(
+        allTableDirectories.stream()
+            .filter(
+                directoryMetadata ->
+                    !registeredTableDirectories.contains(directoryMetadata.getDirectoryName()))
+            .collect(Collectors.toList()));
+    return orphanTableDirectories;
+  }
+
+  /**
+   * Get all orphan table directories in the corresponding file system.
+   *
+   * @return a list of DirectoryMetadata that are not registered
+   */
+  public List<DirectoryMetadata> getOrphanTableDirectories() {
+    List<DirectoryMetadata> orphanTableDirectories = new ArrayList<>();
+    // we use getDatabases interface to avoid accidentally deleting essential directories on the
+    // database level
+    for (String dbName : getDatabases()) {
+      if (databaseFilter.applyDatabaseName(dbName)) {
+        Path dbPath = new Path(storageClient.getRootPath(), dbName);
+        orphanTableDirectories.addAll(getOrphanTableDirectories(dbPath));
+      }
+    }
+    return orphanTableDirectories;
   }
 
   public List<String> getDatabases() {
@@ -164,5 +243,9 @@ public class TablesClient {
         .tableName(responseBody.getTableId())
         .creator(responseBody.getTableCreator())
         .build();
+  }
+
+  private String parseGetTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
+    return new Path(responseBody.getTableLocation()).getParent().getName();
   }
 }

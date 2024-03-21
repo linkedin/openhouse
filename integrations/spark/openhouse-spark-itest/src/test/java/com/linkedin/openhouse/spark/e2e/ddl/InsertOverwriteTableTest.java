@@ -44,8 +44,8 @@ public class InsertOverwriteTableTest {
             "u1",
             mockTableLocationAfterOperation(
                 TableIdentifier.of("dbInsertOverwrite", "t1"),
-                "INSERT INTO %t VALUES ('1', 'a', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20), "
-                    + "('2', 'b', CAST('2022-02-02' AS TIMESTAMP), 1.0, 10)"),
+                "INSERT INTO %t VALUES ('1', 'a', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20, 101), "
+                    + "('2', 'b', CAST('2022-02-02' AS TIMESTAMP), 1.0, 10, 102)"),
             "V2",
             baseSchema,
             null,
@@ -59,8 +59,8 @@ public class InsertOverwriteTableTest {
             "u1",
             mockTableLocationAfterOperation(
                 TableIdentifier.of("dbInsertOverwrite", "t1"),
-                "INSERT OVERWRITE %t VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20), "
-                    + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10)"),
+                "INSERT OVERWRITE %t VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20, 101), "
+                    + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10, 102)"),
             "V3",
             baseSchema,
             null,
@@ -74,8 +74,8 @@ public class InsertOverwriteTableTest {
 
     String ddlWithSchema =
         "INSERT OVERWRITE openhouse.dbInsertOverwrite.t1 "
-            + "VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20), "
-            + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10)";
+            + "VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20, 101), "
+            + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10, 102)";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
 
     List<String> actualRows =
@@ -114,8 +114,8 @@ public class InsertOverwriteTableTest {
             "u2",
             mockTableLocationAfterOperation(
                 TableIdentifier.of("dbInsertOverwrite", "t2"),
-                "INSERT INTO %t VALUES ('1', 'a', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20), "
-                    + "('2', 'b', CAST('2022-02-02' AS TIMESTAMP), 1.0, 10)"),
+                "INSERT INTO %t VALUES ('1', 'a', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20, 101), "
+                    + "('2', 'b', CAST('2022-02-02' AS TIMESTAMP), 1.0, 10, 102)"),
             "V2",
             baseSchema,
             null,
@@ -129,8 +129,8 @@ public class InsertOverwriteTableTest {
             "u2",
             mockTableLocationAfterOperation(
                 TableIdentifier.of("dbInsertOverwrite", "t2"),
-                "INSERT OVERWRITE %t VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20), "
-                    + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10)"),
+                "INSERT OVERWRITE %t VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20, 101), "
+                    + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10, 102)"),
             "V3",
             baseSchema,
             null,
@@ -144,8 +144,8 @@ public class InsertOverwriteTableTest {
 
     String ddlWithSchema =
         "INSERT OVERWRITE openhouse.dbInsertOverwrite.t2 "
-            + "VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20), "
-            + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10)";
+            + "VALUES ('1', 'c', CAST('2022-01-01' AS TIMESTAMP), 1.0, 20, 101), "
+            + "('3', 'a', CAST('2022-03-03' AS TIMESTAMP), 1.0, 10, 102)";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
 
     List<String> actualRows =

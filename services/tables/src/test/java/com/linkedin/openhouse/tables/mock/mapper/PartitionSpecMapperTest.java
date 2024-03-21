@@ -10,6 +10,7 @@ import com.google.common.collect.ImmutableList;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
@@ -20,6 +21,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.iceberg.PartitionSpec;
@@ -67,7 +70,8 @@ public class PartitionSpecMapperTest {
             .filter(
                 x ->
                     x.type().typeId().equals(Type.TypeID.STRING)
-                        || x.type().typeId().equals(Type.TypeID.INTEGER))
+                        || x.type().typeId().equals(Type.TypeID.INTEGER)
+                        || x.type().typeId().equals(Type.TypeID.LONG))
             .map(Types.NestedField::name)
             .collect(Collectors.toList());
   }
@@ -93,24 +97,18 @@ public class PartitionSpecMapperTest {
       Assertions.assertEquals(timePartitionSpec.getColumnName(), timePartitioningColumn);
     }
 
-    for (String transform : ImmutableList.of("bucket", "identity", "truncate")) {
-      if ("truncate".equals(transform)) {
-        Assertions.assertThrows(
-            IllegalStateException.class,
-            () -> tablesMapper.toTimePartitionSpec(createDummyIcebergTable("name", transform)));
-      } else {
-        Assertions.assertThrows(
-            IllegalStateException.class,
-            () ->
-                tablesMapper.toTimePartitionSpec(
-                    createDummyIcebergTable(timePartitioningColumn, transform)));
-      }
+    for (String transform : ImmutableList.of("bucket[10]", "identity", "void")) {
+      Assertions.assertThrows(
+          IllegalStateException.class,
+          () ->
+              tablesMapper.toTimePartitionSpec(
+                  createDummyIcebergTable(timePartitioningColumn, transform)));
     }
   }
 
   @Test
   public void testToClusteringSpec() throws IOException {
-    for (String transform : ImmutableList.of("identity")) {
+    for (String transform : ImmutableList.of("identity", "truncate[10]")) {
       Map<String, String> colTransformMap = new HashMap<>();
       colTransformMap.put(timePartitioningColumn, "day");
       clusteringColumns.stream().forEach(x -> colTransformMap.put(x, transform));
@@ -121,7 +119,7 @@ public class PartitionSpecMapperTest {
           containsInAnyOrder(clusteringColumns.toArray()));
     }
     recreateTempDir();
-    for (String transform : ImmutableList.of("bucket", "truncate")) {
+    for (String transform : ImmutableList.of("bucket[10]", "void")) {
       Map<String, String> colTransformMap = new HashMap<>();
       colTransformMap.put(timePartitioningColumn, "day");
       clusteringColumns.stream().forEach(x -> colTransformMap.put(x, transform));
@@ -197,7 +195,7 @@ public class PartitionSpecMapperTest {
                 .build());
 
     PartitionSpec partitionSpec = tablesMapper.toPartitionSpec(tableDto);
-    Assertions.assertEquals(3, partitionSpec.fields().size());
+    Assertions.assertEquals(4, partitionSpec.fields().size());
     // Make sure only clustering columns have been captured in the Iceberg
     // partition spec.
     assertThat(
@@ -205,7 +203,7 @@ public class PartitionSpecMapperTest {
             .map(x -> schema.findField(x.sourceId()).name())
             .collect(Collectors.toList()),
         containsInAnyOrder(clusteringColumns.toArray()));
-    // Make sure both partitioning and clustering columns have appropriate transforms.
+    // Make sure clustering columns have appropriate transforms.
     assertThat(
         partitionSpec.fields().stream()
             .map(
@@ -214,6 +212,7 @@ public class PartitionSpecMapperTest {
                   switch (typeID) {
                     case STRING:
                     case INTEGER:
+                    case LONG:
                       return "identity".equals(x.transform().toString());
                     default:
                       return false;
@@ -241,7 +240,7 @@ public class PartitionSpecMapperTest {
                           .collect(Collectors.toList()))
                   .build());
       PartitionSpec partitionSpec = tablesMapper.toPartitionSpec(tableDto);
-      Assertions.assertEquals(4, partitionSpec.fields().size());
+      Assertions.assertEquals(5, partitionSpec.fields().size());
       // Make sure both partitioning and clustering columns have been captured in the Iceberg
       // partition spec.
       assertThat(
@@ -264,6 +263,7 @@ public class PartitionSpecMapperTest {
                         return x.transform().toString().equals(granularity.name().toLowerCase());
                       case STRING:
                       case INTEGER:
+                      case LONG:
                         return "identity".equals(x.transform().toString());
                       default:
                         return false;
@@ -283,6 +283,80 @@ public class PartitionSpecMapperTest {
                     .build()));
     Assertions.assertTrue(partitionSpec.fields().isEmpty());
     Assertions.assertTrue(partitionSpec.isUnpartitioned());
+  }
+
+  @Test
+  public void testToPartitionSpecTransform() {
+    TableDto tableDto =
+        TableModelConstants.buildTableDto(
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
+                .clustering(
+                    clusteringColumns.stream()
+                        .map(
+                            x ->
+                                ClusteringColumn.builder()
+                                    .columnName(x)
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.TRUNCATE)
+                                            .transformParams(Arrays.asList("10"))
+                                            .build())
+                                    .build())
+                        .collect(Collectors.toList()))
+                .timePartitioning(null)
+                .build());
+
+    PartitionSpec partitionSpec = tablesMapper.toPartitionSpec(tableDto);
+    // Make sure clustering columns have appropriate transforms.
+    assertThat(
+        partitionSpec.fields().stream()
+            .map(
+                x -> {
+                  Type.TypeID typeID = schema.findField(x.sourceId()).type().typeId();
+                  switch (typeID) {
+                    case STRING:
+                    case INTEGER:
+                    case LONG:
+                      return "truncate[10]".equals(x.transform().toString());
+                    default:
+                      return false;
+                  }
+                })
+            .collect(Collectors.toList()),
+        everyItem(is(oneOf(true))));
+  }
+
+  @Test
+  public void testToClusteringSpecTransform() throws IOException {
+    Map<String, String> colTransformMap = new HashMap<>();
+    clusteringColumns.stream().forEach(x -> colTransformMap.put(x, "identity"));
+    List<ClusteringColumn> clusteringSpecsIdentity =
+        tablesMapper.toClusteringSpec(createDummyIcebergTable(colTransformMap));
+    // Make sure identity transform can be converted appropriately
+    Assertions.assertEquals(
+        4,
+        clusteringSpecsIdentity.stream()
+            .filter(x -> x.getTransform() == null)
+            .collect(Collectors.toList())
+            .size());
+
+    clusteringColumns.stream().forEach(x -> colTransformMap.put(x, "truncate[10]"));
+    List<ClusteringColumn> clusteringSpecsTruncate =
+        tablesMapper.toClusteringSpec(createDummyIcebergTable(colTransformMap));
+    // Make sure truncate transform can be converted appropriately
+    Assertions.assertEquals(
+        4,
+        clusteringSpecsTruncate.stream()
+            .filter(x -> x.getTransform().getTransformType() == Transform.TransformType.TRUNCATE)
+            .collect(Collectors.toList())
+            .size());
+    Assertions.assertEquals(
+        4,
+        clusteringSpecsTruncate.stream()
+            .filter(x -> x.getTransform().getTransformParams().get(0).equals("10"))
+            .collect(Collectors.toList())
+            .size());
   }
 
   private Table createDummyIcebergTable(Map<String, String> columnTransformMap) {
@@ -308,15 +382,22 @@ public class PartitionSpecMapperTest {
 
   private void createDummyIcebergTable(
       String columnName, String transform, PartitionSpec.Builder partitionSpecBuilder) {
+    Pattern hasWidth = Pattern.compile("(\\w+)\\[(\\d+)\\]");
+    Matcher widthMatcher = hasWidth.matcher(transform);
+    if (widthMatcher.matches()) {
+      String name = widthMatcher.group(1);
+      int parsedWidth = Integer.parseInt(widthMatcher.group(2));
+      if (name.equals("truncate")) {
+        partitionSpecBuilder.truncate(columnName, parsedWidth);
+        return;
+      } else if (name.equals("bucket")) {
+        partitionSpecBuilder.bucket(columnName, parsedWidth);
+        return;
+      }
+    }
     switch (transform) {
-      case "bucket":
-        partitionSpecBuilder.bucket(columnName, 5);
-        break;
       case "identity":
         partitionSpecBuilder.identity(columnName);
-        break;
-      case "truncate":
-        partitionSpecBuilder.truncate(columnName, 5);
         break;
       case "day":
         partitionSpecBuilder.day(columnName);

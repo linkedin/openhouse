@@ -38,6 +38,8 @@ public class IcebergSnapshotsServiceTest {
 
   @Autowired private IcebergSnapshotsService service;
 
+  @Autowired private TablesMapper tablesMapper;
+
   @MockBean private TableUUIDGenerator tableUUIDGenerator;
 
   private OpenHouseInternalRepository mockRepository;
@@ -142,16 +144,15 @@ public class IcebergSnapshotsServiceTest {
     final TableDtoPrimaryKey key =
         TableDtoPrimaryKey.builder().databaseId(dbId).tableId(tableId).build();
     final TableDto tableDto =
-        new TablesMapperImpl()
-            .toTableDto(
-                TableDto.builder()
-                    .clusterId(requestBody.getCreateUpdateTableRequestBody().getClusterId())
-                    .databaseId(dbId)
-                    .tableId(tableId)
-                    .tableLocation(requestBody.getBaseTableVersion())
-                    .tableCreator(TEST_TABLE_CREATOR)
-                    .build(),
-                requestBody);
+        tablesMapper.toTableDto(
+            TableDto.builder()
+                .clusterId(requestBody.getCreateUpdateTableRequestBody().getClusterId())
+                .databaseId(dbId)
+                .tableId(tableId)
+                .tableLocation(requestBody.getBaseTableVersion())
+                .tableCreator(TEST_TABLE_CREATOR)
+                .build(),
+            requestBody);
     Mockito.when(tableUUIDGenerator.generateUUID(Mockito.any(IcebergSnapshotsRequestBody.class)))
         .thenReturn(UUID.randomUUID());
     Mockito.when(mockRepository.findById(key)).thenReturn(Optional.of(tableDto));

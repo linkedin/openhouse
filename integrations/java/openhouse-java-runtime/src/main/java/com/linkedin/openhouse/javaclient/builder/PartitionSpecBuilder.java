@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
@@ -21,9 +22,11 @@ public abstract class PartitionSpecBuilder {
 
   public static final Set<Type.TypeID> ALLOWED_CLUSTERING_TYPEIDS =
       Collections.unmodifiableSet(
-          new HashSet<Type.TypeID>(Arrays.asList(Type.TypeID.STRING, Type.TypeID.INTEGER)));
+          new HashSet<Type.TypeID>(
+              Arrays.asList(Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG)));
+  protected static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
   public static final Set<String> SUPPORTED_TRANSFORMS =
-      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity")));
+      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));
 
   protected Schema schema;
   protected PartitionSpec partitionSpec;
@@ -41,8 +44,8 @@ public abstract class PartitionSpecBuilder {
 
   /**
    * Iterate through the partition spec and validate if it is a valid partition spec. Types and
-   * Transforms supported: (x) TIMESTAMP type support hour, day, month, year. (x) STRING type
-   * support identity. No other types are supported.
+   * Transforms supported: (x) TIMESTAMP type support hour, day, month, year. (x) STRING, INTEGER,
+   * LONG type support identity and truncate. No other types are supported.
    */
   private void validatePartitionSpec() {
     partitionSpec.fields().stream()
@@ -65,8 +68,7 @@ public abstract class PartitionSpecBuilder {
                         partitionField.transform().toString(),
                         String.join(",", getSupportedTimePartitionTransforms())));
               } else if (ALLOWED_CLUSTERING_TYPEIDS.contains(typeID)) {
-                if (getSupportedClusteringTransforms()
-                    .contains(partitionField.transform().toString())) {
+                if (isClusteringSpec(partitionField)) {
                   return;
                 }
                 throw new IllegalArgumentException(
@@ -103,8 +105,8 @@ public abstract class PartitionSpecBuilder {
         .collect(Collectors.toList());
   }
 
-  /** Get Supported transforms such as identity() */
-  private Set<String> getSupportedClusteringTransforms() {
-    return SUPPORTED_TRANSFORMS;
+  private boolean isClusteringSpec(PartitionField partitionField) {
+    String transform = partitionField.transform().toString();
+    return SUPPORTED_TRANSFORMS.stream().anyMatch(pattern -> transform.matches(pattern));
   }
 }

@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.spec.v0.request.components;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import javax.validation.Valid;
 import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -25,4 +26,11 @@ public class ClusteringColumn {
   @NotEmpty(message = "columnName cannot be empty")
   @NotNull(message = "columnName cannot be null")
   String columnName;
+
+  @Schema(
+      nullable = true,
+      description = "Transform of the clustering column. This field is optional.",
+      example = "{\"transformType\":\"TRUNCATE\",\"transformParams\":[\"1000\"]}}")
+  @Valid
+  Transform transform;
 }

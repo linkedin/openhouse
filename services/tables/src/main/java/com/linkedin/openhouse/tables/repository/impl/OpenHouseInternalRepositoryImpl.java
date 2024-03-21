@@ -36,6 +36,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -90,7 +91,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
     Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
-    PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
     boolean existed =
         existsById(
             TableDtoPrimaryKey.builder()
@@ -98,7 +98,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                 .databaseId(tableDto.getDatabaseId())
                 .build());
     if (!existed) {
-      versionCheck(null, tableDto);
+      creationEligibilityCheck(tableDto);
+      PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Creating a new user table: {} with schema: {} and partitionSpec: {}",
           tableIdentifier,
@@ -120,16 +121,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     } else {
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
-      versionCheck(table, tableDto);
-      checkIfPreservedTblPropsModified(tableDto, table);
-      checkIfTableTypeModified(tableDto, table);
-      handlePartitionEvolution(partitionSpec, table.spec());
+      updateEligibilityCheck(table, tableDto);
 
       boolean schemaUpdated =
           doUpdateSchemaIfNeeded(transaction, writeSchema, table.schema(), tableDto);
       UpdateProperties updateProperties = transaction.updateProperties();
 
       boolean propsUpdated = doUpdatePropsIfNeeded(updateProperties, tableDto, table);
+      boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
           doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
@@ -139,13 +138,34 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       updateProperties.commit();
 
       // No new metadata.json shall be generated if nothing changed.
-      if (schemaUpdated || propsUpdated || policiesUpdated || tableTypeAdded) {
+      if (schemaUpdated || propsUpdated || snapshotsUpdated || policiesUpdated || tableTypeAdded) {
         transaction.commitTransaction();
         meterRegistry.counter(MetricsConstant.REPO_TABLE_UPDATED_CTR).increment();
       }
     }
     return convertToTableDto(
         table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper);
+  }
+
+  /**
+   * Check the eligibility of table creation. Throw exceptions when invalidate behaviors detected
+   * for * {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal
+   * with
+   */
+  protected void creationEligibilityCheck(TableDto tableDto) {
+    versionCheck(null, tableDto);
+  }
+
+  /**
+   * Check the eligibility of table updates. Throw exceptions when invalidate behaviors detected for
+   * {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal with
+   */
+  protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
+    PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
+    versionCheck(existingTable, tableDto);
+    checkIfPreservedTblPropsModified(tableDto, existingTable);
+    checkIfTableTypeModified(tableDto, existingTable);
+    checkPartitionSpecEvolution(partitionSpec, existingTable.spec());
   }
 
   /**
@@ -258,6 +278,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       meterRegistry.counter(REPO_TABLE_CREATED_WITH_DATA).increment();
       propertiesMap.put(
           SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializeList(tableDto.getJsonSnapshots()));
+      if (!MapUtils.isEmpty(tableDto.getSnapshotRefs())) {
+        propertiesMap.put(
+            SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(tableDto.getSnapshotRefs()));
+      }
     }
     if (tableDto.getTableType() != null) {
       propertiesMap.put(getCanonicalFieldName(TABLE_TYPE_KEY), tableDto.getTableType().toString());
@@ -286,10 +310,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   /**
-   * Helper method to encapsulate handling of partitionSpec's evolution, for readability of main
-   * {@link #save(TableDto)} method.
+   * Helper method to encapsulate the check for partitionSpec's evolution, mainly for readability of
+   * main {@link #save(TableDto)} method.
    */
-  private void handlePartitionEvolution(PartitionSpec newSpec, PartitionSpec oldSpec) {
+  private void checkPartitionSpecEvolution(PartitionSpec newSpec, PartitionSpec oldSpec) {
     if (!arePartitionColumnNamesSame(newSpec, oldSpec)) {
       meterRegistry.counter(REPO_TABLE_UNSUPPORTED_PARTITIONSPEC_EVOLUTION).increment();
       throw new UnsupportedClientOperationException(
@@ -343,18 +367,22 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             ? null
             : getUserDefinedTblProps(providedTableDto.getTableProperties(), preservedKeyChecker);
 
-    boolean propertiesUpdated =
-        InternalRepositoryUtils.alterPropIfNeeded(
-            updateProperties, existingTableProps, providedTableProps);
+    return InternalRepositoryUtils.alterPropIfNeeded(
+        updateProperties, existingTableProps, providedTableProps);
+  }
 
-    // Obtain serialized json snapshots if exist
-    if (!CollectionUtils.isEmpty(providedTableDto.getJsonSnapshots())) {
-      propertiesUpdated = true;
+  private boolean doUpdateSnapshotsIfNeeded(
+      UpdateProperties updateProperties, TableDto providedTableDto) {
+    if (CollectionUtils.isNotEmpty(providedTableDto.getJsonSnapshots())) {
       updateProperties.set(
           SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializeList(providedTableDto.getJsonSnapshots()));
+      if (MapUtils.isNotEmpty(providedTableDto.getSnapshotRefs())) {
+        updateProperties.set(
+            SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(providedTableDto.getSnapshotRefs()));
+      }
+      return true;
     }
-
-    return propertiesUpdated;
+    return false;
   }
 
   /**

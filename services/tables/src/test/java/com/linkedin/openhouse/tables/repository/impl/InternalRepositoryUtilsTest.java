@@ -169,7 +169,8 @@ class InternalRepositoryUtilsTest {
             field ->
                 Modifier.isPrivate(field.getModifiers())
                     && !Modifier.isStatic(field.getModifiers())
-                    && !field.getName().equals("jsonSnapshots"))
+                    && !field.getName().equals("jsonSnapshots")
+                    && !field.getName().equals("snapshotRefs"))
         .map(Field::getName)
         .forEach(name -> ensurePrivateFieldNonNull(name, returnDto));
 

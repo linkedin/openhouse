@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.OtelConfig;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.tables.client.model.Policies;
@@ -17,10 +18,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
+import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -50,10 +54,13 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName2 = "db.test_retention_string_partition2";
     final String tableName3 = "db.test_retention_string_partition3";
     final String tableName4 = "db.test_retention_string_partition4";
+    final String tableName5 = "db.test_retention_string_partition5";
 
     List<String> rowValue = new ArrayList<>();
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       rowValue.add("202%s-07-16");
+      // retention test with default columnPattern. ColumnPattern defaults to "yyyy-MM-dd"
+      // if user does not provide it.
       runRetentionJobWithStringPartitionColumns(
           ops, tableName1, rowValue, "datePartition", "yyyy-MM-dd", "day");
       verifyRowCount(ops, tableName1, 0);
@@ -68,14 +75,52 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.add("202%s-07-2218:46:19-0700");
       runRetentionJobWithStringPartitionColumns(
           ops, tableName3, rowValue, "datePartition", "yyyy-MM-ddHH:mm:ssZ", "day");
-      verifyRowCount(ops, tableName3, 0);
+      verifyRowCount(ops, tableName3, 3);
       rowValue.clear();
 
       rowValue.add("202%s-07-16-12");
-      rowValue.add("202%s-07-2218:46:19-0700");
+      // data is not fully compliant with format. However, the substring part of data till provided
+      // pattern is
+      // in compliance. This record gets deleted.
+      rowValue.add("202%s-07-16-2218:46:189:0700");
       runRetentionJobWithStringPartitionColumns(
           ops, tableName4, rowValue, "datePartition", "yyyy-MM-dd-HH", "day");
-      verifyRowCount(ops, tableName4, 3);
+      verifyRowCount(ops, tableName4, 0);
+      rowValue.clear();
+
+      rowValue.add("202%s-07-16-12");
+      // Rows with format different than the pattern provided, parsing fails silently for such
+      // values and date
+      // will not be deleted
+      rowValue.add("202%s-07-2218:46:19-0700");
+      // Rows with current date which are not to be deleted
+      List<Row> currentDates =
+          ops.spark()
+              .sql("select date_format(current_timestamp(),'yyyy-MM-dd-HH') as string")
+              .collectAsList();
+      String dateToday = currentDates.get(0).toString();
+      rowValue.add(dateToday);
+      runRetentionJobWithStringPartitionColumns(
+          ops, tableName4, rowValue, "datePartition", "yyyy-MM-dd-HH", "day");
+      verifyRowCount(ops, tableName4, 6);
+      rowValue.clear();
+
+      // Test case to show that difference in data format and columnPattern format can lead to
+      // data not being deleted and put table out of compliance.
+      // Data format and pattern are different in terms of delimiter which makes is inconsistent.
+      // to_date cast fails silently.
+      List<Row> currentDatesFormatMismatched =
+          ops.spark()
+              .sql(
+                  "select date_format(current_timestamp() - INTERVAL 5 DAYS,'yyyy-MM-dd-HH') as string")
+              .collectAsList();
+      rowValue.add(currentDatesFormatMismatched.get(0).get(0).toString());
+      runRetentionJobWithStringPartitionColumns(
+          ops, tableName5, rowValue, "datePartition", "yyyy-MM.dd.HH", "day");
+      ops.spark()
+          .sql("select * from openhouse.db.test_retention_string_partition5")
+          .collectAsList();
+      verifyRowCount(ops, tableName5, 3);
       rowValue.clear();
     }
   }
@@ -416,6 +461,90 @@ public class OperationsTest extends OpenHouseSparkITest {
     }
   }
 
+  @Test
+  public void testOrphanDirsDeletionJavaAPI() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // test orphan delete
+      Path tbLoc = prepareOrphanTableDirectory(ops, "db1.test_odd_orphan");
+
+      long timeThreshold = System.currentTimeMillis();
+      List<Path> matchingFilesBefore = new ArrayList<>();
+      ops.listFiles(tbLoc, file -> true, true, matchingFilesBefore);
+      boolean orphaned = ops.deleteOrphanDirectory(tbLoc, ".trash", timeThreshold);
+      Assertions.assertTrue(orphaned);
+      List<Path> matchingFilesAfter = new ArrayList<>();
+      ops.listFiles(tbLoc, file -> true, true, matchingFilesAfter);
+      Assertions.assertEquals(matchingFilesBefore.size(), matchingFilesAfter.size());
+
+      // test stage delete
+      ops.deleteStagedOrphanDirectory(tbLoc, ".trash", timeThreshold);
+      // test table dir no longer exists
+      Assertions.assertFalse(ops.fs().exists(tbLoc));
+    }
+  }
+
+  private static Path prepareOrphanTableDirectory(Operations ops, String tableName)
+      throws Exception {
+    Schema schema = getTableSchema();
+    Transaction xact = ops.createTransaction(tableName, schema);
+    Path tbLoc = new Path(xact.table().location());
+
+    // populate more files
+    FileSystem fs = ops.fs();
+    Path dataPath = new Path(tbLoc, "data/datepartition");
+    fs.mkdirs(dataPath);
+    Assertions.assertTrue(fs.exists(dataPath));
+
+    int numInserts = 4;
+    for (int i = 0; i < numInserts; ++i) {
+      String fileName = "testing" + i + ".orc";
+      fs.createNewFile(new Path(dataPath, fileName));
+      Assertions.assertTrue(fs.exists(new Path(dataPath, fileName)));
+    }
+
+    Path metadataPath = new Path(tbLoc, "metadata");
+    fs.mkdirs(metadataPath);
+    Assertions.assertTrue(fs.exists(metadataPath));
+
+    for (int i = 0; i < numInserts; ++i) {
+      String fileName = "testing" + i + ".avro";
+      fs.createNewFile(new Path(metadataPath, fileName));
+      Assertions.assertTrue(fs.exists(new Path(metadataPath, fileName)));
+    }
+    return tbLoc;
+  }
+
+  @Test
+  public void testCollectTableStats() throws Exception {
+    final String tableName = "db.test_collect_table_stats";
+    final int numInserts = 3;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      IcebergTableStats stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getNumReferencedDataFiles(), 1);
+      Table table = ops.getTable(tableName);
+      long oldestSnapshot = table.currentSnapshot().timestampMillis();
+
+      populateTable(ops, tableName, numInserts);
+      table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getCurrentSnapshotId(), table.currentSnapshot().snapshotId());
+      Assertions.assertEquals(stats.getNumReferencedDataFiles(), numInserts + 1);
+      Assertions.assertEquals(stats.getNumExistingMetadataJsonFiles(), numInserts + 2);
+      Assertions.assertEquals(
+          stats.getCurrentSnapshotTimestamp(), table.currentSnapshot().timestampMillis());
+      Assertions.assertEquals(stats.getOldestSnapshotTimestamp(), oldestSnapshot);
+      Assertions.assertEquals(
+          stats.getNumObjectsInDirectory(),
+          stats.getNumReferencedDataFiles()
+              + stats.getNumExistingMetadataJsonFiles()
+              + stats.getNumReferencedManifestFiles()
+              + stats.getNumReferencedManifestLists());
+    }
+  }
+
   private void verifyPolicies(
       Operations ops,
       String tableName,
@@ -475,6 +604,12 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   private static void prepareTable(Operations ops, String tableName) {
     prepareTable(ops, tableName, false);
+  }
+
+  private static Schema getTableSchema() {
+    return new Schema(
+        Types.NestedField.required(1, "data", Types.StringType.get()),
+        Types.NestedField.required(2, "ts", Types.TimestampType.withZone()));
   }
 
   private static void prepareTable(Operations ops, String tableName, boolean isPartitioned) {

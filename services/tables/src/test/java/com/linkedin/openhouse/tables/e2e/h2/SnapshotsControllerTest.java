@@ -109,6 +109,16 @@ public class SnapshotsControllerTest {
 
     String beforeUUID =
         JsonPath.read(stagedResult.getResponse().getContentAsString(), "$.tableUUID");
+    List<String> jsonSnapshots =
+        ImmutableList.of(
+            getValidSnapshot(
+                getTableResponseBody
+                    .toBuilder()
+                    .tableVersion(INITIAL_TABLE_VERSION)
+                    .tableUUID(beforeUUID)
+                    .build()));
+    Map<String, String> snapshotRefs =
+        obtainSnapshotRefsFromSnapshot(jsonSnapshots.get(jsonSnapshots.size() - 1));
 
     IcebergSnapshotsRequestBody icebergSnapshotRequestBody =
         IcebergSnapshotsRequestBody.builder()
@@ -118,14 +128,8 @@ public class SnapshotsControllerTest {
                     .toBuilder()
                     .baseTableVersion(INITIAL_TABLE_VERSION)
                     .build())
-            .jsonSnapshots(
-                ImmutableList.of(
-                    getValidSnapshot(
-                        getTableResponseBody
-                            .toBuilder()
-                            .tableVersion(INITIAL_TABLE_VERSION)
-                            .tableUUID(beforeUUID)
-                            .build())))
+            .jsonSnapshots(jsonSnapshots)
+            .snapshotRefs(snapshotRefs)
             .build();
 
     MvcResult commitResult =
@@ -175,6 +179,9 @@ public class SnapshotsControllerTest {
                     mvc, getResponseBody.getDatabaseId(), getResponseBody.getTableId()))
             .createUpdateTableRequestBody(buildCreateUpdateTableRequestBody(putResult))
             .jsonSnapshots(icebergSnapshotRequestBody.getJsonSnapshots().subList(1, 2))
+            .snapshotRefs(
+                obtainSnapshotRefsFromSnapshot(
+                    icebergSnapshotRequestBody.getJsonSnapshots().get(1)))
             .build();
     putSnapshotsAndValidateResponse(catalog, mvc, icebergSnapshotRequestBody, false);
   }
@@ -212,6 +219,7 @@ public class SnapshotsControllerTest {
                     mvc, getResponseBody.getDatabaseId(), getResponseBody.getTableId()))
             .createUpdateTableRequestBody(buildCreateUpdateTableRequestBody(createResult))
             .jsonSnapshots(snapshots)
+            .snapshotRefs(obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1)))
             .build();
     putSnapshotsAndValidateResponse(catalog, mvc, icebergSnapshotRequestBody, false);
   }
@@ -270,6 +278,7 @@ public class SnapshotsControllerTest {
                     .tableProperties(propsMap)
                     .build())
             .jsonSnapshots(snapshots)
+            .snapshotRefs(obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1)))
             .build();
     putSnapshotsAndValidateResponse(catalog, mvc, icebergSnapshotRequestBody, false);
   }

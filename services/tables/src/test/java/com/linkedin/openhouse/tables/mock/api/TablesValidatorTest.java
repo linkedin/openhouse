@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import java.security.SecureRandom;
@@ -125,6 +126,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -139,6 +141,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -158,6 +161,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -175,6 +179,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -221,6 +226,7 @@ public class TablesValidatorTest {
                             .granularity(TimePartitionSpec.Granularity.HOUR)
                             .build())
                     .policies(Policies.builder().retention(Retention.builder().build()).build())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -251,6 +257,7 @@ public class TablesValidatorTest {
                                         RetentionColumnPattern.builder().pattern("yyyy").build())
                                     .build())
                             .build())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -288,6 +295,7 @@ public class TablesValidatorTest {
                                       .granularity(TimePartitionSpec.Granularity.DAY)
                                       .build())
                               .build())
+                      .baseTableVersion("base")
                       .build()));
     }
   }
@@ -306,6 +314,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -320,6 +329,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -334,6 +344,7 @@ public class TablesValidatorTest {
                     .clusterId(":'")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -348,6 +359,7 @@ public class TablesValidatorTest {
                     .clusterId("")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
     assertThrows(
         RequestValidationFailureException.class,
@@ -361,6 +373,7 @@ public class TablesValidatorTest {
                     .clusterId("")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -395,6 +408,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(null)
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -486,6 +500,7 @@ public class TablesValidatorTest {
                                 ClusteringColumn.builder().columnName("id").build(),
                                 ClusteringColumn.builder().columnName(null).build()))
                         .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
                         .build()));
     Assertions.assertTrue(
         requestValidationFailureException
@@ -517,11 +532,140 @@ public class TablesValidatorTest {
                             Arrays.asList(
                                 ClusteringColumn.builder().columnName("name").build(), null))
                         .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
                         .build()));
     Assertions.assertTrue(
         requestValidationFailureException
             .getMessage()
             .contains("table dC.t clustering[1] : cannot be null"));
+  }
+
+  @Test
+  public void validateCreateTableRequestNullTransformType() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(Transform.builder().build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains(
+                "CreateUpdateTableRequestBody.clustering[0].transform.transformType : transformType cannot be null"));
+  }
+
+  @Test
+  public void validateCreateTableRequestTransformEmptyParams() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.TRUNCATE)
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("TRUNCATE transform: parameters can not be empty"));
+  }
+
+  @Test
+  public void validateCreateTableRequestTransformMoreThanOneParams() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.TRUNCATE)
+                                            .transformParams(Arrays.asList("1", "2"))
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("TRUNCATE transform: cannot have more than one parameter"));
+  }
+
+  @Test
+  public void validateCreateTableRequestTransformNonNumericParams() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.TRUNCATE)
+                                            .transformParams(Arrays.asList("x"))
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("TRUNCATE transform: parameters must be numeric string"));
   }
 
   @Test
@@ -539,6 +683,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -554,6 +699,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -572,6 +718,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -587,6 +734,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -602,6 +750,7 @@ public class TablesValidatorTest {
                     .clusterId(":'")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
 
     assertThrows(
@@ -617,6 +766,7 @@ public class TablesValidatorTest {
                     .clusterId("")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -637,6 +787,7 @@ public class TablesValidatorTest {
                         .schema(HEALTH_SCHEMA_LITERAL)
                         .tableProperties(ImmutableMap.of())
                         .stageCreate(true)
+                        .baseTableVersion("base")
                         .build()));
     Assertions.assertTrue(
         requestValidationFailureException
@@ -717,6 +868,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -735,6 +887,7 @@ public class TablesValidatorTest {
                     .clusterId("c")
                     .schema(HEALTH_SCHEMA_LITERAL)
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -752,6 +905,7 @@ public class TablesValidatorTest {
                     .clusterId("local-cluster")
                     .schema("{\"type\":\"struct\",\"schema-id\":0,\"fields\":[]}")
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 
@@ -770,6 +924,7 @@ public class TablesValidatorTest {
                     .clusterId("local-cluster")
                     .schema("{\"type\":\"struct\",\"schema-id\":0,\"fields\":[]}")
                     .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
                     .build()));
   }
 

@@ -12,12 +12,42 @@ import org.apache.hadoop.fs.Path;
 @Slf4j
 public final class SparkJobUtil {
   private SparkJobUtil() {}
-
-  private static final String RETENTION_CONDITION =
+  /*
+  Example:
+  Table: test_retention with retentionConfig:
+    "retention":{
+           "count": 30,
+           "granularity": "DAY",
+           "columnPattern": null }}
+  Partitioned by time on datePartition column
+  Query: date_trunc('DAY', datePartition) < date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
+  */
+  private static final String RETENTION_CONDITION_TEMPLATE =
       "date_trunc('%s', %s) < date_trunc('%s', current_timestamp() - INTERVAL %d %ss)";
 
-  private static final String RETENTION_CONDITION_WITH_PATTERN =
-      "date_trunc('%s', to_timestamp(%s, '%s')) < date_trunc('%s', current_timestamp() - INTERVAL %d %ss)";
+  /*
+   A mismatch between data and pattern provided results in the datasets being filtered from deletion.
+   Reason: to_date parsing returns null if it fails to parse date as per pattern.
+   example:
+   table: test_retention with retentionConfig:
+     "retention":{
+          "count": 30,
+          "granularity": "DAY",
+          "columnPattern":{
+              "columnName": "datePartition",
+              "pattern":"yyyy-MM-dd"}}
+   Data in 'datePartition' column:
+    Case1: "2024-01-01"
+      query:  to_date(substring(datePartition, 0, CHAR_LENGTH('yyyy-MM-dd')), 'yyyy-MM-dd') <
+              date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
+      result: record will be deleted
+    Case2: "2024-01.01"
+      query:  to_date(substring(datePartition, 0, CHAR_LENGTH('yyyy-MM-dd')), 'yyyy-MM-dd') <
+              date_trunc('DAY', current_timestamp() - INTERVAL 3 DAYs)"
+      result: records will be filtered from deletion
+  */
+  private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
+      "to_date(substring(%s, 0, CHAR_LENGTH('%s')), '%s') < date_trunc('%s', current_timestamp() - INTERVAL %s %ss)";
 
   public static String createDeleteStatement(
       String fqtn, String columnName, String columnPattern, String granularity, int count) {
@@ -27,14 +57,20 @@ public final class SparkJobUtil {
               "DELETE FROM %s WHERE %s",
               getQuotedFqtn(fqtn),
               String.format(
-                  RETENTION_CONDITION_WITH_PATTERN,
-                  granularity,
+                  RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
                   columnName,
+                  columnPattern,
                   columnPattern,
                   granularity,
                   count,
                   granularity));
-      log.info("Table: {} column pattern provided: {} retention_query: {}", query);
+      log.info(
+          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, " + "retention query: {}",
+          fqtn,
+          columnPattern,
+          columnName,
+          granularity,
+          query);
       return query;
     } else {
       String query =
@@ -42,8 +78,13 @@ public final class SparkJobUtil {
               "DELETE FROM %s WHERE %s",
               getQuotedFqtn(fqtn),
               String.format(
-                  RETENTION_CONDITION, granularity, columnName, granularity, count, granularity));
-      log.info("Table: {} No column pattern provided: selectQuery: {}", fqtn, query);
+                  RETENTION_CONDITION_TEMPLATE,
+                  granularity,
+                  columnName,
+                  granularity,
+                  count,
+                  granularity));
+      log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
       return query;
     }
   }
@@ -61,9 +102,9 @@ public final class SparkJobUtil {
               "SELECT * FROM %s WHERE %s limit %d",
               getQuotedFqtn(fqtn),
               String.format(
-                  RETENTION_CONDITION_WITH_PATTERN,
-                  granularity,
+                  RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
                   columnName,
+                  columnPattern,
                   columnPattern,
                   granularity,
                   count,
@@ -77,7 +118,12 @@ public final class SparkJobUtil {
               "SELECT * FROM %s WHERE %s limit %d",
               getQuotedFqtn(fqtn),
               String.format(
-                  RETENTION_CONDITION, granularity, columnName, granularity, count, granularity),
+                  RETENTION_CONDITION_TEMPLATE,
+                  granularity,
+                  columnName,
+                  granularity,
+                  count,
+                  granularity),
               limit);
       log.info("Table: {} No column pattern provided: selectQuery: {}", fqtn, query);
       return query;

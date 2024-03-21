@@ -32,7 +32,7 @@ public class SparkJobUtilTest {
   @Test
   void testCreateSelectLimitStatementWithStringColumnPartition() {
     String expected =
-        "SELECT * FROM `table`.`name` WHERE date_trunc('day', to_timestamp(attribute, 'yyyy-MM-dd')) < date_trunc('day', current_timestamp() - INTERVAL 3 days) limit 1";
+        "SELECT * FROM `table`.`name` WHERE to_date(substring(attribute, 0, CHAR_LENGTH('yyyy-MM-dd')), 'yyyy-MM-dd') < date_trunc('day', current_timestamp() - INTERVAL 3 days) limit 1";
     String actual =
         SparkJobUtil.createSelectLimitStatement(
             "table.name", "attribute", "yyyy-MM-dd", "day", 3, 1);
@@ -42,7 +42,7 @@ public class SparkJobUtilTest {
   @Test
   void testCreateDeleteStatementWithStringColumnPartition() {
     String expected =
-        "DELETE FROM `db`.`table-name` WHERE date_trunc('day', to_timestamp(string_partition, 'yyyy-MM-dd-HH')) < date_trunc('day', current_timestamp() - INTERVAL 2 days)";
+        "DELETE FROM `db`.`table-name` WHERE to_date(substring(string_partition, 0, CHAR_LENGTH('yyyy-MM-dd-HH')), 'yyyy-MM-dd-HH') < date_trunc('day', current_timestamp() - INTERVAL 2 days)";
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
