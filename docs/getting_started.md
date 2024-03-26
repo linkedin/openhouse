@@ -57,7 +57,7 @@ openhouse@0a9ed5853291:/opt/spark$  bin/spark-shell --packages org.apache.iceber
 ```
 :::note
 the configuration `spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080` points to the docker container
-running the [REST-based catalog service](./intro.md#catalog-service).
+running the [OpenHouse Catalog Service](./intro.md#catalog-service).
 :::
 
 Once the spark-shell is up, we run the following command to create a simple table.
