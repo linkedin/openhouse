@@ -14,9 +14,9 @@ In this guide, we will quickly set up a running environment and experiment with 
 environment will include all the core OpenHouse services such as [Catalog Service](./intro.md#catalog-service),
 [House Table service](./intro.md#house-table-service) and [others](./intro.md#control-plane-for-tables),
 [a Spark 3.1 engine](https://spark.apache.org/releases/spark-release-3-1-1.html) and
-also [HDFS namenode and datanode](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html#NameNode+and+DataNodes).
-By the end of this walkthrough, we will have made some tables on OpenHouse, put data in them, retrieved the data
-and checked HDFS namenodes to see the data written.
+also [HDFS namenode and datanode](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html#NameNode+and+DataNodes). By the end of this walkthrough, we will have created some tables on OpenHouse,
+inserted data in them, and queried data. For more information on various docker environments and how to set them up
+please see the [SETUP.md](https://github.com/linkedin/openhouse/blob/main/SETUP.md) guide.
 
 In the consecutive optional section, you can learn more about some simple GRANT REVOKE commands and how
 OpenHouse manages access control.
@@ -35,23 +35,11 @@ message.
 openhouse$main>  ./gradlew build
 ```
 
-Then, go to the location `infra/recipes/docker-compose/oh-hadoop-spark` and execute `docker compose up` command.
-When you finish, you should see many docker containers running.
-```shell
-# change directory
-openhouse$main>  cd infra/recipes/docker-compose/oh-hadoop-spark
-
-# spin up containers
-oh-hadoop-spark$main>  docker compose up –d
-[+] Running
-✔ Container local.spark-master            Running
-✔ Container local.openhouse-housetables   Running
-...
-```
-Voila! Just like that, we have all the core OpenHouse services up alongside Spark and Hadoop.
+Execute `docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build` command to
+bring up docker containers for OpenHouse services, Spark and HDFS.
 
 ### Run SQL commands
-Let us  execute some basic SQL commands to create table, add data and retrieve the data.
+Let us execute some basic SQL commands to create table, add data and query data.
 
 First login to the driver node and start the spark-shell.
 ```shell
@@ -117,18 +105,6 @@ Looks great! We just added some data to OpenHouse and queried the data using Spa
 
 To find out more about other SQL commands that OH supports, please visit the [SQL User Guide](./User%20Guide/Catalog/SQL.md).
 
-### Inspect data on HDFS
-We will now look at the data that was stored on HDFS.
-First, we should log out of the container if we are on Spark driver and log in to the HDFS name node.
-
-```
-oh-hadoop-spark$main>  docker exec -it local.namenode bash
-
-root@aa91a7bc8575:/# hdfs dfs -ls -R /data/openhouse/
-```
-This directory has all the OpenHouse tables that were made earlier. You should find the Iceberg metadata
-files (`metadata.json`, `/metadata`) and the datafiles (in `/data`) that were created for the data we added
-in the previous section.
 
 ## (Optional) Control access to Tables
 We will continue with the same environment and the table (ie db.table) as before for this section.
@@ -160,5 +136,5 @@ scala> spark.sql("SHOW GRANTS ON TABLE openhouse.db.tb2").show
 
 ```
 
-You can also apply the similar access control for database entity, please refer to the
+You can also apply similar access control for database entity, please refer to the
 [User Guide](./User%20Guide/Catalog/SQL.md#grant-revoke) to learn more.
