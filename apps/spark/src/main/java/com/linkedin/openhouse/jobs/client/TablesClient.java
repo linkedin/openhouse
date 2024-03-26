@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.client;
 
+import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
@@ -9,6 +10,7 @@ import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import java.time.Duration;
@@ -17,6 +19,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -25,6 +29,7 @@ import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.arrow.util.VisibleForTesting;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.fs.Path;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
@@ -64,7 +69,8 @@ public class TablesClient {
     if (response.getTimePartitioning() != null) {
       columnName = response.getTimePartitioning().getColumnName();
     } else {
-      columnName = policies.getRetention().getColumnPattern().getColumnName();
+      columnName =
+          Objects.requireNonNull(policies.getRetention().getColumnPattern()).getColumnName();
       columnPattern = policies.getRetention().getColumnPattern().getPattern();
     }
 
@@ -78,16 +84,30 @@ public class TablesClient {
   }
 
   protected GetTableResponseBody getTable(TableMetadata tableMetadata) {
-    GetTableResponseBody response =
-        RetryUtil.executeWithRetry(
-            retryTemplate,
-            (RetryCallback<GetTableResponseBody, Exception>)
-                context ->
-                    tableApi
-                        .getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
-                        .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
-            null);
-    return response;
+    return RetryUtil.executeWithRetry(
+        retryTemplate,
+        (RetryCallback<GetTableResponseBody, Exception>)
+            context ->
+                tableApi
+                    .getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
+                    .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
+        null);
+  }
+
+  public Optional<Long> getTableDataFileTargetSizeBytes(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    if (response == null) {
+      // return empty since we don't know what target file size should be
+      return Optional.empty();
+    }
+    Map<String, String> props = response.getTableProperties();
+    if (props == null) {
+      return Optional.of(DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE);
+    }
+    return Optional.of(
+        NumberUtils.toLong(
+            props.get("write.target-file-size-bytes"),
+            DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE));
   }
 
   /**
@@ -98,7 +118,7 @@ public class TablesClient {
    */
   public boolean canExpireSnapshots(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return (response != null && isPrimaryTable(response));
+    return response != null && isPrimaryTable(response);
   }
 
   /**
@@ -134,7 +154,7 @@ public class TablesClient {
                           tableApi
                               .getAllTablesV0(dbName)
                               .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                      return Optional.ofNullable(response.getResults())
+                      return Optional.ofNullable(response == null ? null : response.getResults())
                           .map(Collection::stream)
                           .orElseGet(Stream::empty)
                           .map(this::parseGetTableResponse)
@@ -165,7 +185,7 @@ public class TablesClient {
                         tableApi
                             .getAllTablesV1(dbName)
                             .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                    return Optional.ofNullable(response.getResults())
+                    return Optional.ofNullable(response == null ? null : response.getResults())
                         .map(Collection::stream)
                         .orElseGet(Stream::empty)
                         .map(this::parseGetTableResponseToTableDirectoryName)
@@ -185,17 +205,14 @@ public class TablesClient {
    */
   @VisibleForTesting
   public List<DirectoryMetadata> getOrphanTableDirectories(Path dbPath) {
-    List<DirectoryMetadata> orphanTableDirectories = new ArrayList<>();
     // a set of directory names
     Set<String> registeredTableDirectories = getTableNamesForDbName(dbPath.getName());
     List<DirectoryMetadata> allTableDirectories = storageClient.getSubDirectoriesWithOwners(dbPath);
-    orphanTableDirectories.addAll(
-        allTableDirectories.stream()
-            .filter(
-                directoryMetadata ->
-                    !registeredTableDirectories.contains(directoryMetadata.getDirectoryName()))
-            .collect(Collectors.toList()));
-    return orphanTableDirectories;
+    return allTableDirectories.stream()
+        .filter(
+            directoryMetadata ->
+                !registeredTableDirectories.contains(directoryMetadata.getDirectoryName()))
+        .collect(Collectors.toList());
   }
 
   /**
@@ -217,24 +234,21 @@ public class TablesClient {
   }
 
   public List<String> getDatabases() {
-    List<String> ret = new ArrayList<>();
-    ret.addAll(
-        RetryUtil.executeWithRetry(
-            retryTemplate,
-            (RetryCallback<List<String>, Exception>)
-                context -> {
-                  GetAllDatabasesResponseBody response =
-                      databaseApi
-                          .getAllDatabasesV0()
-                          .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                  return Optional.ofNullable(response.getResults())
-                      .map(Collection::stream)
-                      .orElseGet(Stream::empty)
-                      .map(r -> r.getDatabaseId())
-                      .collect(Collectors.toList());
-                },
-            Collections.emptyList()));
-    return ret;
+    return RetryUtil.executeWithRetry(
+        retryTemplate,
+        (RetryCallback<List<String>, Exception>)
+            context -> {
+              GetAllDatabasesResponseBody response =
+                  databaseApi
+                      .getAllDatabasesV0()
+                      .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+              return Optional.ofNullable(response == null ? null : response.getResults())
+                  .map(Collection::stream)
+                  .orElseGet(Stream::empty)
+                  .map(GetDatabaseResponseBody::getDatabaseId)
+                  .collect(Collectors.toList());
+            },
+        Collections.emptyList());
   }
 
   protected TableMetadata parseGetTableResponse(GetTableResponseBody responseBody) {
@@ -246,6 +260,6 @@ public class TablesClient {
   }
 
   private String parseGetTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
-    return new Path(responseBody.getTableLocation()).getParent().getName();
+    return new Path(Objects.requireNonNull(responseBody.getTableLocation())).getParent().getName();
   }
 }

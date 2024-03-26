@@ -1,15 +1,12 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import static com.linkedin.openhouse.jobs.spark.Operations.*;
-
+import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.List;
-import lombok.Builder;
-import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -25,15 +22,6 @@ import org.apache.iceberg.actions.RewriteDataFiles;
  */
 @Slf4j
 public class DataCompactionSparkApp extends BaseTableSparkApp {
-  // Default values for the compaction configuration match default values in the iceberg library
-  // see https://iceberg.apache.org/docs/latest/spark-procedures/#rewrite_data_files
-  private static final long MB = 1024 * 1024;
-  private static final long DEFAULT_TARGET_BYTE_SIZE = MB * 512;
-  private static final long DEFAULT_MIN_BYTE_SIZE = (long) (DEFAULT_TARGET_BYTE_SIZE * 0.75);
-  private static final long DEFAULT_MAX_BYTE_SIZE = (long) (DEFAULT_TARGET_BYTE_SIZE * 1.8);
-  private static final int DEFAULT_MIN_INPUT_FILES = 5;
-  private static final int DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES = 5;
-  private static final int DEFAULT_PARTIAL_PROGRESS_MAX_COMMITS = 10;
   private final DataCompactionConfig config;
 
   protected DataCompactionSparkApp(
@@ -48,13 +36,13 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     RewriteDataFiles.Result result =
         ops.rewriteDataFiles(
             ops.getTable(fqtn),
-            config.targetByteSize,
-            config.minByteSize,
-            config.maxByteSize,
-            config.minInputFiles,
-            config.maxConcurrentFileGroupRewrites,
-            config.partialProgressEnabled,
-            config.partialProgressMaxCommits);
+            config.getTargetByteSize(),
+            config.getMinByteSize(),
+            config.getMaxByteSize(),
+            config.getMinInputFiles(),
+            config.getMaxConcurrentFileGroupRewrites(),
+            config.isPartialProgressEnabled(),
+            config.getPartialProgressMaxCommits());
     log.info(
         "Added {} data files, rewritten {} data files, rewritten {} bytes",
         result.addedDataFilesCount(),
@@ -64,7 +52,7 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     for (RewriteDataFiles.FileGroupRewriteResult fileGroupRewriteResult : result.rewriteResults()) {
       log.info(
           "File group {} has {} added files, {} rewritten files, {} rewritten bytes",
-          groupInfoToString(fileGroupRewriteResult.info()),
+          Operations.groupInfoToString(fileGroupRewriteResult.info()),
           fileGroupRewriteResult.addedDataFilesCount(),
           fileGroupRewriteResult.rewrittenDataFilesCount(),
           fileGroupRewriteResult.rewrittenBytesCount());
@@ -147,34 +135,33 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
         DataCompactionConfig.builder()
             .targetByteSize(
                 NumberUtils.toLong(
-                    cmdLine.getOptionValue("targetByteSize"), DEFAULT_TARGET_BYTE_SIZE))
+                    cmdLine.getOptionValue("targetByteSize"),
+                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
+                        .DEFAULT_TARGET_BYTE_SIZE))
             .minByteSize(
-                NumberUtils.toLong(cmdLine.getOptionValue("minByteSize"), DEFAULT_MIN_BYTE_SIZE))
+                NumberUtils.toLong(
+                    cmdLine.getOptionValue("minByteSize"),
+                    com.linkedin.openhouse.jobs.config.DataCompactionConfig.DEFAULT_MIN_BYTE_SIZE))
             .maxByteSize(
-                NumberUtils.toLong(cmdLine.getOptionValue("maxByteSize"), DEFAULT_MAX_BYTE_SIZE))
+                NumberUtils.toLong(
+                    cmdLine.getOptionValue("maxByteSize"),
+                    com.linkedin.openhouse.jobs.config.DataCompactionConfig.DEFAULT_MAX_BYTE_SIZE))
             .minInputFiles(
-                NumberUtils.toInt(cmdLine.getOptionValue("minInputFiles"), DEFAULT_MIN_INPUT_FILES))
+                NumberUtils.toInt(
+                    cmdLine.getOptionValue("minInputFiles"),
+                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
+                        .DEFAULT_MIN_INPUT_FILES))
             .maxConcurrentFileGroupRewrites(
                 NumberUtils.toInt(
                     cmdLine.getOptionValue("maxConcurrentFileGroupRewrites"),
-                    DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES))
+                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
+                        .DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES))
             .partialProgressEnabled(cmdLine.hasOption("partialProgressEnabled"))
             .partialProgressMaxCommits(
                 NumberUtils.toInt(
                     cmdLine.getOptionValue("partialProgressMaxCommits"),
-                    DEFAULT_PARTIAL_PROGRESS_MAX_COMMITS))
+                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
+                        .DEFAULT_PARTIAL_PROGRESS_MAX_COMMITS))
             .build());
-  }
-
-  @ToString
-  @Builder
-  protected static class DataCompactionConfig {
-    private long targetByteSize;
-    private long minByteSize;
-    private long maxByteSize;
-    private int minInputFiles;
-    private int maxConcurrentFileGroupRewrites;
-    private boolean partialProgressEnabled;
-    private int partialProgressMaxCommits;
   }
 }
