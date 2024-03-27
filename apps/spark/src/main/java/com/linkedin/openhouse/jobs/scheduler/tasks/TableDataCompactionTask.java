@@ -53,6 +53,6 @@ public class TableDataCompactionTask extends TableOperationTask {
 
   @Override
   protected boolean shouldRun() {
-    return true;
+    return tablesClient.canRunDataCompaction(getMetadata());
   }
 }

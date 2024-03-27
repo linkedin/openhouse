@@ -111,6 +111,17 @@ public class TablesClient {
   }
 
   /**
+   * Checks if data compaction can be executed on the input table.
+   *
+   * @param tableMetadata table metadata
+   * @return true if the table can run data compaction, false otherwise
+   */
+  public boolean canRunDataCompaction(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return response != null && isPrimaryTable(response);
+  }
+
+  /**
    * Checks if expire snapshots can be executed on the input table.
    *
    * @param tableMetadata table metadata
