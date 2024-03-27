@@ -37,6 +37,7 @@ include ':integrations:spark:openhouse-spark-itest'
 include ':integrations:spark-extensions'
 include ':integrations:java:openhouse-java-runtime'
 include ':integrations:java:openhouse-java-itest'
+include ':integrations:spark-delta-client'
 
 include ':iceberg:openhouse:htscatalog'
 include ':iceberg:openhouse:internalcatalog'

@@ -1,0 +1,66 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'com.github.johnrengelman.shadow' version '6.0.0'
+}
+
+repositories {
+  mavenCentral()
+}
+
+
+dependencies {
+
+  compileOnly("org.apache.spark:spark-sql_2.12:3.1.1")
+
+  implementation("io.delta:delta-core_2.12:1.0.+")
+  implementation("io.delta:delta-standalone_2.12:0.5.0")
+  implementation("io.delta:delta-storage:1.+")
+  implementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0")
+
+  implementation(project(':client:secureclient')){
+    exclude group: 'org.slf4j'
+    exclude group: 'ch.qos.logback'
+    exclude group: 'org.apache.logging.slf4j'
+    exclude group: 'org.apache.logging.log4j'
+    exclude group: 'io.netty'
+  }
+  implementation(project(':client:tableclient')){
+    exclude group: 'org.slf4j'
+    exclude group: 'ch.qos.logback'
+    exclude group: 'org.apache.logging.slf4j'
+    exclude group: 'org.apache.logging.log4j'
+    exclude group: 'io.netty'
+  }
+  compileOnly("org.springframework.boot:spring-boot-starter-webflux:2.6.1"){
+    exclude group: 'org.slf4j'
+    exclude group: 'ch.qos.logback'
+    exclude group: 'org.apache.logging.slf4j'
+    exclude group: 'org.apache.logging.log4j'
+    exclude group: 'io.netty'
+  }
+
+
+
+  // Libraries required for spark
+  testImplementation("org.apache.spark:spark-sql_2.12:3.1.1"){
+    exclude group: "io.netty"
+  }
+  testImplementation("org.apache.spark:spark-core_2.12:3.1.1") {
+    exclude group: "io.netty"
+  }
+  // Libraries required for tables-test-fixtures
+  // TODO: [BDP-18150] This is a temp workaround for jasper-oh integration
+  testImplementation(project(path: ':tables-test-fixtures_2.12')){
+    exclude group: 'org.slf4j'
+    exclude group: 'ch.qos.logback'
+    exclude group: 'org.apache.logging.slf4j'
+    exclude group: 'org.apache.logging.log4j'
+    exclude group: 'io.netty'
+  }
+  testRuntime("org.eclipse.jetty:jetty-server:11.0.2")
+  testImplementation "com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1"
+  testRuntimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64'
+  testImplementation 'io.netty:netty-codec-http:4.1.75.Final'
+  testImplementation 'io.netty:netty-codec-http2:4.1.75.Final'
+
+}

@@ -256,7 +256,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * @param tableDto
    * @return
    */
-  private Map<String, String> computePropsForTableCreation(TableDto tableDto) {
+  public Map<String, String> computePropsForTableCreation(TableDto tableDto) {
     // Populate non-preserved keys, mainly user defined properties.
     Map<String, String> propertiesMap =
         tableDto.getTableProperties().entrySet().stream()
