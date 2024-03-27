@@ -29,30 +29,33 @@ model {
   }
 }
 
+def configurePom(pom) {
+  pom.name = 'OpenHouse'
+  pom.description = 'Control Plane for Tables in Open Data Lakehouse'
+  pom.url = 'https://github.com/linkedin/openhouse'
+
+  pom.licenses {
+    license {
+      name = 'BSD 2-Clause License'
+      url = 'https://raw.githubusercontent.com/linkedin/openhouse/main/LICENSE'
+    }
+  }
+
+  pom.scm {
+    connection = 'scm:git:git://github.com/linkedin/openhouse.git'
+    developerConnection = 'scm:git:ssh://github.com/linkedin/openhouse.git'
+    url = 'https://github.com/linkedin/openhouse'
+  }
+}
+
 publishing {
   publications {
 
     if (!tasks.matching({task -> task.name == 'shadowJar'}).isEmpty()) {
       shadow(MavenPublication) { publication ->
         project.shadow.component(publication)
-        pom {
-          name = 'OpenHouse'
-          description = 'Control Plane for Tables in Open Data Lakehouse'
-          url = 'https://github.com/linkedin/openhouse'
 
-          licenses {
-            license {
-              name = 'BSD 2-Clause License'
-              url = 'https://raw.githubusercontent.com/linkedin/openhouse/main/LICENSE'
-            }
-          }
-
-          scm {
-            connection = 'scm:git:git://github.com/linkedin/openhouse.git'
-            developerConnection = 'scm:git:ssh://github.com/linkedin/openhouse.git'
-            url = 'https://github.com/linkedin/openhouse'
-          }
-        }
+        configurePom(pom)
       }
     }
 
@@ -62,24 +65,7 @@ publishing {
       artifact sourcesJar
       artifact javadocJar
 
-      pom {
-        name = 'OpenHouse'
-        description = 'Control Plane for Tables in Open Data Lakehouse'
-        url = 'https://github.com/linkedin/openhouse'
-
-        licenses {
-          license {
-            name = 'BSD 2-Clause License'
-            url = 'https://raw.githubusercontent.com/linkedin/openhouse/main/LICENSE'
-          }
-        }
-
-        scm {
-          connection = 'scm:git:git://github.com/linkedin/openhouse.git'
-          developerConnection = 'scm:git:ssh://github.com/linkedin/openhouse.git'
-          url = 'https://github.com/linkedin/openhouse'
-        }
-      }
+      configurePom(pom)
     }
   }
   repositories {
