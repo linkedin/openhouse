@@ -19,16 +19,6 @@ task javadocJar(type: Jar) {
   }
 }
 
-def pomPath = "$buildDir/${name}.pom"
-model {
-  tasks.generatePomFileForMavenJavaPublication {
-    destination = file("$pomPath")
-  }
-  tasks.jar {
-    dependsOn tasks.generatePomFileForMavenJavaPublication
-  }
-}
-
 def configurePom(pom) {
   pom.name = 'OpenHouse'
   pom.description = 'Control Plane for Tables in Open Data Lakehouse'
@@ -55,17 +45,21 @@ publishing {
       shadow(MavenPublication) { publication ->
         project.shadow.component(publication)
 
+        artifact sourcesJar
+        artifact javadocJar
+        artifact jar
+
         configurePom(pom)
       }
-    }
+    } else {
+      mavenJava(MavenPublication) {
+        from components.java
 
-    mavenJava(MavenPublication) {
-      from components.java
+        artifact sourcesJar
+        artifact javadocJar
 
-      artifact sourcesJar
-      artifact javadocJar
-
-      configurePom(pom)
+        configurePom(pom)
+      }
     }
   }
   repositories {
@@ -82,7 +76,6 @@ publishing {
 }
 
 artifacts {
-  archives file: file('$pomPath'), name: '$name', type: 'pom'
   archives jar
   archives sourcesJar
   archives javadocJar
