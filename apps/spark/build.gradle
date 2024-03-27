@@ -11,6 +11,7 @@ configurations {
     // Standardizing on slf4j + log4j2 as implementation.
     all*.exclude module : 'spring-boot-starter-logging'
     all*.exclude module : 'logback-classic'
+    shadow.extendsFrom implementation
 }
 
 ext {
