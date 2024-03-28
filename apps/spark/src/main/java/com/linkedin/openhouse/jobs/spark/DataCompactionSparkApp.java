@@ -94,13 +94,13 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     extraOptions.add(
         new Option(
             null,
-            "minByteSize",
+            "minByteSizeRatio",
             true,
             "Minimum data file byte size, files smaller than this will be rewritten"));
     extraOptions.add(
         new Option(
             null,
-            "maxByteSize",
+            "maxByteSizeRatio",
             true,
             "Maximum data file byte size, files larger than this will be rewritten"));
     extraOptions.add(
@@ -128,34 +128,40 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             true,
             "Maximum amount of commits that this rewrite is allowed to produce if partial progress is enabled"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
+    long targetByteSize =
+        NumberUtils.toLong(
+            cmdLine.getOptionValue("targetByteSize"),
+            DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE);
+    double minByteSizeRatio =
+        NumberUtils.toDouble(
+            cmdLine.getOptionValue("minByteSizeRatio"),
+            DataCompactionConfig.DEFAULT_MIN_BYTE_SIZE_RATIO);
+    if (minByteSizeRatio <= 0.0 || minByteSizeRatio >= 1.0) {
+      throw new RuntimeException("minByteSizeRatio must be in range (0.0, 1.0)");
+    }
+    double maxByteSizeRatio =
+        NumberUtils.toDouble(
+            cmdLine.getOptionValue("maxByteSizeRatio"),
+            DataCompactionConfig.DEFAULT_MAX_BYTE_SIZE_RATIO);
+    if (maxByteSizeRatio <= 1.0) {
+      throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
+    }
     return new DataCompactionSparkApp(
         getJobId(cmdLine),
         createStateManager(cmdLine),
         cmdLine.getOptionValue("tableName"),
         DataCompactionConfig.builder()
-            .targetByteSize(
-                NumberUtils.toLong(
-                    cmdLine.getOptionValue("targetByteSize"),
-                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
-                        .DEFAULT_TARGET_BYTE_SIZE))
-            .minByteSize(
-                NumberUtils.toLong(
-                    cmdLine.getOptionValue("minByteSize"),
-                    com.linkedin.openhouse.jobs.config.DataCompactionConfig.DEFAULT_MIN_BYTE_SIZE))
-            .maxByteSize(
-                NumberUtils.toLong(
-                    cmdLine.getOptionValue("maxByteSize"),
-                    com.linkedin.openhouse.jobs.config.DataCompactionConfig.DEFAULT_MAX_BYTE_SIZE))
+            .targetByteSize(targetByteSize)
+            .minByteSize((long) (targetByteSize * minByteSizeRatio))
+            .maxByteSize((long) (targetByteSize * maxByteSizeRatio))
             .minInputFiles(
                 NumberUtils.toInt(
                     cmdLine.getOptionValue("minInputFiles"),
-                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
-                        .DEFAULT_MIN_INPUT_FILES))
+                    DataCompactionConfig.DEFAULT_MIN_INPUT_FILES))
             .maxConcurrentFileGroupRewrites(
                 NumberUtils.toInt(
                     cmdLine.getOptionValue("maxConcurrentFileGroupRewrites"),
-                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
-                        .DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES))
+                    DataCompactionConfig.DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES))
             .partialProgressEnabled(cmdLine.hasOption("partialProgressEnabled"))
             .partialProgressMaxCommits(
                 NumberUtils.toInt(

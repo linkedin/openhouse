@@ -37,23 +37,8 @@ public class TableDataCompactionTask extends TableOperationTask {
       throw new OperationTaskException(
           "Couldn't construct task arguments: couldn't fetch target file size");
     }
-    // only consider very small (< 15% of target size) files for compaction
-    long minSize = (long) (targetSize.get() * 0.15);
-    long maxSize = (long) (targetSize.get() * 1.8);
     return Stream.of(
-            "--tableName",
-            tableMetadata.fqtn(),
-            "--partialProgressEnabled",
-            "--partialProgressMaxCommits",
-            "50",
-            "--maxConcurrentFileGroupRewrites",
-            "300",
-            "--targetByteSize",
-            targetSize.get().toString(),
-            "--minByteSize",
-            Long.toString(minSize),
-            "--maxByteSize",
-            Long.toString(maxSize))
+            "--tableName", tableMetadata.fqtn(), "--targetByteSize", targetSize.get().toString())
         .collect(Collectors.toList());
   }
 
