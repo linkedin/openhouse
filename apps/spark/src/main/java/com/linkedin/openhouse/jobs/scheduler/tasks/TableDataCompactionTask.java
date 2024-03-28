@@ -10,6 +10,12 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/**
+ * A task to rewrite data files in a table.
+ *
+ * @see <a href="https://iceberg.apache.org/docs/latest/maintenance/#compact-data-files">Compact
+ *     data files</a>
+ */
 public class TableDataCompactionTask extends TableOperationTask {
   public static final JobConf.JobTypeEnum OPERATION_TYPE = JobConf.JobTypeEnum.DATA_COMPACTION;
 
