@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.jobs.client;
 
+import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES;
+
 import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
@@ -106,7 +108,7 @@ public class TablesClient {
     }
     return Optional.of(
         NumberUtils.toLong(
-            props.get("write.target-file-size-bytes"),
+            props.get(WRITE_TARGET_FILE_SIZE_BYTES),
             DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE));
   }
 
@@ -117,8 +119,7 @@ public class TablesClient {
    * @return true if the table can run data compaction, false otherwise
    */
   public boolean canRunDataCompaction(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && isPrimaryTable(response);
+    return isPrimaryTable(tableMetadata);
   }
 
   /**
@@ -128,8 +129,7 @@ public class TablesClient {
    * @return true if the table can expire snapshots, false otherwise
    */
   public boolean canExpireSnapshots(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && isPrimaryTable(response);
+    return isPrimaryTable(tableMetadata);
   }
 
   /**
@@ -150,6 +150,11 @@ public class TablesClient {
 
   private boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
     return GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE == response.getTableType();
+  }
+
+  private boolean isPrimaryTable(@NonNull TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return response != null && isPrimaryTable(response);
   }
 
   public List<TableMetadata> getTables() {
