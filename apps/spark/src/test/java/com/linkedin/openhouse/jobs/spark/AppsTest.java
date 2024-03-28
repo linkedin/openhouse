@@ -19,10 +19,10 @@ public class AppsTest extends OpenHouseSparkITest {
           tableName,
           "--targetByteSize",
           "1048576",
-          "--minByteSize",
-          "786432",
-          "--maxByteSize",
-          "1887436",
+          "--minByteSizeRatio",
+          "0.75",
+          "--maxByteSizeRatio",
+          "1.8",
           "--minInputFiles",
           "5",
           "--maxConcurrentFileGroupRewrites",
@@ -41,10 +41,6 @@ public class AppsTest extends OpenHouseSparkITest {
           tableName,
           "--targetByteSize",
           "1048576",
-          "--minByteSize",
-          "786432",
-          "--maxByteSize",
-          "1887436"
         });
     DataCompactionSparkApp.createApp(
         new String[] {

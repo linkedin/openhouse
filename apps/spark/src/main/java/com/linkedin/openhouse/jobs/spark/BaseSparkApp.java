@@ -55,7 +55,7 @@ public abstract class BaseSparkApp {
       onStarted();
       runInner(ops);
       runValidations(ops);
-    } catch (Exception e) {
+    } catch (Throwable e) {
       log.error("Run failed, reason: {}", e.getMessage(), e);
       isSuccess = false;
     } finally {
