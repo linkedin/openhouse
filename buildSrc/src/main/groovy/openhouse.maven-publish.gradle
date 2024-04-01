@@ -12,6 +12,11 @@ task javadocJar(type: Jar) {
   from javadoc.destinationDir
 }
 
+task libJar(type: Jar) {
+  classifier = "lib"
+  from sourceSets.main.output
+}
+
 [jar, sourcesJar, javadocJar].each { task ->
   task.from(rootDir) {
     include 'LICENSE'
@@ -51,6 +56,16 @@ publishing {
 
         configurePom(pom)
       }
+    } else if(tasks.findByName('bootJar')) {
+      mavenJava(MavenPublication) {
+        from components.java
+
+        artifact sourcesJar
+        artifact javadocJar
+        artifact libJar
+
+        configurePom(pom)
+      }
     } else {
       mavenJava(MavenPublication) {
         from components.java
@@ -73,10 +88,4 @@ publishing {
       }
     }
   }
-}
-
-artifacts {
-  archives jar
-  archives sourcesJar
-  archives javadocJar
 }
