@@ -50,6 +50,9 @@ public final class JobsApiClientFactory extends WebClientFactory {
       throws MalformedURLException, SSLException {
     WebClient webClient = createWebClient(baseUrl, token, truststoreLocation);
     ApiClient apiClient = new ApiClient(webClient);
+    if (token != null && !token.isEmpty()) {
+      apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
+    }
     apiClient.setBasePath(baseUrl);
     return apiClient;
   }
