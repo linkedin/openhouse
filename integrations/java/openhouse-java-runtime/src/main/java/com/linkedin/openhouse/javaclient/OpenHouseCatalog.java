@@ -69,6 +69,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private TableApi tableApi;
 
+  private ApiClient apiClient;
+
   private SnapshotApi snapshotApi;
 
   private DatabaseApi databaseApi;
@@ -93,32 +95,15 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private static final String HTTP_CONNECTION_STRATEGY = "http-connection-strategy";
 
+
   @Override
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
     this.properties = properties;
-    String uri = properties.get(CatalogProperties.URI);
-    Preconditions.checkNotNull(uri, "OpenHouse Table Service URI is required");
-    log.info("Establishing connection with OpenHouse service at " + uri);
-    String truststore = properties.getOrDefault(TRUST_STORE, "");
-    String token = properties.getOrDefault(AUTH_TOKEN, null);
-    String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
-    ApiClient apiClient = null;
-    try {
-      TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
-      tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
-      if (properties.containsKey(CatalogProperties.APP_ID)) {
-        tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
-      }
-      apiClient = TablesApiClientFactory.getInstance().createApiClient(uri, token, truststore);
-    } catch (MalformedURLException | SSLException e) {
-      throw new RuntimeException(
-          "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
-    }
+    this.apiClient = createApiClient();
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
-
     String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
     this.fileIO =
         fileIOImpl == null
@@ -126,6 +111,37 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             : CatalogUtil.loadFileIO(fileIOImpl, properties, this.conf);
 
     this.cluster = properties.getOrDefault(CLUSTER_PROPERTY, DEFAULT_CLUSTER);
+  }
+
+  /**
+   * sets the auth token as default header which gets added to every request from ApiClient
+   * @param token
+   */
+  protected void setToken(String token) {
+    if (token.isEmpty()){
+      this.properties.put(AUTH_TOKEN, token);
+      this.apiClient.addDefaultHeader("Authorization", String.format("Bearer %s", token));
+    }
+  }
+
+  private ApiClient createApiClient() {
+    String uri = properties.get(CatalogProperties.URI);
+    Preconditions.checkNotNull(uri, "OpenHouse Table Service URI is required");
+    log.info("Establishing connection with OpenHouse service at " + uri);
+    String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
+    TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
+    tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
+    if (properties.containsKey(CatalogProperties.APP_ID)) {
+      tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
+    }
+    String truststore = properties.getOrDefault(TRUST_STORE, "");
+    String token = properties.getOrDefault(AUTH_TOKEN, null);
+    try {
+      return tablesApiClientFactory.createApiClient(uri, token, truststore);
+    } catch (MalformedURLException | SSLException e) {
+      throw new RuntimeException(
+          "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
+    }
   }
 
   @Override

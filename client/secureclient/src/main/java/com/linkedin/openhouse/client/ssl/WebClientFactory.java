@@ -160,9 +160,6 @@ public abstract class WebClientFactory {
     }
     ClientHttpConnector connector = new ReactorClientHttpConnector(client);
     WebClient.Builder webClientBuilder = createWebClientBuilder();
-    if (token != null) {
-      webClientBuilder = webClientBuilder.defaultHeaders(h -> h.setBearerAuth(token));
-    }
     setSessionIdInWebClientHeader(webClientBuilder);
     return webClientBuilder
         .baseUrl(baseUrl)

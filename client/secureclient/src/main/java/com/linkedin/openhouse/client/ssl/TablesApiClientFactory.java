@@ -50,6 +50,7 @@ public final class TablesApiClientFactory extends WebClientFactory {
       throws MalformedURLException, SSLException {
     WebClient webClient = createWebClient(baseUrl, token, truststoreLocation);
     ApiClient apiClient = new ApiClient(webClient);
+    apiClient.addDefaultHeader("Authorization", String.format("Bearer %s", token));
     apiClient.setBasePath(baseUrl);
     return apiClient;
   }
