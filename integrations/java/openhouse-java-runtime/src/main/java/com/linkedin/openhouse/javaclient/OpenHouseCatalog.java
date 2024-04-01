@@ -53,6 +53,7 @@ import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -120,7 +121,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   protected void setToken(String token) {
     if (token.isEmpty()){
       this.properties.put(AUTH_TOKEN, token);
-      this.apiClient.addDefaultHeader("Authorization", String.format("Bearer %s", token));
+      this.apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
     }
   }
 
