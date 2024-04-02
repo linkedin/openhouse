@@ -96,7 +96,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private static final String HTTP_CONNECTION_STRATEGY = "http-connection-strategy";
 
-
   @Override
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
@@ -104,16 +103,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String uri = properties.get(CatalogProperties.URI);
     Preconditions.checkNotNull(uri, "OpenHouse Table Service URI is required");
     log.info("Establishing connection with OpenHouse service at " + uri);
-    String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
-    TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
-    tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
-    if (properties.containsKey(CatalogProperties.APP_ID)) {
-      tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
-    }
     String truststore = properties.getOrDefault(TRUST_STORE, "");
     String token = properties.getOrDefault(AUTH_TOKEN, null);
+    String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
     try {
-      this.apiClient = tablesApiClientFactory.createApiClient(uri, token, truststore);
+      TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
+      tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
+      if (properties.containsKey(CatalogProperties.APP_ID)) {
+        tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
+      }
+      apiClient = TablesApiClientFactory.getInstance().createApiClient(uri, token, truststore);
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
@@ -121,6 +120,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
+
     String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
     this.fileIO =
         fileIOImpl == null
