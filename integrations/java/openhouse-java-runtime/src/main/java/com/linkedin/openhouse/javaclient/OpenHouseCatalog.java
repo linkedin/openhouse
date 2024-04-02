@@ -101,7 +101,23 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
     this.properties = properties;
-    this.apiClient = createApiClient();
+    String uri = properties.get(CatalogProperties.URI);
+    Preconditions.checkNotNull(uri, "OpenHouse Table Service URI is required");
+    log.info("Establishing connection with OpenHouse service at " + uri);
+    String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
+    TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
+    tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
+    if (properties.containsKey(CatalogProperties.APP_ID)) {
+      tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
+    }
+    String truststore = properties.getOrDefault(TRUST_STORE, "");
+    String token = properties.getOrDefault(AUTH_TOKEN, null);
+    try {
+      this.apiClient = tablesApiClientFactory.createApiClient(uri, token, truststore);
+    } catch (MalformedURLException | SSLException e) {
+      throw new RuntimeException(
+          "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
+    }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
@@ -115,35 +131,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   }
 
   /**
-   * sets the auth token as default header which gets added to every request from ApiClient
+   * updates the auth token in ApiClient's default header which gets added to every request from ApiClient
    * @param token
    */
-  protected void setToken(String token) {
+  protected void updateAuthToken(String token) {
     if (token.isEmpty()){
       this.properties.put(AUTH_TOKEN, token);
       this.apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
     }
   }
 
-  private ApiClient createApiClient() {
-    String uri = properties.get(CatalogProperties.URI);
-    Preconditions.checkNotNull(uri, "OpenHouse Table Service URI is required");
-    log.info("Establishing connection with OpenHouse service at " + uri);
-    String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
-    TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
-    tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
-    if (properties.containsKey(CatalogProperties.APP_ID)) {
-      tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
-    }
-    String truststore = properties.getOrDefault(TRUST_STORE, "");
-    String token = properties.getOrDefault(AUTH_TOKEN, null);
-    try {
-      return tablesApiClientFactory.createApiClient(uri, token, truststore);
-    } catch (MalformedURLException | SSLException e) {
-      throw new RuntimeException(
-          "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
-    }
-  }
 
   @Override
   public Map<String, String> properties() {

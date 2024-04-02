@@ -125,9 +125,9 @@ public class SmokeTest {
     OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
     Map<String, String> properties = new HashMap<>();
     properties.put(CatalogProperties.URI, url);
-    properties.put("auth-token", "Test");
+    properties.put("auth-token", "token");
     openHouseCatalog.initialize("openhouse", properties);
-    openHouseCatalog.setToken("Test2");
+    openHouseCatalog.updateAuthToken("newToken");
     Assertions.assertThrows(
         NoSuchTableException.class,
         () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));
