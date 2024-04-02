@@ -17,6 +17,8 @@ public class TestHouseTableModelConstants {
   public static final String TEST_TBL_VERSION = tuple0.getVer();
   public static final String TEST_TBL_META_LOC = tuple0.getTableLoc();
 
+  public static final String TEST_DEFAULT_STORAGE_TYPE = "hdfs";
+
   public static final UserTableRow TEST_USER_TABLE_ROW = tuple0.get_userTableRow();
   public static final UserTableDto TEST_USER_TABLE_DTO = tuple0.get_userTableDto();
   public static final UserTable TEST_USER_TABLE = tuple0.get_userTable();
@@ -40,6 +42,7 @@ public class TestHouseTableModelConstants {
     private final String tableId;
     private final String databaseId;
     private final String tableLoc;
+    private final String storageType;
 
     public TestTuple(int tbSeq) {
       this(tbSeq, 0);
@@ -58,13 +61,14 @@ public class TestHouseTableModelConstants {
               .replace("$test_db", databaseId)
               .replace("$test_table", tableId)
               .replace("$version", "v1");
-
+      this.storageType = TEST_DEFAULT_STORAGE_TYPE;
       this._userTable =
           UserTable.builder()
               .tableId(tableId)
               .databaseId(databaseId)
               .tableVersion(ver)
               .metadataLocation(tableLoc)
+              .storageType(storageType)
               .build();
 
       this._userTableDto =
@@ -73,6 +77,7 @@ public class TestHouseTableModelConstants {
               .databaseId(databaseId)
               .tableVersion(ver)
               .metadataLocation(tableLoc)
+              .storageType(storageType)
               .build();
 
       this._userTableRow =
@@ -81,6 +86,7 @@ public class TestHouseTableModelConstants {
               .databaseId(databaseId)
               .version(1L)
               .metadataLocation(tableLoc)
+              .storageType(storageType)
               .build();
     }
   }

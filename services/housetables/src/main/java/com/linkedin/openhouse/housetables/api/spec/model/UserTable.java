@@ -48,6 +48,13 @@ public class UserTable {
   @NotEmpty(message = "metadataLocation cannot be empty")
   private String metadataLocation;
 
+  @Schema(
+      description = "Storage type to be used for the table.",
+      example = "hdfs",
+      defaultValue = "hdfs")
+  @JsonProperty(value = "storageType")
+  private String storageType;
+
   public String toJson() {
     return new Gson().toJson(this);
   }

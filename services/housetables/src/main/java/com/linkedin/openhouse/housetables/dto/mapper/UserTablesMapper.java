@@ -26,11 +26,15 @@ import org.mapstruct.Mapping;
     uses = {UserTableVersionMapper.class})
 public interface UserTablesMapper {
 
+  String DEFAULT_STORAGE = "hdfs";
+
   /**
    * From a source {@link UserTable}, prepare a {@link UserTableRow} object which is compliant with
    * the storage {@link
    * com.linkedin.openhouse.housetables.repository.impl.iceberg.UserTableHtsRepository},
    * particularly wrt its {@link Long} version requirements.
+   *
+   * <p>Also sets the default storageType as "hdfs" if not present.
    *
    * @param userTable userTable source to be mapped
    * @param existingUserTableRow if not present, set "version" as 1. If present, set "version" as
@@ -39,6 +43,7 @@ public interface UserTablesMapper {
    * @return Destination House Table Data Model for storing Table Metadata.
    */
   @Mapping(target = "version", source = "userTable", qualifiedByName = "toVersion")
+  @Mapping(target = "storageType", source = "userTable.storageType", defaultValue = DEFAULT_STORAGE)
   UserTableRow toUserTableRow(
       UserTable userTable, @Context Optional<UserTableRow> existingUserTableRow);
 

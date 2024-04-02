@@ -30,6 +30,7 @@ public class TestHtsApiConstants {
                   .databaseId(TEST_DB_ID)
                   .tableVersion(TEST_TBL_VERSION)
                   .metadataLocation(TEST_TBL_META_LOC)
+                  .storageType(TEST_DEFAULT_STORAGE_TYPE)
                   .build())
           .build();
 
