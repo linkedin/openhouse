@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.repository.impl;
 
-import static com.linkedin.openhouse.common.metrics.MetricsConstant.*;
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.HTS_FIELD_NAMES;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
@@ -17,6 +16,7 @@ import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
+import com.linkedin.openhouse.common.metrics.ReportExecutionTime;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -33,6 +33,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -85,8 +86,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
   public TableDto save(TableDto tableDto) {
+    long startTime = System.currentTimeMillis();
     TableIdentifier tableIdentifier =
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
@@ -118,6 +121,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                   .toString(),
               computePropsForTableCreation(tableDto));
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
+      meterRegistry
+          .timer(MetricsConstant.REPO_TABLE_CREATE_TIME)
+          .record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
     } else {
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
@@ -142,6 +148,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         transaction.commitTransaction();
         meterRegistry.counter(MetricsConstant.REPO_TABLE_UPDATED_CTR).increment();
       }
+      meterRegistry
+          .timer(MetricsConstant.REPO_TABLE_UPDATE_TIME)
+          .record(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
     }
     return convertToTableDto(
         table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper);
@@ -275,7 +284,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     propertiesMap.put(InternalRepositoryUtils.POLICIES_KEY, policiesString);
 
     if (!CollectionUtils.isEmpty(tableDto.getJsonSnapshots())) {
-      meterRegistry.counter(REPO_TABLE_CREATED_WITH_DATA).increment();
+      meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_WITH_DATA_CTR).increment();
       propertiesMap.put(
           SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializeList(tableDto.getJsonSnapshots()));
       if (!MapUtils.isEmpty(tableDto.getSnapshotRefs())) {
@@ -288,7 +297,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
 
     if (tableDto.isStageCreate()) {
-      meterRegistry.counter(REPO_TABLE_CREATED_CTR_STAGED).increment();
+      meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR_STAGED).increment();
       propertiesMap.put(IS_STAGE_CREATE_KEY, String.valueOf(tableDto.isStageCreate()));
     }
 
@@ -315,7 +324,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   private void checkPartitionSpecEvolution(PartitionSpec newSpec, PartitionSpec oldSpec) {
     if (!arePartitionColumnNamesSame(newSpec, oldSpec)) {
-      meterRegistry.counter(REPO_TABLE_UNSUPPORTED_PARTITIONSPEC_EVOLUTION).increment();
+      meterRegistry
+          .counter(MetricsConstant.REPO_TABLE_UNSUPPORTED_PARTITIONSPEC_EVOLUTION)
+          .increment();
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.PARTITION_EVOLUTION,
           "Evolution of table partitioning and clustering columns are not supported, recreate the table with "
@@ -343,7 +354,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         // TODO: Make upstream change to have explicit SchemaEvolutionFailureException
         // Currently(0.12.1) org.apache.iceberg.SchemaUpdate.updateColumn doesn't throw specific
         // exception.
-        meterRegistry.counter(REPO_TABLE_INVALID_SCHEMA_EVOLUTION).increment();
+        meterRegistry.counter(MetricsConstant.REPO_TABLE_INVALID_SCHEMA_EVOLUTION).increment();
         throw new InvalidSchemaEvolutionException(
             tableDto.getTableUri(), tableDto.getSchema(), tableSchema.toString(), e);
       }
@@ -432,6 +443,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return tableTypeAdded;
   }
 
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLE_FIND_TIME)
   @Override
   public Optional<TableDto> findById(TableDtoPrimaryKey tableDtoPrimaryKey) {
     Table table;
@@ -449,12 +461,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   // FIXME: Likely need a cache layer to avoid expensive tableScan.
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLE_EXISTS_TIME)
   @Override
   public boolean existsById(TableDtoPrimaryKey tableDtoPrimaryKey) {
     return catalog.tableExists(
         TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()));
   }
 
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLE_DELETE_TIME)
   @Override
   public void deleteById(TableDtoPrimaryKey tableDtoPrimaryKey) {
     catalog.dropTable(
@@ -462,6 +476,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         true);
   }
 
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLES_FIND_BY_DATABASE_TIME)
   @Override
   public List<TableDto> findAllByDatabaseId(String databaseId) {
     List<Table> tables =
@@ -476,6 +491,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .collect(Collectors.toList());
   }
 
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_TIME)
   @Override
   public List<TableDto> searchTables(String databaseId) {
     return catalog.listTables(Namespace.of(databaseId)).stream()
@@ -483,6 +499,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .collect(Collectors.toList());
   }
 
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)
   @Override
   public List<TableDtoPrimaryKey> findAllIds() {
     return catalog.listTables(Namespace.empty()).stream()
@@ -492,6 +509,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   /* IMPLEMENT AS NEEDED */
   @Override
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLES_FIND_ALL_TIME)
   public Iterable<TableDto> findAll() {
     List<Table> tables =
         catalog.listTables(Namespace.empty()).stream()
@@ -520,6 +538,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     throw getUnsupportedException();
   }
 
+  @ReportExecutionTime(key = MetricsConstant.REPO_TABLE_DELETE_TIME)
   @Override
   public void delete(TableDto entity) {
     /** Temporarily implemented for testing purposes. Need further work before productionization. */
