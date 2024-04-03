@@ -41,7 +41,7 @@ public class TablesClient {
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseFilter;
-  @VisibleForTesting private final StorageClient storageClient;
+  @VisibleForTesting public StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);

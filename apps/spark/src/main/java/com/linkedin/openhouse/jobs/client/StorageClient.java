@@ -43,7 +43,7 @@ public class StorageClient {
     return fileStatus.getOwner();
   }
 
-  private FileSystem fs() {
+  protected FileSystem fs() {
     return fsStorageProvider.storageClient();
   }
 

@@ -64,7 +64,7 @@ public class StagedFilesDeletionSparkApp extends BaseTableSparkApp {
             createStateManager(cmdLine),
             cmdLine.getOptionValue("tableName"),
             cmdLine.getOptionValue("trashDir", ".trash"),
-            Integer.parseInt(cmdLine.getOptionValue("daysOld", "3")),
+            Integer.parseInt(cmdLine.getOptionValue("daysOld", "10")),
             Boolean.parseBoolean(cmdLine.getOptionValue("recursive", "true")));
     app.run();
   }
