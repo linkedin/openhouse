@@ -22,7 +22,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -71,8 +70,7 @@ public class TablesClient {
     if (response.getTimePartitioning() != null) {
       columnName = response.getTimePartitioning().getColumnName();
     } else {
-      columnName =
-          Objects.requireNonNull(policies.getRetention().getColumnPattern()).getColumnName();
+      columnName = policies.getRetention().getColumnPattern().getColumnName();
       columnPattern = policies.getRetention().getColumnPattern().getPattern();
     }
 
@@ -170,7 +168,7 @@ public class TablesClient {
                           tableApi
                               .getAllTablesV0(dbName)
                               .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                      return Optional.ofNullable(response == null ? null : response.getResults())
+                      return Optional.ofNullable(response.getResults())
                           .map(Collection::stream)
                           .orElseGet(Stream::empty)
                           .map(this::parseGetTableResponse)
@@ -201,7 +199,7 @@ public class TablesClient {
                         tableApi
                             .getAllTablesV1(dbName)
                             .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                    return Optional.ofNullable(response == null ? null : response.getResults())
+                    return Optional.ofNullable(response.getResults())
                         .map(Collection::stream)
                         .orElseGet(Stream::empty)
                         .map(this::parseGetTableResponseToTableDirectoryName)
@@ -276,6 +274,6 @@ public class TablesClient {
   }
 
   private String parseGetTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
-    return new Path(Objects.requireNonNull(responseBody.getTableLocation())).getParent().getName();
+    return new Path(responseBody.getTableLocation()).getParent().getName();
   }
 }
