@@ -2,7 +2,6 @@ package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
-import com.linkedin.openhouse.jobs.exception.OperationTaskException;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -24,13 +23,8 @@ public abstract class TableOperationTask extends OperationTask<TableMetadata> {
     String jobName =
         String.format(
             "%s_%s_%s", getType(), getMetadata().getDbName(), getMetadata().getTableName());
-    try {
-      jobId =
-          jobsClient.launch(jobName, getType(), getMetadata().getCreator(), getArgs()).orElse(null);
-    } catch (OperationTaskException e) {
-      log.error("Failed to launch job: {}", e.getMessage());
-      jobId = null;
-    }
+    jobId =
+        jobsClient.launch(jobName, getType(), getMetadata().getCreator(), getArgs()).orElse(null);
     return jobId != null;
   }
 }

@@ -1,8 +1,5 @@
 package com.linkedin.openhouse.jobs.client;
 
-import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES;
-
-import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
@@ -21,7 +18,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -30,7 +26,6 @@ import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.arrow.util.VisibleForTesting;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.fs.Path;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
@@ -92,22 +87,6 @@ public class TablesClient {
                     .getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
                     .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
         null);
-  }
-
-  public Optional<Long> getTableDataFileTargetSizeBytes(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    if (response == null) {
-      // return empty since we don't know what target file size should be
-      return Optional.empty();
-    }
-    Map<String, String> props = response.getTableProperties();
-    if (props == null) {
-      return Optional.of(DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE);
-    }
-    return Optional.of(
-        NumberUtils.toLong(
-            props.get(WRITE_TARGET_FILE_SIZE_BYTES),
-            DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE));
   }
 
   /**

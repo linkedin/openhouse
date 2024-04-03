@@ -3,10 +3,8 @@ package com.linkedin.openhouse.jobs.scheduler.tasks;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
-import com.linkedin.openhouse.jobs.exception.OperationTaskException;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -30,16 +28,9 @@ public class TableDataCompactionTask extends TableOperationTask {
   }
 
   @Override
-  protected List<String> getArgs() throws OperationTaskException {
+  protected List<String> getArgs() {
     TableMetadata tableMetadata = getMetadata();
-    Optional<Long> targetSize = tablesClient.getTableDataFileTargetSizeBytes(tableMetadata);
-    if (!targetSize.isPresent()) {
-      throw new OperationTaskException(
-          "Couldn't construct task arguments: couldn't fetch target file size");
-    }
-    return Stream.of(
-            "--tableName", tableMetadata.fqtn(), "--targetByteSize", targetSize.get().toString())
-        .collect(Collectors.toList());
+    return Stream.of("--tableName", tableMetadata.fqtn()).collect(Collectors.toList());
   }
 
   @Override

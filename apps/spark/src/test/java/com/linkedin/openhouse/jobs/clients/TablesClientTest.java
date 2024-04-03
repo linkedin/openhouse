@@ -1,13 +1,11 @@
 package com.linkedin.openhouse.jobs.clients;
 
-import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES;
 import static org.mockito.ArgumentMatchers.*;
 
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
 import com.linkedin.openhouse.jobs.client.StorageClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
-import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
@@ -41,7 +39,6 @@ import org.mockito.stubbing.Answer;
 import org.springframework.retry.RetryPolicy;
 import org.springframework.retry.policy.NeverRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 @SuppressWarnings("unchecked")
@@ -315,46 +312,6 @@ public class TablesClientTest {
     Assertions.assertFalse(
         client.canRunDataCompaction(
             TableMetadata.builder().dbName(testDbName).tableName(testReplicaTableName).build()));
-  }
-
-  @Test
-  void testGetTableDataFileTargetSizeBytes() {
-    // not able to get table metadata and the target size should be missing
-    String unavailableTableName = "unavailable_table";
-    Mockito.when(apiMock.getTableV0(testDbName, unavailableTableName))
-        .thenThrow(WebClientResponseException.class);
-    Assertions.assertFalse(
-        client
-            .getTableDataFileTargetSizeBytes(
-                TableMetadata.builder().dbName(testDbName).tableName(unavailableTableName).build())
-            .isPresent());
-
-    // if table metadata is available, but target size property is not set
-    // default target size should be returned
-    GetTableResponseBody primaryTableResponseBodyMock =
-        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
-    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV0(testDbName, testTableName)).thenReturn(responseMock);
-
-    Optional<Long> actualTargetSize =
-        client.getTableDataFileTargetSizeBytes(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build());
-    Assertions.assertTrue(actualTargetSize.isPresent());
-    Assertions.assertEquals(DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE, actualTargetSize.get());
-
-    // if table metadata is available, and target size property is set,
-    // then it should be returned
-    long expectedTargetSize = 1000000000;
-    Mockito.when(primaryTableResponseBodyMock.getTableProperties())
-        .thenReturn(
-            Collections.singletonMap(
-                WRITE_TARGET_FILE_SIZE_BYTES, Long.toString(expectedTargetSize)));
-    actualTargetSize =
-        client.getTableDataFileTargetSizeBytes(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build());
-    Assertions.assertTrue(actualTargetSize.isPresent());
-    Assertions.assertEquals(expectedTargetSize, actualTargetSize.get());
   }
 
   @Test

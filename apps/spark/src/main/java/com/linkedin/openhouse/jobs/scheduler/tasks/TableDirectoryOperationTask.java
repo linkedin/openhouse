@@ -2,7 +2,6 @@ package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
-import com.linkedin.openhouse.jobs.exception.OperationTaskException;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -21,13 +20,8 @@ public abstract class TableDirectoryOperationTask extends OperationTask<Director
 
   protected boolean launchJob() {
     String jobName = String.format("%s_%s", getType(), getMetadata().getValue());
-    try {
-      jobId =
-          jobsClient.launch(jobName, getType(), getMetadata().getCreator(), getArgs()).orElse(null);
-    } catch (OperationTaskException e) {
-      log.error("Failed to launch job: {}", e.getMessage());
-      jobId = null;
-    }
+    jobId =
+        jobsClient.launch(jobName, getType(), getMetadata().getCreator(), getArgs()).orElse(null);
     return jobId != null;
   }
 }

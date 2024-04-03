@@ -5,7 +5,6 @@ import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
-import com.linkedin.openhouse.jobs.exception.OperationTaskException;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.OtelConfig;
@@ -58,7 +57,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     return metadata;
   }
 
-  protected abstract List<String> getArgs() throws OperationTaskException;
+  protected abstract List<String> getArgs();
 
   protected abstract boolean shouldRun();
 
