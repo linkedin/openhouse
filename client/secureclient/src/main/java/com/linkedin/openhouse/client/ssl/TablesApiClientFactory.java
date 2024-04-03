@@ -6,6 +6,7 @@ import java.net.MalformedURLException;
 import java.text.DateFormat;
 import javax.net.ssl.SSLException;
 import lombok.NonNull;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /** Factory to create tables specific ApiClient {@link ApiClient}. */

@@ -109,9 +109,6 @@ public abstract class WebClientFactory {
    */
   private WebClient createWebClient(String baseUrl, String token) {
     WebClient.Builder webClientBuilder = createWebClientBuilder();
-    if (token != null) {
-      webClientBuilder = webClientBuilder.defaultHeaders(h -> h.setBearerAuth(token));
-    }
     setSessionIdInWebClientHeader(webClientBuilder);
     HttpClient client = null;
     if (HttpConnectionStrategy.NEW.equals(strategy)) {
