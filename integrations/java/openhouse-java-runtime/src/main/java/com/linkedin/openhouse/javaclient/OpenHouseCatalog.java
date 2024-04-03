@@ -135,11 +135,12 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
    * @param token
    */
   protected void updateAuthToken(String token) {
-    if (token.isEmpty()){
+    if (token != null && !token.isEmpty()){
       this.properties.put(AUTH_TOKEN, token);
       this.apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
     }
   }
+
 
 
   @Override
