@@ -276,21 +276,21 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       return Mono.error(
           new CommitFailedException(
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
-    } else if (e instanceof WebClientResponseException.GatewayTimeout
-        | e instanceof WebClientResponseException.ServiceUnavailable) {
-      return Mono.error(new CommitStateUnknownException(e));
     } else if (e instanceof WebClientResponseException.BadRequest) {
       WebClientResponseException casted = (WebClientResponseException) e;
       return Mono.error(
           new BadRequestException(
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
-    } else if (e instanceof WebClientResponseException) {
+    } else if (e instanceof WebClientResponseException.Forbidden
+        || e instanceof WebClientResponseException.Unauthorized) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
     } else {
       /**
-       * This serves as a catch-all for any other exceptions that are not
-       * WebClientResponseException. It helps in skipping any unexpected cleanup that could occur
-       * when a commit aborts at the caller, thus avoiding any potential data loss.
+       * This serves as a catch-all for any other WebClientResponseException exceptions including
+       * gateway timeout, service being unavailable and internal server errors and also for any
+       * other exceptions that are not WebClientResponseException. This is a conservative approach
+       * to skip any unexpected cleanup that could occur when a commit aborts at the caller, thus
+       * avoiding any potential data loss.
        */
       return Mono.error(new CommitStateUnknownException(e));
     }
