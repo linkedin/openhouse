@@ -19,6 +19,8 @@ public class UserTableDto {
 
   String metadataLocation;
 
+  String storageType;
+
   /**
    * Compare if a given {@link UserTable} matches the current one if all non-null fields are equal.
    *
@@ -29,6 +31,7 @@ public class UserTableDto {
     return Utilities.fieldMatchCaseInsensitive(this.databaseId, userTable.databaseId)
         && Utilities.fieldMatchCaseInsensitive(this.tableId, userTable.tableId)
         && Utilities.fieldMatch(this.metadataLocation, userTable.metadataLocation)
-        && Utilities.fieldMatch(this.tableVersion, userTable.tableVersion);
+        && Utilities.fieldMatch(this.tableVersion, userTable.tableVersion)
+        && Utilities.fieldMatch(this.storageType, userTable.storageType);
   }
 }

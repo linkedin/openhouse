@@ -28,4 +28,6 @@ public class UserTableRow {
   @Version Long version;
 
   String metadataLocation;
+
+  String storageType;
 }

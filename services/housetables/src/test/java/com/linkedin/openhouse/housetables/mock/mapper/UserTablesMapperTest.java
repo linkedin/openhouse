@@ -3,6 +3,7 @@ package com.linkedin.openhouse.housetables.mock.mapper;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
+import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,24 @@ public class UserTablesMapperTest {
     Assertions.assertEquals(
         TestHouseTableModelConstants.TEST_USER_TABLE,
         userTablesMapper.toUserTable(TestHouseTableModelConstants.TEST_USER_TABLE_DTO));
+  }
+
+  @Test
+  void toUserTableRowNullStorageType() {
+    Assertions.assertEquals(
+        TestHouseTableModelConstants.TEST_USER_TABLE_ROW,
+        userTablesMapper.toUserTableRow(
+            TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType(null).build(),
+            Optional.empty()));
+  }
+
+  @Test
+  void toUserTableRowCustomStorageType() {
+    Assertions.assertEquals(
+        TestHouseTableModelConstants.TEST_USER_TABLE_ROW.toBuilder().storageType("blobfs").build(),
+        userTablesMapper.toUserTableRow(
+            TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType("blobfs").build(),
+            Optional.empty()));
   }
 
   @Test
