@@ -218,7 +218,7 @@ public class TablesClientTest {
   }
 
   @Test
-  void testSnapshotsExpirationOnTables() {
+  void testCanExpireSnapshots() {
     GetTableResponseBody primaryTableResponseBodyMock =
         createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
     Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
@@ -243,7 +243,7 @@ public class TablesClientTest {
   }
 
   @Test
-  void testCanRunRetentionOnTable() {
+  void testCanRunRetention() {
     GetTableResponseBody partitionedTableResponseBodyMock =
         createPartitionedTableResponseBodyMock(
             testDbName, testTableNamePartitioned, testPartitionColumnName, testRetentionTTLDays);
@@ -287,6 +287,31 @@ public class TablesClientTest {
                 .dbName(testDbName)
                 .tableName(testTableNamePartitioned)
                 .build()));
+  }
+
+  @Test
+  void testCanRunDataCompaction() {
+    GetTableResponseBody primaryTableResponseBodyMock =
+        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV0(testDbName, testTableName)).thenReturn(responseMock);
+
+    GetTableResponseBody replicaTableResponseBodyMock =
+        createReplicaTableResponseBodyMock(testDbName, testReplicaTableName);
+    Mono<GetTableResponseBody> replicaResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(replicaResponseMock.block(any(Duration.class)))
+        .thenReturn(replicaTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV0(testDbName, testReplicaTableName))
+        .thenReturn(replicaResponseMock);
+
+    Assertions.assertTrue(
+        client.canRunDataCompaction(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
+    Assertions.assertFalse(
+        client.canRunDataCompaction(
+            TableMetadata.builder().dbName(testDbName).tableName(testReplicaTableName).build()));
   }
 
   @Test

@@ -60,11 +60,12 @@ public class OperationTasksBuilder {
   // Method to build a task list based on the operation task type
   public List<OperationTask> buildOperationTaskList(JobConf.JobTypeEnum jobType) {
     switch (jobType) {
+      case DATA_COMPACTION:
       case NO_OP:
-      case SQL_TEST:
-      case RETENTION:
       case ORPHAN_FILES_DELETION:
+      case RETENTION:
       case SNAPSHOTS_EXPIRATION:
+      case SQL_TEST:
       case STAGED_FILES_DELETION:
         return prepareTableOperationTaskList(jobType);
       case ORPHAN_DIRECTORY_DELETION:

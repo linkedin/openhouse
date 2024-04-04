@@ -72,7 +72,6 @@ public class LivyJobsCoordinator implements HouseJobsCoordinator {
     body.addProperty("file", conf.getJarPath());
     body.addProperty("className", conf.getClassName());
     body.addProperty("proxyUser", conf.getProxyUser());
-    body.add("executionTags", new Gson().toJsonTree(conf.getExecutionTags()));
     body.add("args", new Gson().toJsonTree(conf.getArgs()).getAsJsonArray());
     body.add("jars", new Gson().toJsonTree(conf.getDependencies()).getAsJsonArray());
     body.add("conf", new Gson().toJsonTree(conf.getSparkProperties()));

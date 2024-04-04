@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import java.time.Duration;
@@ -78,16 +79,24 @@ public class TablesClient {
   }
 
   protected GetTableResponseBody getTable(TableMetadata tableMetadata) {
-    GetTableResponseBody response =
-        RetryUtil.executeWithRetry(
-            retryTemplate,
-            (RetryCallback<GetTableResponseBody, Exception>)
-                context ->
-                    tableApi
-                        .getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
-                        .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
-            null);
-    return response;
+    return RetryUtil.executeWithRetry(
+        retryTemplate,
+        (RetryCallback<GetTableResponseBody, Exception>)
+            context ->
+                tableApi
+                    .getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
+                    .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
+        null);
+  }
+
+  /**
+   * Checks if data compaction can be executed on the input table.
+   *
+   * @param tableMetadata table metadata
+   * @return true if the table can run data compaction, false otherwise
+   */
+  public boolean canRunDataCompaction(TableMetadata tableMetadata) {
+    return isPrimaryTable(tableMetadata);
   }
 
   /**
@@ -97,8 +106,7 @@ public class TablesClient {
    * @return true if the table can expire snapshots, false otherwise
    */
   public boolean canExpireSnapshots(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return (response != null && isPrimaryTable(response));
+    return isPrimaryTable(tableMetadata);
   }
 
   /**
@@ -119,6 +127,11 @@ public class TablesClient {
 
   private boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
     return GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE == response.getTableType();
+  }
+
+  private boolean isPrimaryTable(@NonNull TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return response != null && isPrimaryTable(response);
   }
 
   public List<TableMetadata> getTables() {
@@ -185,17 +198,14 @@ public class TablesClient {
    */
   @VisibleForTesting
   public List<DirectoryMetadata> getOrphanTableDirectories(Path dbPath) {
-    List<DirectoryMetadata> orphanTableDirectories = new ArrayList<>();
     // a set of directory names
     Set<String> registeredTableDirectories = getTableNamesForDbName(dbPath.getName());
     List<DirectoryMetadata> allTableDirectories = storageClient.getSubDirectoriesWithOwners(dbPath);
-    orphanTableDirectories.addAll(
-        allTableDirectories.stream()
-            .filter(
-                directoryMetadata ->
-                    !registeredTableDirectories.contains(directoryMetadata.getDirectoryName()))
-            .collect(Collectors.toList()));
-    return orphanTableDirectories;
+    return allTableDirectories.stream()
+        .filter(
+            directoryMetadata ->
+                !registeredTableDirectories.contains(directoryMetadata.getDirectoryName()))
+        .collect(Collectors.toList());
   }
 
   /**
@@ -217,24 +227,21 @@ public class TablesClient {
   }
 
   public List<String> getDatabases() {
-    List<String> ret = new ArrayList<>();
-    ret.addAll(
-        RetryUtil.executeWithRetry(
-            retryTemplate,
-            (RetryCallback<List<String>, Exception>)
-                context -> {
-                  GetAllDatabasesResponseBody response =
-                      databaseApi
-                          .getAllDatabasesV0()
-                          .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                  return Optional.ofNullable(response.getResults())
-                      .map(Collection::stream)
-                      .orElseGet(Stream::empty)
-                      .map(r -> r.getDatabaseId())
-                      .collect(Collectors.toList());
-                },
-            Collections.emptyList()));
-    return ret;
+    return RetryUtil.executeWithRetry(
+        retryTemplate,
+        (RetryCallback<List<String>, Exception>)
+            context -> {
+              GetAllDatabasesResponseBody response =
+                  databaseApi
+                      .getAllDatabasesV0()
+                      .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+              return Optional.ofNullable(response == null ? null : response.getResults())
+                  .map(Collection::stream)
+                  .orElseGet(Stream::empty)
+                  .map(GetDatabaseResponseBody::getDatabaseId)
+                  .collect(Collectors.toList());
+            },
+        Collections.emptyList());
   }
 
   protected TableMetadata parseGetTableResponse(GetTableResponseBody responseBody) {
