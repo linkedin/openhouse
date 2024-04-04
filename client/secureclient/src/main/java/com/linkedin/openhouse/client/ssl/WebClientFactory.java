@@ -62,9 +62,9 @@ public abstract class WebClientFactory {
       throws MalformedURLException, SSLException {
     String transportProtocol = getTransportProtocol(baseUrl);
     if (HTTPS.equals(transportProtocol)) {
-      return createSecureWebClient(baseUrl, token, truststoreLocation);
+      return createSecureWebClient(baseUrl, truststoreLocation);
     } else if (HTTP.equals(transportProtocol)) {
-      return createWebClient(baseUrl, token);
+      return createWebClient(baseUrl);
     } else {
       throw new RuntimeException("The transport protocol must be https/http");
     }
@@ -104,10 +104,9 @@ public abstract class WebClientFactory {
    * Create WebClient with the base url
    *
    * @param baseUrl
-   * @param token - Auth token in JWT (JSON Web Token) format
    * @return WebClient
    */
-  private WebClient createWebClient(String baseUrl, String token) {
+  private WebClient createWebClient(String baseUrl) {
     WebClient.Builder webClientBuilder = createWebClientBuilder();
     setSessionIdInWebClientHeader(webClientBuilder);
     HttpClient client = null;
@@ -131,13 +130,12 @@ public abstract class WebClientFactory {
    * certificate not verified.
    *
    * @param baseUrl
-   * @param token - Auth token in JWT (JSON Web Token) format
    * @param truststoreLocation - location of the cacert/truststore. If not specified, get the
    *     location from environment variable TRUSTSTORE_LOCATION, else throws exception
    * @return WebClient
    * @throws SSLException
    */
-  private WebClient createSecureWebClient(String baseUrl, String token, String truststoreLocation) {
+  private WebClient createSecureWebClient(String baseUrl, String truststoreLocation) {
     String truststore =
         StringUtil.isNullOrEmpty(truststoreLocation)
             ? System.getenv("TRUSTSTORE_LOCATION")
@@ -155,6 +153,7 @@ public abstract class WebClientFactory {
           HttpClient.create(getCustomConnectionProvider())
               .secure(t -> t.sslContext(createSslContext(truststore)));
     }
+
     ClientHttpConnector connector = new ReactorClientHttpConnector(client);
     WebClient.Builder webClientBuilder = createWebClientBuilder();
     setSessionIdInWebClientHeader(webClientBuilder);
