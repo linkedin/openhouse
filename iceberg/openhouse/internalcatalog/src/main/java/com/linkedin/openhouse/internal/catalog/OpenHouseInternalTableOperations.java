@@ -104,8 +104,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   /** A wrapper function to encapsulate timer logic for loading metadata. */
   protected void refreshMetadata(final String metadataLoc) {
+    long startTime = System.currentTimeMillis();
     boolean needToReload = !Objects.equal(currentMetadataLocation(), metadataLoc);
-
     Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc);
     if (needToReload) {
       metricsReporter.executeWithStats(
@@ -113,6 +113,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     } else {
       r.run();
     }
+    log.info(
+        "refreshMetadata from location {} took {} ms",
+        metadataLoc,
+        System.currentTimeMillis() - startTime);
   }
 
   /**
