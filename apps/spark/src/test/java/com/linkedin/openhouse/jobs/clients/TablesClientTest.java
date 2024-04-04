@@ -70,8 +70,8 @@ public class TablesClientTest {
   void setup() {
     apiMock = Mockito.mock(TableApi.class);
     dbApiMock = Mockito.mock(DatabaseApi.class);
-    RetryPolicy retryPolicy = new NeverRetryPolicy();
     storageClient = Mockito.mock(StorageClient.class);
+    RetryPolicy retryPolicy = new NeverRetryPolicy();
 
     client =
         clientFactory.create(
