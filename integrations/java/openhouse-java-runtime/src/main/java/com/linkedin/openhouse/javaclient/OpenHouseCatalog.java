@@ -131,17 +131,17 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   }
 
   /**
-   * updates the auth token in ApiClient's default header which gets added to every request from ApiClient
+   * updates the auth token in ApiClient's default header which gets added to every request from
+   * ApiClient
+   *
    * @param token
    */
   protected void updateAuthToken(String token) {
-    if (token != null && !token.isEmpty()){
+    if (token != null && !token.isEmpty()) {
       this.properties.put(AUTH_TOKEN, token);
       this.apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
     }
   }
-
-
 
   @Override
   public Map<String, String> properties() {
