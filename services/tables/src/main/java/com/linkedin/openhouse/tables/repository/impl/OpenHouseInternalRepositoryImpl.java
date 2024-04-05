@@ -32,7 +32,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -120,11 +119,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                   .toString(),
               computePropsForTableCreation(tableDto));
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
-      long executionTime = System.currentTimeMillis() - startTime;
-      meterRegistry
-          .timer(MetricsConstant.REPO_TABLE_CREATE_TIME)
-          .record(executionTime, TimeUnit.MILLISECONDS);
-      log.info("create for table {} took {} ms", tableIdentifier, executionTime);
+      log.info(
+          "create for table {} took {} ms",
+          tableIdentifier,
+          System.currentTimeMillis() - startTime);
     } else {
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
@@ -149,11 +147,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         transaction.commitTransaction();
         meterRegistry.counter(MetricsConstant.REPO_TABLE_UPDATED_CTR).increment();
       }
-      long executionTime = System.currentTimeMillis() - startTime;
-      meterRegistry
-          .timer(MetricsConstant.REPO_TABLE_UPDATE_TIME)
-          .record(executionTime, TimeUnit.MILLISECONDS);
-      log.info("update for table {} took {} ms", tableIdentifier, executionTime);
+      log.info(
+          "update for table {} took {} ms",
+          tableIdentifier,
+          System.currentTimeMillis() - startTime);
     }
     return convertToTableDto(
         table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper);
