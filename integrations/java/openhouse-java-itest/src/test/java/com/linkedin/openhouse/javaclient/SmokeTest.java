@@ -9,6 +9,8 @@ import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBod
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.apache.iceberg.CatalogProperties;
@@ -106,6 +108,24 @@ public class SmokeTest {
 
     OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
     openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+    Assertions.assertThrows(
+        NoSuchTableException.class,
+        () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));
+  }
+
+  @Test
+  public void testCatalogRefreshTableWorks() {
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(404).addHeader("Content-Type", "application/json"));
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogProperties.URI, url);
+    properties.put("auth-token", "token");
+    openHouseCatalog.initialize("openhouse", properties);
+    String initial_auth_token = openHouseCatalog.properties().get("auth-token");
+    openHouseCatalog.updateAuthToken("newToken");
+    String updated_auth_token = openHouseCatalog.properties().get("auth-token");
+    Assertions.assertNotEquals(initial_auth_token, updated_auth_token);
     Assertions.assertThrows(
         NoSuchTableException.class,
         () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));

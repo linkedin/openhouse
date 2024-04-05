@@ -53,6 +53,7 @@ import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -68,6 +69,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
 
   private TableApi tableApi;
+
+  private ApiClient apiClient;
 
   private SnapshotApi snapshotApi;
 
@@ -103,14 +106,13 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String truststore = properties.getOrDefault(TRUST_STORE, "");
     String token = properties.getOrDefault(AUTH_TOKEN, null);
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
-    ApiClient apiClient = null;
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
       if (properties.containsKey(CatalogProperties.APP_ID)) {
         tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
       }
-      apiClient = TablesApiClientFactory.getInstance().createApiClient(uri, token, truststore);
+      this.apiClient = TablesApiClientFactory.getInstance().createApiClient(uri, token, truststore);
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
@@ -126,6 +128,19 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             : CatalogUtil.loadFileIO(fileIOImpl, properties, this.conf);
 
     this.cluster = properties.getOrDefault(CLUSTER_PROPERTY, DEFAULT_CLUSTER);
+  }
+
+  /**
+   * updates the auth token in ApiClient's default header which gets added to every request from
+   * ApiClient
+   *
+   * @param token
+   */
+  protected void updateAuthToken(String token) {
+    if (token != null && !token.isEmpty()) {
+      this.properties.put(AUTH_TOKEN, token);
+      this.apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
+    }
   }
 
   @Override

@@ -6,6 +6,7 @@ import java.net.MalformedURLException;
 import java.text.DateFormat;
 import javax.net.ssl.SSLException;
 import lombok.NonNull;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /** Factory to create tables specific ApiClient {@link ApiClient}. */
@@ -50,6 +51,9 @@ public final class TablesApiClientFactory extends WebClientFactory {
       throws MalformedURLException, SSLException {
     WebClient webClient = createWebClient(baseUrl, token, truststoreLocation);
     ApiClient apiClient = new ApiClient(webClient);
+    if (token != null && !token.isEmpty()) {
+      apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
+    }
     apiClient.setBasePath(baseUrl);
     return apiClient;
   }
