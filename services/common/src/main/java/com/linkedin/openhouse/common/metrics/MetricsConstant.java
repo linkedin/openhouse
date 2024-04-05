@@ -33,8 +33,6 @@ public final class MetricsConstant {
 
   // Performance metrics
   public static final String REPO_TABLE_SAVE_TIME = "repo_table_save_time";
-  public static final String REPO_TABLE_CREATE_TIME = "repo_table_create_time";
-  public static final String REPO_TABLE_UPDATE_TIME = "repo_table_update_time";
   public static final String REPO_TABLE_FIND_TIME = "repo_table_find_time";
   public static final String REPO_TABLE_EXISTS_TIME = "repo_table_exists_time";
   public static final String REPO_TABLE_DELETE_TIME = "repo_table_delete_time";
