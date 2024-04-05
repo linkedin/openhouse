@@ -22,7 +22,7 @@ public class TablesClientFactory {
   private final String basePath;
   private final DatabaseTableFilter filter;
   private final @Nullable String token;
-  private final FsStorageProvider fsStorageProvider;
+  protected final FsStorageProvider fsStorageProvider;
 
   public TablesClient create() {
     return create(RetryUtil.getTablesApiRetryTemplate());
@@ -37,19 +37,17 @@ public class TablesClientFactory {
           "Tables Client initialization failed: Failure while initializing ApiClient", e);
     }
     client.setBasePath(basePath);
-    return create(
-        retryTemplate,
-        new TableApi(client),
-        new DatabaseApi(client),
-        new StorageClient(fsStorageProvider));
+    return create(retryTemplate, new TableApi(client), new DatabaseApi(client));
+  }
+
+  public TablesClient create(RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi) {
+    return new TablesClient(
+        retryTemplate, tableApi, dbApi, filter, new StorageClient(fsStorageProvider));
   }
 
   @VisibleForTesting
   public TablesClient create(
-      RetryTemplate retryTemplate,
-      TableApi tableApi,
-      DatabaseApi dbApi,
-      StorageClient storageClient) {
-    return new TablesClient(retryTemplate, tableApi, dbApi, filter, storageClient);
+      RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi, StorageClient client) {
+    return new TablesClient(retryTemplate, tableApi, dbApi, filter, client);
   }
 }
