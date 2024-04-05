@@ -85,6 +85,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
   public TableDto save(TableDto tableDto) {
     long startTime = System.currentTimeMillis();
@@ -154,15 +155,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           .record(executionTime, TimeUnit.MILLISECONDS);
       log.info("update for table {} took {} ms", tableIdentifier, executionTime);
     }
-    TableDto result =
-        convertToTableDto(
-            table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper);
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLE_SAVE_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("save for table {} took {} ms", tableIdentifier, executionTime);
-    return result;
+    return convertToTableDto(
+        table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper);
   }
 
   /**
@@ -452,139 +446,84 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return tableTypeAdded;
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_FIND_TIME)
   @Override
   public Optional<TableDto> findById(TableDtoPrimaryKey tableDtoPrimaryKey) {
-    long startTime = System.currentTimeMillis();
     Table table;
     TableIdentifier tableId =
         TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId());
-    Optional<TableDto> result = Optional.empty();
     try {
       table = catalog.loadTable(tableId);
-      result =
-          Optional.of(
-              convertToTableDto(
-                  table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper));
+      return Optional.of(
+          convertToTableDto(
+              table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper));
     } catch (NoSuchTableException exception) {
       log.debug("User table does not exist:  " + tableId + " is required.");
+      return Optional.empty();
     }
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLE_FIND_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("findById for table {} took {} ms", tableId, executionTime);
-    return result;
   }
 
   // FIXME: Likely need a cache layer to avoid expensive tableScan.
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_EXISTS_TIME)
   @Override
   public boolean existsById(TableDtoPrimaryKey tableDtoPrimaryKey) {
-    long startTime = System.currentTimeMillis();
-    TableIdentifier tableId =
-        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId());
-    boolean result = catalog.tableExists(tableId);
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLE_EXISTS_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("existsById for table {} took {} ms", tableId, executionTime);
-    return result;
+    return catalog.tableExists(
+        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()));
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_DELETE_TIME)
   @Override
   public void deleteById(TableDtoPrimaryKey tableDtoPrimaryKey) {
-    long startTime = System.currentTimeMillis();
-    TableIdentifier tableId =
-        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId());
-    catalog.dropTable(tableId, true);
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLE_DELETE_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("deleteById for table {} took {} ms", tableId, executionTime);
+    catalog.dropTable(
+        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()),
+        true);
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLES_FIND_BY_DATABASE_TIME)
   @Override
   public List<TableDto> findAllByDatabaseId(String databaseId) {
-    long startTime = System.currentTimeMillis();
     List<Table> tables =
         catalog.listTables(Namespace.of(databaseId)).stream()
             .map(tableIdentifier -> catalog.loadTable(tableIdentifier))
             .collect(Collectors.toList());
-    List<TableDto> result =
-        tables.stream()
-            .map(
-                table ->
-                    convertToTableDto(
-                        table,
-                        fsStorageProvider,
-                        partitionSpecMapper,
-                        policiesMapper,
-                        tableTypeMapper))
-            .collect(Collectors.toList());
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLES_FIND_BY_DATABASE_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("findAllByDatabaseId for database {} took {} ms", databaseId, executionTime);
-    return result;
+    return tables.stream()
+        .map(
+            table ->
+                convertToTableDto(
+                    table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper))
+        .collect(Collectors.toList());
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_TIME)
   @Override
   public List<TableDto> searchTables(String databaseId) {
-    long startTime = System.currentTimeMillis();
-    List<TableDto> result =
-        catalog.listTables(Namespace.of(databaseId)).stream()
-            .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
-            .collect(Collectors.toList());
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("searchTables for database {} took {} ms", databaseId, executionTime);
-    return result;
+    return catalog.listTables(Namespace.of(databaseId)).stream()
+        .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
+        .collect(Collectors.toList());
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)
   @Override
   public List<TableDtoPrimaryKey> findAllIds() {
-    long startTime = System.currentTimeMillis();
-    List<TableDtoPrimaryKey> result =
-        catalog.listTables(Namespace.empty()).stream()
-            .map(key -> mapper.toTableDtoPrimaryKey(key))
-            .collect(Collectors.toList());
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("findAllIds took {} ms", executionTime);
-    return result;
+    return catalog.listTables(Namespace.empty()).stream()
+        .map(key -> mapper.toTableDtoPrimaryKey(key))
+        .collect(Collectors.toList());
   }
 
   /* IMPLEMENT AS NEEDED */
+  @Timed(metricKey = MetricsConstant.REPO_TABLES_FIND_ALL_TIME)
   @Override
   public Iterable<TableDto> findAll() {
-    long startTime = System.currentTimeMillis();
     List<Table> tables =
         catalog.listTables(Namespace.empty()).stream()
             .map(tableIdentifier -> catalog.loadTable(tableIdentifier))
             .collect(Collectors.toList());
-    Iterable<TableDto> result =
-        tables.stream()
-            .map(
-                table ->
-                    convertToTableDto(
-                        table,
-                        fsStorageProvider,
-                        partitionSpecMapper,
-                        policiesMapper,
-                        tableTypeMapper))
-            .collect(Collectors.toList());
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLES_FIND_ALL_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("findAll took {} ms", executionTime);
-    return result;
+    return tables.stream()
+        .map(
+            table ->
+                convertToTableDto(
+                    table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper))
+        .collect(Collectors.toList());
   }
 
   @Override
@@ -602,17 +541,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     throw getUnsupportedException();
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_DELETE_TIME)
   @Override
   public void delete(TableDto entity) {
-    long startTime = System.currentTimeMillis();
     /** Temporarily implemented for testing purposes. Need further work before productionization. */
-    TableIdentifier tableId = TableIdentifier.of(entity.getDatabaseId(), entity.getTableId());
-    catalog.dropTable(tableId);
-    long executionTime = System.currentTimeMillis() - startTime;
-    meterRegistry
-        .timer(MetricsConstant.REPO_TABLE_DELETE_TIME)
-        .record(executionTime, TimeUnit.MILLISECONDS);
-    log.info("delete for table {} took {} ms", tableId, executionTime);
+    catalog.dropTable(TableIdentifier.of(entity.getDatabaseId(), entity.getTableId()));
   }
 
   @Override
