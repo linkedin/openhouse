@@ -454,13 +454,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId());
     try {
       table = catalog.loadTable(tableId);
-      return Optional.of(
-          convertToTableDto(
-              table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper));
     } catch (NoSuchTableException exception) {
       log.debug("User table does not exist:  " + tableId + " is required.");
       return Optional.empty();
     }
+    return Optional.of(
+        convertToTableDto(
+            table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper));
   }
 
   // FIXME: Likely need a cache layer to avoid expensive tableScan.
