@@ -22,11 +22,16 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 @EntityScan(
     basePackages = {
       "com.linkedin.openhouse.tables.model",
-      "com.linkedin.openhouse.internal.catalog.model"
+      "com.linkedin.openhouse.internal.catalog.model",
+      "com.linkedin.openhouse.tables.toggle.model"
     })
 @EnableAutoConfiguration(
     exclude = {SecurityAutoConfiguration.class, ManagementWebSecurityAutoConfiguration.class})
-@EnableJpaRepositories(basePackages = {"com.linkedin.openhouse.internal.catalog.repository"})
+@EnableJpaRepositories(
+    basePackages = {
+      "com.linkedin.openhouse.internal.catalog.repository",
+      "com.linkedin.openhouse.tables.toggle.repository"
+    })
 public class TablesSpringApplication {
 
   public static void main(String[] args) {

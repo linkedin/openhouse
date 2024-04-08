@@ -149,8 +149,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   /**
    * Check the eligibility of table creation. Throw exceptions when invalidate behaviors detected
-   * for * {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal
-   * with
+   * for {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal
+   * with.
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
     versionCheck(null, tableDto);
