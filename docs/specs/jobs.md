@@ -206,6 +206,7 @@ Job config
 |jobType|ORPHAN_FILES_DELETION|
 |jobType|SNAPSHOTS_EXPIRATION|
 |jobType|STAGED_FILES_DELETION|
+|jobType|ORPHAN_DIRECTORY_DELETION| 
 
 <h2 id="tocS_JobResponseBody">JobResponseBody</h2>
 <!-- backwards compatibility -->
