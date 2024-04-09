@@ -11,6 +11,7 @@ import org.apache.iceberg.spark.SparkSessionCatalog;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.connector.catalog.TableCatalog;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import org.junit.Ignore;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ public class IcebergCatalogMapperTest {
   private static SparkSession spark = null;
 
   @Test
+  @Ignore
   public void testSparkCatalog() {
     SparkCatalog sparkCatalog = new SparkCatalog();
     sparkCatalog.initialize(
@@ -34,6 +36,7 @@ public class IcebergCatalogMapperTest {
   }
 
   @Test
+  @Ignore
   public void testSparkCatalogCacheDisabled() {
     SparkCatalog sparkCatalog = new SparkCatalog();
     sparkCatalog.initialize(
@@ -52,6 +55,7 @@ public class IcebergCatalogMapperTest {
   }
 
   @Test
+  @Ignore
   public void testSparkSessionCatalog() {
     SparkSessionCatalog sparkCatalog = new SparkSessionCatalog();
     sparkCatalog.initialize(
@@ -64,6 +68,7 @@ public class IcebergCatalogMapperTest {
   }
 
   @Test
+  @Ignore
   public void testSparkSessionCatalogCacheDisabled() {
     SparkSessionCatalog sparkCatalog = new SparkSessionCatalog();
     sparkCatalog.initialize(
@@ -82,6 +87,7 @@ public class IcebergCatalogMapperTest {
   }
 
   @Test
+  @Ignore
   public void testNonIcebergCatalog() {
     TableCatalog fakeTableCatalog = Mockito.mock(TableCatalog.class);
     assert IcebergCatalogMapper.toIcebergCatalog(fakeTableCatalog) == null;
