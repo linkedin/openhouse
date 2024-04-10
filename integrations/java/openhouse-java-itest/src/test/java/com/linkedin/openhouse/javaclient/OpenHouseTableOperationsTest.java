@@ -87,6 +87,7 @@ public class OpenHouseTableOperationsTest {
     when(base.snapshots()).thenReturn(snapshotList);
 
     // Ensure tableApi throw expected exception
+
     when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientResponseException.ServiceUnavailable.class)));
     Assertions.assertThrows(
