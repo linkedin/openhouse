@@ -84,7 +84,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private String name;
 
-  private Map<String, String> properties;
+  protected Map<String, String> properties;
 
   private static final String DEFAULT_CLUSTER = "local";
 
@@ -143,9 +143,14 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     }
   }
 
+  /**
+   * returns an unmodifiableMap of catalog properties preserving original properties
+   *
+   * @return
+   */
   @Override
   public Map<String, String> properties() {
-    return properties;
+    return Collections.unmodifiableMap(properties);
   }
 
   @Override
