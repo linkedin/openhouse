@@ -282,7 +282,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         || e instanceof WebClientResponseException.InternalServerError) {
       /**
        * This is done to avoid any data loss that could occur when a commit aborts at the caller
-       * leads to deletion of iceberg metadat files.
+       * leads to deletion of iceberg metadata files.
        */
       WebClientResponseException casted = (WebClientResponseException) e;
       return Mono.error(new CommitStateUnknownException(casted.getResponseBodyAsString(), casted));
