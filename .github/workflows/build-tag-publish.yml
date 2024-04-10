@@ -28,7 +28,7 @@ jobs:
         uses: gradle/wrapper-validation-action@v1
 
       - name: Build with Gradle
-        run: ./gradlew clean build
+        run: ./gradlew clean build --debug
 
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
