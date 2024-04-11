@@ -105,7 +105,7 @@ public class JobsScheduler {
   }
 
   public static void main(String[] args) {
-    log.info("Starting scheduler");
+    log.info("Starting scheduler Updated");
     CommandLine cmdLine = parseArgs(args);
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());

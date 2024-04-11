@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.util;
 
+import com.google.gson.Gson;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,6 @@ public class TableStatsCollector {
    */
   void publishStats(IcebergTableStats stats) {
     log.info("Publishing stats for table: {}", fqtn);
-    log.info("Stats: {}", stats);
+    log.info(new Gson().toJson(stats));
   }
 }
