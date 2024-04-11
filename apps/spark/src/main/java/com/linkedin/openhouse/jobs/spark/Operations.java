@@ -152,7 +152,11 @@ public final class Operations implements AutoCloseable {
   public boolean deleteOrphanDirectory(
       Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
     List<Path> matchingFiles = Lists.newArrayList();
-    listFiles(tableDirectoryPath, file -> true, true, matchingFiles);
+    listFiles(
+        tableDirectoryPath,
+        file -> !file.getPath().toString().contains(trashDir),
+        true,
+        matchingFiles);
 
     boolean anyMatched = false;
     // if there is one file that satisfy predicate, all files should go into trash
@@ -174,15 +178,12 @@ public final class Operations implements AutoCloseable {
     }
 
     for (Path matchingFile : matchingFiles) {
-      if (!matchingFile.toString().contains(trashDir)) {
-        Path trashPath =
-            getTrashPath(tableDirectoryPath.toString(), matchingFile.toString(), trashDir);
-        try {
-          rename(matchingFile, trashPath);
-        } catch (IOException e) {
-          log.error(
-              String.format("Move operation failed for file path: %s", tableDirectoryPath), e);
-        }
+      Path trashPath =
+          getTrashPath(tableDirectoryPath.toString(), matchingFile.toString(), trashDir);
+      try {
+        rename(matchingFile, trashPath);
+      } catch (IOException e) {
+        log.error(String.format("Move operation failed for file path: %s", tableDirectoryPath), e);
       }
     }
     return true;
