@@ -472,6 +472,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       ops.listFiles(tbLoc, file -> true, true, matchingFilesBefore);
       boolean orphaned = ops.deleteOrphanDirectory(tbLoc, ".trash", timeThreshold);
       Assertions.assertTrue(orphaned);
+      // All files should have been moved to trash dir
+      // Making sure nothing needs to be orphaned again
       orphaned = ops.deleteOrphanDirectory(tbLoc, ".trash", timeThreshold);
       Assertions.assertFalse(orphaned);
       List<Path> matchingFilesAfter = new ArrayList<>();
