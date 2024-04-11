@@ -494,7 +494,7 @@ public final class Operations implements AutoCloseable {
       return null;
     }
 
-    IcebergTableStats tableStats = tableStatsCollector.collectAndPublishTableStats();
+    IcebergTableStats tableStats = tableStatsCollector.collectTableStats();
     return tableStats;
   }
 }
