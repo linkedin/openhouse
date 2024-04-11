@@ -53,3 +53,7 @@ jobs:
         class-name: com.linkedin.openhouse.jobs.spark.OrphanDirectoryDeletionSparkApp
         args: [ "--trashDir", ".trash" ]
         <<: *apps-defaults
+      - type: TABLE_STATS_COLLECTION
+        class-name: com.linkedin.openhouse.jobs.spark.TableStatsCollectionSparkApp
+        args: []
+        <<: *apps-defaults

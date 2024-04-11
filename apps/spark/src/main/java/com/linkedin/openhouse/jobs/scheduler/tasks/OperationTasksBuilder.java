@@ -66,6 +66,7 @@ public class OperationTasksBuilder {
       case RETENTION:
       case SNAPSHOTS_EXPIRATION:
       case SQL_TEST:
+      case TABLE_STATS_COLLECTION:
       case STAGED_FILES_DELETION:
         return prepareTableOperationTaskList(jobType);
       case ORPHAN_DIRECTORY_DELETION:
