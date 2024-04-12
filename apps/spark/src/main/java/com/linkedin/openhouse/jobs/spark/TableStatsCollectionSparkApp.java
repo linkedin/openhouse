@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.gson.Gson;
+import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +26,18 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   protected void runInner(Operations ops) {
     log.info("Running TableStatsCollectorApp for table {}", fqtn);
 
-    ops.collectTableStats(fqtn);
+    IcebergTableStats icebergTableStats = ops.collectTableStats(fqtn);
+    publishStats(icebergTableStats);
+  }
+
+  /**
+   * Publish table stats.
+   *
+   * @param icebergTableStats
+   */
+  protected void publishStats(IcebergTableStats icebergTableStats) {
+    log.info("Publishing stats for table: {}", fqtn);
+    log.info(new Gson().toJson(icebergTableStats));
   }
 
   public static void main(String[] args) {
