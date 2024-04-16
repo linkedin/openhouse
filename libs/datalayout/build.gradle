@@ -1,0 +1,25 @@
+plugins {
+    id 'openhouse.java-conventions'
+    id 'openhouse.hadoop-conventions'
+    id 'openhouse.iceberg-conventions'
+    id 'openhouse.maven-publish'
+}
+
+ext {
+    icebergVersion = '1.2.0'
+    sparkVersion = '3.1.1'
+    springVersion = '2.6.6'
+    hadoopVersion = '2.10.0'
+}
+
+dependencies {
+    compileOnly project(':integrations:spark:openhouse-spark-runtime_2.12')
+    implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
+        exclude group: 'io.netty'
+    }
+    implementation ('org.apache.spark:spark-sql_2.12:' + sparkVersion) {
+        exclude group: 'io.netty'
+    }
+    implementation 'org.apache.hadoop:hadoop-common:2.10.0'
+    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
+}
