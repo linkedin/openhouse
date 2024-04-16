@@ -181,7 +181,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * Ensure existing table's tableLocation (path to metadata.json) matches user provided baseVersion
    * (path to metadata.json of the table where the updates are based upon)
    */
-  private void versionCheck(Table existingTable, TableDto mergedTableDto) {
+  void versionCheck(Table existingTable, TableDto mergedTableDto) {
     String baseTableVersion = mergedTableDto.getTableVersion();
 
     if (existingTable != null) {

@@ -1,0 +1,10 @@
+diff a/services/tables/src/main/java/com/linkedin/openhouse/tables/repository/impl/OpenHouseInternalRepositoryImpl.java b/services/tables/src/main/java/com/linkedin/openhouse/tables/repository/impl/OpenHouseInternalRepositoryImpl.java	(rejected hunks)
+@@ -85,6 +86,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
+ 
+   @Autowired PreservedKeyChecker preservedKeyChecker;
+ 
++  @Autowired TableFeatureToggle baseTableFeatureToggle;
++
+   @Override
+   public TableDto save(TableDto tableDto) {
+     TableIdentifier tableIdentifier =

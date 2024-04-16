@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.toggle;
 
+import com.linkedin.openhouse.common.api.spec.ToggleStatusEnum;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
@@ -28,8 +29,11 @@ public class BaseTableFeatureToggle implements TableFeatureToggle {
             .featureId(featureId)
             .build();
     Optional<TableToggleStatus> toggleStatus = toggleStatusesRepository.findById(toggleStatusKey);
-    // TODO: Change this once HTS PR is in
+
     return toggleStatus.isPresent()
-        && toggleStatus.get().getToggleStatusEnum().equalsIgnoreCase("active");
+        && toggleStatus
+            .get()
+            .getToggleStatusEnum()
+            .equalsIgnoreCase(ToggleStatusEnum.ACTIVE.toString());
   }
 }

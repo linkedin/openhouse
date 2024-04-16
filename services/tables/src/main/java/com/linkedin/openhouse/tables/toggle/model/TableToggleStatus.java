@@ -26,6 +26,5 @@ public class TableToggleStatus {
 
   @Id private String databaseId;
 
-  // TODO: Need to change it to the shared Enum class once HTS PR is in
   private String toggleStatusEnum;
 }
