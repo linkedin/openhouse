@@ -15,11 +15,21 @@ import org.mapstruct.Named;
  */
 @Mapper(componentModel = "spring")
 public class UserTableVersionMapper {
+  public static final String INITIAL_VERSION = "INITIAL_VERSION";
 
   @Named("toVersion")
   public Long toVersion(UserTable userTable, @Context Optional<UserTableRow> existingUserTableRow) {
     if (!existingUserTableRow.isPresent()) {
-      return 1L;
+      if (!userTable.getTableVersion().equals(INITIAL_VERSION)) {
+        throw new EntityConcurrentModificationException(
+            String.format(
+                "databaseId : %s, tableId : %s %s",
+                userTable.getDatabaseId(),
+                userTable.getTableId(),
+                "The requested user table has been deleted by other processes."),
+            new RuntimeException());
+      }
+      return null;
     } else {
       if (existingUserTableRow.get().getMetadataLocation().equals(userTable.getTableVersion())) {
         return existingUserTableRow.get().getVersion();
