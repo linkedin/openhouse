@@ -33,7 +33,7 @@ public class TableToggleStatusKey {
 
   @Schema(
       description = "Unique Resource identifier for a feature within OpenHouse Service",
-      example = "dummy")
+      example = "wap-branch")
   @JsonProperty(value = "featureId")
   @NotEmpty(message = "featureId cannot be empty")
   String featureId;

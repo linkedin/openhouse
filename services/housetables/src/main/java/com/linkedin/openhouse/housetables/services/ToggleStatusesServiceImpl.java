@@ -13,7 +13,7 @@ public class ToggleStatusesServiceImpl implements ToggleStatusesService {
 
   @Override
   public ToggleStatus getTableToggleStatus(String featureId, String databaseId, String tableId) {
-    for (TableToggleRule tableToggleRule : htsRepository.findAllByFeature(featureId)) {
+    for (TableToggleRule tableToggleRule : htsRepository.findAllByFeatureId(featureId)) {
 
       // TODO: Evolve this rule engine to support wildcards
       if (tableToggleRule.getTablePattern().equals(tableId)

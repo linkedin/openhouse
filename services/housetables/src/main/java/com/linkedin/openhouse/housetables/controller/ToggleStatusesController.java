@@ -28,7 +28,11 @@ public class ToggleStatusesController {
       summary = "Get a toggle status applied to a table.",
       description = "Returns a toggle status of databaseID and tableId on a featureId",
       tags = {"ToggleStatus"})
-  @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "Toggle status GET: OK")})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Toggle status GET: OK"),
+        @ApiResponse(responseCode = "404", description = "Toggle status GET: NOT FOUND")
+      })
   @GetMapping(
       value = TOGGLE_ENDPOINT,
       produces = {"application/json"})
