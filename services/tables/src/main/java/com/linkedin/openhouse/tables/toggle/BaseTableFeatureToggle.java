@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.toggle;
 
-import com.linkedin.openhouse.common.api.spec.ToggleStatusEnum;
+import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
@@ -34,6 +34,6 @@ public class BaseTableFeatureToggle implements TableFeatureToggle {
         && toggleStatus
             .get()
             .getToggleStatusEnum()
-            .equalsIgnoreCase(ToggleStatusEnum.ACTIVE.toString());
+            .equalsIgnoreCase(ToggleStatus.StatusEnum.ACTIVE.toString());
   }
 }

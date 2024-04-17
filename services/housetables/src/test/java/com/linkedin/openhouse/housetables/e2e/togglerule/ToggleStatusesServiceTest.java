@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.housetables.e2e.togglerule;
 
-import com.linkedin.openhouse.common.api.spec.ToggleStatusEnum;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.api.spec.model.ToggleStatusEnum;
 import com.linkedin.openhouse.housetables.services.ToggleStatusesService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
