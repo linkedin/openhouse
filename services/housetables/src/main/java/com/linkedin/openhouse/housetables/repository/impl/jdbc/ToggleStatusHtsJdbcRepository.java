@@ -4,5 +4,5 @@ import com.linkedin.openhouse.housetables.model.TableToggleRule;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
 
 public interface ToggleStatusHtsJdbcRepository extends HtsRepository<TableToggleRule, Long> {
-  Iterable<TableToggleRule> findAllByFeatureId(String featureId);
+  Iterable<TableToggleRule> findAllByFeature(String feature);
 }

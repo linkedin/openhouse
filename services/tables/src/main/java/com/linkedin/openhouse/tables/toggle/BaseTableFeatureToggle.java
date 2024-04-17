@@ -34,6 +34,7 @@ public class BaseTableFeatureToggle implements TableFeatureToggle {
         && toggleStatus
             .get()
             .getToggleStatusEnum()
+            .toString()
             .equalsIgnoreCase(ToggleStatus.StatusEnum.ACTIVE.toString());
   }
 }

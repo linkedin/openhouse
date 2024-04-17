@@ -21,14 +21,13 @@ public class ToggleStatusRepositoryTest {
   @Test
   public void testFindAllByFeature() {
     List<TableToggleRule> toggleRuleList =
-        ImmutableList.copyOf(htsRepository.findAllByFeatureId(TEST_RULE_0.getFeature()));
+        ImmutableList.copyOf(htsRepository.findAllByFeature(TEST_RULE_0.getFeature()));
     Assertions.assertEquals(2, toggleRuleList.size());
 
     // Now there should be 2 rules under dummy2 feature
     htsRepository.save(
         TEST_RULE_0.toBuilder().feature(TEST_RULE_2.getFeature()).databasePattern("dbnew").build());
-    toggleRuleList =
-        ImmutableList.copyOf(htsRepository.findAllByFeatureId(TEST_RULE_2.getFeature()));
+    toggleRuleList = ImmutableList.copyOf(htsRepository.findAllByFeature(TEST_RULE_2.getFeature()));
     Assertions.assertEquals(2, toggleRuleList.size());
   }
 }
