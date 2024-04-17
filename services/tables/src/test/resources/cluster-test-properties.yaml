@@ -2,6 +2,21 @@ cluster:
   name: "TestCluster"
   storage:
     root-path: "/tmp/unittest"
+  storages:
+    default-type: "hdfs"
+    types:
+      hdfs:
+        scheme: "hdfs"
+        rootpath: "/tmp/unittest"
+        endpoint: "hdfs://localhost:9000"
+        parameters:
+          key1: value1
+      s3:
+        scheme: "s3"
+        rootpath: "tmpbucket"
+        endpoint: "http://localhost:9000"
+        parameters:
+          key2: value2
   housetables:
     base-uri: "http://localhost:8080"
   security:
