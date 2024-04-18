@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import java.io.UncheckedIOException;
 import java.util.List;
@@ -28,8 +27,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class SnapshotInspector {
-  @Autowired private FsStorageProvider fsStorageProvider;
-
   @Autowired private Consumer<Supplier<Path>> fileSecurer;
   /**
    * TODO: ADD Validation for snapshot: Sequence-number based, schema-id based, see iceberg spec for

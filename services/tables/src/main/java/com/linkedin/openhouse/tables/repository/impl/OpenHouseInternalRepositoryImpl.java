@@ -49,7 +49,6 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
-import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -73,8 +72,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Autowired TableTypeMapper tableTypeMapper;
 
   @Autowired FsStorageProvider fsStorageProvider;
-
-  @Autowired FileIO fileIO;
 
   @Autowired MeterRegistry meterRegistry;
 
