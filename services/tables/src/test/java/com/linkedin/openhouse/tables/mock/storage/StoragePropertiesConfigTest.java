@@ -15,7 +15,12 @@ public class StoragePropertiesConfigTest {
   @Autowired private StorageProperties storageProperties;
 
   private static final String DEFAULT_TYPE = "hdfs";
-  private static final String ANOTHER_TYPE = "s3";
+
+  private static final String DEFAULT_SCHEME = "hdfs";
+
+  private static final String ANOTHER_TYPE = "objectstore";
+
+  private static final String ANOTHER_SCHEME = "objectstorescheme";
   private static final String NON_EXISTING_TYPE = "non-existing-type";
 
   @Test
@@ -26,13 +31,13 @@ public class StoragePropertiesConfigTest {
   @Test
   public void testStorageTypeScheme() {
     Assertions.assertEquals(
-        DEFAULT_TYPE, storageProperties.getTypes().get(DEFAULT_TYPE).getScheme());
+        DEFAULT_SCHEME, storageProperties.getTypes().get(DEFAULT_TYPE).getScheme());
   }
 
   @Test
   public void testStorageTypeLookup() {
     Assertions.assertEquals(
-        ANOTHER_TYPE, storageProperties.getTypes().get(ANOTHER_TYPE).getScheme());
+        ANOTHER_SCHEME, storageProperties.getTypes().get(ANOTHER_TYPE).getScheme());
   }
 
   @Test

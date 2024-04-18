@@ -11,8 +11,8 @@ cluster:
         endpoint: "hdfs://localhost:9000"
         parameters:
           key1: value1
-      s3:
-        scheme: "s3"
+      objectstore:
+        scheme: "objectstorescheme"
         rootpath: "tmpbucket"
         endpoint: "http://localhost:9000"
         parameters:
