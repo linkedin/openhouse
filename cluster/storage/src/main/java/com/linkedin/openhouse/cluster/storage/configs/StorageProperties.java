@@ -19,7 +19,7 @@ import org.springframework.context.annotation.PropertySource;
 @Setter
 public class StorageProperties {
   private String defaultType;
-  private Map<String, StorageTypeProperties> types = new HashMap<>();
+  private Map<String, StorageTypeProperties> types;
 
   @Getter
   @Setter

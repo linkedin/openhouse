@@ -54,6 +54,13 @@ public class StorageTypeEnumTest {
     Assertions.assertSame(StorageType.HDFS, storageType.fromString("hdfs"));
     Assertions.assertSame(ExtendedStorageType.GCS, storageType.fromString("gcs"));
     Assertions.assertSame(ExtendedStorageType.S3, storageType.fromString("s3"));
-    Assertions.assertNull(storageType.fromString("non-existing-type"));
+  }
+
+  @Test
+  public void testExceptionForInvalidString() {
+    StorageType storageType = new StorageType();
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> storageType.fromString("non-existing-type"));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> storageType.fromString(null));
   }
 }

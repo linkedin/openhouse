@@ -20,15 +20,12 @@ public class StorageType {
   }
 
   public Type fromString(String type) {
-    if (type == null) {
-      return null;
-    }
-    if (type.equals(HDFS.getValue())) {
+    if (HDFS.getValue().equals(type)) {
       return HDFS;
-    } else if (type.equals(LOCAL.getValue())) {
+    } else if (LOCAL.getValue().equals(type)) {
       return LOCAL;
     } else {
-      return null;
+      throw new IllegalArgumentException("Unknown storage type: " + type);
     }
   }
 }
