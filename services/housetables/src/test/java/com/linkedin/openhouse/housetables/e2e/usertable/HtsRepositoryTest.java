@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ContextConfiguration;
 
@@ -58,9 +59,15 @@ public class HtsRepositoryTest {
   @Test
   public void testSaveUserTableWithConflict() {
     Long currentVersion = htsRepository.save(TEST_USER_TABLE_ROW).getVersion();
+    // test create the table again
+    Exception exception =
+        Assertions.assertThrows(
+            Exception.class,
+            () -> htsRepository.save(TEST_USER_TABLE_ROW.toBuilder().version(null).build()));
+    Assertions.assertTrue(exception instanceof DataIntegrityViolationException);
 
     // test update at wrong version
-    Exception exception =
+    exception =
         Assertions.assertThrows(
             Exception.class,
             () -> htsRepository.save(TEST_USER_TABLE_ROW.toBuilder().version(100L).build()));

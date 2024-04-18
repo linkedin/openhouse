@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.housetables.dto.mapper;
 
+import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -15,12 +16,10 @@ import org.mapstruct.Named;
  */
 @Mapper(componentModel = "spring")
 public class UserTableVersionMapper {
-  public static final String INITIAL_VERSION = "INITIAL_VERSION";
-
   @Named("toVersion")
   public Long toVersion(UserTable userTable, @Context Optional<UserTableRow> existingUserTableRow) {
     if (!existingUserTableRow.isPresent()) {
-      if (!userTable.getTableVersion().equals(INITIAL_VERSION)) {
+      if (!userTable.getTableVersion().equals(ValidatorConstants.INITIAL_TABLE_VERSION)) {
         throw new EntityConcurrentModificationException(
             String.format(
                 "databaseId : %s, tableId : %s %s",
