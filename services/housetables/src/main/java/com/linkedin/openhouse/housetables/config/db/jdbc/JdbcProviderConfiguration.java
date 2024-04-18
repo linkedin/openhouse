@@ -30,7 +30,7 @@ public class JdbcProviderConfiguration {
    * "htsdb" database. With DB_CLOSE_DELAY=-1, the database is kept alive as long as the JVM lives,
    * otherwise it shuts down when the database-creating-thread dies.
    */
-  private static final String H2_DEFAULT_URL = "jdbc:h2:mem:htsdb;DB_CLOSE_DELAY=-1";
+  private static final String H2_DEFAULT_URL = "jdbc:h2:mem:htsdb;MODE=MySQL;DB_CLOSE_DELAY=-1";
 
   @Bean
   public DataSource provideJdbcDataSource() {
