@@ -29,7 +29,7 @@ public class StoragePropertiesConfigTest {
   }
 
   @Test
-  public void testStorageTypeScheme() {
+  public void testStorageTypeEndpoint() {
     Assertions.assertEquals(
         DEFAULT_ENDPOINT, storageProperties.getTypes().get(DEFAULT_TYPE).getEndpoint());
   }

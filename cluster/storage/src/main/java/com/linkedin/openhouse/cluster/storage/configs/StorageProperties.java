@@ -10,8 +10,8 @@ import org.springframework.context.annotation.PropertySource;
 
 /**
  * This class represents the storage properties for the cluster. It includes the default storage
- * type and a map of different storage types. Each storage type has its own properties such as
- * scheme, root path, endpoint, and parameters. For list of supported storage types, see {@link
+ * type and a map of different storage types. Each storage type has its own properties such as root
+ * path, endpoint, and parameters. For list of supported storage types, see {@link
  * com.linkedin.openhouse.cluster.storage.StorageType}.
  */
 @Configuration
@@ -33,7 +33,6 @@ public class StorageProperties {
   @NoArgsConstructor
   @Builder(toBuilder = true)
   public static class StorageTypeProperties {
-    private String scheme;
     private String rootPath;
     private String endpoint;
     @Builder.Default private Map<String, String> parameters = new HashMap<>();
