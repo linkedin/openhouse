@@ -1,4 +1,4 @@
-FROM openjdk:11
+FROM openjdk:23-ea-11-slim
 
 
 ARG USER=openhouse
