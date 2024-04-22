@@ -39,4 +39,6 @@ public class HouseTable {
   private long lastModifiedTime;
 
   private long creationTime;
+
+  private String storageType;
 }
