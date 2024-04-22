@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.cluster.storage;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 
 /**
  * Enum for supported storage types.
