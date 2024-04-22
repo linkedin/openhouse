@@ -6,17 +6,16 @@ cluster:
     default-type: "hdfs"
     types:
       hdfs:
-        scheme: "hdfs"
         rootpath: "/tmp/unittest"
         endpoint: "hdfs://localhost:9000"
         parameters:
           key1: value1
       objectstore:
-        scheme: "objectstorescheme"
         rootpath: "tmpbucket"
         endpoint: "http://localhost:9000"
         parameters:
           key2: value2
+          token: xyz
   housetables:
     base-uri: "http://localhost:8080"
   security:

@@ -16,11 +16,11 @@ public class StoragePropertiesConfigTest {
 
   private static final String DEFAULT_TYPE = "hdfs";
 
-  private static final String DEFAULT_SCHEME = "hdfs";
+  private static final String DEFAULT_ENDPOINT = "hdfs://localhost:9000";
 
   private static final String ANOTHER_TYPE = "objectstore";
 
-  private static final String ANOTHER_SCHEME = "objectstorescheme";
+  private static final String ANOTHER_ENDPOINT = "http://localhost:9000";
   private static final String NON_EXISTING_TYPE = "non-existing-type";
 
   @Test
@@ -31,13 +31,13 @@ public class StoragePropertiesConfigTest {
   @Test
   public void testStorageTypeScheme() {
     Assertions.assertEquals(
-        DEFAULT_SCHEME, storageProperties.getTypes().get(DEFAULT_TYPE).getScheme());
+        DEFAULT_ENDPOINT, storageProperties.getTypes().get(DEFAULT_TYPE).getEndpoint());
   }
 
   @Test
   public void testStorageTypeLookup() {
     Assertions.assertEquals(
-        ANOTHER_SCHEME, storageProperties.getTypes().get(ANOTHER_TYPE).getScheme());
+        ANOTHER_ENDPOINT, storageProperties.getTypes().get(ANOTHER_TYPE).getEndpoint());
   }
 
   @Test
