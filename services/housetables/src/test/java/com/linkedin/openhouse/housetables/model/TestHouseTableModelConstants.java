@@ -87,4 +87,8 @@ public class TestHouseTableModelConstants {
               .build();
     }
   }
+
+  public static Boolean isUserTableRowEqual(UserTableRow expected, UserTableRow actual) {
+    return expected.toBuilder().version(0L).build().equals(actual.toBuilder().version(0L).build());
+  }
 }

@@ -97,8 +97,4 @@ public class HtsRepositoryTest {
     htsRepository.deleteById(
         UserTableRowPrimaryKey.builder().databaseId(TEST_DB_ID).tableId(TEST_TABLE_ID).build());
   }
-
-  private Boolean isUserTableRowEqual(UserTableRow expected, UserTableRow actual) {
-    return expected.toBuilder().version(0L).build().equals(actual.toBuilder().version(0L).build());
-  }
 }
