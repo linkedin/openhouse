@@ -17,8 +17,8 @@ public class UserTableVersionMapperTest {
   @Test
   void testToVersionWithNoExistingRow() {
     Assertions.assertEquals(
-        versionMapper.toVersion(TestHouseTableModelConstants.TEST_USER_TABLE, Optional.empty()),
-        null);
+        null,
+        versionMapper.toVersion(TestHouseTableModelConstants.TEST_USER_TABLE, Optional.empty()));
   }
 
   @Test

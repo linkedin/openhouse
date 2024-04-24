@@ -24,6 +24,14 @@ public class HtsRepositoryTest {
   @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
 
   @Test
+  public void testSaveFirstRecord() {
+    // before insertion
+    Assertions.assertEquals(null, TEST_USER_TABLE_ROW.getVersion());
+    // after insertion
+    Assertions.assertEquals(0, htsRepository.save(TEST_USER_TABLE_ROW).getVersion());
+  }
+
+  @Test
   public void testHouseTable() {
     htsRepository.save(TEST_USER_TABLE_ROW);
     UserTableRow actual =
