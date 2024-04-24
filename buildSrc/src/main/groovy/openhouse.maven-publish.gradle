@@ -56,9 +56,6 @@ publishing {
 
         configurePom(pom)
       }
-      mavenJava(MavenPublication) {
-        from components.java
-      }
     } else if(tasks.findByName('bootJar')) {
       mavenJava(MavenPublication) {
         from components.java
