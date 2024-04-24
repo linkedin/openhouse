@@ -31,7 +31,6 @@ import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.actions.SparkActions;
-import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import scala.collection.JavaConverters;
@@ -237,8 +236,8 @@ public final class Operations implements AutoCloseable {
       String fqtn, String columnName, String columnPattern, String granularity, int count) {
     final String statement =
         SparkJobUtil.createDeleteStatement(fqtn, columnName, columnPattern, granularity, count);
-    Dataset<Row> dsWithExpiredRows = spark.sql(statement);
-    log.info("Retention Job deleted records: {} from table: {}", dsWithExpiredRows.count(), fqtn);
+    List<Row> dsWithExpiredRows = spark.sql(statement).collectAsList();
+    log.info("Retention Job deleted records: {} from table: {}", dsWithExpiredRows.size(), fqtn);
   }
 
   private Path getTrashPath(String path, String filePath, String trashDir) {

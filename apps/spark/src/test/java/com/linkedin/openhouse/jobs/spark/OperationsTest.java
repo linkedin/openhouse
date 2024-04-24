@@ -55,6 +55,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName3 = "db.test_retention_string_partition3";
     final String tableName4 = "db.test_retention_string_partition4";
     final String tableName5 = "db.test_retention_string_partition5";
+    final String tableName6 = "db.test_retention_string_partition6";
 
     List<String> rowValue = new ArrayList<>();
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
@@ -121,6 +122,15 @@ public class OperationsTest extends OpenHouseSparkITest {
           .collectAsList();
       verifyRowCount(ops, tableName5, 0);
       rowValue.clear();
+
+      // Test to validate the latest snapshot added by retention delete ops is of type `delete`
+      rowValue.add("202%s-07-16-12");
+      runRetentionJobWithStringPartitionColumns(
+          ops, tableName6, rowValue, "datePartition", "yyyy-MM-dd-HH", "day");
+      verifyRowCount(ops, tableName6, 0);
+      rowValue.clear();
+      List<String> operations = getSnapshotOperations(ops, tableName6);
+      Assertions.assertEquals(operations.get(0), "delete");
     }
   }
 
@@ -566,7 +576,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     Assertions.assertEquals(policies.getSharingEnabled().booleanValue(), expectedSharing);
   }
 
-  private void verifyRowCount(Operations ops, String tableName, int expectedRowCount) {
+  private static void verifyRowCount(Operations ops, String tableName, int expectedRowCount) {
     List<Row> resultRows =
         ops.spark().sql(String.format("SELECT * FROM %s", tableName)).collectAsList();
     Assertions.assertEquals(expectedRowCount, resultRows.size());
@@ -635,7 +645,10 @@ public class OperationsTest extends OpenHouseSparkITest {
   private static void prepareTableWithStringColumn(Operations ops, String tableName) {
     ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
     ops.spark()
-        .sql(String.format("CREATE TABLE %s (data string, datePartition String)", tableName))
+        .sql(
+            String.format(
+                "CREATE TABLE %s (data string, datePartition String) PARTITIONED by (datePartition)",
+                tableName))
         .show();
     ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
   }
@@ -671,12 +684,24 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   private static List<Long> getSnapshotIds(Operations ops, String tableName) {
-    log.info("Getting snapshots");
+    log.info("Getting snapshot Ids");
     List<Row> snapshots =
         ops.spark().sql(String.format("SELECT * FROM %s.snapshots", tableName)).collectAsList();
     snapshots.forEach(s -> log.info(s.toString()));
     return snapshots.stream()
         .map(r -> r.getLong(r.fieldIndex("snapshot_id")))
+        .collect(Collectors.toList());
+  }
+
+  private static List<String> getSnapshotOperations(Operations ops, String tableName) {
+    log.info("Getting snapshot Operations");
+    List<Row> ordered_snapshots =
+        ops.spark()
+            .sql(String.format("SELECT * FROM %s.snapshots order by committed_at desc", tableName))
+            .collectAsList();
+    ordered_snapshots.forEach(s -> log.info(s.toString()));
+    return ordered_snapshots.stream()
+        .map(r -> r.getString(r.fieldIndex("operation")))
         .collect(Collectors.toList());
   }
 
