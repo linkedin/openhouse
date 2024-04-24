@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.datalayout;
+package com.linkedin.openhouse.datalayout.planning;
 
 public class FileEntropyPolicy implements CompactionPolicy {
 
