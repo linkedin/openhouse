@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.housetables.mock.mapper;
 
-import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants.*;
-
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -38,28 +36,20 @@ public class UserTablesMapperTest {
 
   @Test
   void toUserTableRowNullStorageType() {
-    Assertions.assertTrue(
-        isUserTableRowEqual(
-            TestHouseTableModelConstants.TEST_USER_TABLE_ROW,
-            userTablesMapper.toUserTableRow(
-                TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType(null).build(),
-                Optional.empty())));
+    Assertions.assertEquals(
+        TestHouseTableModelConstants.TEST_USER_TABLE_ROW,
+        userTablesMapper.toUserTableRow(
+            TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType(null).build(),
+            Optional.empty()));
   }
 
   @Test
   void toUserTableRowCustomStorageType() {
-    Assertions.assertTrue(
-        isUserTableRowEqual(
-            TestHouseTableModelConstants.TEST_USER_TABLE_ROW
-                .toBuilder()
-                .storageType("blobfs")
-                .build(),
-            userTablesMapper.toUserTableRow(
-                TestHouseTableModelConstants.TEST_USER_TABLE
-                    .toBuilder()
-                    .storageType("blobfs")
-                    .build(),
-                Optional.empty())));
+    Assertions.assertEquals(
+        TestHouseTableModelConstants.TEST_USER_TABLE_ROW.toBuilder().storageType("blobfs").build(),
+        userTablesMapper.toUserTableRow(
+            TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType("blobfs").build(),
+            Optional.empty()));
   }
 
   @Test
