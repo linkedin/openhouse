@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.model;
 
-import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import lombok.Getter;
@@ -52,12 +51,16 @@ public class TestHouseTableModelConstants {
     public TestTuple(int tbSeq, int dbSeq) {
       this.tableId = "test_table" + tbSeq;
       this.databaseId = "test_db" + dbSeq;
-      this.ver = ValidatorConstants.INITIAL_TABLE_VERSION;
-      this.tableLoc =
+      this.ver =
           LOC_TEMPLATE
               .replace("$test_db", databaseId)
               .replace("$test_table", tableId)
               .replace("$version", "v0");
+      this.tableLoc =
+          LOC_TEMPLATE
+              .replace("$test_db", databaseId)
+              .replace("$test_table", tableId)
+              .replace("$version", "v1");
       this.storageType = TEST_DEFAULT_STORAGE_TYPE;
       this._userTable =
           UserTable.builder()
@@ -81,14 +84,10 @@ public class TestHouseTableModelConstants {
           UserTableRow.builder()
               .tableId(tableId)
               .databaseId(databaseId)
-              .version(null)
+              .version(1L)
               .metadataLocation(tableLoc)
               .storageType(storageType)
               .build();
     }
-  }
-
-  public static Boolean isUserTableRowEqual(UserTableRow expected, UserTableRow actual) {
-    return expected.toBuilder().version(0L).build().equals(actual.toBuilder().version(0L).build());
   }
 }

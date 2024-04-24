@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.dto.mapper;
 
-import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -16,19 +15,11 @@ import org.mapstruct.Named;
  */
 @Mapper(componentModel = "spring")
 public class UserTableVersionMapper {
+
   @Named("toVersion")
   public Long toVersion(UserTable userTable, @Context Optional<UserTableRow> existingUserTableRow) {
     if (!existingUserTableRow.isPresent()) {
-      if (!userTable.getTableVersion().equals(ValidatorConstants.INITIAL_TABLE_VERSION)) {
-        throw new EntityConcurrentModificationException(
-            String.format(
-                "databaseId : %s, tableId : %s %s",
-                userTable.getDatabaseId(),
-                userTable.getTableId(),
-                "The requested user table has been deleted by other processes."),
-            new RuntimeException());
-      }
-      return null;
+      return 1L;
     } else {
       if (existingUserTableRow.get().getMetadataLocation().equals(userTable.getTableVersion())) {
         return existingUserTableRow.get().getVersion();

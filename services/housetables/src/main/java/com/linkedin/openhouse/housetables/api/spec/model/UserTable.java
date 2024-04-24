@@ -37,9 +37,7 @@ public class UserTable {
   @Pattern(regexp = ALPHA_NUM_UNDERSCORE_REGEX, message = ALPHA_NUM_UNDERSCORE_ERROR_MSG)
   private String databaseId;
 
-  @Schema(
-      description = "Current Version of the user table. New record should have 'INTITAL_VERISON'",
-      example = "")
+  @Schema(description = "Current Version of the user table.", example = "")
   @JsonProperty(value = "tableVersion")
   private String tableVersion;
 

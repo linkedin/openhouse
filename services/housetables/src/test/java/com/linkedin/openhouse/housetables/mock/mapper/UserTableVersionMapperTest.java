@@ -17,18 +17,8 @@ public class UserTableVersionMapperTest {
   @Test
   void testToVersionWithNoExistingRow() {
     Assertions.assertEquals(
-        null,
-        versionMapper.toVersion(TestHouseTableModelConstants.TEST_USER_TABLE, Optional.empty()));
-  }
-
-  @Test
-  void testToVersionWithNoExistingRowAndIncorrectTableVersion() {
-    Assertions.assertThrows(
-        EntityConcurrentModificationException.class,
-        () ->
-            versionMapper.toVersion(
-                TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().tableVersion("v1").build(),
-                Optional.empty()));
+        versionMapper.toVersion(TestHouseTableModelConstants.TEST_USER_TABLE, Optional.empty()),
+        1L);
   }
 
   @Test
