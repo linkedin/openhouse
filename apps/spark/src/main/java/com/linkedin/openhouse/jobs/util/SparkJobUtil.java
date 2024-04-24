@@ -87,45 +87,6 @@ public final class SparkJobUtil {
     }
   }
 
-  public static String createSelectLimitStatement(
-      String fqtn,
-      String columnName,
-      String columnPattern,
-      String granularity,
-      int count,
-      int limit) {
-    if (!StringUtils.isBlank(columnPattern)) {
-      String query =
-          String.format(
-              "SELECT * FROM %s WHERE %s limit %d",
-              getQuotedFqtn(fqtn),
-              String.format(
-                  RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
-                  columnName,
-                  count,
-                  granularity,
-                  columnPattern),
-              limit);
-      log.info("Table: {} column pattern provided: {} selectQuery: {}", fqtn, columnPattern, query);
-      return query;
-    } else {
-      String query =
-          String.format(
-              "SELECT * FROM %s WHERE %s limit %d",
-              getQuotedFqtn(fqtn),
-              String.format(
-                  RETENTION_CONDITION_TEMPLATE,
-                  granularity,
-                  columnName,
-                  granularity,
-                  count,
-                  granularity),
-              limit);
-      log.info("Table: {} No column pattern provided: selectQuery: {}", fqtn, query);
-      return query;
-    }
-  }
-
   public static String getQuotedFqtn(String fqtn) {
     String[] fqtnTokens = fqtn.split("\\.");
     // adding single quotes around fqtn for cases when db and/or tableName has special character(s),
