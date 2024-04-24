@@ -3,11 +3,8 @@ package com.linkedin.openhouse.jobs.spark;
 import avro.shaded.com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
-import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
-import io.opentelemetry.api.common.AttributeKey;
-import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.Meter;
 import java.io.IOException;
 import java.util.HashMap;
@@ -15,11 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
@@ -240,51 +235,10 @@ public final class Operations implements AutoCloseable {
    */
   public void runRetention(
       String fqtn, String columnName, String columnPattern, String granularity, int count) {
-    checkRecords(fqtn, columnName, columnPattern);
     final String statement =
         SparkJobUtil.createDeleteStatement(fqtn, columnName, columnPattern, granularity, count);
-    Dataset<Row> dsWithExpiredRows =
-        spark.sql(
-            SparkJobUtil.createSelectLimitStatement(
-                fqtn, columnName, columnPattern, granularity, count, 1));
-    if (!dsWithExpiredRows.isEmpty()) {
-      spark.sql(statement).show();
-    }
-  }
-
-  /**
-   * CheckRecords verifies a sample from fqtn against @columnPattern to validate parsing with
-   * columnPattern. The metrics emitted helps to verify if records in table are not adhering to
-   * DateTimeFormat standards
-   *
-   * @param fqtn - fully-qualified table name
-   * @param columnName - retention column name
-   * @param columnPattern - retention column pattern
-   */
-  public void checkRecords(String fqtn, String columnName, String columnPattern) {
-    String quotedFqtn = SparkJobUtil.getQuotedFqtn(fqtn);
-    if (!StringUtils.isBlank(columnPattern)) {
-      String query =
-          String.format(
-              "SELECT COALESCE(to_timestamp(%s, '%s'), 'Invalid') AS parsed_timestamp FROM %s LIMIT 10",
-              columnName, columnPattern, quotedFqtn);
-      log.info("Pattern verification query {}", query);
-      List<Row> resultDF = spark.sql(query).collectAsList();
-      if (resultDF.stream()
-          .map(r -> r.getString(r.fieldIndex("parsed_timestamp")))
-          .collect(Collectors.toList())
-          .contains("Invalid")) {
-        meter
-            .counterBuilder(AppConstants.INCOMPATIBLE_DATE_COLUMN)
-            .build()
-            .add(1, Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-        log.warn(
-            "Failed to parse column {} with provided retention column pattern {} for table {}",
-            columnName,
-            columnPattern,
-            fqtn);
-      }
-    }
+    Dataset<Row> dsWithExpiredRows = spark.sql(statement);
+    log.info("Retention Job deleted records: {} from table: {}", dsWithExpiredRows.count(), fqtn);
   }
 
   private Path getTrashPath(String path, String filePath, String trashDir) {

@@ -75,7 +75,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.add("202%s-07-2218:46:19-0700");
       runRetentionJobWithStringPartitionColumns(
           ops, tableName3, rowValue, "datePartition", "yyyy-MM-ddHH:mm:ssZ", "day");
-      verifyRowCount(ops, tableName3, 3);
+      verifyRowCount(ops, tableName3, 0);
       rowValue.clear();
 
       rowValue.add("202%s-07-16-12");
@@ -89,9 +89,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.clear();
 
       rowValue.add("202%s-07-16-12");
-      // Rows with format different than the pattern provided, parsing fails silently for such
-      // values and date
-      // will not be deleted
+      // Rows with format different than the pattern provided. These rows will be deleted even
+      // though formats are
+      // different due to string comparison logic
       rowValue.add("202%s-07-2218:46:19-0700");
       // Rows with current date which are not to be deleted
       List<Row> currentDates =
@@ -102,13 +102,12 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.add(dateToday);
       runRetentionJobWithStringPartitionColumns(
           ops, tableName4, rowValue, "datePartition", "yyyy-MM-dd-HH", "day");
-      verifyRowCount(ops, tableName4, 6);
+      verifyRowCount(ops, tableName4, 3);
       rowValue.clear();
 
-      // Test case to show that difference in data format and columnPattern format can lead to
-      // data not being deleted and put table out of compliance.
-      // Data format and pattern are different in terms of delimiter which makes is inconsistent.
-      // to_date cast fails silently.
+      // Test case to show that difference in data format and columnPattern format is not blocking
+      // delete ops.
+      // Data format and pattern are different in terms of delimiter which makes them inconsistent.
       List<Row> currentDatesFormatMismatched =
           ops.spark()
               .sql(
@@ -120,7 +119,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       ops.spark()
           .sql("select * from openhouse.db.test_retention_string_partition5")
           .collectAsList();
-      verifyRowCount(ops, tableName5, 3);
+      verifyRowCount(ops, tableName5, 0);
       rowValue.clear();
     }
   }
@@ -138,7 +137,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionDoesNotCreateSnapshotsOnNoOpDelete() throws Exception {
+  public void testRetentionCreatesSnapshotsOnNoOpDelete() throws Exception {
     final String tableName = "db_test.test_retention_sql";
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
@@ -149,7 +148,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       ops.runRetention(tableName, "ts", "", "day", 2);
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
-      Assertions.assertEquals(snapshots.size(), snapshotsAfter.size());
+      Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
     }
   }
 
