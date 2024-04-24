@@ -1,9 +1,7 @@
-package com.linkedin.openhouse.datalayout.planning;
+package com.linkedin.openhouse.datalayout.planning.layoutselection;
 
 public class OHLayouSelectionPolicy {
 
-    // TODO: implement
-    public void evaluate() {
-        return false;
-    }
+  // TODO: implement
+  public void evaluate() {}
 }

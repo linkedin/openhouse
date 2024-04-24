@@ -1,9 +1,8 @@
-package com.linkedin.openhouse.datalayout.execution;
+package com.linkedin.openhouse.datalayout.execution.datamaintenance.util;
 
-public class OHCompactionConfiguration {
+public class OHExecConfiguration {
 
-    long getTargetFileSize() {
-        return 0;
-    }
-    
+  long getTargetFileSize() {
+    return 0;
+  }
 }

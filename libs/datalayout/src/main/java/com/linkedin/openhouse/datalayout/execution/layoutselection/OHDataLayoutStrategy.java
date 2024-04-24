@@ -1,8 +1,8 @@
-package com.linkedin.openhouse.datalayout.execution;
+package com.linkedin.openhouse.datalayout.execution.layoutselection;
 
 public class OHDataLayoutStrategy implements DataLayoutStrategy {
 
-    public void writeDataLayout()() {
-        // TODO: implement
-    }
+  public void writeDataLayout() {
+    // TODO: implement
+  }
 }

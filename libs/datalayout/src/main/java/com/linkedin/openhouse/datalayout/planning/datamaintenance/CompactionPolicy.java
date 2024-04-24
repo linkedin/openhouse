@@ -1,5 +1,5 @@
-package com.linkedin.openhouse.datalayout.planning;
+package com.linkedin.openhouse.datalayout.planning.datamaintenance;
 
 public interface CompactionPolicy {
-    public boolean evaluate();
+  public boolean evaluate();
 }

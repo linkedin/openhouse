@@ -1,9 +1,11 @@
-package com.linkedin.openhouse.datalayout.execution;
+package com.linkedin.openhouse.datalayout.execution.datamaintenance;
+
+import com.linkedin.openhouse.datalayout.execution.datamaintenance.util.OHExecConfiguration;
 
 public class OHCompactionStrategy implements CompactionStrategy {
-    private OHExecConfiguration config;
+  private OHExecConfiguration config;
 
-    public void execute() {
-        // TODO: implement
-    }
+  public void execute() {
+    // TODO: implement
+  }
 }
