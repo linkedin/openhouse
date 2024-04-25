@@ -47,7 +47,7 @@ public final class SparkJobUtil {
       result: records will be filtered from deletion
   */
   private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
-      "to_date(substring(%s, 0, CHAR_LENGTH('%s')), '%s') < date_trunc('%s', current_timestamp() - INTERVAL %s %ss)";
+      "%s < cast(date_format(current_timestamp() - INTERVAL %s %ss, '%s') as string)";
 
   public static String createDeleteStatement(
       String fqtn, String columnName, String columnPattern, String granularity, int count) {
@@ -59,11 +59,9 @@ public final class SparkJobUtil {
               String.format(
                   RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
                   columnName,
-                  columnPattern,
-                  columnPattern,
-                  granularity,
                   count,
-                  granularity));
+                  granularity,
+                  columnPattern));
       log.info(
           "Table: {}. Column pattern: {}, columnName {}, granularity {}s, " + "retention query: {}",
           fqtn,
@@ -85,47 +83,6 @@ public final class SparkJobUtil {
                   count,
                   granularity));
       log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
-      return query;
-    }
-  }
-
-  public static String createSelectLimitStatement(
-      String fqtn,
-      String columnName,
-      String columnPattern,
-      String granularity,
-      int count,
-      int limit) {
-    if (!StringUtils.isBlank(columnPattern)) {
-      String query =
-          String.format(
-              "SELECT * FROM %s WHERE %s limit %d",
-              getQuotedFqtn(fqtn),
-              String.format(
-                  RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
-                  columnName,
-                  columnPattern,
-                  columnPattern,
-                  granularity,
-                  count,
-                  granularity),
-              limit);
-      log.info("Table: {} column pattern provided: {} selectQuery: {}", fqtn, columnPattern, query);
-      return query;
-    } else {
-      String query =
-          String.format(
-              "SELECT * FROM %s WHERE %s limit %d",
-              getQuotedFqtn(fqtn),
-              String.format(
-                  RETENTION_CONDITION_TEMPLATE,
-                  granularity,
-                  columnName,
-                  granularity,
-                  count,
-                  granularity),
-              limit);
-      log.info("Table: {} No column pattern provided: selectQuery: {}", fqtn, query);
       return query;
     }
   }
