@@ -77,6 +77,7 @@ test.dependsOn ':integrations:spark:openhouse-spark-runtime_2.12:build'
 
 shadowJar {
     zip64 = true
+    archiveClassifier.set('uber')
     mergeServiceFiles() // merge META-INF/services configuration files to allow FileSystem to be discovered
     dependencies {
         // unnecessary dependencies from iceberg-spark3-runtime
