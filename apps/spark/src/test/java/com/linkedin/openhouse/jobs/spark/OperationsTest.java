@@ -129,7 +129,7 @@ public class OperationsTest extends OpenHouseSparkITest {
           ops, tableName6, rowValue, "datePartition", "yyyy-MM-dd-HH", "day");
       verifyRowCount(ops, tableName6, 0);
       rowValue.clear();
-      List<String> operations = getSnapshotOperations(ops, tableName6);
+      List<String> operations = getSnapshotOperationTypes(ops, tableName6);
       Assertions.assertEquals(operations.get(0), "delete");
     }
   }
@@ -693,7 +693,7 @@ public class OperationsTest extends OpenHouseSparkITest {
         .collect(Collectors.toList());
   }
 
-  private static List<String> getSnapshotOperations(Operations ops, String tableName) {
+  private static List<String> getSnapshotOperationTypes(Operations ops, String tableName) {
     log.info("Getting snapshot Operations");
     List<Row> ordered_snapshots =
         ops.spark()
