@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.util.Pair;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
@@ -68,7 +69,9 @@ public class UserTablesServiceImpl implements UserTablesService {
 
     try {
       returnedDto = userTablesMapper.toUserTableDto(htsJdbcRepository.save(targetUserTableRow));
-    } catch (CommitFailedException | ObjectOptimisticLockingFailureException ce) {
+    } catch (CommitFailedException
+        | ObjectOptimisticLockingFailureException
+        | DataIntegrityViolationException e) {
       throw new EntityConcurrentModificationException(
           String.format(
               "databaseId : %s, tableId : %s, version: %s %s",
@@ -77,7 +80,7 @@ public class UserTablesServiceImpl implements UserTablesService {
               targetUserTableRow.getVersion(),
               "The requested user table has been modified/created by other processes."),
           userTablesMapper.fromUserTableToRowKey(userTable).toString(),
-          ce);
+          e);
     }
 
     return Pair.of(returnedDto, existingUserTableRow.isPresent());
