@@ -19,7 +19,6 @@ public class TestHouseTableModelConstants {
 
   public static final String TEST_DEFAULT_STORAGE_TYPE = "hdfs";
 
-  public static final UserTableRow TEST_USER_TABLE_ROW = tuple0.get_userTableRow();
   public static final UserTableDto TEST_USER_TABLE_DTO = tuple0.get_userTableDto();
   public static final UserTable TEST_USER_TABLE = tuple0.get_userTable();
 
