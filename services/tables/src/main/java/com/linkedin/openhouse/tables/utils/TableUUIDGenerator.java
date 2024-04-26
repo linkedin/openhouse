@@ -93,7 +93,8 @@ public class TableUUIDGenerator {
    */
   private String extractFromTblPropsIfExists(
       String tableURI, Map<String, String> tblProps, String rawKey) {
-    if (!tblProps.containsKey(OPENHOUSE_NAMESPACE + rawKey)
+    if (tblProps == null
+        || !tblProps.containsKey(OPENHOUSE_NAMESPACE + rawKey)
         || tblProps.get(OPENHOUSE_NAMESPACE + rawKey) == null) {
       throw new RequestValidationFailureException(
           String.format(
