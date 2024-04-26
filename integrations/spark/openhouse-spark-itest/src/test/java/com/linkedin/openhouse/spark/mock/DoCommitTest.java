@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.linkedin.openhouse.javaclient.OpenHouseTableOperations;
-import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -133,7 +132,7 @@ public class DoCommitTest {
   @Test
   public void testSurfaceRestExceptions() {
     mockTableService.enqueue(mockResponse(500, "{\"message\":\"Internal Server Error\"}"));
-    Assertions.assertThrows(WebClientResponseException.class, () -> ops.doCommit(null, base));
+    Assertions.assertThrows(CommitStateUnknownException.class, () -> ops.doCommit(null, base));
   }
 
   @Test

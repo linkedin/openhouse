@@ -87,6 +87,7 @@ public class OpenHouseTableOperationsTest {
     when(base.snapshots()).thenReturn(snapshotList);
 
     // Ensure tableApi throw expected exception
+
     when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientResponseException.ServiceUnavailable.class)));
     Assertions.assertThrows(
@@ -99,6 +100,10 @@ public class OpenHouseTableOperationsTest {
         .thenReturn(Mono.error(mock(WebClientResponseException.NotFound.class)));
     Assertions.assertThrows(
         NoSuchTableException.class, () -> openHouseTableOperations.doCommit(base, metadata));
+    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.error(mock(WebClientResponseException.InternalServerError.class)));
+    Assertions.assertThrows(
+        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
     when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientRequestException.class)));
     Assertions.assertThrows(

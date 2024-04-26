@@ -276,9 +276,16 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       return Mono.error(
           new CommitFailedException(
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
+
     } else if (e instanceof WebClientResponseException.GatewayTimeout
-        | e instanceof WebClientResponseException.ServiceUnavailable) {
-      return Mono.error(new CommitStateUnknownException(e));
+        || e instanceof WebClientResponseException.ServiceUnavailable
+        || e instanceof WebClientResponseException.InternalServerError) {
+      /**
+       * This is done to avoid any data loss that could occur when a commit aborts at the caller
+       * leads to deletion of iceberg metadata files.
+       */
+      WebClientResponseException casted = (WebClientResponseException) e;
+      return Mono.error(new CommitStateUnknownException(casted.getResponseBodyAsString(), casted));
     } else if (e instanceof WebClientResponseException.BadRequest) {
       WebClientResponseException casted = (WebClientResponseException) e;
       return Mono.error(
@@ -288,9 +295,10 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
     } else {
       /**
-       * This serves as a catch-all for any other exceptions that are not
-       * WebClientResponseException. It helps in skipping any unexpected cleanup that could occur
-       * when a commit aborts at the caller, thus avoiding any potential data loss.
+       * This serves as a catch-all for any unexpected exceptions that could occur during doCommit,
+       * (i.e) exceptions that are not WebClientResponseException. This is a conservative approach
+       * to skip any unexpected cleanup that could occur when a commit aborts at the caller, thus
+       * avoiding any potential data loss.
        */
       return Mono.error(new CommitStateUnknownException(e));
     }
