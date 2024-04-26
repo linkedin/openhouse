@@ -29,7 +29,7 @@ public class UserTableKey {
               + " they form a composite primary key for a user table.",
       example = "my_database")
   @JsonProperty(value = "databaseId")
-  @NotEmpty(message = "tableId cannot be empty")
+  @NotEmpty(message = "databaseId cannot be empty")
   @Pattern(regexp = ALPHA_NUM_UNDERSCORE_REGEX, message = ALPHA_NUM_UNDERSCORE_ERROR_MSG)
   private String databaseId;
 

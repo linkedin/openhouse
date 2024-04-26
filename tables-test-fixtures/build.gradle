@@ -42,6 +42,7 @@ dependencies {
 shadowJar {
   zip64 = true
   // Required for Spring
+  archiveClassifier.set('uber')
   mergeServiceFiles()
   append 'META-INF/spring.handlers'
   append 'META-INF/spring.schemas'

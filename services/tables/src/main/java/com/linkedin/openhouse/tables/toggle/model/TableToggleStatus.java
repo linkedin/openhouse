@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.toggle.model;
 
+import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
@@ -26,6 +27,5 @@ public class TableToggleStatus {
 
   @Id private String databaseId;
 
-  // TODO: Need to change it to the shared Enum class once HTS PR is in
-  private String toggleStatusEnum;
+  private ToggleStatus.StatusEnum toggleStatusEnum;
 }

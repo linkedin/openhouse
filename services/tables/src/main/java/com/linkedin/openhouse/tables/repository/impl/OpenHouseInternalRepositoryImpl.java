@@ -49,7 +49,6 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
-import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -73,8 +72,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Autowired TableTypeMapper tableTypeMapper;
 
   @Autowired FsStorageProvider fsStorageProvider;
-
-  @Autowired FileIO fileIO;
 
   @Autowired MeterRegistry meterRegistry;
 
@@ -181,7 +178,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * Ensure existing table's tableLocation (path to metadata.json) matches user provided baseVersion
    * (path to metadata.json of the table where the updates are based upon)
    */
-  private void versionCheck(Table existingTable, TableDto mergedTableDto) {
+  void versionCheck(Table existingTable, TableDto mergedTableDto) {
     String baseTableVersion = mergedTableDto.getTableVersion();
 
     if (existingTable != null) {

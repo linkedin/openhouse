@@ -28,7 +28,7 @@ jobs:
         uses: gradle/wrapper-validation-action@v1
 
       - name: Build with Gradle
-        run: ./gradlew clean build --debug
+        run: ./gradlew clean build
 
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
@@ -52,7 +52,7 @@ jobs:
 
       - name: Bump version and push tag
         if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
-        uses: anothrNick/github-tag-action@1.67.0
+        uses: anothrNick/github-tag-action@1.69.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WITH_V: true # prefix for tag "v"

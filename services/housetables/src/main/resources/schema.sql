@@ -28,3 +28,14 @@ CREATE TABLE IF NOT EXISTS job_row (
     ETL_TS                  datetime(6)      DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (job_id)
     );
+
+CREATE TABLE IF NOT EXISTS table_toggle_rule (
+    feature                  VARCHAR (128)     NOT NULL,
+    database_pattern         VARCHAR (128)     NOT NULL,
+    table_pattern            VARCHAR (512)     NOT NULL,
+    id                       BIGINT            AUTO_INCREMENT,
+    creation_time_ms         BIGINT ,
+    ETL_TS                   DATETIME(6)       DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    UNIQUE (feature, database_pattern, table_pattern)
+    );

@@ -55,6 +55,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName3 = "db.test_retention_string_partition3";
     final String tableName4 = "db.test_retention_string_partition4";
     final String tableName5 = "db.test_retention_string_partition5";
+    final String tableName6 = "db.test_retention_string_partition6";
 
     List<String> rowValue = new ArrayList<>();
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
@@ -75,7 +76,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.add("202%s-07-2218:46:19-0700");
       runRetentionJobWithStringPartitionColumns(
           ops, tableName3, rowValue, "datePartition", "yyyy-MM-ddHH:mm:ssZ", "day");
-      verifyRowCount(ops, tableName3, 3);
+      verifyRowCount(ops, tableName3, 0);
       rowValue.clear();
 
       rowValue.add("202%s-07-16-12");
@@ -89,9 +90,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.clear();
 
       rowValue.add("202%s-07-16-12");
-      // Rows with format different than the pattern provided, parsing fails silently for such
-      // values and date
-      // will not be deleted
+      // Rows with format different than the pattern provided. These rows will be deleted even
+      // though formats are
+      // different due to string comparison logic
       rowValue.add("202%s-07-2218:46:19-0700");
       // Rows with current date which are not to be deleted
       List<Row> currentDates =
@@ -102,13 +103,12 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.add(dateToday);
       runRetentionJobWithStringPartitionColumns(
           ops, tableName4, rowValue, "datePartition", "yyyy-MM-dd-HH", "day");
-      verifyRowCount(ops, tableName4, 6);
+      verifyRowCount(ops, tableName4, 3);
       rowValue.clear();
 
-      // Test case to show that difference in data format and columnPattern format can lead to
-      // data not being deleted and put table out of compliance.
-      // Data format and pattern are different in terms of delimiter which makes is inconsistent.
-      // to_date cast fails silently.
+      // Test case to show that difference in data format and columnPattern format is not blocking
+      // delete ops.
+      // Data format and pattern are different in terms of delimiter which makes them inconsistent.
       List<Row> currentDatesFormatMismatched =
           ops.spark()
               .sql(
@@ -120,8 +120,17 @@ public class OperationsTest extends OpenHouseSparkITest {
       ops.spark()
           .sql("select * from openhouse.db.test_retention_string_partition5")
           .collectAsList();
-      verifyRowCount(ops, tableName5, 3);
+      verifyRowCount(ops, tableName5, 0);
       rowValue.clear();
+
+      // Test to validate the latest snapshot added by retention delete ops is of type `delete`
+      rowValue.add("202%s-07-16-12");
+      runRetentionJobWithStringPartitionColumns(
+          ops, tableName6, rowValue, "datePartition", "yyyy-MM-dd-HH", "day");
+      verifyRowCount(ops, tableName6, 0);
+      rowValue.clear();
+      List<String> operations = getSnapshotOperationTypes(ops, tableName6);
+      Assertions.assertEquals(operations.get(0), "delete");
     }
   }
 
@@ -138,7 +147,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionDoesNotCreateSnapshotsOnNoOpDelete() throws Exception {
+  public void testRetentionCreatesSnapshotsOnNoOpDelete() throws Exception {
     final String tableName = "db_test.test_retention_sql";
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
@@ -149,7 +158,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       ops.runRetention(tableName, "ts", "", "day", 2);
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
-      Assertions.assertEquals(snapshots.size(), snapshotsAfter.size());
+      Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
     }
   }
 
@@ -567,7 +576,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     Assertions.assertEquals(policies.getSharingEnabled().booleanValue(), expectedSharing);
   }
 
-  private void verifyRowCount(Operations ops, String tableName, int expectedRowCount) {
+  private static void verifyRowCount(Operations ops, String tableName, int expectedRowCount) {
     List<Row> resultRows =
         ops.spark().sql(String.format("SELECT * FROM %s", tableName)).collectAsList();
     Assertions.assertEquals(expectedRowCount, resultRows.size());
@@ -636,7 +645,10 @@ public class OperationsTest extends OpenHouseSparkITest {
   private static void prepareTableWithStringColumn(Operations ops, String tableName) {
     ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
     ops.spark()
-        .sql(String.format("CREATE TABLE %s (data string, datePartition String)", tableName))
+        .sql(
+            String.format(
+                "CREATE TABLE %s (data string, datePartition String) PARTITIONED by (datePartition)",
+                tableName))
         .show();
     ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
   }
@@ -672,12 +684,24 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   private static List<Long> getSnapshotIds(Operations ops, String tableName) {
-    log.info("Getting snapshots");
+    log.info("Getting snapshot Ids");
     List<Row> snapshots =
         ops.spark().sql(String.format("SELECT * FROM %s.snapshots", tableName)).collectAsList();
     snapshots.forEach(s -> log.info(s.toString()));
     return snapshots.stream()
         .map(r -> r.getLong(r.fieldIndex("snapshot_id")))
+        .collect(Collectors.toList());
+  }
+
+  private static List<String> getSnapshotOperationTypes(Operations ops, String tableName) {
+    log.info("Getting snapshot Operations");
+    List<Row> ordered_snapshots =
+        ops.spark()
+            .sql(String.format("SELECT * FROM %s.snapshots order by committed_at desc", tableName))
+            .collectAsList();
+    ordered_snapshots.forEach(s -> log.info(s.toString()));
+    return ordered_snapshots.stream()
+        .map(r -> r.getString(r.fieldIndex("operation")))
         .collect(Collectors.toList());
   }
 

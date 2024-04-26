@@ -1,4 +1,4 @@
-FROM openjdk:11
+FROM openjdk:23-ea-11-slim
 
 ARG USER=openhouse
 ARG USER_ID=1000
@@ -15,7 +15,7 @@ WORKDIR $USER_HOME
 ENV PATH=$PATH:/export/apps/jdk/JDK-1_8_0_172/bin/:$USER_HOME
 
 ARG BUILD_DIR="build/$APP_NAME/libs"
-ARG JAR_FILES=$BUILD_DIR/*-all.jar
+ARG JAR_FILES=$BUILD_DIR/*-uber.jar
 
 COPY $JAR_FILES ./
 

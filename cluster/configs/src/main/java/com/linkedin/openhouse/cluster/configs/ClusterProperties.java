@@ -54,7 +54,7 @@ public class ClusterProperties {
   @Value("${cluster.housetables.database.type:IN_MEMORY}")
   private String clusterHouseTablesDatabaseType;
 
-  @Value("${cluster.housetables.database.url:jdbc:h2:mem:htsdb;DB_CLOSE_DELAY=-1}")
+  @Value("${cluster.housetables.database.url:jdbc:h2:mem:htsdb;MODE=MYSQL;DB_CLOSE_DELAY=-1}")
   private String clusterHouseTablesDatabaseUrl;
 
   @Value("${HTS_DB_USER:}")

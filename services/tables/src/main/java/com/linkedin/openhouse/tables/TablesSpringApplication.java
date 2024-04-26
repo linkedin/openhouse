@@ -13,6 +13,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
     scanBasePackages = {
       "com.linkedin.openhouse.tables",
       "com.linkedin.openhouse.tables.utils",
+      "com.linkedin.openhouse.tables.toggle",
       "com.linkedin.openhouse.cluster.configs",
       "com.linkedin.openhouse.cluster.storage",
       "com.linkedin.openhouse.common.audit",

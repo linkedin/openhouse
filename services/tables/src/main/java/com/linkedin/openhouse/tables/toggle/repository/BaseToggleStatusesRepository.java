@@ -3,11 +3,13 @@ package com.linkedin.openhouse.tables.toggle.repository;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
 import java.util.Optional;
+import org.springframework.stereotype.Component;
 
 /**
  * THIS IS A TEMPORARY PLACEHOLDER, without this the whole springboot application is failed to start
  * given missing injection entity for {@link ToggleStatusesRepository}.
  */
+@Component
 public class BaseToggleStatusesRepository implements ToggleStatusesRepository {
   @Override
   public <S extends TableToggleStatus> S save(S entity) {

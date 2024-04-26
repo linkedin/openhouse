@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
+import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.toggle.BaseTableFeatureToggle;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
@@ -21,21 +22,21 @@ public class BaseTableFeatureToggleTest {
             .featureId("dummy")
             .databaseId("db1")
             .tableId("tbl1")
-            .toggleStatusEnum("ACTIVE")
+            .toggleStatusEnum(ToggleStatus.StatusEnum.ACTIVE)
             .build();
     TableToggleStatus rule2 =
         TableToggleStatus.builder()
             .featureId("dummy")
             .databaseId("db2")
             .tableId("tbl2")
-            .toggleStatusEnum("ACTIVE")
+            .toggleStatusEnum(ToggleStatus.StatusEnum.ACTIVE)
             .build();
     TableToggleStatus rule3 =
         TableToggleStatus.builder()
             .featureId("random")
             .databaseId("db1")
             .tableId("tbl3")
-            .toggleStatusEnum("ACTIVE")
+            .toggleStatusEnum(ToggleStatus.StatusEnum.ACTIVE)
             .build();
     toggleStatusesRepository.save(rule1);
     toggleStatusesRepository.save(rule2);
