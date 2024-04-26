@@ -1,9 +1,20 @@
 package com.linkedin.openhouse.catalog.e2e;
 
+import static com.linkedin.openhouse.jobs.util.SparkCatalogUtils.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class CatalogOperationTest extends OpenHouseSparkITest {
@@ -12,7 +23,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
     try (SparkSession spark = getSparkSession()) {
       // creating a casing preserving table using backtick
       spark.sql("CREATE TABLE openhouse.d1.`tT1` (name string)");
-      // testing writing behavior
+      // testing writing behavior, note the casing of tt1 is intentionally changed.
       spark.sql("INSERT INTO openhouse.d1.Tt1 VALUES ('foo')");
 
       // Verifying by querying with all lower-cased name
@@ -20,6 +31,38 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       // ctas but referring with lower-cased name
       spark.sql("CREATE TABLE openhouse.d1.t2 AS SELECT * from openhouse.d1.tt1");
       assertEquals(1, spark.sql("SELECT * FROM openhouse.d1.t2").collectAsList().size());
+    }
+  }
+
+  @Test
+  public void testCatalogWriteAPI() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog icebergCatalog = getIcebergCatalog(spark, "openhouse");
+      // Create a table
+      Schema schema = new Schema(Types.NestedField.required(1, "name", Types.StringType.get()));
+      TableIdentifier tableIdentifier = TableIdentifier.of("db", "aaa");
+      icebergCatalog.createTable(tableIdentifier, schema);
+
+      // Write into data with intentionally changed casing in name
+      TableIdentifier tableIdentifierUpperTblName = TableIdentifier.of("db", "AAA");
+
+      DataFile fooDataFile =
+          DataFiles.builder(PartitionSpec.unpartitioned())
+              .withPath("/path/to/data-a.parquet")
+              .withFileSizeInBytes(10)
+              .withRecordCount(1)
+              .build();
+      AtomicReference<Table> tableRef = new AtomicReference<>();
+      Assertions.assertDoesNotThrow(
+          () -> {
+            Table loadedTable = icebergCatalog.loadTable(tableIdentifierUpperTblName);
+            tableRef.set(loadedTable);
+          });
+      Table table = tableRef.get();
+      Assertions.assertDoesNotThrow(
+          () -> {
+            table.newAppend().appendFile(fooDataFile).commit();
+          });
     }
   }
 }
