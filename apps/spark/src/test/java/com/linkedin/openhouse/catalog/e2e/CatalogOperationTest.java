@@ -12,7 +12,8 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
     try (SparkSession spark = getSparkSession()) {
       // creating a casing preserving table using backtick
       spark.sql("CREATE TABLE openhouse.d1.`tT1` (name string)");
-      spark.sql("INSERT INTO openhouse.d1.`tT1` VALUES ('foo')");
+      // testing writing behavior
+      spark.sql("INSERT INTO openhouse.d1.Tt1 VALUES ('foo')");
 
       // Verifying by querying with all lower-cased name
       assertEquals(1, spark.sql("SELECT * from openhouse.d1.tt1").collectAsList().size());
