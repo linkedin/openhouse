@@ -3,6 +3,7 @@ package com.linkedin.openhouse.housetables.mock.mapper;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
+import com.linkedin.openhouse.housetables.model.UserTableRow;
 import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -15,8 +16,9 @@ public class UserTablesMapperTest {
 
   @Test
   void toUserTableDto() {
-    UserTableDto dtoAfterMapping =
-        userTablesMapper.toUserTableDto(TestHouseTableModelConstants.TEST_USER_TABLE_ROW);
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+    UserTableDto dtoAfterMapping = userTablesMapper.toUserTableDto(testUserTableRow);
     // Assert objects are equal ignoring versions
     Assertions.assertEquals(
         TestHouseTableModelConstants.TEST_USER_TABLE_DTO.toBuilder().tableVersion("").build(),
@@ -36,8 +38,10 @@ public class UserTablesMapperTest {
 
   @Test
   void toUserTableRowNullStorageType() {
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
     Assertions.assertEquals(
-        TestHouseTableModelConstants.TEST_USER_TABLE_ROW,
+        testUserTableRow,
         userTablesMapper.toUserTableRow(
             TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType(null).build(),
             Optional.empty()));
@@ -45,8 +49,10 @@ public class UserTablesMapperTest {
 
   @Test
   void toUserTableRowCustomStorageType() {
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
     Assertions.assertEquals(
-        TestHouseTableModelConstants.TEST_USER_TABLE_ROW.toBuilder().storageType("blobfs").build(),
+        testUserTableRow.toBuilder().storageType("blobfs").build(),
         userTablesMapper.toUserTableRow(
             TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType("blobfs").build(),
             Optional.empty()));

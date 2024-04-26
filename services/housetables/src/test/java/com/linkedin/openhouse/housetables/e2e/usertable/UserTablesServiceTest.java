@@ -37,7 +37,9 @@ public class UserTablesServiceTest {
 
   @BeforeEach
   public void setup() {
-    htsRepository.save(TestHouseTableModelConstants.TEST_USER_TABLE_ROW);
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+    htsRepository.save(testUserTableRow);
     htsRepository.save(testTuple1_0.get_userTableRow());
     htsRepository.save(testTuple2_0.get_userTableRow());
     htsRepository.save(testTuple1_1.get_userTableRow());
