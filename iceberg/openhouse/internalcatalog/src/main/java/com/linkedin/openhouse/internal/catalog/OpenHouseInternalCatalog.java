@@ -3,26 +3,22 @@ package com.linkedin.openhouse.internal.catalog;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.METRICS_PREFIX;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -45,8 +41,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Autowired HouseTableMapper houseTableMapper;
 
   @Autowired MeterRegistry meterRegistry;
-
-  @Autowired FsStorageProvider fsStorageProvider;
 
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
@@ -89,6 +83,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
     String tableLocation = loadTable(identifier).location();
+    log.debug("Dropping table {}, purge:{}", tableLocation, purge);
     try {
       houseTableRepository.deleteById(
           HouseTablePrimaryKey.builder()
@@ -101,16 +96,16 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
           houseTableRepositoryException);
     }
     if (purge) {
-      // delete data and metadata files on hdfs
-      try {
-        FileSystem fs = fsStorageProvider.storageClient();
-        fs.delete(new Path(tableLocation), true);
-      } catch (IOException e) {
-        throw new UncheckedIOException(
-            String.format(
-                "Deleting Directory Failed databaseId: %s, tableId: %s, tableLocation: %s",
-                identifier.namespace().toString(), identifier.name(), tableLocation),
-            e);
+      // Delete data and metadata files from storage.
+      if (fileIO instanceof SupportsPrefixOperations) {
+        log.debug("Deleting files for table {}", tableLocation);
+        ((SupportsPrefixOperations) fileIO).deletePrefix(tableLocation);
+      } else {
+        log.debug(
+            "Failed to delete files for table {}. fileIO does not support prefix operations.",
+            tableLocation);
+        throw new UnsupportedOperationException(
+            "Drop table is supported only with a fileIO instance that SupportsPrefixOperations");
       }
     }
     return true;
