@@ -180,8 +180,9 @@ public class JobsScheduler {
       }
     }
     log.info(
-        "Finishing scheduler, tasks stats: {} created, {} succeeded,"
+        "Finishing scheduler for job type {}, tasks stats: {} created, {} succeeded,"
             + " {} cancelled (timeout), {} failed, {} skipped (no state)",
+        jobType,
         taskList.size(),
         jobStateCountMap.get(JobState.SUCCEEDED),
         jobStateCountMap.get(JobState.CANCELLED),
