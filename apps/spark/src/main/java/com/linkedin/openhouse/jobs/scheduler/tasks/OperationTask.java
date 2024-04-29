@@ -128,14 +128,13 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         }
       }
     }
-    Optional<JobResponseBody> response = jobsClient.getJob(jobId);
-    if (response.isPresent()) {
-      reportJobState(response.get(), typeAttributes, startTime);
-      return Optional.of(Enum.valueOf(JobState.class, response.get().getState().getValue()));
+    Optional<JobResponseBody> ret = jobsClient.getJob(jobId);
+    if (ret.isPresent()) {
+      reportJobState(ret.get(), typeAttributes, startTime);
     } else {
-      log.warn("Job {} for {} has empty state", jobId, metadata);
-      return Optional.empty();
+      log.warn("Job: {} for {} has empty state", jobId, metadata);
     }
+    return Optional.of(Enum.valueOf(JobState.class, ret.get().getState().getValue()));
   }
 
   private void reportJobState(
