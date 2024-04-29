@@ -143,6 +143,7 @@ public class JobsScheduler {
       taskFutures.add(executorService.submit(taskList.get(taskIndex)));
     }
 
+    int emptyStateJobCount = 0;
     for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
       Optional<JobState> jobState = Optional.empty();
       OperationTask task = taskList.get(taskIndex);
@@ -171,16 +172,21 @@ public class JobsScheduler {
           jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
         }
       } finally {
-        if (jobState.isPresent() && jobStateCountMap.containsKey(jobState.get())) {
+        if (jobState.isPresent()) {
           jobStateCountMap.put(jobState.get(), jobStateCountMap.get(jobState.get()) + 1);
+        } else {
+          emptyStateJobCount++;
         }
       }
     }
     log.info(
-        "Finishing scheduler, {} tasks completed successfully out of {} tasks, {} tasks cancelled due to timeout",
-        jobStateCountMap.get(JobState.SUCCEEDED),
+        "Finishing scheduler, tasks stats: {} created, {} succeeded,"
+            + " {} cancelled (timeout), {} failed, {} skipped (no state)",
         taskList.size(),
-        jobStateCountMap.get(JobState.CANCELLED));
+        jobStateCountMap.get(JobState.SUCCEEDED),
+        jobStateCountMap.get(JobState.CANCELLED),
+        jobStateCountMap.get(JobState.FAILED),
+        emptyStateJobCount);
     executorService.shutdown();
     METER.counterBuilder("scheduler_end_count").build().add(1);
     reportSchedulerMetrics(jobStateCountMap, taskType, startTimeMillis);
