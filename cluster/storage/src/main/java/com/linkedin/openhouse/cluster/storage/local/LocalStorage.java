@@ -1,12 +1,9 @@
 package com.linkedin.openhouse.cluster.storage.local;
 
-import com.linkedin.openhouse.cluster.storage.Storage;
+import com.linkedin.openhouse.cluster.storage.BaseStorage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -17,7 +14,7 @@ import org.springframework.stereotype.Component;
  * Hadoop FileSystem to interact with the local file system.
  */
 @Component
-public class LocalStorage implements Storage {
+public class LocalStorage extends BaseStorage {
 
   private static final StorageType.Type LOCAL_TYPE = StorageType.LOCAL;
 
@@ -43,20 +40,6 @@ public class LocalStorage implements Storage {
     } else {
       return storageProperties.getTypes().containsKey(LOCAL_TYPE.getValue());
     }
-  }
-
-  /**
-   * Get the properties of the local storage.
-   *
-   * @return a copy of map of properties of the local storage
-   */
-  @Override
-  public Map<String, String> getProperties() {
-    return Optional.ofNullable(storageProperties.getTypes())
-        .map(types -> types.get(LOCAL_TYPE.getValue()))
-        .map(StorageProperties.StorageTypeProperties::getParameters)
-        .map(HashMap::new)
-        .orElseGet(HashMap::new);
   }
 
   @Override

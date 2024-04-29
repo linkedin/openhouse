@@ -3,6 +3,7 @@ package com.linkedin.openhouse.cluster.storage;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import org.springframework.stereotype.Component;
 
 /**
  * Enum for supported storage types.
@@ -10,6 +11,7 @@ import lombok.Getter;
  * <p>New types should be added here as public static final fields, and their corresponding
  * implementations should be added to the fromString method.
  */
+@Component
 public class StorageType {
   public static final Type HDFS = new Type("hdfs");
   public static final Type LOCAL = new Type("local");
