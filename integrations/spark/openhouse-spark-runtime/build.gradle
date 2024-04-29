@@ -45,6 +45,14 @@ dependencies {
     exclude group: 'org.roaringbitmap'
   }
 
+  testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
+  testImplementation(project(':tables-test-fixtures_2.12'))
+  testImplementation('org.apache.spark:spark-sql_2.12:' + spark_version){
+    // These classes are available from `client-codegen-convention.gradle`
+    exclude group: "io.netty"
+  }
+  testImplementation(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
+
   fatJarPackagedDependencies(project(path: ':integrations:java:openhouse-java-runtime'))
   fatJarRuntimeDependencies("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
 

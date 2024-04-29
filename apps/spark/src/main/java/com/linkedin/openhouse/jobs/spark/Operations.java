@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import static com.linkedin.openhouse.jobs.util.SparkCatalogUtils.*;
+import static com.linkedin.openhouse.spark.CatalogUtils.*;
 
 import avro.shaded.com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;

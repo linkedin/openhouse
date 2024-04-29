@@ -1,8 +1,4 @@
-package com.linkedin.openhouse.catalog.e2e;
-
-import static com.linkedin.openhouse.jobs.util.SparkCatalogUtils.*;
-import static org.junit.jupiter.api.Assertions.*;
-
+import com.linkedin.openhouse.spark.CatalogUtils;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.iceberg.DataFile;
@@ -27,17 +23,18 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       spark.sql("INSERT INTO openhouse.d1.Tt1 VALUES ('foo')");
 
       // Verifying by querying with all lower-cased name
-      assertEquals(1, spark.sql("SELECT * from openhouse.d1.tt1").collectAsList().size());
+      Assertions.assertEquals(
+          1, spark.sql("SELECT * from openhouse.d1.tt1").collectAsList().size());
       // ctas but referring with lower-cased name
       spark.sql("CREATE TABLE openhouse.d1.t2 AS SELECT * from openhouse.d1.tt1");
-      assertEquals(1, spark.sql("SELECT * FROM openhouse.d1.t2").collectAsList().size());
+      Assertions.assertEquals(1, spark.sql("SELECT * FROM openhouse.d1.t2").collectAsList().size());
     }
   }
 
   @Test
   public void testCatalogWriteAPI() throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      Catalog icebergCatalog = getIcebergCatalog(spark, "openhouse");
+      Catalog icebergCatalog = CatalogUtils.getIcebergCatalog(spark, "openhouse");
       // Create a table
       Schema schema = new Schema(Types.NestedField.required(1, "name", Types.StringType.get()));
       TableIdentifier tableIdentifier = TableIdentifier.of("db", "aaa");

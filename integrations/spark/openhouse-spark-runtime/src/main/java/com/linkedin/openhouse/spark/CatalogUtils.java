@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.jobs.util;
+package com.linkedin.openhouse.spark;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -7,9 +7,9 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.spark.sql.SparkSession;
 import scala.collection.JavaConverters;
 
-public class SparkCatalogUtils {
-  private SparkCatalogUtils() {
-    // utils ctor noop
+public class CatalogUtils {
+  private CatalogUtils() {
+    // Utils class ctor noop.
   }
 
   public static Catalog getIcebergCatalog(SparkSession spark, String catName) {
