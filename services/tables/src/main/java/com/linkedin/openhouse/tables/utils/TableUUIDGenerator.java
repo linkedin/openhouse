@@ -64,16 +64,7 @@ public class TableUUIDGenerator {
    * @return UUID
    */
   public UUID generateUUID(IcebergSnapshotsRequestBody icebergSnapshotsRequestBody) {
-    return extractUUIDFromSnapshotJson(
-            icebergSnapshotsRequestBody.getJsonSnapshots(),
-            extractFromTblPropsIfExists(
-                getTableURI(icebergSnapshotsRequestBody),
-                icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
-                DB_RAW_KEY),
-            extractFromTblPropsIfExists(
-                getTableURI(icebergSnapshotsRequestBody),
-                icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
-                TBL_RAW_KEY))
+    return extractUUIDFromRequestBody(icebergSnapshotsRequestBody)
         .orElseGet(
             () -> generateUUID(icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody()));
   }
@@ -161,20 +152,29 @@ public class TableUUIDGenerator {
   }
 
   /**
-   * Helper method to extract UUID from List.of(jsonSnapshots)
+   * Helper method to extract UUID from Iceberg-Snapshots' RequestBody
    *
    * <p>If List is null or empty returns empty Optional. If List contains a snapshot, Snapshot is
    * validated by evaluating its "manifest-list" key.
    *
-   * @param jsonSnapshots
-   * @param databaseId databaseId obtained from requestBody's tableProperties to ensure casing was
-   *     correctly captured.
-   * @param tableId tableId obtained from requestBody's tableProperties to ensure casing was
-   *     correctly captured.
+   * @param snapshotsRequestBody a complete snapshot request-body
    * @return Optional.of(UUID)
    */
-  private Optional<UUID> extractUUIDFromSnapshotJson(
-      List<String> jsonSnapshots, String databaseId, String tableId) {
+  private Optional<UUID> extractUUIDFromRequestBody(
+      IcebergSnapshotsRequestBody snapshotsRequestBody) {
+    List<String> jsonSnapshots = snapshotsRequestBody.getJsonSnapshots();
+    String tableURI = getTableURI(snapshotsRequestBody);
+    String databaseId =
+        extractFromTblPropsIfExists(
+            tableURI,
+            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
+            DB_RAW_KEY);
+    String tableId =
+        extractFromTblPropsIfExists(
+            tableURI,
+            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
+            TBL_RAW_KEY);
+
     String snapshotStr =
         Optional.ofNullable(jsonSnapshots)
             .filter(l -> !l.isEmpty())
