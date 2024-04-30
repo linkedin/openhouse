@@ -12,6 +12,13 @@ public class CatalogUtils {
     // Utils class ctor noop.
   }
 
+  /**
+   * Obtain an Iceberg's {@link Catalog} instance using Spark configuration in runtime.
+   *
+   * @param spark Spark sessions
+   * @param catName Name of catalog for reference purpose.
+   * @return An Iceberg Catalog instance
+   */
   public static Catalog getIcebergCatalog(SparkSession spark, String catName) {
     final Map<String, String> catalogProperties = new HashMap<>();
     final String catalogPropertyPrefix = String.format("spark.sql.catalog.%s.", catName);
