@@ -163,7 +163,10 @@ public class TableUUIDGenerator {
   private Optional<UUID> extractUUIDFromRequestBody(
       IcebergSnapshotsRequestBody snapshotsRequestBody) {
     List<String> jsonSnapshots = snapshotsRequestBody.getJsonSnapshots();
-    String tableURI = getTableURI(snapshotsRequestBody);
+    String tableURI =
+        snapshotsRequestBody.getCreateUpdateTableRequestBody().getDatabaseId()
+            + "."
+            + snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableId();
     String databaseId =
         extractFromTblPropsIfExists(
             tableURI,
