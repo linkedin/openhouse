@@ -1,6 +1,8 @@
-import com.linkedin.openhouse.spark.CatalogUtils;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
@@ -12,6 +14,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import scala.collection.JavaConverters;
 
 public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
@@ -34,7 +37,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
   public void testCatalogWriteAPI() throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      Catalog icebergCatalog = CatalogUtils.getIcebergCatalog(spark, "openhouse");
+      Catalog icebergCatalog = getIcebergCatalog(spark, "openhouse");
       // Create a table
       Schema schema = new Schema(Types.NestedField.required(1, "name", Types.StringType.get()));
       TableIdentifier tableIdentifier = TableIdentifier.of("db", "aaa");
@@ -61,5 +64,28 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
             table.newAppend().appendFile(fooDataFile).commit();
           });
     }
+  }
+
+  /**
+   * This is a copy of com.linkedin.openhouse.jobs.spark.Operations#getCatalog() temporarily.
+   * Refactoring these pieces require deployment coordination, thus we shall create an artifact
+   * module that can be pulled by :apps module.
+   */
+  private Catalog getIcebergCatalog(SparkSession spark, String catName) {
+    final Map<String, String> catalogProperties = new HashMap<>();
+    final String catalogPropertyPrefix = String.format("spark.sql.catalog.%s.", catName);
+    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
+    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
+      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
+        catalogProperties.put(
+            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
+      }
+    }
+    // this initializes the catalog based on runtime Catalog class passed in catalog-impl conf.
+    return CatalogUtil.loadCatalog(
+        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
+        catName,
+        catalogProperties,
+        spark.sparkContext().hadoopConfiguration());
   }
 }

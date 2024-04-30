@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import static com.linkedin.openhouse.spark.CatalogUtils.*;
-
 import avro.shaded.com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
@@ -12,7 +10,9 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.Meter;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -25,6 +25,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -38,6 +39,7 @@ import org.apache.iceberg.spark.actions.SparkActions;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import scala.collection.JavaConverters;
 
 /**
  * Utility class to hold table maintenance operations using Spark engine, and supporting methods.
@@ -72,13 +74,13 @@ public final class Operations implements AutoCloseable {
   }
 
   public Table getTable(String fqtn) {
-    Catalog catalog = getIcebergCatalog(this.spark, CATALOG);
+    Catalog catalog = getCatalog();
     return catalog.loadTable(TableIdentifier.parse(fqtn));
   }
 
   @VisibleForTesting
   protected Transaction createTransaction(String fqtn, Schema schema) {
-    Catalog catalog = getIcebergCatalog(this.spark, CATALOG);
+    Catalog catalog = getCatalog();
     return catalog.buildTable(TableIdentifier.parse(fqtn), schema).createTransaction();
   }
 
@@ -424,6 +426,24 @@ public final class Operations implements AutoCloseable {
   @Override
   public void close() throws Exception {
     spark.close();
+  }
+
+  private Catalog getCatalog() {
+    final Map<String, String> catalogProperties = new HashMap<>();
+    final String catalogPropertyPrefix = String.format("spark.sql.catalog.%s.", CATALOG);
+    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
+    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
+      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
+        catalogProperties.put(
+            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
+      }
+    }
+    // this initializes the catalog based on runtime Catalog class passed in catalog-impl conf.
+    return CatalogUtil.loadCatalog(
+        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
+        CATALOG,
+        catalogProperties,
+        spark.sparkContext().hadoopConfiguration());
   }
 
   private void useCatalog() {
