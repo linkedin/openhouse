@@ -50,7 +50,7 @@ jobs:
         args: ["--trashDir", ".trash", "--daysOld", "10", "--recursive", "true"]
         <<: *apps-defaults
       - type: ORPHAN_DIRECTORY_DELETION
-        class-name: com.linkedin.openhouse.jobs.spark.OrphanDirectoryDeletionSparkApp
+        class-name: com.linkedin.openhouse.jobs.spark.OrphanTableDirectoryDeletionSparkApp
         args: [ "--trashDir", ".trash" ]
         <<: *apps-defaults
       - type: TABLE_STATS_COLLECTION
