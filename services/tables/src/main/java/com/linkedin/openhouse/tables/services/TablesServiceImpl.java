@@ -106,19 +106,22 @@ public class TablesServiceImpl implements TablesService {
     // FIXME: save method redundantly issue existence check after findById is called above
     TableDto tableDtoToSave =
         tablesMapper.toTableDto(
-            tableDto.orElse(
-                TableDto.builder()
-                    .tableUri(
-                        TableUri.builder()
-                            .tableId(tableId)
-                            .databaseId(databaseId)
-                            .clusterId(createUpdateTableRequestBody.getClusterId())
-                            .build()
-                            .toString())
-                    .tableUUID(
-                        tableUUIDGenerator.generateUUID(createUpdateTableRequestBody).toString())
-                    .tableCreator(tableCreatorUpdater)
-                    .build()),
+            tableDto.orElseGet(
+                () ->
+                    TableDto.builder()
+                        .tableUri(
+                            TableUri.builder()
+                                .tableId(tableId)
+                                .databaseId(databaseId)
+                                .clusterId(createUpdateTableRequestBody.getClusterId())
+                                .build()
+                                .toString())
+                        .tableUUID(
+                            tableUUIDGenerator
+                                .generateUUID(createUpdateTableRequestBody)
+                                .toString())
+                        .tableCreator(tableCreatorUpdater)
+                        .build()),
             createUpdateTableRequestBody);
     try {
       return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());

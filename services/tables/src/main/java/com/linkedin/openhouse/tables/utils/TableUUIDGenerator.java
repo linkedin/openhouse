@@ -31,6 +31,8 @@ import org.springframework.stereotype.Component;
 public class TableUUIDGenerator {
   // TODO: r/w of tableProperties being managed in single place.
   private static final String OPENHOUSE_NAMESPACE = "openhouse.";
+  private static final String DB_RAW_KEY = "databaseId";
+  private static final String TBL_RAW_KEY = "tableId";
 
   @Autowired FsStorageProvider fsStorageProvider;
 
@@ -62,12 +64,35 @@ public class TableUUIDGenerator {
    * @return UUID
    */
   public UUID generateUUID(IcebergSnapshotsRequestBody icebergSnapshotsRequestBody) {
-    return extractUUIDFromSnapshotJson(
-            icebergSnapshotsRequestBody.getJsonSnapshots(),
-            icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getDatabaseId(),
-            icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getTableId())
+    return extractUUIDFromRequestBody(icebergSnapshotsRequestBody)
         .orElseGet(
             () -> generateUUID(icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody()));
+  }
+
+  /** Simple helper method to obtain tableURI from requestBody. */
+  private String getTableURI(IcebergSnapshotsRequestBody icebergSnapshotsRequestBody) {
+    return icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getDatabaseId()
+        + "."
+        + icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getTableId();
+  }
+
+  /**
+   * Extracting the value of given key from the table properties map. The main use cases are for
+   * tableId and databaseId where the value captured in tblproperties preserved the casing from
+   * creation. This casing is critical if r/w for this table occurs in a platform with different
+   * casing-preservation contract.
+   */
+  private String extractFromTblPropsIfExists(
+      String tableURI, Map<String, String> tblProps, String rawKey) {
+    if (tblProps == null
+        || !tblProps.containsKey(OPENHOUSE_NAMESPACE + rawKey)
+        || tblProps.get(OPENHOUSE_NAMESPACE + rawKey) == null) {
+      throw new RequestValidationFailureException(
+          String.format(
+              "Provided snapshot is invalid for %s since databaseId or tableId is missing in properties",
+              tableURI));
+    }
+    return tblProps.get(OPENHOUSE_NAMESPACE + rawKey);
   }
 
   /**
@@ -111,18 +136,10 @@ public class TableUUIDGenerator {
       String tableUUIDProperty,
       TableType tableType) {
 
-    // Using Ids from tableProperties is to ensure casing of these Ids are properly presented as
-    // they were when
-    // initially created. Ids carried in the requestBody, if sourced from query engine, may lose
-    // proper casing.
-    String dbIdFromProps = tableProperties.get(OPENHOUSE_NAMESPACE + "databaseId");
-    String tblIdFromProps = tableProperties.get(OPENHOUSE_NAMESPACE + "tableId");
-    if (dbIdFromProps == null || tblIdFromProps == null) {
-      throw new RequestValidationFailureException(
-          String.format(
-              "Provided snapshot is invalid for %s.%s since databaseId or tableId is missing in properties",
-              databaseId, tableId));
-    }
+    String dbIdFromProps =
+        extractFromTblPropsIfExists(databaseId + "." + tableId, tableProperties, DB_RAW_KEY);
+    String tblIdFromProps =
+        extractFromTblPropsIfExists(databaseId + "." + tableId, tableProperties, TBL_RAW_KEY);
 
     java.nio.file.Path previousPath =
         InternalRepositoryUtils.constructTablePath(
@@ -135,18 +152,32 @@ public class TableUUIDGenerator {
   }
 
   /**
-   * Helper method to extract UUID from List.of(jsonSnapshots)
+   * Helper method to extract UUID from Iceberg-Snapshots' RequestBody
    *
    * <p>If List is null or empty returns empty Optional. If List contains a snapshot, Snapshot is
    * validated by evaluating its "manifest-list" key.
    *
-   * @param jsonSnapshots
-   * @param databaseId
-   * @param tableId
+   * @param snapshotsRequestBody a complete snapshot request-body
    * @return Optional.of(UUID)
    */
-  private Optional<UUID> extractUUIDFromSnapshotJson(
-      List<String> jsonSnapshots, String databaseId, String tableId) {
+  private Optional<UUID> extractUUIDFromRequestBody(
+      IcebergSnapshotsRequestBody snapshotsRequestBody) {
+    List<String> jsonSnapshots = snapshotsRequestBody.getJsonSnapshots();
+    String tableURI =
+        snapshotsRequestBody.getCreateUpdateTableRequestBody().getDatabaseId()
+            + "."
+            + snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableId();
+    String databaseId =
+        extractFromTblPropsIfExists(
+            tableURI,
+            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
+            DB_RAW_KEY);
+    String tableId =
+        extractFromTblPropsIfExists(
+            tableURI,
+            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
+            TBL_RAW_KEY);
+
     String snapshotStr =
         Optional.ofNullable(jsonSnapshots)
             .filter(l -> !l.isEmpty())

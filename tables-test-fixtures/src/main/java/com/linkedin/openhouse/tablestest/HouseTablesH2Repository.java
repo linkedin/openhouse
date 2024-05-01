@@ -1,6 +1,9 @@
 package com.linkedin.openhouse.tablestest;
 
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import java.util.Optional;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
 
@@ -11,4 +14,13 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 @Primary
-public interface HouseTablesH2Repository extends HouseTableRepository {}
+public interface HouseTablesH2Repository extends HouseTableRepository {
+  Optional<HouseTable> findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+      String databaseId, String tableId);
+
+  @Override
+  default Optional<HouseTable> findById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+        houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId());
+  }
+}

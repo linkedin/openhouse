@@ -115,6 +115,7 @@ public class SnapshotsControllerTest {
                 getTableResponseBody
                     .toBuilder()
                     .tableVersion(INITIAL_TABLE_VERSION)
+                    .tableProperties(tablePropsHelperForResponseBody(getTableResponseBody))
                     .tableUUID(beforeUUID)
                     .build()));
     Map<String, String> snapshotRefs =
@@ -127,6 +128,7 @@ public class SnapshotsControllerTest {
                 buildCreateUpdateTableRequestBody(getTableResponseBody)
                     .toBuilder()
                     .baseTableVersion(INITIAL_TABLE_VERSION)
+                    .tableProperties(tablePropsHelperForResponseBody(getTableResponseBody))
                     .build())
             .jsonSnapshots(jsonSnapshots)
             .snapshotRefs(snapshotRefs)
@@ -326,5 +328,16 @@ public class SnapshotsControllerTest {
       snapshots.add(snapshot);
     }
     return snapshots;
+  }
+
+  /**
+   * For mock responseBody, ensure they are equipped with correct properties that are critical for
+   * casing contract.
+   */
+  private Map<String, String> tablePropsHelperForResponseBody(GetTableResponseBody responseBody) {
+    Map<String, String> originalProps = responseBody.getTableProperties();
+    originalProps.put("openhouse.databaseId", responseBody.getDatabaseId());
+    originalProps.put("openhouse.tableId", responseBody.getTableId());
+    return originalProps;
   }
 }

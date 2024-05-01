@@ -45,22 +45,23 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
 
     TableDto tableDtoToSave =
         tablesMapper.toTableDto(
-            tableDto.orElse(
-                TableDto.builder()
-                    .tableId(tableId)
-                    .databaseId(databaseId)
-                    .clusterId(clusterId)
-                    .tableUri(
-                        TableUri.builder()
-                            .tableId(tableId)
-                            .databaseId(databaseId)
-                            .clusterId(clusterId)
-                            .build()
-                            .toString())
-                    .tableUUID(
-                        tableUUIDGenerator.generateUUID(icebergSnapshotRequestBody).toString())
-                    .tableCreator(tableCreatorUpdater)
-                    .build()),
+            tableDto.orElseGet(
+                () ->
+                    TableDto.builder()
+                        .tableId(tableId)
+                        .databaseId(databaseId)
+                        .clusterId(clusterId)
+                        .tableUri(
+                            TableUri.builder()
+                                .tableId(tableId)
+                                .databaseId(databaseId)
+                                .clusterId(clusterId)
+                                .build()
+                                .toString())
+                        .tableUUID(
+                            tableUUIDGenerator.generateUUID(icebergSnapshotRequestBody).toString())
+                        .tableCreator(tableCreatorUpdater)
+                        .build()),
             icebergSnapshotRequestBody);
 
     if (tableDto.isPresent()) {
