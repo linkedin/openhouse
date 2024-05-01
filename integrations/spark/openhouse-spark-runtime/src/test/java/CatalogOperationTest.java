@@ -37,7 +37,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
   public void testCatalogWriteAPI() throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      Catalog icebergCatalog = getIcebergCatalog(spark, "openhouse");
+      Catalog icebergCatalog = getOpenHouseCatalog(spark, "openhouse");
       // Create a table
       Schema schema = new Schema(Types.NestedField.required(1, "name", Types.StringType.get()));
       TableIdentifier tableIdentifier = TableIdentifier.of("db", "aaa");
@@ -71,9 +71,9 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
    * Refactoring these pieces require deployment coordination, thus we shall create an artifact
    * module that can be pulled by :apps module.
    */
-  private Catalog getIcebergCatalog(SparkSession spark, String catName) {
+  private Catalog getOpenHouseCatalog(SparkSession spark) {
     final Map<String, String> catalogProperties = new HashMap<>();
-    final String catalogPropertyPrefix = String.format("spark.sql.catalog.%s.", catName);
+    final String catalogPropertyPrefix = String.format("spark.sql.catalog.openhouse.");
     final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
     for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
       if (entry.getKey().startsWith(catalogPropertyPrefix)) {
@@ -84,7 +84,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
     // this initializes the catalog based on runtime Catalog class passed in catalog-impl conf.
     return CatalogUtil.loadCatalog(
         sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
-        catName,
+        "openhouse",
         catalogProperties,
         spark.sparkContext().hadoopConfiguration());
   }
