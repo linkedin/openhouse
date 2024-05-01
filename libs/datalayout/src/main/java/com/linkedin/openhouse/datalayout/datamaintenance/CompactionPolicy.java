@@ -1,13 +1,11 @@
-package com.linkedin.openhouse.datalayout.planning.datamaintenance;
+package com.linkedin.openhouse.datalayout.datamaintenance;
 
 /**
- * Determines if a table needs to be compacted via the function 'evaluate'.
- * The implementation of the decision function is dependent on the policy.
+ * Determines if a table needs to be compacted via the function 'evaluate'. The implementation of
+ * the decision function is dependent on the policy.
  */
 public interface CompactionPolicy {
 
-  /**
-   * Compute whether a table should be compacted.
-   */
-  public boolean compact();
+  /** Compute whether a table should be compacted. */
+  boolean compact();
 }

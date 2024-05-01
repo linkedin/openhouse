@@ -1,10 +1,10 @@
-package com.linkedin.openhouse.datalayout.planning.datamaintenance;
+package com.linkedin.openhouse.datalayout.datamaintenance;
 
 import java.util.List;
 
 /**
- * Policy that computes the deviation of a set of files from a target file size.
- * Will return 'true' if a threshold is exceeded.
+ * Policy that computes the deviation of a set of files from a target file size. Will return 'true'
+ * if a threshold is exceeded.
  */
 public class FileEntropyPolicy implements CompactionPolicy {
 
@@ -22,15 +22,14 @@ public class FileEntropyPolicy implements CompactionPolicy {
     return computeEntropy() >= threshold;
   }
 
-  /**
-   * Compute the file entropy as the difference between the target and actual file size(s).
-   */
+  /** Compute the file entropy as the difference between the target and actual file size(s). */
   private Double computeEntropy() {
     if (this.fileSizes.size() == 0) {
       throw new IllegalArgumentException("Table must contain at least one file.");
     }
     if (this.targetFileSize > 0) {
-      throw new IllegalArgumentException("Target file size has to be positive, current file size: " + this.targetFileSize);
+      throw new IllegalArgumentException(
+          "Target file size has to be positive, current file size: " + this.targetFileSize);
     }
 
     // Compute mean file entropy.
