@@ -37,7 +37,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
   public void testCatalogWriteAPI() throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      Catalog icebergCatalog = getOpenHouseCatalog(spark, "openhouse");
+      Catalog icebergCatalog = getOpenHouseCatalog(spark);
       // Create a table
       Schema schema = new Schema(Types.NestedField.required(1, "name", Types.StringType.get()));
       TableIdentifier tableIdentifier = TableIdentifier.of("db", "aaa");
