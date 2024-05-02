@@ -39,7 +39,7 @@ public class ConfigureFileIO {
     } catch (IllegalArgumentException e) {
       // If the HDFS storage type is not configured, return null
       // Spring doesn't define the bean if the return value is null
-      log.debug("HDFS storage type is not configured");
+      log.debug("HDFS storage type is not configured", e);
       return null;
     }
   }
@@ -59,7 +59,7 @@ public class ConfigureFileIO {
     } catch (IllegalArgumentException e) {
       // If the Local storage type is not configured, return null
       // Spring doesn't define the bean if the return value is null
-      log.debug("Local storage type is not configured");
+      log.debug("Local storage type is not configured", e);
       return null;
     }
   }
