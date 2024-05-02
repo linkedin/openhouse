@@ -30,7 +30,7 @@ public class ConfigureFileIO {
    *
    * @return HadoopFileIO bean for HDFS storage type, or null if HDFS storage type is not configured
    */
-  @Bean
+  @Bean("HadoopFileIO")
   HadoopFileIO provideHadoopFileIO() {
     try {
       FileSystem fs =

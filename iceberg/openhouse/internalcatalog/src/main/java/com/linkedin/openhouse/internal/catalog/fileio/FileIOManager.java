@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 public class FileIOManager {
 
   @Autowired(required = false)
+  @Qualifier("HadoopFileIO")
   HadoopFileIO hadoopFileIO;
 
   @Autowired(required = false)
