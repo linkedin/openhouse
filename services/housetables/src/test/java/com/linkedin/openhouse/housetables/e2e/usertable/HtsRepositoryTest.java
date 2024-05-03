@@ -9,10 +9,12 @@ import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ContextConfiguration;
 
@@ -22,9 +24,26 @@ public class HtsRepositoryTest {
 
   @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
 
+  @AfterEach
+  public void tearDown() {
+    htsRepository.deleteAll();
+  }
+
+  @Test
+  public void testSaveFirstRecord() {
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+    // before insertion
+    Assertions.assertEquals(null, testUserTableRow.getVersion());
+    // after insertion
+    Assertions.assertEquals(0, htsRepository.save(testUserTableRow).getVersion());
+  }
+
   @Test
   public void testHouseTable() {
-    htsRepository.save(TEST_USER_TABLE_ROW);
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+    htsRepository.save(testUserTableRow);
     UserTableRow actual =
         htsRepository
             .findById(
@@ -34,8 +53,7 @@ public class HtsRepositoryTest {
                     .build())
             .orElse(UserTableRow.builder().build());
 
-    assertThat(isUserTableRowEqual(TestHouseTableModelConstants.TEST_USER_TABLE_ROW, actual))
-        .isTrue();
+    Assertions.assertEquals(testUserTableRow, actual);
     htsRepository.delete(actual);
   }
 
@@ -57,13 +75,21 @@ public class HtsRepositoryTest {
 
   @Test
   public void testSaveUserTableWithConflict() {
-    Long currentVersion = htsRepository.save(TEST_USER_TABLE_ROW).getVersion();
-
-    // test update at wrong version
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+    Long currentVersion = htsRepository.save(testUserTableRow).getVersion();
+    // test create the table again
     Exception exception =
         Assertions.assertThrows(
             Exception.class,
-            () -> htsRepository.save(TEST_USER_TABLE_ROW.toBuilder().version(100L).build()));
+            () -> htsRepository.save(testUserTableRow.toBuilder().version(null).build()));
+    Assertions.assertTrue(exception instanceof DataIntegrityViolationException);
+
+    // test update at wrong version
+    exception =
+        Assertions.assertThrows(
+            Exception.class,
+            () -> htsRepository.save(testUserTableRow.toBuilder().version(100L).build()));
     Assertions.assertTrue(
         exception instanceof ObjectOptimisticLockingFailureException
             | exception instanceof EntityConcurrentModificationException);
@@ -72,7 +98,7 @@ public class HtsRepositoryTest {
     Assertions.assertNotEquals(
         htsRepository
             .save(
-                TEST_USER_TABLE_ROW
+                testUserTableRow
                     .toBuilder()
                     .version(currentVersion)
                     .metadataLocation("file:/ml2")
@@ -82,16 +108,12 @@ public class HtsRepositoryTest {
 
     // test update at older version
     exception =
-        Assertions.assertThrows(Exception.class, () -> htsRepository.save(TEST_USER_TABLE_ROW));
+        Assertions.assertThrows(Exception.class, () -> htsRepository.save(testUserTableRow));
     Assertions.assertTrue(
         exception instanceof ObjectOptimisticLockingFailureException
             | exception instanceof EntityConcurrentModificationException);
 
     htsRepository.deleteById(
         UserTableRowPrimaryKey.builder().databaseId(TEST_DB_ID).tableId(TEST_TABLE_ID).build());
-  }
-
-  private Boolean isUserTableRowEqual(UserTableRow expected, UserTableRow actual) {
-    return expected.toBuilder().version(0L).build().equals(actual.toBuilder().version(0L).build());
   }
 }

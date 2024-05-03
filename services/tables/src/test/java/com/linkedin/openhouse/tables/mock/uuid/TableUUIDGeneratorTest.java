@@ -15,6 +15,8 @@ import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
@@ -146,6 +148,7 @@ public class TableUUIDGeneratorTest {
                         CreateUpdateTableRequestBody.builder()
                             .tableId("t")
                             .databaseId("db")
+                            .tableProperties(generateMinimalTestProps("db", "t"))
                             .clusterId(CLUSTER_NAME)
                             .build())
                     .jsonSnapshots(
@@ -189,6 +192,7 @@ public class TableUUIDGeneratorTest {
                         CreateUpdateTableRequestBody.builder()
                             .tableId("t")
                             .databaseId("db")
+                            .tableProperties(generateMinimalTestProps("db", "t"))
                             .clusterId(CLUSTER_NAME)
                             .build())
                     .jsonSnapshots(
@@ -210,6 +214,7 @@ public class TableUUIDGeneratorTest {
                             CreateUpdateTableRequestBody.builder()
                                 .tableId("t")
                                 .databaseId("db")
+                                .tableProperties(generateMinimalTestProps("db", "t"))
                                 .clusterId(CLUSTER_NAME)
                                 .build())
                         .jsonSnapshots(
@@ -297,5 +302,14 @@ public class TableUUIDGeneratorTest {
     JsonObject jsonObject = new Gson().fromJson(TEST_ICEBERG_SNAPSHOT_JSON, JsonObject.class);
     jsonObject.addProperty(key, manifestListValue);
     return jsonObject.toString();
+  }
+
+  private Map<String, String> generateMinimalTestProps(String databaseId, String tableId) {
+    return new HashMap<String, String>() {
+      {
+        put("openhouse.databaseId", databaseId);
+        put("openhouse.tableId", tableId);
+      }
+    };
   }
 }

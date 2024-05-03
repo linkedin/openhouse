@@ -47,7 +47,9 @@ public class HtsControllerTest {
   public void setup() {
     // TODO: Use rest API to create the table and test the find/delete user table again.
     // For now manually create the user table upfront.
-    htsRepository.save(TestHouseTableModelConstants.TEST_USER_TABLE_ROW);
+    UserTableRow testUserTableRow =
+        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+    htsRepository.save(testUserTableRow);
   }
 
   @AfterEach

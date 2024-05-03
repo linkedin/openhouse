@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.housetables.model;
 
+import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import lombok.Getter;
@@ -19,7 +20,6 @@ public class TestHouseTableModelConstants {
 
   public static final String TEST_DEFAULT_STORAGE_TYPE = "hdfs";
 
-  public static final UserTableRow TEST_USER_TABLE_ROW = tuple0.get_userTableRow();
   public static final UserTableDto TEST_USER_TABLE_DTO = tuple0.get_userTableDto();
   public static final UserTable TEST_USER_TABLE = tuple0.get_userTable();
 
@@ -51,16 +51,12 @@ public class TestHouseTableModelConstants {
     public TestTuple(int tbSeq, int dbSeq) {
       this.tableId = "test_table" + tbSeq;
       this.databaseId = "test_db" + dbSeq;
-      this.ver =
-          LOC_TEMPLATE
-              .replace("$test_db", databaseId)
-              .replace("$test_table", tableId)
-              .replace("$version", "v0");
+      this.ver = ValidatorConstants.INITIAL_TABLE_VERSION;
       this.tableLoc =
           LOC_TEMPLATE
               .replace("$test_db", databaseId)
               .replace("$test_table", tableId)
-              .replace("$version", "v1");
+              .replace("$version", "v0");
       this.storageType = TEST_DEFAULT_STORAGE_TYPE;
       this._userTable =
           UserTable.builder()
@@ -84,7 +80,7 @@ public class TestHouseTableModelConstants {
           UserTableRow.builder()
               .tableId(tableId)
               .databaseId(databaseId)
-              .version(1L)
+              .version(null)
               .metadataLocation(tableLoc)
               .storageType(storageType)
               .build();
