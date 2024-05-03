@@ -25,7 +25,6 @@ public class HouseTableModelConstants {
           .tableLocation("loc1")
           .tableVersion(String.valueOf(new Random().nextLong()))
           .tableUUID(UUID.randomUUID().toString())
-          .storageType("st")
           .build();
 
   public static final HouseTable HOUSE_TABLE_SAME_DB =
@@ -37,7 +36,6 @@ public class HouseTableModelConstants {
           .tableLocation("loc2")
           .tableVersion(String.valueOf(new Random().nextLong()))
           .tableUUID(UUID.randomUUID().toString())
-          .storageType("st")
           .build();
 
   public static final HouseTable HOUSE_TABLE_DIFF_DB =
@@ -49,6 +47,5 @@ public class HouseTableModelConstants {
           .tableLocation("loc3")
           .tableVersion(String.valueOf(new Random().nextLong()))
           .tableUUID(UUID.randomUUID().toString())
-          .storageType("st")
           .build();
 }
