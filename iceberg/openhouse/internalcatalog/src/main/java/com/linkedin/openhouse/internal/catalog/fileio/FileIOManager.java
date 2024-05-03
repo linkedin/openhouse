@@ -23,8 +23,8 @@ import org.springframework.stereotype.Component;
 public class FileIOManager {
 
   @Autowired(required = false)
-  @Qualifier("HadoopFileIO")
-  HadoopFileIO hadoopFileIO;
+  @Qualifier("HdfsFileIO")
+  HadoopFileIO hdfsFileIO;
 
   @Autowired(required = false)
   @Qualifier("LocalFileIO")
@@ -41,7 +41,7 @@ public class FileIOManager {
     Supplier<? extends RuntimeException> exceptionSupplier =
         () -> new IllegalArgumentException(storageType.getValue() + " is not configured");
     if (HDFS.equals(storageType)) {
-      return Optional.ofNullable(hadoopFileIO).orElseThrow(exceptionSupplier);
+      return Optional.ofNullable(hdfsFileIO).orElseThrow(exceptionSupplier);
     } else if (LOCAL.equals(storageType)) {
       return Optional.ofNullable(localFileIO).orElseThrow(exceptionSupplier);
     } else {

@@ -21,17 +21,17 @@ import org.springframework.context.annotation.Configuration;
  */
 @Slf4j
 @Configuration
-public class ConfigureFileIO {
+public class FileIOConfig {
 
   @Autowired StorageManager storageManager;
 
   /**
-   * Provides the HadoopFileIO bean for HDFS storage type
+   * Provides the HdfsFileIO bean for HDFS storage type
    *
-   * @return HadoopFileIO bean for HDFS storage type, or null if HDFS storage type is not configured
+   * @return HdfsFileIO bean for HDFS storage type, or null if HDFS storage type is not configured
    */
-  @Bean("HadoopFileIO")
-  HadoopFileIO provideHadoopFileIO() {
+  @Bean("HdfsFileIO")
+  HadoopFileIO provideHdfsFileIO() {
     try {
       FileSystem fs =
           (FileSystem) storageManager.getStorage(StorageType.HDFS).getClient().getNativeClient();
@@ -45,10 +45,9 @@ public class ConfigureFileIO {
   }
 
   /**
-   * Provides the HadoopFileIO bean for Local storage type
+   * Provides the HdfsFileIO bean for Local storage type
    *
-   * @return HadoopFileIO bean for Local storage type, or null if Local storage type is not
-   *     configured
+   * @return HdfsFileIO bean for Local storage type, or null if Local storage type is not configured
    */
   @Bean("LocalFileIO")
   FileIO provideLocalFileIO() {
