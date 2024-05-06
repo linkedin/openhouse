@@ -1,3 +1,6 @@
 package com.linkedin.openhouse.datalayout.datasource;
 
-public interface DataSource {}
+import java.util.function.Supplier;
+import org.apache.spark.sql.Dataset;
+
+public interface DataSource<T> extends Supplier<Dataset<T>> {}
