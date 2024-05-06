@@ -25,6 +25,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.springdoc.core.customizers.OpenApiCustomiser;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -48,6 +49,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    *
    * @return Iceberg's File abstraction {@link FileIO}.
    */
+  @Qualifier("LegacyFileIO")
   @Bean
   public FileIO provideIcebergFileIO() {
     if ("hadoop".equals(fsStorageProvider.storageType())) {

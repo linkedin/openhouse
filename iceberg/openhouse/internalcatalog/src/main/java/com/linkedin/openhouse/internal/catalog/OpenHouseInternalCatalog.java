@@ -21,6 +21,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -34,7 +35,9 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired HouseTableRepository houseTableRepository;
 
-  @Autowired FileIO fileIO;
+  @Autowired
+  @Qualifier("LegacyFileIO")
+  FileIO fileIO;
 
   @Autowired SnapshotInspector snapshotInspector;
 
