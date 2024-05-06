@@ -4,11 +4,14 @@ import static com.linkedin.openhouse.internal.catalog.HouseTableModelConstants.*
 import static org.assertj.core.api.Assertions.*;
 
 import com.google.gson.Gson;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.UserTable;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOConfig;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -21,6 +24,8 @@ import java.util.HashMap;
 import java.util.List;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.io.FileIO;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -29,7 +34,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.util.ReflectionUtils;
 
@@ -43,6 +50,12 @@ public class HouseTableRepositoryImplTest {
   HouseTableRepository htsRepo;
 
   @Autowired HouseTableMapper houseTableMapper;
+
+  @MockBean StorageManager storageManager;
+
+  @MockBean FileIOManager fileIOManager;
+
+  @MockBean FileIOConfig fileIOConfig;
 
   @TestConfiguration
   public static class MockWebServerConfiguration {
@@ -71,6 +84,13 @@ public class HouseTableRepositoryImplTest {
     @Qualifier("repoTest")
     public HouseTableRepository provideRealHtsRepository() {
       return new HouseTableRepositoryImpl();
+    }
+
+    @Primary
+    @Bean
+    @Qualifier("LegacyFileIO")
+    public FileIO provideFileIO() {
+      return new HadoopFileIO();
     }
   }
 
