@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.internal.catalog.model;
 
+import com.linkedin.openhouse.cluster.storage.StorageType;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
@@ -39,4 +40,12 @@ public class HouseTable {
   private long lastModifiedTime;
 
   private long creationTime;
+
+  /**
+   * This column indicates the storage type used by this table. See {@link
+   * com.linkedin.openhouse.cluster.storage.StorageType}. A storage type indicates the {@link
+   * com.linkedin.openhouse.cluster.storage.StorageClient} implementation that is used to interact
+   * with this table.
+   */
+  @Builder.Default private String storageType = StorageType.HDFS.getValue();
 }
