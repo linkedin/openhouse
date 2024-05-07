@@ -9,6 +9,7 @@ import org.apache.spark.sql.Encoders;
 
 @Builder
 public class OpenHouseLayoutSelectionPolicy implements LayoutSelectionPolicy<DataCompactionLayout> {
+  private static final long LARGE_TABLE_THRESHOLD_BYTES = 1024L * 1024L * 1024L * 100L;
   private final TableFileStats tableFileStats;
 
   @Override
@@ -18,9 +19,13 @@ public class OpenHouseLayoutSelectionPolicy implements LayoutSelectionPolicy<Dat
             .get()
             .map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG())
             .reduce((ReduceFunction<Long>) Long::sum);
-    if (totalSize > 1024L * 1024L * 1024L * 1024L * 100L) {
-      return DataCompactionLayout.builder().targetSizeBytes(1024 * 1024 * 1024L * 2).build();
+    if (totalSize > LARGE_TABLE_THRESHOLD_BYTES) {
+      return DataCompactionLayout.builder()
+          .targetSizeBytes(DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT * 4)
+          .build();
     }
-    return DataCompactionLayout.builder().targetSizeBytes(1024 * 1024 * 512L).build();
+    return DataCompactionLayout.builder()
+        .targetSizeBytes(DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT)
+        .build();
   }
 }
