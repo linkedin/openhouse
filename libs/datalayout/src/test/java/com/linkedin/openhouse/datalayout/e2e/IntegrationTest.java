@@ -2,7 +2,10 @@ package com.linkedin.openhouse.datalayout.e2e;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.datalayout.datasource.FileStat;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
+import com.linkedin.openhouse.datalayout.detection.DataCompactionTrigger;
+import com.linkedin.openhouse.datalayout.detection.FileEntropyPolicy;
 import com.linkedin.openhouse.datalayout.layoutselection.DataCompactionLayout;
 import com.linkedin.openhouse.datalayout.layoutselection.OpenHouseLayoutSelectionPolicy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
@@ -14,7 +17,7 @@ import org.junit.jupiter.api.Test;
 public class IntegrationTest extends OpenHouseSparkITest {
   @Test
   public void testLayoutSelectionWithPersistence() throws Exception {
-    final String testTable = "db.test_table";
+    final String testTable = "db.test_table_selection";
     try (SparkSession spark = withCatalogSession()) {
       createTestTable(spark, testTable, 10);
       TableFileStats tableFileStats =
@@ -41,6 +44,27 @@ public class IntegrationTest extends OpenHouseSparkITest {
               StringEscapeUtils.unescapeJava(serializedLayout), DataCompactionLayout.class);
       Assertions.assertEquals(
           DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT, compactionLayout.getTargetSizeBytes());
+    }
+  }
+
+  @Test
+  public void testLayoutRegressionDetection() throws Exception {
+    final String testTable = "db.test_table_detection";
+    try (SparkSession spark = withCatalogSession()) {
+      createTestTable(spark, testTable, 10);
+      TableFileStats tableFileStats =
+          TableFileStats.builder().tableName(testTable).spark(spark).build();
+      DataCompactionLayout compactionLayout =
+          DataCompactionLayout.builder()
+              .targetSizeBytes(DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT)
+              .build();
+      DataCompactionTrigger<FileStat, DataCompactionLayout, TableFileStats> trigger =
+          FileEntropyPolicy.builder()
+              .targetLayout(compactionLayout)
+              .tableFileStats(tableFileStats)
+              .threshold(100.0)
+              .build();
+      Assertions.assertTrue(trigger.check());
     }
   }
 
