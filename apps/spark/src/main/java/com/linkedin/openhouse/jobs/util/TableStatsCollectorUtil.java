@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import java.io.IOException;
+import java.util.Optional;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -82,20 +83,29 @@ public final class TableStatsCollectorUtil {
    */
   protected static IcebergTableStats populateStatsForSnapshots(
       String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
-    long snapshotId = table.currentSnapshot().snapshotId();
 
-    Dataset<Row> allDataFiles = getAllDataFilesCount(table, spark, MetadataTableType.FILES);
-    long countOfDataFiles = allDataFiles.count();
+    Dataset<Row> dataFiles = getAllDataFilesCount(table, spark, MetadataTableType.FILES);
+    long countOfDataFiles = dataFiles.count();
 
     // Calculate sum of file sizes in bytes in above allDataFiles
-    long sumOfFileSizeBytes = getSumOfFileSizeBytes(allDataFiles);
+    long sumOfFileSizeBytes = getSumOfFileSizeBytes(dataFiles);
+
+    Long currentSnapshotId =
+        Optional.ofNullable(table.currentSnapshot())
+            .map(snapshot -> snapshot.snapshotId())
+            .orElse(null);
+
+    Long currentSnapshotTimestamp =
+        Optional.ofNullable(table.currentSnapshot())
+            .map(snapshot -> snapshot.timestampMillis())
+            .orElse(null);
 
     log.info(
         "Table: {}, Count of total Data files: {}, Sum of file sizes in bytes: {} for snaphot: {}",
         fqtn,
         countOfDataFiles,
         sumOfFileSizeBytes,
-        snapshotId);
+        currentSnapshotId);
 
     // Find minimum timestamp of all snapshots where snapshots is iterator
     Long oldestSnapshotTimestamp =
@@ -106,8 +116,8 @@ public final class TableStatsCollectorUtil {
 
     return stats
         .toBuilder()
-        .currentSnapshotId(snapshotId)
-        .currentSnapshotTimestamp(table.currentSnapshot().timestampMillis())
+        .currentSnapshotId(currentSnapshotId)
+        .currentSnapshotTimestamp(currentSnapshotTimestamp)
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
         .numCurrentSnapshotReferencedDataFiles(countOfDataFiles)
         .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfFileSizeBytes)
@@ -168,11 +178,11 @@ public final class TableStatsCollectorUtil {
         .tableType(table.properties().get(getCanonicalFieldName("tableType")))
         .tableCreator((table.properties().get(getCanonicalFieldName("tableCreator"))))
         .tableCreationTimestamp(
-            table.properties().containsKey("creationTime")
+            table.properties().containsKey(getCanonicalFieldName("creationTime"))
                 ? Long.parseLong(table.properties().get(getCanonicalFieldName("creationTime")))
                 : 0)
         .tableLastUpdatedTimestamp(
-            table.properties().containsKey("lastModifiedTime")
+            table.properties().containsKey(getCanonicalFieldName("lastModifiedTime"))
                 ? Long.parseLong(table.properties().get(getCanonicalFieldName("lastModifiedTime")))
                 : 0)
         .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
@@ -217,6 +227,8 @@ public final class TableStatsCollectorUtil {
   }
 
   private static long getSumOfFileSizeBytes(Dataset<Row> allDataFiles) {
+    if (allDataFiles.isEmpty()) return 0;
+
     return allDataFiles
         .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
         .first()
