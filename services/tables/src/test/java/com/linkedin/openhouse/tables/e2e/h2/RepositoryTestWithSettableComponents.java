@@ -5,10 +5,12 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.TABLE_DTO;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.SnapshotInspector;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -26,6 +28,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.PostConstruct;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -37,7 +40,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Import;
@@ -57,15 +59,22 @@ public class RepositoryTestWithSettableComponents {
 
   @Autowired Catalog catalog;
 
-  @Autowired
-  @Qualifier("LegacyFileIO")
-  FileIO fileIO;
+  @Autowired FileIOManager fileIOManager;
+
+  @Autowired StorageManager storageManager;
 
   @Autowired SnapshotInspector snapshotInspector;
 
   @Autowired HouseTableMapper houseTableMapper;
 
   @Autowired MeterRegistry meterRegistry;
+
+  FileIO fileIO;
+
+  @PostConstruct
+  public void init() {
+    fileIO = fileIOManager.getFileIO(storageManager.getDefaultStorage().getType());
+  }
 
   /**
    * mocking the behavior of HouseTableRepository to throw exception for triggering retry when
