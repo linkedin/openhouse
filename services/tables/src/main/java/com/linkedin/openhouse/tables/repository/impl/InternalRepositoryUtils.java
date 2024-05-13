@@ -139,8 +139,11 @@ public final class InternalRepositoryUtils {
             .tableUri(megaProps.get(getCanonicalFieldName("tableUri")))
             .tableUUID(megaProps.get(getCanonicalFieldName("tableUUID")))
             .tableLocation(
-                storage.getClient().getEndpoint()
-                    + megaProps.get(getCanonicalFieldName("tableLocation")))
+                URI.create(
+                        storage.getClient().getEndpoint()
+                            + megaProps.get(getCanonicalFieldName("tableLocation")))
+                    .normalize()
+                    .toString())
             .tableVersion(megaProps.get(getCanonicalFieldName("tableVersion")))
             .tableCreator(megaProps.get(getCanonicalFieldName("tableCreator")))
             .schema(IcebergSchemaHelper.getSchemaJsonFromSchema(table.schema()))
