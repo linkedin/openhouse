@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.config.db.iceberg;
 
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRow;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRowPrimaryKey;
@@ -10,6 +11,7 @@ import com.linkedin.openhouse.hts.catalog.repository.IcebergHtsRepository;
 import java.nio.file.Paths;
 import java.util.Collections;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -34,7 +36,7 @@ public class IcebergProviderConfiguration {
   private static final String HTS_USER_TBL_NAME = "userTable";
   private static final String HTS_JOB_TBL_NAME = "jobTable";
 
-  @Autowired FsStorageProvider storageProvider;
+  @Autowired StorageManager storageManager;
 
   private Catalog provideHadoopCatalogForHouseTables() {
     HadoopCatalog catalog = new HadoopCatalog();
@@ -43,7 +45,7 @@ public class IcebergProviderConfiguration {
         HTS_CATALOG_NAME,
         Collections.singletonMap(
             CatalogProperties.WAREHOUSE_LOCATION,
-            Paths.get(storageProvider.rootPath()).toString()));
+            Paths.get(storageManager.getDefaultStorage().getClient().getRootPath()).toString()));
     return catalog;
   }
 
@@ -70,7 +72,15 @@ public class IcebergProviderConfiguration {
   }
 
   private org.apache.hadoop.conf.Configuration getHadoopConfigurations() {
-    log.debug("Loading hadoop configuration from:" + storageProvider.name());
-    return storageProvider.storageClient().getConf();
+    log.debug("Loading hadoop configuration for:" + storageManager.getDefaultStorage().getType());
+    if (storageManager.getDefaultStorage().getType().equals(StorageType.HDFS)
+        || storageManager.getDefaultStorage().getType().equals(StorageType.LOCAL)) {
+      return ((FileSystem) storageManager.getDefaultStorage().getClient().getNativeClient())
+          .getConf();
+    } else {
+      throw new UnsupportedOperationException(
+          "Unsupported storage type for Iceberg catalog: "
+              + storageManager.getDefaultStorage().getType());
+    }
   }
 }

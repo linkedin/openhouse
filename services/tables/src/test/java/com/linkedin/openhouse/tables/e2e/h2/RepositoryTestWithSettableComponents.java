@@ -6,7 +6,6 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.SnapshotInspector;
@@ -55,13 +54,11 @@ public class RepositoryTestWithSettableComponents {
 
   @SpyBean @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   @Autowired Catalog catalog;
 
   @Autowired FileIOManager fileIOManager;
-
-  @Autowired StorageManager storageManager;
 
   @Autowired SnapshotInspector snapshotInspector;
 

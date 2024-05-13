@@ -63,4 +63,14 @@ public class HdfsStorageClient implements StorageClient<FileSystem> {
   public FileSystem getNativeClient() {
     return fs;
   }
+
+  @Override
+  public String getEndpoint() {
+    return storageProperties.getTypes().get(HDFS_TYPE.getValue()).getEndpoint();
+  }
+
+  @Override
+  public String getRootPath() {
+    return storageProperties.getTypes().get(HDFS_TYPE.getValue()).getRootPath();
+  }
 }

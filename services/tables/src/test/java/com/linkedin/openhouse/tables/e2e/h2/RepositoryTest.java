@@ -4,7 +4,7 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.apache.iceberg.types.Types.NestedField.*;
 
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -60,7 +60,7 @@ public class RepositoryTest {
 
   @SpyBean @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   @Autowired Catalog catalog;
 
@@ -641,7 +641,7 @@ public class RepositoryTest {
     Path path =
         Paths.get(
             "file:",
-            fsStorageProvider.rootPath(),
+            storageManager.getDefaultStorage().getClient().getRootPath(),
             table.getDatabaseId(),
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertEquals(TABLE_DTO.getTimePartitioning(), table.getTimePartitioning());
@@ -656,7 +656,7 @@ public class RepositoryTest {
     Assertions.assertEquals(TABLE_DTO.getTableUri(), table.getTableUri());
     Path path =
         Paths.get(
-            fsStorageProvider.rootPath(),
+            storageManager.getDefaultStorage().getClient().getRootPath(),
             table.getDatabaseId(),
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));

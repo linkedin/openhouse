@@ -6,7 +6,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.assertj.core.api.Assertions.*;
 
 import com.google.common.collect.ImmutableMap;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
@@ -53,7 +53,7 @@ public class TablesServiceTest {
 
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   @MockBean AuthorizationHandler authorizationHandler;
 
@@ -79,7 +79,7 @@ public class TablesServiceTest {
     Path expectedPath =
         Paths.get(
             "file:",
-            fsStorageProvider.rootPath(),
+            storageManager.getDefaultStorage().getClient().getRootPath(),
             actual.getDatabaseId(),
             actual.getTableId() + "-" + actual.getTableUUID());
     Assertions.assertTrue(actual.getTableLocation().startsWith(expectedPath.toString()));

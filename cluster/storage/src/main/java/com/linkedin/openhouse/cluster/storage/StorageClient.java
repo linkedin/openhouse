@@ -19,4 +19,8 @@ public interface StorageClient<T> {
    * @return the native client of the storage system
    */
   T getNativeClient();
+
+  String getEndpoint();
+
+  String getRootPath();
 }

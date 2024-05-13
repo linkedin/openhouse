@@ -2,7 +2,8 @@ package com.linkedin.openhouse.tables.config;
 
 import com.linkedin.openhouse.cluster.metrics.TagUtils;
 import com.linkedin.openhouse.cluster.storage.FsStorageUtils;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.common.config.BaseApplicationConfig;
 import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
@@ -19,6 +20,8 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.springdoc.core.customizers.OpenApiCustomiser;
@@ -32,6 +35,7 @@ import reactor.netty.http.client.HttpClient;
 
 /** Main Application Configuration to load cluster properties. */
 @Configuration
+@Slf4j
 public class MainApplicationConfig extends BaseApplicationConfig {
   public static final String APP_NAME = "tables";
   private static final Pattern VERSION_PART_PATTERN = Pattern.compile("v[0-9]+");
@@ -39,7 +43,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
 
   private static final int DNS_QUERY_TIMEOUT_SECONDS = 10;
 
-  @Autowired protected FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   /**
    * When cluster properties are available, obtain hts base URI and inject API client
@@ -80,7 +84,17 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   Consumer<Supplier<Path>> provideFileSecurer() {
     return pathSeqSupplier -> {
       try {
-        FsStorageUtils.securePath(fsStorageProvider.storageClient(), pathSeqSupplier.get());
+        // TODO: This should use high-level storage api such as Storage::secureTableObject.
+        if (storageManager.getDefaultStorage().getType().equals(StorageType.HDFS)
+            || storageManager.getDefaultStorage().getType().equals(StorageType.LOCAL)) {
+          FsStorageUtils.securePath(
+              (FileSystem) storageManager.getDefaultStorage().getClient().getNativeClient(),
+              pathSeqSupplier.get());
+        } else {
+          log.warn(
+              "No secure path implementation for storage type: {}",
+              storageManager.getDefaultStorage().getType());
+        }
       } catch (IOException ioe) {
         // Throwing unchecked exception and leave the handling explicitly to the caller.
         throw new UncheckedIOException(
