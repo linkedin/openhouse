@@ -1,9 +1,6 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
-import com.linkedin.openhouse.internal.catalog.fileio.FileIOConfig;
-import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapperTest;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -40,7 +37,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 
 @SpringBootTest
@@ -51,11 +47,6 @@ class SnapshotInspectorTest {
 
   @TempDir static Path tempDir;
 
-  @MockBean StorageManager storageManager;
-
-  @MockBean FileIOManager fileIOManager;
-
-  @MockBean FileIOConfig fileIOConfig;
   private static final TableMetadata noSnapshotsMetadata =
       TableMetadata.newTableMetadata(
           new Schema(

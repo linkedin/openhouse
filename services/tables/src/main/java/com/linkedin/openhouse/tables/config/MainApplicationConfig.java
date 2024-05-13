@@ -20,12 +20,9 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.hadoop.fs.Path;
-import org.apache.iceberg.hadoop.HadoopFileIO;
-import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.springdoc.core.customizers.OpenApiCustomiser;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -43,23 +40,6 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   private static final int DNS_QUERY_TIMEOUT_SECONDS = 10;
 
   @Autowired protected FsStorageProvider fsStorageProvider;
-
-  /**
-   * Provide Iceberg {@link FileIO} object based on info provided by {@link FsStorageProvider}
-   *
-   * @return Iceberg's File abstraction {@link FileIO}.
-   */
-  @Qualifier("LegacyFileIO")
-  @Bean
-  public FileIO provideIcebergFileIO() {
-    if ("hadoop".equals(fsStorageProvider.storageType())) {
-      return new HadoopFileIO(fsStorageProvider.storageClient().getConf());
-    } else {
-      throw new UnsupportedOperationException(
-          String.format(
-              "Storage type of %s is not supported yet.", fsStorageProvider.storageType()));
-    }
-  }
 
   /**
    * When cluster properties are available, obtain hts base URI and inject API client
