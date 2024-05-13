@@ -55,6 +55,13 @@ public class FileIOManager {
     }
   }
 
+  /**
+   * Returns the Storage implementation for the given FileIO.
+   *
+   * @param fileIO, the FileIO for which the Storage implementation is required
+   * @return Storage implementation for the given FileIO
+   * @throws IllegalArgumentException if the FileIO is not configured
+   */
   public Storage getStorage(FileIO fileIO) {
     if (fileIO.equals(hdfsFileIO)) {
       return hdfsStorage;
