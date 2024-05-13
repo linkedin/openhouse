@@ -17,6 +17,7 @@ import lombok.NoArgsConstructor;
 public class JobConf {
   private JobType jobType;
   private String proxyUser;
+  private String memory;
   @Builder.Default private List<String> args = new ArrayList<>();
 
   public enum JobType {

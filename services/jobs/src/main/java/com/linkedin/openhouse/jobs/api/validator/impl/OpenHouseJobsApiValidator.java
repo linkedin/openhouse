@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.jobs.api.validator.impl;
 
-import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW;
-import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX_HYPHEN_ALLOW;
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.*;
 
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -39,6 +38,12 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
           String.format(
               "clusterId : provided %s, %s",
               createJobRequestBody.getClusterId(), ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW));
+    }
+    if (!createJobRequestBody.getJobConf().getMemory().matches(SPARK_MEMORY_FORMAT)) {
+      validationFailures.add(
+          String.format(
+              "memory : provided %s, %s",
+              createJobRequestBody.getClusterId(), SPARK_MEMORY_FORMAT));
     }
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);

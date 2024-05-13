@@ -31,7 +31,6 @@ public class JobsRegistry {
       throw new JobEngineException(String.format("Job %s is not supported", type));
     }
     JobLaunchConf defaultConf = jobLaunchDefaultConfByType.get(type);
-    JobLaunchConf.JobLaunchConfBuilder builder = defaultConf.toBuilder();
     Map<String, String> propsMap = defaultConf.getSparkProperties();
     /*
     if properties has authTokenPath, read and set authToken as spark.sql.catalog.openhouse.auth-token
@@ -39,8 +38,12 @@ public class JobsRegistry {
     */
     if (authTokenPath != null) {
       propsMap.put("spark.sql.catalog.openhouse.auth-token", getToken(authTokenPath));
-      defaultConf.setSparkProperties(propsMap);
     }
+    // handle job properties defined in iceberg table.properties
+    populateTableProperties(conf.getMemory(), propsMap);
+    defaultConf.setSparkProperties(propsMap);
+    JobLaunchConf.JobLaunchConfBuilder builder = defaultConf.toBuilder();
+
     // required arguments
     List<String> extendedArgs =
         new ArrayList<>(Arrays.asList("--jobId", jobId, "--storageURL", storageUri));
@@ -49,6 +52,11 @@ public class JobsRegistry {
     // runtime arguments provided in the request
     extendedArgs.addAll(conf.getArgs());
     return builder.proxyUser(conf.getProxyUser()).args(extendedArgs).build();
+  }
+
+  private void populateTableProperties(String memory, Map<String, String> sparkPropsMap) {
+    sparkPropsMap.put("spark.driver.memory", memory);
+    sparkPropsMap.put("spark.executor.memory", memory);
   }
 
   public static JobsRegistry from(JobsProperties properties, Map<String, String> storageProps) {

@@ -32,6 +32,7 @@ public class JobsRegistryTest {
     JobsRegistry jr = JobsRegistry.from(properties, propertyMap);
     Mockito.when(jobConf.getJobType()).thenReturn(JobConf.JobType.RETENTION);
     Mockito.when(jobConf.getArgs()).thenReturn(new ArrayList<>());
+    Mockito.when(jobConf.getMemory()).thenReturn("5G");
     JobLaunchConf launchConf = jr.createLaunchConf("jobId", jobConf);
     Assertions.assertEquals(launchConf.getJarPath(), "default-jar-path");
     Assertions.assertTrue(launchConf.getExecutionTags().keySet().contains("pool"));
@@ -41,6 +42,9 @@ public class JobsRegistryTest {
             .getSparkProperties()
             .keySet()
             .contains("spark.sql.catalog.openhouse.auth-token"));
+    Assertions.assertTrue(launchConf.getSparkProperties().keySet().contains("spark.driver.memory"));
+    Assertions.assertTrue(
+        launchConf.getSparkProperties().keySet().contains("spark.executor.memory"));
     Assertions.assertTrue(launchConf.getSparkProperties().containsKey("fs.defaultFS"));
     Assertions.assertEquals(launchConf.getArgs().size(), 4);
   }
