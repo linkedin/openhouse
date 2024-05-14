@@ -273,7 +273,8 @@ public class TableUUIDGenerator {
         return fs.exists(new Path(tableDirPath.toString()));
       } else {
         throw new UnsupportedOperationException(
-            "Unsupported storage type for CTAS: " + storageManager.getDefaultStorage().getType());
+            "Unsupported storage type for checking path existence: "
+                + storageManager.getDefaultStorage().getType());
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);

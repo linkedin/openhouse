@@ -23,8 +23,8 @@ public interface StorageClient<T> {
   /**
    * Get the endpoint of the storage system.
    *
-   * <p>Example: - For HDFS, the endpoint could be "hdfs://localhost:9000" - For local file system,
-   * the endpoint could be "file:" - For S3, the endpoint could be "s3://"
+   * <p>Example: For HDFS, the endpoint could be "hdfs://localhost:9000". For local file system, the
+   * endpoint could be "file://". For S3, the endpoint could be "s3://".
    *
    * @return the endpoint of the storage system
    */
@@ -33,8 +33,8 @@ public interface StorageClient<T> {
   /**
    * Get the root path for OpenHouse on the storage system.
    *
-   * <p>Example: - For HDFS, the root path could be "/data/openhouse" - For local file system, the
-   * root path could be "/tmp" - For S3, the root path could be "/bucket-name"
+   * <p>Example: For HDFS, the root path could be "/data/openhouse". For local file system, the root
+   * path could be "/tmp". For S3, the root path could be "/bucket-name".
    *
    * @return the root path for OpenHouse on the storage system
    */
