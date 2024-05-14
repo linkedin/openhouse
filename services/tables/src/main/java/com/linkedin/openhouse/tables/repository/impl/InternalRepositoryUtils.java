@@ -36,6 +36,8 @@ public final class InternalRepositoryUtils {
 
   public static java.nio.file.Path constructTablePath(
       StorageManager storageManager, String databaseID, String tableId, String tableUUID) {
+    // TODO: Default storage is used here. Support for non-default storage type per table needs to
+    // be added.
     return Paths.get(
         storageManager.getDefaultStorage().getClient().getRootPath(),
         databaseID,
