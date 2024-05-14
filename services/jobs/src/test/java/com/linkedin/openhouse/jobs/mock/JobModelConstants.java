@@ -23,7 +23,7 @@ public class JobModelConstants {
     return getPartialJobDtoBuilder()
         .jobName("my_job")
         .clusterId("my_cluster")
-        .jobConf(JobConf.builder().jobType(JobConf.JobType.RETENTION).memory("4G").build())
+        .jobConf(JobConf.builder().jobType(JobConf.JobType.RETENTION).build())
         .executionId("1")
         .build();
   }

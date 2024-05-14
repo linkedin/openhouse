@@ -39,7 +39,8 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
               "clusterId : provided %s, %s",
               createJobRequestBody.getClusterId(), ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW));
     }
-    if (!createJobRequestBody.getJobConf().getMemory().matches(SPARK_MEMORY_FORMAT)) {
+    if (!createJobRequestBody.getJobConf().getMemory().isEmpty()
+        && !createJobRequestBody.getJobConf().getMemory().matches(SPARK_MEMORY_FORMAT)) {
       validationFailures.add(
           String.format(
               "memory : provided %s, %s",

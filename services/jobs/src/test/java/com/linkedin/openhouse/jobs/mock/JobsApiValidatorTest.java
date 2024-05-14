@@ -77,7 +77,18 @@ class JobsApiValidatorTest {
 
   @Test
   public void testInValidMemoryFormatInJobRequestBody() {
-    // Ensure hyphen is fine in clusterId and JobName
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            jobsApiValidator.validateCreateJob(
+                makeJobRequestBodyFromJobNameJobConf("job-name", "10MG")));
+
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            jobsApiValidator.validateCreateJob(
+                makeJobRequestBodyFromJobNameJobConf("job-name", "10MG")));
+
     assertThrows(
         RequestValidationFailureException.class,
         () ->
