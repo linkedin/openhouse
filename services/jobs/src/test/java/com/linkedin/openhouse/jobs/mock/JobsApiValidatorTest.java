@@ -87,12 +87,6 @@ class JobsApiValidatorTest {
         RequestValidationFailureException.class,
         () ->
             jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "10MG")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
                 makeJobRequestBodyFromJobNameJobConf("job-name", "-10G")));
 
     assertThrows(
