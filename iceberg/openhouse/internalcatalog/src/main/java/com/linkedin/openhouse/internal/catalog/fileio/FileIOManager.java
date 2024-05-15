@@ -3,7 +3,10 @@ package com.linkedin.openhouse.internal.catalog.fileio;
 import static com.linkedin.openhouse.cluster.storage.StorageType.HDFS;
 import static com.linkedin.openhouse.cluster.storage.StorageType.LOCAL;
 
+import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageType;
+import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorage;
+import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.apache.iceberg.hadoop.HadoopFileIO;
@@ -30,6 +33,9 @@ public class FileIOManager {
   @Qualifier("LocalFileIO")
   FileIO localFileIO;
 
+  @Autowired HdfsStorage hdfsStorage;
+
+  @Autowired LocalStorage localStorage;
   /**
    * Returns the FileIO implementation for the given storage type.
    *
@@ -46,6 +52,23 @@ public class FileIOManager {
       return Optional.ofNullable(localFileIO).orElseThrow(exceptionSupplier);
     } else {
       throw new IllegalArgumentException("FileIO not supported for storage type: " + storageType);
+    }
+  }
+
+  /**
+   * Returns the Storage implementation for the given FileIO.
+   *
+   * @param fileIO, the FileIO for which the Storage implementation is required
+   * @return Storage implementation for the given FileIO
+   * @throws IllegalArgumentException if the FileIO is not configured
+   */
+  public Storage getStorage(FileIO fileIO) {
+    if (fileIO.equals(hdfsFileIO)) {
+      return hdfsStorage;
+    } else if (fileIO.equals(localFileIO)) {
+      return localStorage;
+    } else {
+      throw new IllegalArgumentException("Storage not supported for fileIO: " + fileIO);
     }
   }
 }

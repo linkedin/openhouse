@@ -1,14 +1,8 @@
 package com.linkedin.openhouse.tablestest;
 
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.permission.FsAction;
-import org.apache.hadoop.fs.permission.FsPermission;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -47,7 +41,6 @@ import org.springframework.context.annotation.Primary;
 @EnableAutoConfiguration(
     exclude = {SecurityAutoConfiguration.class, ManagementWebSecurityAutoConfiguration.class})
 public class SpringH2TestApplication {
-  @Autowired protected FsStorageProvider fsStorageProvider;
 
   public static void main(String[] args) {
     SpringApplication.run(SpringH2TestApplication.class, args);
@@ -62,14 +55,7 @@ public class SpringH2TestApplication {
   @Primary
   Consumer<Supplier<Path>> provideTestFileSecurer() {
     return pathSupplier -> {
-      try {
-        fsStorageProvider
-            .storageClient()
-            .setPermission(
-                pathSupplier.get(), new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE));
-      } catch (IOException ioe) {
-        throw new UncheckedIOException(ioe);
-      }
+      // This is a no-op Consumer. It does nothing with the supplied Path.
     };
   }
 }

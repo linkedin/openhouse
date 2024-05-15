@@ -7,7 +7,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 
 import com.google.common.collect.ImmutableList;
 import com.jayway.jsonpath.JsonPath;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -61,7 +61,7 @@ public class SnapshotsControllerTest {
 
   @Autowired MockMvc mvc;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   /** For now starting with a naive object feeder. */
   private static Stream<GetTableResponseBody> responseBodyFeeder() {
@@ -79,11 +79,12 @@ public class SnapshotsControllerTest {
   @ParameterizedTest
   @MethodSource("responseBodyFeeder")
   public void testPutSnapshotsAppend(GetTableResponseBody getTableResponseBody) throws Exception {
-    String dataFilePath = fsStorageProvider.rootPath() + "/data.orc";
+    String dataFilePath =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data.orc";
 
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            getTableResponseBody, mvc, fsStorageProvider);
+            getTableResponseBody, mvc, storageManager);
     GetTableResponseBody getResponseBody = buildGetTableResponseBody(createResult);
     IcebergSnapshotsRequestBody icebergSnapshotRequestBody =
         preparePutSnapshotsWithAppendRequest(
@@ -102,7 +103,7 @@ public class SnapshotsControllerTest {
       throws Exception {
     MvcResult stagedResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            getTableResponseBody, mvc, fsStorageProvider, true);
+            getTableResponseBody, mvc, storageManager, true);
 
     String beforeUUID =
         JsonPath.read(stagedResult.getResponse().getContentAsString(), "$.tableUUID");
@@ -139,11 +140,13 @@ public class SnapshotsControllerTest {
   @ParameterizedTest
   @MethodSource("responseBodyFeeder")
   public void testPutSnapshotsDelete(GetTableResponseBody getTableResponseBody) throws Exception {
-    String dataFilePath1 = fsStorageProvider.rootPath() + "/data1.orc";
-    String dataFilePath2 = fsStorageProvider.rootPath() + "/data2.orc";
+    String dataFilePath1 =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data1.orc";
+    String dataFilePath2 =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data2.orc";
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            getTableResponseBody, mvc, fsStorageProvider);
+            getTableResponseBody, mvc, storageManager);
     GetTableResponseBody getResponseBody = buildGetTableResponseBody(createResult);
 
     // append once
@@ -189,11 +192,13 @@ public class SnapshotsControllerTest {
   @MethodSource("responseBodyFeeder")
   public void testPutSnapshotsAppendMultiple(GetTableResponseBody getTableResponseBody)
       throws Exception {
-    String dataFilePath1 = fsStorageProvider.rootPath() + "/data1.orc";
-    String dataFilePath2 = fsStorageProvider.rootPath() + "/data2.orc";
+    String dataFilePath1 =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data1.orc";
+    String dataFilePath2 =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data2.orc";
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            getTableResponseBody, mvc, fsStorageProvider);
+            getTableResponseBody, mvc, storageManager);
     GetTableResponseBody getResponseBody = buildGetTableResponseBody(createResult);
 
     // get old and new snapshots
@@ -227,8 +232,10 @@ public class SnapshotsControllerTest {
   @MethodSource("responseBodyFeeder")
   public void testPutSnapshotsReplicaTableType(GetTableResponseBody getTableResponseBody)
       throws Exception {
-    String dataFilePath1 = fsStorageProvider.rootPath() + "/data1.orc";
-    String dataFilePath2 = fsStorageProvider.rootPath() + "/data2.orc";
+    String dataFilePath1 =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data1.orc";
+    String dataFilePath2 =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data2.orc";
     Map<String, String> propsMap = new HashMap<>();
     propsMap.put("openhouse.tableUUID", "cee3c6a3-a824-443a-832a-d4a1271e1e3e");
     propsMap.put("openhouse.databaseId", getTableResponseBody.getDatabaseId());
@@ -242,7 +249,7 @@ public class SnapshotsControllerTest {
                 .tableProperties(propsMap)
                 .build(),
             mvc,
-            fsStorageProvider);
+            storageManager);
     GetTableResponseBody getResponseBody = buildGetTableResponseBody(createResult);
 
     // get old and new snapshots
@@ -296,7 +303,7 @@ public class SnapshotsControllerTest {
   @SneakyThrows
   private String getValidSnapshot(GetTableResponseBody getTableResponseBody) {
     openHouseInternalRepository.save(buildTableDto(getTableResponseBody));
-    String dataPath = fsStorageProvider.rootPath() + "/data.orc";
+    String dataPath = storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data.orc";
     DataFile dataFile = createDummyDataFile(dataPath, getPartitionSpec(getTableResponseBody));
     TableIdentifier tableIdentifier =
         TableIdentifier.of(getTableResponseBody.getDatabaseId(), getTableResponseBody.getTableId());

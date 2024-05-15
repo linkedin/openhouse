@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.internal.catalog;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOConfig;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import java.io.IOException;
@@ -32,8 +31,6 @@ public class MockApplication {
   @MockBean FileIOManager fileIOManager;
 
   @MockBean FileIOConfig fileIOConfig;
-
-  @MockBean FsStorageProvider fsStorageProvider;
 
   static final FsPermission perm = new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE);
 

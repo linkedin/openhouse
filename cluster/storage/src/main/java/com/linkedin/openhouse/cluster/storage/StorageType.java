@@ -3,6 +3,7 @@ package com.linkedin.openhouse.cluster.storage;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.ToString;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,6 +19,7 @@ public class StorageType {
 
   @AllArgsConstructor
   @EqualsAndHashCode
+  @ToString(includeFieldNames = false)
   @Getter
   public static class Type {
     private String value;

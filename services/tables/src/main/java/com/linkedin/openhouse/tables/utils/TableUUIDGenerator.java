@@ -3,7 +3,8 @@ package com.linkedin.openhouse.tables.utils;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -34,7 +36,7 @@ public class TableUUIDGenerator {
   private static final String DB_RAW_KEY = "databaseId";
   private static final String TBL_RAW_KEY = "tableId";
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   /**
    * Public api to generate UUID for a {@link CreateUpdateTableRequestBody}
@@ -143,7 +145,7 @@ public class TableUUIDGenerator {
 
     java.nio.file.Path previousPath =
         InternalRepositoryUtils.constructTablePath(
-            fsStorageProvider, dbIdFromProps, tblIdFromProps, tableUUIDProperty);
+            storageManager, dbIdFromProps, tblIdFromProps, tableUUIDProperty);
     if (TableType.REPLICA_TABLE != tableType && !doesPathExist(previousPath)) {
       log.error("Previous tableLocation: {} doesn't exist", previousPath);
       throw new RequestValidationFailureException(
@@ -189,7 +191,8 @@ public class TableUUIDGenerator {
     }
     String manifestListKey = "manifest-list";
     java.nio.file.Path manifestListPath;
-    java.nio.file.Path databaseDirPath = Paths.get(fsStorageProvider.rootPath(), databaseId);
+    java.nio.file.Path databaseDirPath =
+        Paths.get(storageManager.getDefaultStorage().getClient().getRootPrefix(), databaseId);
 
     try {
       manifestListPath =
@@ -261,7 +264,18 @@ public class TableUUIDGenerator {
    */
   private boolean doesPathExist(java.nio.file.Path tableDirPath) {
     try {
-      return fsStorageProvider.storageClient().exists(new Path(tableDirPath.toString()));
+      // TODO: Refactor client interaction to use high-level Storage API such as
+      // StorageManager::doesObjectExist
+      if (storageManager.getDefaultStorage().getType().equals(StorageType.HDFS)
+          || storageManager.getDefaultStorage().getType().equals(StorageType.LOCAL)) {
+        FileSystem fs =
+            (FileSystem) storageManager.getDefaultStorage().getClient().getNativeClient();
+        return fs.exists(new Path(tableDirPath.toString()));
+      } else {
+        throw new UnsupportedOperationException(
+            "Unsupported storage type for checking path existence: "
+                + storageManager.getDefaultStorage().getType());
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

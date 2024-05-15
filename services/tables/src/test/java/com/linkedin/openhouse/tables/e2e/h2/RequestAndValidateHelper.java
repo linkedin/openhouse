@@ -15,7 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.jayway.jsonpath.JsonPath;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -61,7 +61,7 @@ public class RequestAndValidateHelper {
 
   static void updateTableAndValidateResponse(
       MockMvc mvc,
-      FsStorageProvider fsStorageProvider,
+      StorageManager storageManager,
       GetTableResponseBody getTableResponseBody,
       String previousTableLocation,
       boolean trueUpdate)
@@ -92,7 +92,8 @@ public class RequestAndValidateHelper {
     ValidationUtilities.validateUUID(mvcResult, getTableResponseBody.getTableUUID());
     ValidationUtilities.validateSchema(mvcResult, getTableResponseBody.getSchema());
     validateWritableTableProperties(mvcResult, getTableResponseBody.getTableProperties());
-    ValidationUtilities.validateLocation(mvcResult, fsStorageProvider.rootPath());
+    ValidationUtilities.validateLocation(
+        mvcResult, storageManager.getDefaultStorage().getClient().getRootPrefix());
 
     ValidationUtilities.validateTimestamp(
         mvcResult,
@@ -103,12 +104,12 @@ public class RequestAndValidateHelper {
 
   static void updateTableAndValidateResponse(
       MockMvc mvc,
-      FsStorageProvider fsStorageProvider,
+      StorageManager storageManager,
       GetTableResponseBody getTableResponseBody,
       String previousTableLocation)
       throws Exception {
     updateTableAndValidateResponse(
-        mvc, fsStorageProvider, getTableResponseBody, previousTableLocation, true);
+        mvc, storageManager, getTableResponseBody, previousTableLocation, true);
   }
 
   /**
@@ -172,17 +173,15 @@ public class RequestAndValidateHelper {
   }
 
   static MvcResult createTableAndValidateResponse(
-      GetTableResponseBody getTableResponseBody,
-      MockMvc mockMvc,
-      FsStorageProvider fsStorageProvider)
+      GetTableResponseBody getTableResponseBody, MockMvc mockMvc, StorageManager storageManager)
       throws Exception {
-    return createTableAndValidateResponse(getTableResponseBody, mockMvc, fsStorageProvider, false);
+    return createTableAndValidateResponse(getTableResponseBody, mockMvc, storageManager, false);
   }
 
   static MvcResult createTableAndValidateResponse(
       GetTableResponseBody getTableResponseBody,
       MockMvc mockMvc,
-      FsStorageProvider fsStorageProvider,
+      StorageManager storageManager,
       boolean stageCreate)
       throws Exception {
     MvcResult result =
@@ -222,7 +221,8 @@ public class RequestAndValidateHelper {
     ValidationUtilities.validateSchema(result, getTableResponseBody.getSchema());
     validateWritableTableProperties(result, getTableResponseBody.getTableProperties());
     ValidationUtilities.validatePolicies(result, getTableResponseBody.getPolicies());
-    ValidationUtilities.validateLocation(result, fsStorageProvider.rootPath());
+    ValidationUtilities.validateLocation(
+        result, storageManager.getDefaultStorage().getClient().getRootPrefix());
     Assertions.assertTrue(
         (Long) JsonPath.read(result.getResponse().getContentAsString(), "$.creationTime") > 0);
     // Return result if validation all passed.
