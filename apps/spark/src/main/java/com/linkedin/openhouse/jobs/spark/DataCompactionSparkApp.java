@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.datalayout.layoutselection.DataCompactionLayout;
 import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
@@ -10,6 +13,7 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.actions.RewriteDataFiles;
 
@@ -33,6 +37,15 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
   @Override
   protected void runInner(Operations ops) {
     log.info("Rewrite data files app start for table {}, config {}", fqtn, config);
+    Gson gson = new GsonBuilder().create();
+    String serializedLayout =
+        ops.spark()
+            .sql(String.format("SHOW TBLPROPERTIES %s ('data-layout')", fqtn))
+            .collectAsList()
+            .get(0)
+            .getString(1);
+    DataCompactionLayout dataCompactionLayout =
+        gson.fromJson(StringEscapeUtils.unescapeJava(serializedLayout), DataCompactionLayout.class);
     RewriteDataFiles.Result result =
         ops.rewriteDataFiles(
             ops.getTable(fqtn),
@@ -127,6 +140,8 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             "partialProgressMaxCommits",
             true,
             "Maximum amount of commits that this rewrite is allowed to produce if partial progress is enabled"));
+    extraOptions.add(
+        new Option(null, "entropyThreshold", true, "Entropy threshold for file rewrite"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     long targetByteSize =
         NumberUtils.toLong(
@@ -146,6 +161,10 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     if (maxByteSizeRatio <= 1.0) {
       throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
     }
+    double entropyThreshold =
+        NumberUtils.toDouble(
+            cmdLine.getOptionValue("entropyThreshold"),
+            DataCompactionConfig.DEFAULT_ENTROPY_THRESHOLD);
     return new DataCompactionSparkApp(
         getJobId(cmdLine),
         createStateManager(cmdLine),
@@ -168,6 +187,7 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
                     cmdLine.getOptionValue("partialProgressMaxCommits"),
                     com.linkedin.openhouse.jobs.config.DataCompactionConfig
                         .DEFAULT_PARTIAL_PROGRESS_MAX_COMMITS))
+            .entropyThreshold(entropyThreshold)
             .build());
   }
 }

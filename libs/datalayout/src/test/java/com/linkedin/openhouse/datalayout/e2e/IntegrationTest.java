@@ -5,7 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.datalayout.datasource.FileStat;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.detection.DataCompactionTrigger;
-import com.linkedin.openhouse.datalayout.detection.FileEntropyPolicy;
+import com.linkedin.openhouse.datalayout.detection.FileEntropyTrigger;
 import com.linkedin.openhouse.datalayout.layoutselection.DataCompactionLayout;
 import com.linkedin.openhouse.datalayout.layoutselection.OpenHouseLayoutSelectionPolicy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
@@ -59,7 +59,7 @@ public class IntegrationTest extends OpenHouseSparkITest {
               .targetSizeBytes(DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT)
               .build();
       DataCompactionTrigger<FileStat, DataCompactionLayout, TableFileStats> trigger =
-          FileEntropyPolicy.builder()
+          FileEntropyTrigger.builder()
               .targetLayout(compactionLayout)
               .tableFileStats(tableFileStats)
               .threshold(100.0)

@@ -706,12 +706,12 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   private static List<String> getSnapshotOperationTypes(Operations ops, String tableName) {
     log.info("Getting snapshot Operations");
-    List<Row> ordered_snapshots =
+    List<Row> orderedSnapshots =
         ops.spark()
             .sql(String.format("SELECT * FROM %s.snapshots order by committed_at desc", tableName))
             .collectAsList();
-    ordered_snapshots.forEach(s -> log.info(s.toString()));
-    return ordered_snapshots.stream()
+    orderedSnapshots.forEach(s -> log.info(s.toString()));
+    return orderedSnapshots.stream()
         .map(r -> r.getString(r.fieldIndex("operation")))
         .collect(Collectors.toList());
   }

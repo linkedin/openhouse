@@ -1,9 +1,17 @@
 package com.linkedin.openhouse.datalayout.datasource;
 
-import java.util.Map;
+import org.apache.spark.api.java.function.MapFunction;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 
-public class ColumnStats {
-  // TODO: Implement, this class needs to compute/retrieve column access frequencies.
+public abstract class ColumnStats implements DataSource<ColumnStat> {
+  @Override
+  public abstract Dataset<ColumnStat> get();
 
-  public Map<String, Integer> computeColumnFrequencies();
+  static class ColumnStatMapper implements MapFunction<Row, ColumnStat> {
+    @Override
+    public ColumnStat call(Row row) {
+      return ColumnStat.builder().name(row.getString(0)).accessCount(row.getLong(1)).build();
+    }
+  }
 }

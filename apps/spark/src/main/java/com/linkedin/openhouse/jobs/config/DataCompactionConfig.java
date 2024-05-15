@@ -22,6 +22,7 @@ public final class DataCompactionConfig {
       RewriteDataFiles.MAX_CONCURRENT_FILE_GROUP_REWRITES_DEFAULT;
   public static final int DEFAULT_PARTIAL_PROGRESS_MAX_COMMITS =
       RewriteDataFiles.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT;
+  public static final double DEFAULT_ENTROPY_THRESHOLD = 10000.0; // 100MB variance
 
   private long targetByteSize;
   private long minByteSize;
@@ -30,4 +31,5 @@ public final class DataCompactionConfig {
   private int maxConcurrentFileGroupRewrites;
   private boolean partialProgressEnabled;
   private int partialProgressMaxCommits;
+  private double entropyThreshold;
 }

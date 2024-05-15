@@ -13,7 +13,7 @@ import org.apache.spark.sql.Encoders;
  * if a threshold is exceeded.
  */
 @Builder
-public class FileEntropyPolicy
+public class FileEntropyTrigger
     implements DataCompactionTrigger<FileStat, DataCompactionLayout, TableFileStats> {
   private final DataCompactionLayout targetLayout;
   private final TableFileStats tableFileStats;
@@ -36,7 +36,7 @@ public class FileEntropyPolicy
             .get()
             .map(
                 (MapFunction<FileStat, Double>)
-                    fs -> Math.pow((double) fs.getSize() - targetFileSize, 2.0),
+                    fs -> Math.pow(((double) fs.getSize() - targetFileSize) / 1000000.0, 2.0),
                 Encoders.DOUBLE())
             .reduce((ReduceFunction<Double>) Double::sum)
         / numFiles;
