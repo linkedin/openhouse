@@ -79,7 +79,7 @@ public class TablesServiceTest {
     Path expectedPath =
         Paths.get(
             "file:",
-            storageManager.getDefaultStorage().getClient().getRootPath(),
+            storageManager.getDefaultStorage().getClient().getRootPrefix(),
             actual.getDatabaseId(),
             actual.getTableId() + "-" + actual.getTableUUID());
     Assertions.assertTrue(actual.getTableLocation().startsWith(expectedPath.toString()));

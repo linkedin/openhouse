@@ -93,7 +93,7 @@ public class RequestAndValidateHelper {
     ValidationUtilities.validateSchema(mvcResult, getTableResponseBody.getSchema());
     validateWritableTableProperties(mvcResult, getTableResponseBody.getTableProperties());
     ValidationUtilities.validateLocation(
-        mvcResult, storageManager.getDefaultStorage().getClient().getRootPath());
+        mvcResult, storageManager.getDefaultStorage().getClient().getRootPrefix());
 
     ValidationUtilities.validateTimestamp(
         mvcResult,
@@ -222,7 +222,7 @@ public class RequestAndValidateHelper {
     validateWritableTableProperties(result, getTableResponseBody.getTableProperties());
     ValidationUtilities.validatePolicies(result, getTableResponseBody.getPolicies());
     ValidationUtilities.validateLocation(
-        result, storageManager.getDefaultStorage().getClient().getRootPath());
+        result, storageManager.getDefaultStorage().getClient().getRootPrefix());
     Assertions.assertTrue(
         (Long) JsonPath.read(result.getResponse().getContentAsString(), "$.creationTime") > 0);
     // Return result if validation all passed.

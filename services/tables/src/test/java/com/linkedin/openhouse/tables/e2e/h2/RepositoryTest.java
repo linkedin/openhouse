@@ -641,7 +641,7 @@ public class RepositoryTest {
     Path path =
         Paths.get(
             "file:",
-            storageManager.getDefaultStorage().getClient().getRootPath(),
+            storageManager.getDefaultStorage().getClient().getRootPrefix(),
             table.getDatabaseId(),
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertEquals(TABLE_DTO.getTimePartitioning(), table.getTimePartitioning());
@@ -656,7 +656,7 @@ public class RepositoryTest {
     Assertions.assertEquals(TABLE_DTO.getTableUri(), table.getTableUri());
     Path path =
         Paths.get(
-            storageManager.getDefaultStorage().getClient().getRootPath(),
+            storageManager.getDefaultStorage().getClient().getRootPrefix(),
             table.getDatabaseId(),
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));

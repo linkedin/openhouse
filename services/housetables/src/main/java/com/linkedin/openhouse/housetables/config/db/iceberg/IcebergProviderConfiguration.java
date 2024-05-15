@@ -45,7 +45,7 @@ public class IcebergProviderConfiguration {
         HTS_CATALOG_NAME,
         Collections.singletonMap(
             CatalogProperties.WAREHOUSE_LOCATION,
-            Paths.get(storageManager.getDefaultStorage().getClient().getRootPath()).toString()));
+            Paths.get(storageManager.getDefaultStorage().getClient().getRootPrefix()).toString()));
     return catalog;
   }
 

@@ -39,7 +39,7 @@ public final class InternalRepositoryUtils {
     // TODO: Default storage is used here. Support for non-default storage type per table needs to
     // be added.
     return Paths.get(
-        storageManager.getDefaultStorage().getClient().getRootPath(),
+        storageManager.getDefaultStorage().getClient().getRootPrefix(),
         databaseID,
         tableId + "-" + tableUUID);
   }

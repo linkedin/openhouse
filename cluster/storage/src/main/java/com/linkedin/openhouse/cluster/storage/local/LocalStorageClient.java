@@ -92,7 +92,7 @@ public class LocalStorageClient implements StorageClient<FileSystem> {
   }
 
   @Override
-  public String getRootPath() {
+  public String getRootPrefix() {
     return rootPath;
   }
 }

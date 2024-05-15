@@ -31,12 +31,13 @@ public interface StorageClient<T> {
   String getEndpoint();
 
   /**
-   * Get the root path for OpenHouse on the storage system.
+   * Get the root prefix for OpenHouse on the storage system.
    *
-   * <p>Example: For HDFS, the root path could be "/data/openhouse". For local file system, the root
-   * path could be "/tmp". For S3, the root path could be "/bucket-name".
+   * <p>Root prefix should include the bucket-name plus any additional path components. Example: For
+   * HDFS, the root path could be "/data/openhouse". For local file system, the root path could be
+   * "/tmp". For S3, the root path could be "/bucket-name/key/prefix/to/openhouse".
    *
-   * @return the root path for OpenHouse on the storage system
+   * @return the root prefix for OpenHouse on the storage system
    */
-  String getRootPath();
+  String getRootPrefix();
 }

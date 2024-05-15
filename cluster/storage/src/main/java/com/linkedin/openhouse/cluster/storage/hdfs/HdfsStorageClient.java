@@ -70,7 +70,7 @@ public class HdfsStorageClient implements StorageClient<FileSystem> {
   }
 
   @Override
-  public String getRootPath() {
+  public String getRootPrefix() {
     return storageProperties.getTypes().get(HDFS_TYPE.getValue()).getRootPath();
   }
 }

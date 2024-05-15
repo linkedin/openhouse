@@ -192,7 +192,7 @@ public class TableUUIDGenerator {
     String manifestListKey = "manifest-list";
     java.nio.file.Path manifestListPath;
     java.nio.file.Path databaseDirPath =
-        Paths.get(storageManager.getDefaultStorage().getClient().getRootPath(), databaseId);
+        Paths.get(storageManager.getDefaultStorage().getClient().getRootPrefix(), databaseId);
 
     try {
       manifestListPath =

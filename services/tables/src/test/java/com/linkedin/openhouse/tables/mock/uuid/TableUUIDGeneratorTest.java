@@ -199,7 +199,7 @@ public class TableUUIDGeneratorTest {
                     .jsonSnapshots(
                         Collections.singletonList(
                             getIcebergSnapshot(
-                                storageManager.getDefaultStorage().getClient().getRootPath()
+                                storageManager.getDefaultStorage().getClient().getRootPrefix()
                                     + "/db")))
                     .build()));
   }
@@ -223,7 +223,7 @@ public class TableUUIDGeneratorTest {
                         .jsonSnapshots(
                             Collections.singletonList(
                                 getIcebergSnapshot(
-                                    storageManager.getDefaultStorage().getClient().getRootPath()
+                                    storageManager.getDefaultStorage().getClient().getRootPrefix()
                                         + "/db/t-NOTUUID/maniffest-list")))
                         .build()));
     Assertions.assertTrue(exception.getMessage().contains("contains invalid UUID"));

@@ -80,7 +80,7 @@ public class SnapshotsControllerTest {
   @MethodSource("responseBodyFeeder")
   public void testPutSnapshotsAppend(GetTableResponseBody getTableResponseBody) throws Exception {
     String dataFilePath =
-        storageManager.getDefaultStorage().getClient().getRootPath() + "/data.orc";
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data.orc";
 
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
@@ -141,9 +141,9 @@ public class SnapshotsControllerTest {
   @MethodSource("responseBodyFeeder")
   public void testPutSnapshotsDelete(GetTableResponseBody getTableResponseBody) throws Exception {
     String dataFilePath1 =
-        storageManager.getDefaultStorage().getClient().getRootPath() + "/data1.orc";
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data1.orc";
     String dataFilePath2 =
-        storageManager.getDefaultStorage().getClient().getRootPath() + "/data2.orc";
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data2.orc";
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
             getTableResponseBody, mvc, storageManager);
@@ -193,9 +193,9 @@ public class SnapshotsControllerTest {
   public void testPutSnapshotsAppendMultiple(GetTableResponseBody getTableResponseBody)
       throws Exception {
     String dataFilePath1 =
-        storageManager.getDefaultStorage().getClient().getRootPath() + "/data1.orc";
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data1.orc";
     String dataFilePath2 =
-        storageManager.getDefaultStorage().getClient().getRootPath() + "/data2.orc";
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data2.orc";
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
             getTableResponseBody, mvc, storageManager);
@@ -233,9 +233,9 @@ public class SnapshotsControllerTest {
   public void testPutSnapshotsReplicaTableType(GetTableResponseBody getTableResponseBody)
       throws Exception {
     String dataFilePath1 =
-        storageManager.getDefaultStorage().getClient().getRootPath() + "/data1.orc";
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data1.orc";
     String dataFilePath2 =
-        storageManager.getDefaultStorage().getClient().getRootPath() + "/data2.orc";
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data2.orc";
     Map<String, String> propsMap = new HashMap<>();
     propsMap.put("openhouse.tableUUID", "cee3c6a3-a824-443a-832a-d4a1271e1e3e");
     propsMap.put("openhouse.databaseId", getTableResponseBody.getDatabaseId());
@@ -303,7 +303,7 @@ public class SnapshotsControllerTest {
   @SneakyThrows
   private String getValidSnapshot(GetTableResponseBody getTableResponseBody) {
     openHouseInternalRepository.save(buildTableDto(getTableResponseBody));
-    String dataPath = storageManager.getDefaultStorage().getClient().getRootPath() + "/data.orc";
+    String dataPath = storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data.orc";
     DataFile dataFile = createDummyDataFile(dataPath, getPartitionSpec(getTableResponseBody));
     TableIdentifier tableIdentifier =
         TableIdentifier.of(getTableResponseBody.getDatabaseId(), getTableResponseBody.getTableId());
