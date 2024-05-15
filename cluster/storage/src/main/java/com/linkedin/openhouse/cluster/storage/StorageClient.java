@@ -34,8 +34,8 @@ public interface StorageClient<T> {
    * Get the root prefix for OpenHouse on the storage system.
    *
    * <p>Root prefix should include the bucket-name plus any additional path components. Example: For
-   * HDFS, the root prefix could be "/data/openhouse". For local file system, the root prefix could be
-   * "/tmp". For S3, the root prefix could be "/bucket-name/key/prefix/to/openhouse".
+   * HDFS, the root prefix could be "/data/openhouse". For local file system, the root prefix could
+   * be "/tmp". For S3, the root prefix could be "/bucket-name/key/prefix/to/openhouse".
    *
    * @return the root prefix for OpenHouse on the storage system
    */
