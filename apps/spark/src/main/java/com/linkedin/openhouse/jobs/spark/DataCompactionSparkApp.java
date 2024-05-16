@@ -2,7 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.linkedin.openhouse.datalayout.layoutselection.DataCompactionLayout;
+import com.linkedin.openhouse.datalayout.layoutselection.DataOptimizationLayout;
 import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
@@ -44,8 +44,9 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             .collectAsList()
             .get(0)
             .getString(1);
-    DataCompactionLayout dataCompactionLayout =
-        gson.fromJson(StringEscapeUtils.unescapeJava(serializedLayout), DataCompactionLayout.class);
+    DataOptimizationLayout dataCompactionLayout =
+        gson.fromJson(
+            StringEscapeUtils.unescapeJava(serializedLayout), DataOptimizationLayout.class);
     RewriteDataFiles.Result result =
         ops.rewriteDataFiles(
             ops.getTable(fqtn),

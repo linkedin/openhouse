@@ -2,13 +2,18 @@ package com.linkedin.openhouse.datalayout.e2e;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
+import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.datasource.FileStat;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.detection.DataCompactionTrigger;
 import com.linkedin.openhouse.datalayout.detection.FileEntropyTrigger;
-import com.linkedin.openhouse.datalayout.layoutselection.DataCompactionLayout;
+import com.linkedin.openhouse.datalayout.layoutselection.DataOptimizationLayout;
 import com.linkedin.openhouse.datalayout.layoutselection.OpenHouseLayoutSelectionPolicy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.lang.reflect.Type;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
@@ -24,11 +29,11 @@ public class IntegrationTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       OpenHouseLayoutSelectionPolicy layoutSelectionPolicy =
           OpenHouseLayoutSelectionPolicy.builder().tableFileStats(tableFileStats).build();
-      DataCompactionLayout compactionLayout = layoutSelectionPolicy.evaluate();
-      Assertions.assertEquals(
-          DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT, compactionLayout.getTargetSizeBytes());
+      List<DataOptimizationLayout> compactionLayouts = layoutSelectionPolicy.evaluate();
+      Assertions.assertEquals(526385152, compactionLayouts.get(0).getConfig().getTargetByteSize());
       Gson gson = new GsonBuilder().create();
-      String serializedLayout = gson.toJson(compactionLayout);
+      Type type = new TypeToken<ArrayList<DataOptimizationLayout>>() {}.getType();
+      String serializedLayout = gson.toJson(compactionLayouts, type);
       spark.sql(
           String.format(
               "alter table %s set tblproperties ('data-layout' = '%s')",
@@ -39,11 +44,8 @@ public class IntegrationTest extends OpenHouseSparkITest {
               .collectAsList()
               .get(0)
               .getString(1);
-      compactionLayout =
-          gson.fromJson(
-              StringEscapeUtils.unescapeJava(serializedLayout), DataCompactionLayout.class);
-      Assertions.assertEquals(
-          DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT, compactionLayout.getTargetSizeBytes());
+      compactionLayouts = gson.fromJson(StringEscapeUtils.unescapeJava(serializedLayout), type);
+      Assertions.assertEquals(526385152, compactionLayouts.get(0).getConfig().getTargetByteSize());
     }
   }
 
@@ -54,11 +56,9 @@ public class IntegrationTest extends OpenHouseSparkITest {
       createTestTable(spark, testTable, 10);
       TableFileStats tableFileStats =
           TableFileStats.builder().tableName(testTable).spark(spark).build();
-      DataCompactionLayout compactionLayout =
-          DataCompactionLayout.builder()
-              .targetSizeBytes(DataCompactionLayout.TARGET_SIZE_BYTES_DEFAULT)
-              .build();
-      DataCompactionTrigger<FileStat, DataCompactionLayout, TableFileStats> trigger =
+      DataOptimizationLayout compactionLayout =
+          DataOptimizationLayout.builder().config(DataCompactionConfig.builder().build()).build();
+      DataCompactionTrigger<FileStat, DataOptimizationLayout, TableFileStats> trigger =
           FileEntropyTrigger.builder()
               .targetLayout(compactionLayout)
               .tableFileStats(tableFileStats)

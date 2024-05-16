@@ -2,7 +2,7 @@ package com.linkedin.openhouse.datalayout.detection;
 
 import com.linkedin.openhouse.datalayout.datasource.FileStat;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
-import com.linkedin.openhouse.datalayout.layoutselection.DataCompactionLayout;
+import com.linkedin.openhouse.datalayout.layoutselection.DataOptimizationLayout;
 import lombok.Builder;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.ReduceFunction;
@@ -14,15 +14,15 @@ import org.apache.spark.sql.Encoders;
  */
 @Builder
 public class FileEntropyTrigger
-    implements DataCompactionTrigger<FileStat, DataCompactionLayout, TableFileStats> {
-  private final DataCompactionLayout targetLayout;
+    implements DataCompactionTrigger<FileStat, DataOptimizationLayout, TableFileStats> {
+  private final DataOptimizationLayout targetLayout;
   private final TableFileStats tableFileStats;
   private final double threshold;
 
   /** Compute the file entropy as the difference between the target and actual file size(s). */
   private double computeEntropy() {
     long numFiles = tableFileStats.get().count();
-    long targetFileSize = targetLayout.getTargetSizeBytes();
+    long targetFileSize = targetLayout.getConfig().getTargetByteSize();
     if (numFiles == 0) {
       throw new IllegalStateException("Table must contain at least one file.");
     }
