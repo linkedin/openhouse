@@ -19,10 +19,10 @@ import org.junit.jupiter.api.Test;
 
 public class DeleteStagedFilesTest extends OpenHouseSparkITest {
   static java.nio.file.Path baseDir = FileSystems.getDefault().getPath(".").toAbsolutePath();
-  static final String testDir = "oh_delete_test";
-  static final Path testPath = new Path(baseDir.toString(), testDir);
-  static final String dirPrefix = "dir_";
-  static final String filePrefix = "file_";
+  static final String TEST_DIR = "oh_delete_test";
+  static final Path TEST_PATH = new Path(baseDir.toString(), TEST_DIR);
+  static final String DIR_PREFIX = "dir_";
+  static final String FILE_PREFIX = "file_";
   private final Meter meter = OtelConfig.getMeter(this.getClass().getName());
 
   @BeforeEach
@@ -30,8 +30,8 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
   void cleanUpTestFiles() throws Exception {
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       FileSystem fs = ops.fs();
-      fs.delete(testPath, true);
-      Assertions.assertFalse(fs.exists(testPath));
+      fs.delete(TEST_PATH, true);
+      Assertions.assertFalse(fs.exists(TEST_PATH));
     }
   }
 
@@ -39,11 +39,11 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
   void testShouldDeleteFilesOlderThanXDaysInDir() throws Exception {
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       FileSystem fs = ops.fs();
-      generateDirStructure(fs, testPath.toString(), 3, 3);
-      SparkJobUtil.setModifiedTimeStamp(fs, new Path(testPath.toString(), "dir_2"), 4);
-      ops.deleteStagedFiles(testPath, 3, true);
-      Assertions.assertTrue(fs.exists(new Path(testPath + "/dir_0/" + "file_0")));
-      Assertions.assertFalse(fs.exists(new Path(testPath + "/dir_2/" + "file_0")));
+      generateDirStructure(fs, TEST_PATH.toString(), 3, 3);
+      SparkJobUtil.setModifiedTimeStamp(fs, new Path(TEST_PATH.toString(), "dir_2"), 4);
+      ops.deleteStagedFiles(TEST_PATH, 3, true);
+      Assertions.assertTrue(fs.exists(new Path(TEST_PATH + "/dir_0/" + "file_0")));
+      Assertions.assertFalse(fs.exists(new Path(TEST_PATH + "/dir_2/" + "file_0")));
     }
   }
 
@@ -51,14 +51,14 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
   void testShouldFindMatchingFilesRecursively() throws Exception {
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       FileSystem fs = ops.fs();
-      generateDirStructure(fs, testPath.toString(), 4, 2);
-      SparkJobUtil.setModifiedTimeStamp(fs, new Path(testPath.toString(), "dir_1"), 7);
-      SparkJobUtil.setModifiedTimeStamp(fs, new Path(testPath.toString(), "dir_3"), 7);
+      generateDirStructure(fs, TEST_PATH.toString(), 4, 2);
+      SparkJobUtil.setModifiedTimeStamp(fs, new Path(TEST_PATH.toString(), "dir_1"), 7);
+      SparkJobUtil.setModifiedTimeStamp(fs, new Path(TEST_PATH.toString(), "dir_3"), 7);
       Predicate<FileStatus> predicate =
           file ->
               file.getModificationTime() < System.currentTimeMillis() - TimeUnit.DAYS.toMillis(7);
       List<Path> matchingFiles = Lists.newArrayList();
-      ops.listFiles(testPath, predicate, true, matchingFiles);
+      ops.listFiles(TEST_PATH, predicate, true, matchingFiles);
       Assertions.assertEquals(4, matchingFiles.size());
     }
   }
@@ -67,10 +67,10 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
       throws IOException {
     fs.delete(new Path(startDir), true);
     for (int row = 0; row < depth; ++row) {
-      Path basePath = new Path(startDir, dirPrefix + row);
+      Path basePath = new Path(startDir, DIR_PREFIX + row);
       fs.mkdirs(basePath);
       for (int count = 0; count < filesAtEach; ++count) {
-        Path fp = new Path(basePath.toString(), filePrefix + count);
+        Path fp = new Path(basePath.toString(), FILE_PREFIX + count);
         fs.createNewFile(fp);
       }
     }

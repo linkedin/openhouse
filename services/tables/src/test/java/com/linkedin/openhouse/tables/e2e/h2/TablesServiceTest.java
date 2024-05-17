@@ -525,9 +525,9 @@ public class TablesServiceTest {
   @Test
   public void testTableTypePropertyOnTable() {
     // test if default tableType is used if tableType is not defined
-    TableDto TABLE_DTO_COPY = TABLE_DTO.toBuilder().tableType(null).build();
-    Assertions.assertNull(TABLE_DTO_COPY.getTableType());
-    TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO_COPY, null, true);
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().tableType(null).build();
+    Assertions.assertNull(tableDtoCopy.getTableType());
+    TableDto putResultCreate = verifyPutTableRequest(tableDtoCopy, null, true);
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.PRIMARY_TABLE);
     // Read Table
     verifyGetTableRequest(TABLE_DTO.toBuilder().tableType(TableType.PRIMARY_TABLE).build());
@@ -567,7 +567,7 @@ public class TablesServiceTest {
   @Test
   public void testReplicaTableCreationWithUUIDFromProperties() {
     UUID expectedUUID = UUID.randomUUID();
-    TableDto TABLE_DTO_COPY =
+    TableDto tableDtoCopy =
         TABLE_DTO
             .toBuilder()
             .tableProperties(
@@ -580,24 +580,24 @@ public class TablesServiceTest {
                     "db"))
             .tableType(TableType.REPLICA_TABLE)
             .build();
-    Assertions.assertEquals(TABLE_DTO_COPY.getTableType(), TableType.REPLICA_TABLE);
-    TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO_COPY, null, true);
+    Assertions.assertEquals(tableDtoCopy.getTableType(), TableType.REPLICA_TABLE);
+    TableDto putResultCreate = verifyPutTableRequest(tableDtoCopy, null, true);
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.REPLICA_TABLE);
     Assertions.assertEquals(putResultCreate.getTableUUID(), expectedUUID.toString());
     // Read Table
     Assertions.assertEquals(
         expectedUUID.toString(),
         tablesService
-            .getTable(TABLE_DTO_COPY.getDatabaseId(), TABLE_DTO_COPY.getTableId(), TEST_USER)
+            .getTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER)
             .getTableUUID());
-    tablesService.deleteTable(TABLE_DTO_COPY.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }
 
   /** Test that if tableType is REPLICA_TABLE only system admin can update the table. required. */
   @Test
   public void testReplicaTableUpdateAsNonSystemAdmin() {
     UUID expectedUUID = UUID.randomUUID();
-    TableDto TABLE_DTO_COPY =
+    TableDto tableDtoCopy =
         TABLE_DTO
             .toBuilder()
             .tableProperties(
@@ -610,15 +610,15 @@ public class TablesServiceTest {
                     TABLE_DTO.getDatabaseId()))
             .tableType(TableType.REPLICA_TABLE)
             .build();
-    Assertions.assertEquals(TABLE_DTO_COPY.getTableType(), TableType.REPLICA_TABLE);
-    TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO_COPY, null, true);
+    Assertions.assertEquals(tableDtoCopy.getTableType(), TableType.REPLICA_TABLE);
+    TableDto putResultCreate = verifyPutTableRequest(tableDtoCopy, null, true);
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.REPLICA_TABLE);
     Assertions.assertEquals(putResultCreate.getTableUUID(), expectedUUID.toString());
     // Read Table
     Assertions.assertEquals(
         expectedUUID.toString(),
         tablesService
-            .getTable(TABLE_DTO_COPY.getDatabaseId(), TABLE_DTO_COPY.getTableId(), TEST_USER)
+            .getTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER)
             .getTableUUID());
 
     Mockito.when(
@@ -629,19 +629,19 @@ public class TablesServiceTest {
         AccessDeniedException.class,
         () ->
             tablesService.deleteTable(
-                TABLE_DTO_COPY.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(true);
-    tablesService.deleteTable(TABLE_DTO_COPY.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }
 
   @Test
   public void testPrimaryTableUpdateAsNonSystemAdmin() {
-    TableDto TABLE_DTO_COPY = TABLE_DTO.toBuilder().build();
-    Assertions.assertEquals(TABLE_DTO_COPY.getTableType(), TableType.PRIMARY_TABLE);
-    TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO_COPY, null, true);
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    Assertions.assertEquals(tableDtoCopy.getTableType(), TableType.PRIMARY_TABLE);
+    TableDto putResultCreate = verifyPutTableRequest(tableDtoCopy, null, true);
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.PRIMARY_TABLE);
 
     Mockito.when(
@@ -651,6 +651,6 @@ public class TablesServiceTest {
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(
-                TABLE_DTO_COPY.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
   }
 }

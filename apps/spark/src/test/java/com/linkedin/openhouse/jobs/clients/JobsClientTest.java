@@ -23,12 +23,13 @@ import reactor.core.publisher.Mono;
 
 @SuppressWarnings("unchecked")
 public class JobsClientTest {
-  private static final String testClusterId = "test_cluster_id";
-  private static final String testJobName = "test_job";
-  private static final String testJobId = "test_job_id";
-  private static final String testProxyUser = "test_proxy_user";
-  private static final JobConf.JobTypeEnum testJobType = JobConf.JobTypeEnum.RETENTION;
-  private final JobsClientFactory clientFactory = new JobsClientFactory("base_path", testClusterId);
+  private static final String TEST_CLUSTER_ID = "test_cluster_id";
+  private static final String TEST_JOB_NAME = "test_job";
+  private static final String TEST_JOB_ID = "test_job_id";
+  private static final String TEST_PROXY_USER = "test_proxy_user";
+  private static final JobConf.JobTypeEnum TEST_JOB_TYPE = JobConf.JobTypeEnum.RETENTION;
+  private final JobsClientFactory clientFactory =
+      new JobsClientFactory("base_path", TEST_CLUSTER_ID);
   private JobApi apiMock;
   private JobsClient client;
 
@@ -44,7 +45,7 @@ public class JobsClientTest {
   void testLaunch() {
     // check success
     JobResponseBody responseBody = new JobResponseBody();
-    responseBody.setJobId(testJobId);
+    responseBody.setJobId(TEST_JOB_ID);
     Mono<JobResponseBody> responseMock = (Mono<JobResponseBody>) Mockito.mock(Mono.class);
     Mockito.when(responseMock.block(Mockito.any(Duration.class))).thenReturn(responseBody);
     Mockito.when(apiMock.createJob(Mockito.any(CreateJobRequestBody.class)))
@@ -52,14 +53,15 @@ public class JobsClientTest {
 
     List<String> testArgs = Arrays.asList("-t", "test_table");
     Assertions.assertEquals(
-        testJobId, client.launch(testJobName, testJobType, testProxyUser, testArgs).orElse(null));
+        TEST_JOB_ID,
+        client.launch(TEST_JOB_NAME, TEST_JOB_TYPE, TEST_PROXY_USER, testArgs).orElse(null));
 
     ArgumentCaptor<CreateJobRequestBody> argumentCaptor =
         ArgumentCaptor.forClass(CreateJobRequestBody.class);
     Mockito.verify(apiMock, Mockito.times(1)).createJob(argumentCaptor.capture());
     CreateJobRequestBody actualRequest = argumentCaptor.getValue();
-    Assertions.assertEquals(testClusterId, actualRequest.getClusterId());
-    Assertions.assertEquals(testJobName, actualRequest.getJobName());
+    Assertions.assertEquals(TEST_CLUSTER_ID, actualRequest.getClusterId());
+    Assertions.assertEquals(TEST_JOB_NAME, actualRequest.getJobName());
     Assertions.assertNotNull(actualRequest.getJobConf());
     Assertions.assertEquals(testArgs, actualRequest.getJobConf().getArgs());
     Assertions.assertEquals(JobConf.JobTypeEnum.RETENTION, actualRequest.getJobConf().getJobType());
@@ -69,7 +71,7 @@ public class JobsClientTest {
     Mockito.when(apiMock.createJob(Mockito.any(CreateJobRequestBody.class)))
         .thenReturn(responseMock);
     Assertions.assertFalse(
-        client.launch(testJobName, testJobType, testProxyUser, testArgs).isPresent());
+        client.launch(TEST_JOB_NAME, TEST_JOB_TYPE, TEST_PROXY_USER, testArgs).isPresent());
   }
 
   @Test
@@ -79,20 +81,20 @@ public class JobsClientTest {
     responseBody.setState(JobResponseBody.StateEnum.RUNNING);
     Mono<JobResponseBody> responseMock = (Mono<JobResponseBody>) Mockito.mock(Mono.class);
     Mockito.when(responseMock.block(Mockito.any(Duration.class))).thenReturn(responseBody);
-    Mockito.when(apiMock.getJob(testJobId)).thenReturn(responseMock);
-    Assertions.assertEquals(JobState.RUNNING, client.getState(testJobId).orElse(null));
+    Mockito.when(apiMock.getJob(TEST_JOB_ID)).thenReturn(responseMock);
+    Assertions.assertEquals(JobState.RUNNING, client.getState(TEST_JOB_ID).orElse(null));
 
     // check succeeded
     responseBody = new JobResponseBody();
     responseBody.setState(JobResponseBody.StateEnum.SUCCEEDED);
     Mockito.when(responseMock.block(Mockito.any(Duration.class))).thenReturn(responseBody);
-    Mockito.when(apiMock.getJob(testJobId)).thenReturn(responseMock);
-    Assertions.assertEquals(JobState.SUCCEEDED, client.getState(testJobId).orElse(null));
+    Mockito.when(apiMock.getJob(TEST_JOB_ID)).thenReturn(responseMock);
+    Assertions.assertEquals(JobState.SUCCEEDED, client.getState(TEST_JOB_ID).orElse(null));
 
     // check no response
     Mockito.when(responseMock.block(Mockito.any(Duration.class))).thenReturn(null);
-    Mockito.when(apiMock.getJob(testJobId)).thenReturn(responseMock);
-    Assertions.assertFalse(client.getState(testJobId).isPresent());
+    Mockito.when(apiMock.getJob(TEST_JOB_ID)).thenReturn(responseMock);
+    Assertions.assertFalse(client.getState(TEST_JOB_ID).isPresent());
   }
 
   @Test
@@ -100,11 +102,11 @@ public class JobsClientTest {
     // check success
     Mono<Void> responseMock = (Mono<Void>) Mockito.mock(Mono.class);
     Mockito.when(responseMock.block(Mockito.any(Duration.class))).thenReturn(null);
-    Mockito.when(apiMock.cancelJob(testJobId)).thenReturn(responseMock);
-    Assertions.assertTrue(client.cancelJob(testJobId));
+    Mockito.when(apiMock.cancelJob(TEST_JOB_ID)).thenReturn(responseMock);
+    Assertions.assertTrue(client.cancelJob(TEST_JOB_ID));
 
     // check failure
-    Mockito.when(apiMock.cancelJob(testJobId)).thenThrow(WebClientResponseException.class);
-    Assertions.assertFalse(client.cancelJob(testJobId));
+    Mockito.when(apiMock.cancelJob(TEST_JOB_ID)).thenThrow(WebClientResponseException.class);
+    Assertions.assertFalse(client.cancelJob(TEST_JOB_ID));
   }
 }

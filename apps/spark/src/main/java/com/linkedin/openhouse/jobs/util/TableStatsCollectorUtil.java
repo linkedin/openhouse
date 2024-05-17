@@ -227,7 +227,9 @@ public final class TableStatsCollectorUtil {
   }
 
   private static long getSumOfFileSizeBytes(Dataset<Row> allDataFiles) {
-    if (allDataFiles.isEmpty()) return 0;
+    if (allDataFiles.isEmpty()) {
+      return 0;
+    }
 
     return allDataFiles
         .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))

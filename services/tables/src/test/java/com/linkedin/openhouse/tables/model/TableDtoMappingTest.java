@@ -57,7 +57,7 @@ public class TableDtoMappingTest {
 
     Map<String, String> convertedMap = tableDto.convertToMap();
 
-    Set<String> DTO_FIELD_NAMES =
+    Set<String> dtoFieldNames =
         Arrays.stream(TableDto.class.getDeclaredFields())
             .filter(
                 field ->
@@ -73,6 +73,6 @@ public class TableDtoMappingTest {
     Assertions.assertEquals(
         Sets.intersection(combinedNonMappedKeys, convertedMap.keySet()).size(), 0);
     Assertions.assertEquals(
-        Sets.union(combinedNonMappedKeys, convertedMap.keySet()), DTO_FIELD_NAMES);
+        Sets.union(combinedNonMappedKeys, convertedMap.keySet()), dtoFieldNames);
   }
 }

@@ -10,20 +10,20 @@ import com.linkedin.openhouse.tables.mock.RequestConstants;
 import org.springframework.http.HttpMethod;
 
 public class ServiceAuditModelConstants {
-  private static final String clusterName = "local-cluster";
-  private static final String mockUser = "DUMMY_ANONYMOUS_USER";
-  private static final String endtoEndUser = "testUser";
-  private static final String errorMessage = "User table %s.%s cannot be found";
+  private static final String CLUSTER_NAME = "local-cluster";
+  private static final String MOCK_USER = "DUMMY_ANONYMOUS_USER";
+  private static final String END_TO_END_USER = "testUser";
+  private static final String ERROR_MESSAGE = "User table %s.%s cannot be found";
 
-  public static final String[] excludeFields =
+  public static final String[] EXCLUDE_FIELDS =
       new String[] {"startTimestamp", "endTimestamp", "stacktrace", "cause"};
 
   public static final ServiceAuditEvent SERVICE_AUDIT_EVENT_CREATE_TABLE_SUCCESS =
       ServiceAuditEvent.builder()
           .serviceName(ServiceName.TABLES_SERVICE)
           .statusCode(201)
-          .clusterName(clusterName)
-          .user(mockUser)
+          .clusterName(CLUSTER_NAME)
+          .user(MOCK_USER)
           .uri(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
           .method(HttpMethod.POST)
           .requestPayload(
@@ -34,21 +34,21 @@ public class ServiceAuditModelConstants {
       ServiceAuditEvent.builder()
           .serviceName(ServiceName.TABLES_SERVICE)
           .statusCode(404)
-          .clusterName(clusterName)
-          .user(mockUser)
+          .clusterName(CLUSTER_NAME)
+          .user(MOCK_USER)
           .uri(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables")
           .method(HttpMethod.POST)
           .requestPayload(
               JsonParser.parseString(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY.toJson()))
-          .responseErrorMessage(String.format(errorMessage, "d404", "tb1"))
+          .responseErrorMessage(String.format(ERROR_MESSAGE, "d404", "tb1"))
           .build();
 
   public static final ServiceAuditEvent SERVICE_AUDIT_EVENT_RUNTIME_EXCEPTION =
       ServiceAuditEvent.builder()
           .serviceName(ServiceName.TABLES_SERVICE)
           .statusCode(500)
-          .clusterName(clusterName)
-          .user(mockUser)
+          .clusterName(CLUSTER_NAME)
+          .user(MOCK_USER)
           .uri(CURRENT_MAJOR_VERSION_PREFIX + "/databases/dnullpointer/tables/t1")
           .method(HttpMethod.GET)
           .requestPayload(JsonNull.INSTANCE)
@@ -59,8 +59,8 @@ public class ServiceAuditModelConstants {
       ServiceAuditEvent.builder()
           .serviceName(ServiceName.TABLES_SERVICE)
           .statusCode(200)
-          .clusterName(clusterName)
-          .user(endtoEndUser)
+          .clusterName(CLUSTER_NAME)
+          .user(END_TO_END_USER)
           .uri(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d1/tables/t1")
           .method(HttpMethod.GET)
           .requestPayload(JsonNull.INSTANCE)
