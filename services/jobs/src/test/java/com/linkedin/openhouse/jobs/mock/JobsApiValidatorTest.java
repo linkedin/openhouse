@@ -6,6 +6,8 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.validator.JobsApiValidator;
 import com.linkedin.openhouse.jobs.model.JobConf;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +23,7 @@ class JobsApiValidatorTest {
   private CreateJobRequestBody makeJobRequestBodyFromJobNameClusterId(
       String jobName, String clusterId) {
     JobConf mockJobConf = Mockito.mock(JobConf.class);
-    Mockito.when(mockJobConf.getMemory()).thenReturn("2G");
+    Mockito.when(mockJobConf.getExecutionConf()).thenReturn(new HashMap<>());
     return CreateJobRequestBody.builder()
         .jobName(jobName)
         .clusterId(clusterId)
@@ -30,10 +32,12 @@ class JobsApiValidatorTest {
   }
 
   private CreateJobRequestBody makeJobRequestBodyFromJobNameJobConf(String jobName, String memory) {
+    Map<String, String> executionConf = new HashMap<>();
+    executionConf.put("memory", memory);
     return CreateJobRequestBody.builder()
         .jobName(jobName)
         .clusterId("clusterId")
-        .jobConf(JobConf.builder().memory(memory).build())
+        .jobConf(JobConf.builder().executionConf(executionConf).build())
         .build();
   }
 
@@ -58,7 +62,6 @@ class JobsApiValidatorTest {
 
   @Test
   public void testValidMemoryFormatInJobRequestBody() {
-    // Ensure hyphen is fine in clusterId and JobName
     assertDoesNotThrow(
         () ->
             jobsApiValidator.validateCreateJob(
@@ -77,6 +80,12 @@ class JobsApiValidatorTest {
 
   @Test
   public void testInValidMemoryFormatInJobRequestBody() {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            jobsApiValidator.validateCreateJob(
+                makeJobRequestBodyFromJobNameJobConf("job-name", "")));
+
     assertThrows(
         RequestValidationFailureException.class,
         () ->

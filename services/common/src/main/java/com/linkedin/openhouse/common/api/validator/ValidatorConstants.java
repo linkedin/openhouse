@@ -15,4 +15,5 @@ public final class ValidatorConstants {
       "Only alphanumerics, hyphen and underscore supported";
   public static final int MAX_ALLOWED_CLUSTERING_COLUMNS = 4;
   public static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
+  public static final String JOB_MEMORY_CONFIG = "memory";
 }

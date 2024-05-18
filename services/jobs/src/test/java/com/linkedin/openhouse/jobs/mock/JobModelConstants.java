@@ -3,6 +3,8 @@ package com.linkedin.openhouse.jobs.mock;
 import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.jobs.model.JobConf;
 import com.linkedin.openhouse.jobs.model.JobDto;
+import java.util.HashMap;
+import java.util.Map;
 
 public class JobModelConstants {
   static final JobDto JOB_DTO = getFullJobDto();
@@ -24,6 +26,21 @@ public class JobModelConstants {
         .jobName("my_job")
         .clusterId("my_cluster")
         .jobConf(JobConf.builder().jobType(JobConf.JobType.RETENTION).build())
+        .executionId("1")
+        .build();
+  }
+
+  static JobDto getFullJobDtoWithExecutionConf() {
+    Map<String, String> executionConf = new HashMap<>();
+    executionConf.put("memory", "4G");
+    return getPartialJobDtoBuilder()
+        .jobName("my_job")
+        .clusterId("my_cluster")
+        .jobConf(
+            JobConf.builder()
+                .jobType(JobConf.JobType.RETENTION)
+                .executionConf(executionConf)
+                .build())
         .executionId("1")
         .build();
   }

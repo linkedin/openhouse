@@ -14,7 +14,11 @@ public class JobsMapperTest {
   protected JobsMapper mapper = new JobsMapperImpl();
 
   private static final JobDto JOB_DTO = JobModelConstants.getFullJobDto();
+  private static final JobDto JOB_DTO_WITH_EXECUTION_CONF =
+      JobModelConstants.getFullJobDtoWithExecutionConf();
   private static final JobResponseBody GET_JOB_RESPONSE_BODY = toGetResponseBody(JOB_DTO);
+  private static final JobResponseBody GET_JOB_RESPONSE_BODY_WITH_CONF =
+      toGetResponseBody(JOB_DTO_WITH_EXECUTION_CONF);
   private static final CreateJobRequestBody CREATE_JOB_REQUEST_BODY =
       toCreateJobRequestBody(JOB_DTO);
   private static final Job JOB = toJob(JOB_DTO);
@@ -22,6 +26,8 @@ public class JobsMapperTest {
   @Test
   public void testToGetJobResponseBody() {
     Assertions.assertEquals(GET_JOB_RESPONSE_BODY, mapper.toGetJobResponseBody(JOB_DTO));
+    Assertions.assertEquals(
+        GET_JOB_RESPONSE_BODY_WITH_CONF, mapper.toGetJobResponseBody(JOB_DTO_WITH_EXECUTION_CONF));
   }
 
   @Test
@@ -30,6 +36,11 @@ public class JobsMapperTest {
         JOB_DTO,
         mapper.toJobDto(
             JobModelConstants.getPartialJobDtoBuilder().build(), CREATE_JOB_REQUEST_BODY));
+    Assertions.assertEquals(
+        JOB_DTO_WITH_EXECUTION_CONF,
+        mapper.toJobDto(
+            JobModelConstants.getPartialJobDtoBuilder().build(),
+            toCreateJobRequestBody(JOB_DTO_WITH_EXECUTION_CONF)));
   }
 
   @Test

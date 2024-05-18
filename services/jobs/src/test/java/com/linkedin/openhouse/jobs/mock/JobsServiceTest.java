@@ -11,6 +11,8 @@ import com.linkedin.openhouse.jobs.services.HouseJobsCoordinator;
 import com.linkedin.openhouse.jobs.services.JobInfo;
 import com.linkedin.openhouse.jobs.services.JobsRegistry;
 import com.linkedin.openhouse.jobs.services.JobsService;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -53,10 +55,16 @@ public class JobsServiceTest {
 
   @Test
   void testCreateWithSparkMemory() {
+    Map<String, String> executionConf = new HashMap<>();
+    executionConf.put("memory", "4G");
     JobDto job =
         JobModelConstants.JOB_DTO
             .toBuilder()
-            .jobConf(JobConf.builder().memory("4G").jobType(JobConf.JobType.RETENTION).build())
+            .jobConf(
+                JobConf.builder()
+                    .executionConf(executionConf)
+                    .jobType(JobConf.JobType.RETENTION)
+                    .build())
             .build();
     CreateJobRequestBody requestBody =
         CreateJobRequestBody.builder()
@@ -71,7 +79,7 @@ public class JobsServiceTest {
     Mockito.when(jobHandle.getInfo()).thenReturn(jobInfo);
     Mockito.when(jobInfo.getExecutionId()).thenReturn(job.getExecutionId());
     JobDto actualJobDto = service.create(requestBody);
-    Assertions.assertEquals("4G", actualJobDto.getJobConf().getMemory());
+    Assertions.assertEquals("4G", actualJobDto.getJobConf().getExecutionConf().get("memory"));
     Assertions.assertEquals(job, actualJobDto);
   }
 

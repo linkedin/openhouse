@@ -8,6 +8,7 @@ import com.linkedin.openhouse.jobs.config.JobsProperties;
 import com.linkedin.openhouse.jobs.model.JobConf;
 import com.linkedin.openhouse.jobs.services.JobsRegistry;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,9 @@ public class JobsRegistryTest {
     JobsRegistry jr = JobsRegistry.from(properties, propertyMap);
     Mockito.when(jobConf.getJobType()).thenReturn(JobConf.JobType.RETENTION);
     Mockito.when(jobConf.getArgs()).thenReturn(new ArrayList<>());
-    Mockito.when(jobConf.getMemory()).thenReturn("5G");
+    Map<String, String> executionConf = new HashMap<>();
+    executionConf.put("memory", "5G");
+    Mockito.when(jobConf.getExecutionConf()).thenReturn(executionConf);
     JobLaunchConf launchConf = jr.createLaunchConf("jobId", jobConf);
     Assertions.assertEquals(launchConf.getJarPath(), "default-jar-path");
     Assertions.assertTrue(launchConf.getExecutionTags().keySet().contains("pool"));

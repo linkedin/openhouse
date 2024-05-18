@@ -8,6 +8,7 @@ import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.validator.JobsApiValidator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
@@ -39,15 +40,25 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
               "clusterId : provided %s, %s",
               createJobRequestBody.getClusterId(), ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW));
     }
-    if (!createJobRequestBody.getJobConf().getMemory().isEmpty()
-        && !createJobRequestBody.getJobConf().getMemory().matches(SPARK_MEMORY_FORMAT)) {
+    if (!createJobRequestBody.getJobConf().getExecutionConf().isEmpty()
+        && !JobConfValidator.executionConfigValidator(
+            createJobRequestBody.getJobConf().getExecutionConf())) {
       validationFailures.add(
           String.format(
               "memory : provided %s, %s",
-              createJobRequestBody.getClusterId(), SPARK_MEMORY_FORMAT));
+              createJobRequestBody.getJobConf().getExecutionConf().get(JOB_MEMORY_CONFIG),
+              SPARK_MEMORY_FORMAT));
     }
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
+  // inner class to validate jobConf fields.
+  private static class JobConfValidator {
+    public static boolean executionConfigValidator(Map<String, String> executionConf) {
+      String memoryConfig = executionConf.getOrDefault(JOB_MEMORY_CONFIG, "");
+      return memoryConfig.matches(SPARK_MEMORY_FORMAT);
     }
   }
 }

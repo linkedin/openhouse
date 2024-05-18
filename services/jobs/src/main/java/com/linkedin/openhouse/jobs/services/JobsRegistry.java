@@ -40,7 +40,7 @@ public class JobsRegistry {
     if (authTokenPath != null) {
       propsMap.put("spark.sql.catalog.openhouse.auth-token", getToken(authTokenPath));
     }
-    populateJobMemory(conf.getMemory(), propsMap);
+    populateSparkProps(conf.getExecutionConf(), propsMap);
     defaultConf.setSparkProperties(propsMap);
     JobLaunchConf.JobLaunchConfBuilder builder = defaultConf.toBuilder();
 
@@ -54,7 +54,9 @@ public class JobsRegistry {
     return builder.proxyUser(conf.getProxyUser()).args(extendedArgs).build();
   }
 
-  private void populateJobMemory(String memory, Map<String, String> sparkPropsMap) {
+  private void populateSparkProps(
+      Map<String, String> executionConf, Map<String, String> sparkPropsMap) {
+    String memory = executionConf.getOrDefault("memory", null);
     if (!Strings.isNullOrEmpty(memory)) {
       sparkPropsMap.put("spark.driver.memory", memory);
       sparkPropsMap.put("spark.executor.memory", memory);
