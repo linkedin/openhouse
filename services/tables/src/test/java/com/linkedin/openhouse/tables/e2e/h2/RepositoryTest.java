@@ -492,18 +492,18 @@ public class RepositoryTest {
 
   @Test
   void testSchemaEvolutionStruct() {
-    Types.StructType LEAF_STRUCT_TYPE1 =
+    Types.StructType leafStructType1 =
         Types.StructType.of(
             optional(1, "leafLongCol", Types.LongType.get()),
             optional(2, "leafDoubleCol", Types.DoubleType.get()));
-    Types.StructType NESTED_STRUCT_TYPE1 =
-        Types.StructType.of(required(3, "leafStructCol", LEAF_STRUCT_TYPE1));
-    Schema oldSchema = new Schema(required(4, "nestedStructCol", NESTED_STRUCT_TYPE1));
-    Types.StructType LEAF_STRUCT_TYPE2 =
+    Types.StructType nestedStructType1 =
+        Types.StructType.of(required(3, "leafStructCol", leafStructType1));
+    Schema oldSchema = new Schema(required(4, "nestedStructCol", nestedStructType1));
+    Types.StructType leafStructType2 =
         Types.StructType.of(optional(1, "leafLongCol", Types.LongType.get()));
-    Types.StructType NESTED_STRUCT_TYPE2 =
-        Types.StructType.of(required(3, "leafStructCol", LEAF_STRUCT_TYPE2));
-    Schema newSchema = new Schema(required(4, "nestedStructCol", NESTED_STRUCT_TYPE2));
+    Types.StructType nestedStructType2 =
+        Types.StructType.of(required(3, "leafStructCol", leafStructType2));
+    Schema newSchema = new Schema(required(4, "nestedStructCol", nestedStructType2));
 
     TableDto createDto =
         TABLE_DTO
@@ -531,17 +531,17 @@ public class RepositoryTest {
 
   @Test
   void testSchemaEvolutionList() {
-    Types.StructType LEAF_STRUCT_TYPE1 =
+    Types.StructType leafStructType1 =
         Types.StructType.of(
             optional(1, "leafLongCol", Types.LongType.get()),
             optional(2, "leafDoubleCol", Types.DoubleType.get()));
-    Types.ListType NESTED_LIST_TYPE1 = Types.ListType.ofRequired(3, LEAF_STRUCT_TYPE1);
-    Schema oldSchema = new Schema(required(4, "nestedListCol", NESTED_LIST_TYPE1));
+    Types.ListType nestedListType1 = Types.ListType.ofRequired(3, leafStructType1);
+    Schema oldSchema = new Schema(required(4, "nestedListCol", nestedListType1));
 
-    Types.StructType LEAF_STRUCT_TYPE2 =
+    Types.StructType leafStructType2 =
         Types.StructType.of(optional(1, "leafLongCol", Types.LongType.get()));
-    Types.ListType NESTED_LIST_TYPE2 = Types.ListType.ofRequired(3, LEAF_STRUCT_TYPE2);
-    Schema newSchema = new Schema(required(4, "nestedListCol", NESTED_LIST_TYPE2));
+    Types.ListType nestedListType2 = Types.ListType.ofRequired(3, leafStructType2);
+    Schema newSchema = new Schema(required(4, "nestedListCol", nestedListType2));
 
     TableDto createDto =
         TABLE_DTO
@@ -569,31 +569,31 @@ public class RepositoryTest {
 
   @Test
   void testSchemaEvolutionMap() {
-    Types.StructType LEAF_STRUCT_TYPE1 =
+    Types.StructType leafStructType1 =
         Types.StructType.of(
             optional(1, "leafLongCol", Types.LongType.get()),
             optional(2, "leafDoubleCol", Types.DoubleType.get()));
-    Types.MapType NESTED_MAP_TYPE1 =
-        Types.MapType.ofRequired(3, 4, Types.StringType.get(), LEAF_STRUCT_TYPE1);
+    Types.MapType nestedMapType1 =
+        Types.MapType.ofRequired(3, 4, Types.StringType.get(), leafStructType1);
 
-    Types.StructType NESTED2_STRUCT_TYPE1 =
-        Types.StructType.of(optional(5, "nestMapCol", NESTED_MAP_TYPE1));
+    Types.StructType nestedStructType1 =
+        Types.StructType.of(optional(5, "nestMapCol", nestedMapType1));
     Types.MapType NESTED2_MAP_TYPE1 =
-        Types.MapType.ofRequired(6, 7, Types.StringType.get(), NESTED2_STRUCT_TYPE1);
+        Types.MapType.ofRequired(6, 7, Types.StringType.get(), nestedStructType1);
 
     Schema oldSchema = new Schema(required(8, "nested2MapCol", NESTED2_MAP_TYPE1));
 
-    Types.StructType LEAF_STRUCT_TYPE2 =
+    Types.StructType leafStructType2 =
         Types.StructType.of(optional(1, "leafLongCol", Types.LongType.get()));
-    Types.MapType NESTED_MAP_TYPE2 =
-        Types.MapType.ofRequired(3, 4, Types.StringType.get(), LEAF_STRUCT_TYPE2);
+    Types.MapType nestedMapType2 =
+        Types.MapType.ofRequired(3, 4, Types.StringType.get(), leafStructType2);
 
-    Types.StructType NESTED2_STRUCT_TYPE2 =
-        Types.StructType.of(optional(5, "nestMapCol", NESTED_MAP_TYPE2));
-    Types.MapType NESTED2_MAP_TYPE2 =
-        Types.MapType.ofRequired(6, 7, Types.StringType.get(), NESTED2_STRUCT_TYPE2);
+    Types.StructType nested2StructType2 =
+        Types.StructType.of(optional(5, "nestMapCol", nestedMapType2));
+    Types.MapType nested2MapType2 =
+        Types.MapType.ofRequired(6, 7, Types.StringType.get(), nested2StructType2);
 
-    Schema newSchema = new Schema(required(8, "nested2MapCol", NESTED2_MAP_TYPE2));
+    Schema newSchema = new Schema(required(8, "nested2MapCol", nested2MapType2));
 
     TableDto createDto =
         TABLE_DTO

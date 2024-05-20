@@ -126,7 +126,9 @@ public class DatabasesControllerTest {
 
   @AfterEach
   private void cleanUpHelper(TestInfo info) {
-    if (!info.getTags().contains("cleanUp")) return;
+    if (!info.getTags().contains("cleanUp")) {
+      return;
+    }
     try {
       // clean up the table if exists
       deleteTableAndValidateResponse(GET_TABLE_RESPONSE_BODY);

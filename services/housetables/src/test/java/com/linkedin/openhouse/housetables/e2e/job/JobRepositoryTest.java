@@ -20,7 +20,7 @@ import org.springframework.test.context.ContextConfiguration;
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 public class JobRepositoryTest {
 
-  private final JobRow TEST_JOB_ROW =
+  private final JobRow testJobRow =
       JobRow.builder()
           .jobId("id1")
           .version(1L)
@@ -47,20 +47,20 @@ public class JobRepositoryTest {
 
   @Test
   public void testSave() {
-    htsRepository.save(TEST_JOB_ROW);
+    htsRepository.save(testJobRow);
     JobRow actual =
         htsRepository
-            .findById(jobMapper.toJobRowPrimaryKey(TEST_JOB_ROW))
+            .findById(jobMapper.toJobRowPrimaryKey(testJobRow))
             .orElse(JobRow.builder().build());
 
-    Assertions.assertTrue(isJobRowEqual(TEST_JOB_ROW, actual));
+    Assertions.assertTrue(isJobRowEqual(testJobRow, actual));
     htsRepository.delete(actual);
   }
 
   @Test
   public void testDelete() {
-    htsRepository.save(TEST_JOB_ROW);
-    JobRowPrimaryKey key = jobMapper.toJobRowPrimaryKey(TEST_JOB_ROW);
+    htsRepository.save(testJobRow);
+    JobRowPrimaryKey key = jobMapper.toJobRowPrimaryKey(testJobRow);
     assertThat(htsRepository.existsById(key)).isTrue();
     htsRepository.deleteById(key);
     assertThat(htsRepository.existsById(key)).isFalse();
@@ -68,13 +68,13 @@ public class JobRepositoryTest {
 
   @Test
   public void testSaveJobWithConflict() {
-    Long currentVersion = htsRepository.save(TEST_JOB_ROW).getVersion();
+    Long currentVersion = htsRepository.save(testJobRow).getVersion();
 
     // test update at wrong version
     Exception exception =
         Assertions.assertThrows(
             Exception.class,
-            () -> htsRepository.save(TEST_JOB_ROW.toBuilder().version(100L).build()));
+            () -> htsRepository.save(testJobRow.toBuilder().version(100L).build()));
     Assertions.assertTrue(
         exception instanceof ObjectOptimisticLockingFailureException
             | exception instanceof EntityConcurrentModificationException);
@@ -82,17 +82,17 @@ public class JobRepositoryTest {
     // test update at correct version
     Assertions.assertNotEquals(
         htsRepository
-            .save(TEST_JOB_ROW.toBuilder().version(currentVersion).startTimeMs(1L).build())
+            .save(testJobRow.toBuilder().version(currentVersion).startTimeMs(1L).build())
             .getVersion(),
         currentVersion);
 
     // test update at older version
-    exception = Assertions.assertThrows(Exception.class, () -> htsRepository.save(TEST_JOB_ROW));
+    exception = Assertions.assertThrows(Exception.class, () -> htsRepository.save(testJobRow));
     Assertions.assertTrue(
         exception instanceof ObjectOptimisticLockingFailureException
             | exception instanceof EntityConcurrentModificationException);
 
-    htsRepository.deleteById(JobRowPrimaryKey.builder().jobId(TEST_JOB_ROW.getJobId()).build());
+    htsRepository.deleteById(JobRowPrimaryKey.builder().jobId(testJobRow.getJobId()).build());
   }
 
   private Boolean isJobRowEqual(JobRow expected, JobRow actual) {

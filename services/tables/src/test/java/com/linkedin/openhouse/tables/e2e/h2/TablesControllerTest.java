@@ -760,7 +760,7 @@ public class TablesControllerTest {
     ServiceAuditEvent actualEvent = argCaptorServiceAudit.getValue();
     assertTrue(
         new ReflectionEquals(
-                SERVICE_AUDIT_EVENT_END_TO_END, ServiceAuditModelConstants.excludeFields)
+                SERVICE_AUDIT_EVENT_END_TO_END, ServiceAuditModelConstants.EXCLUDE_FIELDS)
             .matches(actualEvent));
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
@@ -773,7 +773,7 @@ public class TablesControllerTest {
     TableAuditEvent actualEvent = argCaptorTableAudit.getValue();
     assertTrue(
         new ReflectionEquals(
-                TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS_E2E, TableAuditModelConstants.excludeFields)
+                TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS_E2E, TableAuditModelConstants.EXCLUDE_FIELDS)
             .matches(actualEvent));
     assertNotNull(actualEvent.getCurrentTableRoot());
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);

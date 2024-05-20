@@ -30,9 +30,9 @@ public class PoliciesSpecMapperTest {
                 .toBuilder()
                 .policies(TableModelConstants.TABLE_POLICIES)
                 .build());
-    String PoliciesSpec = policiesMapper.toPoliciesJsonString(tableDto);
+    String policiesSpec = policiesMapper.toPoliciesJsonString(tableDto);
     Assertions.assertEquals(
-        (Integer) JsonPath.read(PoliciesSpec, "$.retention.count"),
+        (Integer) JsonPath.read(policiesSpec, "$.retention.count"),
         TableModelConstants.TABLE_POLICIES.getRetention().getCount());
   }
 
@@ -69,11 +69,11 @@ public class PoliciesSpecMapperTest {
 
   @Test
   public void testToPolicyObjectFromJson() {
-    Policies Policies =
+    Policies policies =
         policiesMapper.toPoliciesObject(new Gson().toJson(TableModelConstants.TABLE_POLICIES));
-    Assertions.assertEquals(Policies, TableModelConstants.TABLE_POLICIES);
+    Assertions.assertEquals(policies, TableModelConstants.TABLE_POLICIES);
     Assertions.assertEquals(
-        Policies.getRetention().getCount(),
+        policies.getRetention().getCount(),
         GET_TABLE_RESPONSE_BODY.getPolicies().getRetention().getCount());
   }
 
@@ -90,8 +90,8 @@ public class PoliciesSpecMapperTest {
 
   @Test
   public void testErrorPolicyObjectFromJson() {
-    Policies Policies = policiesMapper.toPoliciesObject(getBadJsonString());
-    Assertions.assertNotNull(Policies);
-    Assertions.assertNull(Policies.getRetention());
+    Policies policies = policiesMapper.toPoliciesObject(getBadJsonString());
+    Assertions.assertNotNull(policies);
+    Assertions.assertNull(policies.getRetention());
   }
 }

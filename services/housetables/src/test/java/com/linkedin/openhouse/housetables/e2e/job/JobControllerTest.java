@@ -35,7 +35,7 @@ import org.springframework.util.MultiValueMapAdapter;
 @AutoConfigureMockMvc
 public class JobControllerTest {
 
-  private final JobRow TEST_JOB_ROW =
+  private final JobRow testJobRow =
       JobRow.builder()
           .jobId("id1")
           .state("Q")
@@ -59,7 +59,7 @@ public class JobControllerTest {
 
   @BeforeEach
   public void setup() {
-    htsRepository.save(TEST_JOB_ROW);
+    htsRepository.save(testJobRow);
   }
 
   @AfterEach
@@ -69,10 +69,8 @@ public class JobControllerTest {
 
   @Test
   public void testFindAllJobs() throws Exception {
-    JobRow testJobRow2 =
-        htsRepository.save(TEST_JOB_ROW.toBuilder().jobId("id2").state("X").build());
-    JobRow testJobRow3 =
-        htsRepository.save(TEST_JOB_ROW.toBuilder().jobId("id3").state("X").build());
+    JobRow testJobRow2 = htsRepository.save(testJobRow.toBuilder().jobId("id2").state("X").build());
+    JobRow testJobRow3 = htsRepository.save(testJobRow.toBuilder().jobId("id3").state("X").build());
 
     Map<String, List<String>> paramsInternal = new HashMap<>();
     paramsInternal.put("state", Collections.singletonList("X"));
@@ -98,15 +96,15 @@ public class JobControllerTest {
   public void testFindJob() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/jobs")
-                .param("jobId", TEST_JOB_ROW.getJobId())
+                .param("jobId", testJobRow.getJobId())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.entity.jobId", is(equalTo(TEST_JOB_ROW.getJobId()))))
-        .andExpect(jsonPath("$.entity.state", is(equalTo(TEST_JOB_ROW.getState()))))
-        .andExpect(jsonPath("$.entity.jobName", is(equalTo(TEST_JOB_ROW.getJobName()))))
-        .andExpect(jsonPath("$.entity.clusterId", is(equalTo(TEST_JOB_ROW.getClusterId()))))
-        .andExpect(jsonPath("$.entity.executionId", is(equalTo(TEST_JOB_ROW.getExecutionId()))))
+        .andExpect(jsonPath("$.entity.jobId", is(equalTo(testJobRow.getJobId()))))
+        .andExpect(jsonPath("$.entity.state", is(equalTo(testJobRow.getState()))))
+        .andExpect(jsonPath("$.entity.jobName", is(equalTo(testJobRow.getJobName()))))
+        .andExpect(jsonPath("$.entity.clusterId", is(equalTo(testJobRow.getClusterId()))))
+        .andExpect(jsonPath("$.entity.executionId", is(equalTo(testJobRow.getExecutionId()))))
         .andExpect(jsonPath("$.entity.version", matchesPattern("\\d+")));
   }
 
@@ -133,7 +131,7 @@ public class JobControllerTest {
 
   @Test
   public void testDeleteJob() throws Exception {
-    mvc.perform(MockMvcRequestBuilders.delete("/hts/jobs").param("jobId", TEST_JOB_ROW.getJobId()))
+    mvc.perform(MockMvcRequestBuilders.delete("/hts/jobs").param("jobId", testJobRow.getJobId()))
         .andExpect(status().isNoContent())
         .andExpect(content().string(""));
   }
@@ -188,20 +186,20 @@ public class JobControllerTest {
             .get()
             .getVersion()
             .toString();
-    Job MODIFIED_JOB = testJob.toBuilder().state("Y").version(atVersion).build();
+    Job modifiedJob = testJob.toBuilder().state("Y").version(atVersion).build();
     mvc.perform(
             MockMvcRequestBuilders.put("/hts/jobs")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     CreateUpdateEntityRequestBody.<Job>builder()
-                        .entity(MODIFIED_JOB)
+                        .entity(modifiedJob)
                         .build()
                         .toJson())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.entity.jobId", is(equalTo(MODIFIED_JOB.getJobId()))))
-        .andExpect(jsonPath("$.entity.state", is(equalTo(MODIFIED_JOB.getState()))))
+        .andExpect(jsonPath("$.entity.jobId", is(equalTo(modifiedJob.getJobId()))))
+        .andExpect(jsonPath("$.entity.state", is(equalTo(modifiedJob.getState()))))
         .andExpect(jsonPath("$.entity.version", matchesPattern("\\d+")));
   }
 

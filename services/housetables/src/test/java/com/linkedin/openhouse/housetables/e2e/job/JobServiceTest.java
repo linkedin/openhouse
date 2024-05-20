@@ -25,7 +25,7 @@ import org.springframework.data.util.Pair;
 @SpringBootTest(classes = SpringH2HtsApplication.class)
 public class JobServiceTest {
 
-  private final JobRow TEST_JOB_ROW =
+  private final JobRow testJobRow =
       JobRow.builder()
           .jobId("id1")
           .state("Q")
@@ -40,8 +40,8 @@ public class JobServiceTest {
           .heartbeatTimeMs(1651017746000L)
           .executionId("1")
           .build();
-  private final JobRow TEST_JOB_ROW_2 = TEST_JOB_ROW.toBuilder().jobId("id2").state("X").build();
-  private final JobRow TEST_JOB_ROW_3 = TEST_JOB_ROW.toBuilder().jobId("id3").state("X").build();
+  private final JobRow testJobRow2 = testJobRow.toBuilder().jobId("id2").state("X").build();
+  private final JobRow testJobRow3 = testJobRow.toBuilder().jobId("id3").state("X").build();
 
   @Autowired JobsService jobsService;
 
@@ -51,9 +51,9 @@ public class JobServiceTest {
 
   @BeforeEach
   public void setup() {
-    htsRepository.save(TEST_JOB_ROW);
-    htsRepository.save(TEST_JOB_ROW_2);
-    htsRepository.save(TEST_JOB_ROW_3);
+    htsRepository.save(testJobRow);
+    htsRepository.save(testJobRow2);
+    htsRepository.save(testJobRow3);
   }
 
   @AfterEach
@@ -64,11 +64,11 @@ public class JobServiceTest {
   @Test
   public void testJobGet() {
     Assertions.assertEquals(
-        withoutVersion(jobMapper.toJobDto(TEST_JOB_ROW)),
-        withoutVersion(jobsService.getJob(TEST_JOB_ROW.getJobId())));
+        withoutVersion(jobMapper.toJobDto(testJobRow)),
+        withoutVersion(jobsService.getJob(testJobRow.getJobId())));
     Assertions.assertEquals(
-        withoutVersion(jobMapper.toJobDto(TEST_JOB_ROW_2)),
-        withoutVersion(jobsService.getJob(TEST_JOB_ROW_2.getJobId())));
+        withoutVersion(jobMapper.toJobDto(testJobRow2)),
+        withoutVersion(jobsService.getJob(testJobRow2.getJobId())));
   }
 
   @Test
@@ -77,35 +77,34 @@ public class JobServiceTest {
     List<JobDto> actual;
 
     // test filter on state
-    expected =
-        Arrays.asList(jobMapper.toJobDto(TEST_JOB_ROW_2), jobMapper.toJobDto(TEST_JOB_ROW_3));
-    actual = jobsService.getAllJobs(Job.builder().state(TEST_JOB_ROW_2.getState()).build());
+    expected = Arrays.asList(jobMapper.toJobDto(testJobRow2), jobMapper.toJobDto(testJobRow3));
+    actual = jobsService.getAllJobs(Job.builder().state(testJobRow2.getState()).build());
     Assertions.assertTrue(
         CollectionUtils.isEqualCollection(withoutVersion(expected), withoutVersion(actual)));
 
     // test filter on id
-    expected = Collections.singletonList(jobMapper.toJobDto(TEST_JOB_ROW));
-    actual = jobsService.getAllJobs(Job.builder().jobId(TEST_JOB_ROW.getJobId()).build());
+    expected = Collections.singletonList(jobMapper.toJobDto(testJobRow));
+    actual = jobsService.getAllJobs(Job.builder().jobId(testJobRow.getJobId()).build());
     Assertions.assertTrue(
         CollectionUtils.isEqualCollection(withoutVersion(expected), withoutVersion(actual)));
   }
 
   @Test
   public void testJobDelete() {
-    Assertions.assertDoesNotThrow(() -> jobsService.deleteJob(TEST_JOB_ROW.getJobId()));
+    Assertions.assertDoesNotThrow(() -> jobsService.deleteJob(testJobRow.getJobId()));
     NoSuchEntityException noSuchEntityException =
         Assertions.assertThrows(
-            NoSuchEntityException.class, () -> jobsService.deleteJob(TEST_JOB_ROW.getJobId()));
-    Assertions.assertTrue(noSuchEntityException.getMessage().contains(TEST_JOB_ROW.getJobId()));
+            NoSuchEntityException.class, () -> jobsService.deleteJob(testJobRow.getJobId()));
+    Assertions.assertTrue(noSuchEntityException.getMessage().contains(testJobRow.getJobId()));
   }
 
   @Test
   public void testJobUpdate() {
-    String atVersion = jobsService.getJob(TEST_JOB_ROW.getJobId()).getVersion();
+    String atVersion = jobsService.getJob(testJobRow.getJobId()).getVersion();
 
     Job updatedJob =
         Job.builder()
-            .jobId(TEST_JOB_ROW.getJobId())
+            .jobId(testJobRow.getJobId())
             .state("Y")
             .version(atVersion)
             .jobName("jobName")
@@ -117,9 +116,9 @@ public class JobServiceTest {
     Assertions.assertTrue(result.getSecond()); // update occurred not creation, returns true
     Assertions.assertNotEquals(result.getFirst().getVersion(), updatedJob.getVersion());
 
-    jobsService.deleteJob(TEST_JOB_ROW_2.getJobId());
+    jobsService.deleteJob(testJobRow2.getJobId());
     Pair<JobDto, Boolean> result2 =
-        jobsService.putJob(jobMapper.toJob(jobMapper.toJobDto(TEST_JOB_ROW_2)));
+        jobsService.putJob(jobMapper.toJob(jobMapper.toJobDto(testJobRow2)));
     Assertions.assertFalse(result2.getSecond());
   }
 

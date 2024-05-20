@@ -89,7 +89,7 @@ public class RepositoryTestWithSettableComponents {
     return htsRepo;
   }
 
-  @Test()
+  @Test
   void testNoRetryInternalRepo() {
     TableIdentifier tableIdentifier =
         TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId());
@@ -182,7 +182,7 @@ public class RepositoryTestWithSettableComponents {
     return htsRepo;
   }
 
-  @Test()
+  @Test
   void testFailedHtsRepoWhenGet() {
     TableIdentifier tableIdentifier =
         TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId());
