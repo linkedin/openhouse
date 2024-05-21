@@ -13,6 +13,8 @@ dependencies {
   implementation project(':client:hts')
   implementation project(':cluster:storage')
   implementation project(':cluster:metrics')
+  implementation 'org.apache.iceberg:iceberg-aws:1.5.2'
+  implementation('org.apache.iceberg:iceberg-aws-bundle:1.5.2')
 
   // Needed for testing against manually bootstrapped HTS server through bootRun task.
   testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"
