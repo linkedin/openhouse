@@ -8,6 +8,7 @@ import com.linkedin.openhouse.jobs.config.JobsProperties;
 import com.linkedin.openhouse.jobs.model.JobConf;
 import com.linkedin.openhouse.jobs.services.JobsRegistry;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,9 @@ public class JobsRegistryTest {
     JobsRegistry jr = JobsRegistry.from(properties, propertyMap);
     Mockito.when(jobConf.getJobType()).thenReturn(JobConf.JobType.RETENTION);
     Mockito.when(jobConf.getArgs()).thenReturn(new ArrayList<>());
+    Map<String, String> executionConf = new HashMap<>();
+    executionConf.put("memory", "5G");
+    Mockito.when(jobConf.getExecutionConf()).thenReturn(executionConf);
     JobLaunchConf launchConf = jr.createLaunchConf("jobId", jobConf);
     Assertions.assertEquals(launchConf.getJarPath(), "default-jar-path");
     Assertions.assertTrue(launchConf.getExecutionTags().keySet().contains("pool"));
@@ -41,6 +45,9 @@ public class JobsRegistryTest {
             .getSparkProperties()
             .keySet()
             .contains("spark.sql.catalog.openhouse.auth-token"));
+    Assertions.assertTrue(launchConf.getSparkProperties().keySet().contains("spark.driver.memory"));
+    Assertions.assertTrue(
+        launchConf.getSparkProperties().keySet().contains("spark.executor.memory"));
     Assertions.assertTrue(launchConf.getSparkProperties().containsKey("fs.defaultFS"));
     Assertions.assertEquals(launchConf.getArgs().size(), 4);
   }

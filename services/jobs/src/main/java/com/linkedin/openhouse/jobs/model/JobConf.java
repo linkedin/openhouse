@@ -1,7 +1,9 @@
 package com.linkedin.openhouse.jobs.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,6 +19,7 @@ import lombok.NoArgsConstructor;
 public class JobConf {
   private JobType jobType;
   private String proxyUser;
+  @Builder.Default private Map<String, String> executionConf = new HashMap<>();
   @Builder.Default private List<String> args = new ArrayList<>();
 
   public enum JobType {
