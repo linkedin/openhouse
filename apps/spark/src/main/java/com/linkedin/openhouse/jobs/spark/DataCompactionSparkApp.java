@@ -17,8 +17,9 @@ import org.apache.iceberg.actions.RewriteDataFiles;
  * Spark app that compacts data files in a table to optimize the file sizes and number of files.
  *
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp --tableName
- * db.testTable --targetByteSize 1048576 --minByteSize 786432 --maxByteSize 1887436 --minInputFiles
- * 5 --maxConcurrentFileGroupRewrites 2 --partialProgressEnabled --partialProgressMaxCommits 10
+ * db.testTable --targetByteSize 1048576 --maxByteSizeRatio 0.75 --maxByteSizeRatio 1.8
+ * --minInputFiles 5 --maxConcurrentFileGroupRewrites 2 --partialProgressEnabled
+ * --partialProgressMaxCommits 10
  */
 @Slf4j
 public class DataCompactionSparkApp extends BaseTableSparkApp {
