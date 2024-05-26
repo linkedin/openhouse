@@ -27,7 +27,7 @@ public final class DataCompactionConfig {
   public static final long MAX_FILE_GROUP_SIZE_BYTES_DEFAULT =
       RewriteDataFiles.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT;
   public static final double ENTROPY_THRESHOLD_DEFAULT =
-      156E12; // >= 1% files below 75% default target size
+      9E15; // file size < 87.5% default target size 512MB on average
 
   @Builder.Default private long targetByteSize = TARGET_BYTE_SIZE_DEFAULT;
   @Builder.Default private double minByteSizeRatio = MIN_BYTE_SIZE_RATIO_DEFAULT;
