@@ -26,6 +26,7 @@ dependencies {
     implementation project(':client:tableclient')
     implementation project(':client:secureclient')
     implementation project(':services:common')
+    implementation project(':libs:datalayout')
     implementation project(':cluster:storage')
     compileOnly project(':integrations:spark:openhouse-spark-runtime_2.12')
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
