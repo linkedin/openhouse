@@ -8,7 +8,7 @@ public class SparkJobUtilTest {
   void testCreateDeleteStatement() {
     String expected =
         String.format(
-            "DELETE FROM `db`.`table-name` WHERE date_trunc('day', timestamp) < date_trunc('day', current_timestamp() - INTERVAL 2 days)");
+            "DELETE FROM `db`.`table-name` WHERE timestamp < date_trunc('day', current_timestamp() - INTERVAL 2 days)");
     Assertions.assertEquals(
         expected, SparkJobUtil.createDeleteStatement("db.table-name", "timestamp", "", "day", 2));
   }

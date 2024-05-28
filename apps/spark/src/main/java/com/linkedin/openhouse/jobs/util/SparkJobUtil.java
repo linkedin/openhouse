@@ -20,10 +20,10 @@ public final class SparkJobUtil {
            "granularity": "DAY",
            "columnPattern": null }}
   Partitioned by time on datePartition column
-  Query: date_trunc('DAY', datePartition) < date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
+  Query: datePartition < date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
   */
   private static final String RETENTION_CONDITION_TEMPLATE =
-      "date_trunc('%s', %s) < date_trunc('%s', current_timestamp() - INTERVAL %d %ss)";
+      "%s < date_trunc('%s', current_timestamp() - INTERVAL %d %ss)";
 
   /*
    A mismatch between data and pattern provided results in the datasets being filtered from deletion.
@@ -76,12 +76,7 @@ public final class SparkJobUtil {
               "DELETE FROM %s WHERE %s",
               getQuotedFqtn(fqtn),
               String.format(
-                  RETENTION_CONDITION_TEMPLATE,
-                  granularity,
-                  columnName,
-                  granularity,
-                  count,
-                  granularity));
+                  RETENTION_CONDITION_TEMPLATE, columnName, granularity, count, granularity));
       log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
       return query;
     }
