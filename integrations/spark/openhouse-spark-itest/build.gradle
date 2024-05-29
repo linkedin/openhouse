@@ -12,6 +12,8 @@ dependencies {
     exclude group: "io.netty"
   }
 
+  testImplementation(project(':tables-test-fixtures_2.12'))
+
   // Required to test /tables mockserver
   testImplementation "com.squareup.okhttp3:okhttp:4.0.1"
   testImplementation "com.squareup.okhttp3:mockwebserver:4.0.1"
