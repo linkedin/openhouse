@@ -48,7 +48,7 @@ shadowJar {
     exclude("org/springframework/http/codec/CodecConfigurer.properties")
     exclude("javax/**")
 
-    relocate ('io', 'com.linkedin.openhouse.relocated.io')
+    relocate ('io.', 'com.linkedin.openhouse.relocated.io.')
     relocate('org','com.linkedin.openhouse.relocated.org') {
       exclude 'org.xml.sax.**'
       exclude 'org.apache.hadoop.**'
