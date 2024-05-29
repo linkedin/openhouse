@@ -6,13 +6,19 @@ import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.aws.AwsClientFactory;
 import org.apache.iceberg.aws.S3FileIOAwsClientFactories;
 import org.apache.iceberg.aws.s3.S3FileIOAwsClientFactory;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.s3.S3Client;
 
+@Slf4j
+@Lazy
+@Component
 public class S3StorageClient implements StorageClient<S3Client> {
   private static final StorageType.Type S3_TYPE = StorageType.S3;
 

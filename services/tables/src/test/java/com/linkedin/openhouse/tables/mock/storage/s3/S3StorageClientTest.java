@@ -8,7 +8,9 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.s3.S3StorageClient;
 import java.util.HashMap;
+import java.util.Map;
 import javax.annotation.PostConstruct;
+import org.apache.iceberg.aws.AwsClientProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -45,7 +47,9 @@ public class S3StorageClientTest {
         new StorageProperties.StorageTypeProperties();
     storageTypeProperties.setEndpoint("http://S3:9000");
     storageTypeProperties.setRootPath("/mybucket");
-    storageTypeProperties.setParameters(new HashMap<>());
+    Map<String, String> parameters = new HashMap<>();
+    parameters.put(AwsClientProperties.CLIENT_REGION, "us-east-1");
+    storageTypeProperties.setParameters(parameters);
     return storageTypeProperties;
   }
 }
