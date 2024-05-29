@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.spark;
+package com.linkedin.openhouse.spark.catalogtest;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
