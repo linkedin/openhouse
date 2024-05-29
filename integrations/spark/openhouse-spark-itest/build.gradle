@@ -34,3 +34,27 @@ sourceSets {
     }
   }
 }
+
+// Specify order of tests to avoid spark session conflicts
+// Non-openhouse catalog tests should run before e2e tests start
+task statementTest(type: Test) {
+  filter {
+    includeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
+  }
+}
+
+task catalogTest(type: Test) {
+  filter {
+    includeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
+  }
+}
+
+test {
+  filter {
+    excludeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
+    excludeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
+  }
+}
+
+test.dependsOn statementTest
+statementTest.dependsOn catalogTest
