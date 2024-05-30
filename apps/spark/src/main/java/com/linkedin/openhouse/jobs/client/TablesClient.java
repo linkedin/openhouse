@@ -251,7 +251,11 @@ public class TablesClient {
             .tableName(responseBody.getTableId())
             .build();
     String creator = getTable(metadata).getTableCreator();
-    return new TableMetadata(creator, responseBody.getDatabaseId(), responseBody.getTableId());
+    return TableMetadata.builder()
+        .creator(creator)
+        .dbName(responseBody.getDatabaseId())
+        .tableName(responseBody.getTableId())
+        .build();
   }
 
   private String mapTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
