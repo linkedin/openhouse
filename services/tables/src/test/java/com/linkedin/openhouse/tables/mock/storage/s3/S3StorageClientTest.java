@@ -32,6 +32,32 @@ public class S3StorageClientTest {
   }
 
   @Test
+  public void testS3StorageClientInvalidProperties() {
+    when(storageProperties.getTypes())
+        .thenReturn(
+            new HashMap<>(
+                ImmutableMap.of(
+                    StorageType.S3.getValue(), new StorageProperties.StorageTypeProperties())));
+    assertThrows(IllegalArgumentException.class, () -> s3StorageClient.init());
+  }
+
+  @Test
+  public void testS3StorageClientNullOrEmptyProperties() {
+    when(storageProperties.getTypes()).thenReturn(null);
+    assertThrows(IllegalArgumentException.class, () -> s3StorageClient.init());
+    when(storageProperties.getTypes()).thenReturn(new HashMap<>());
+    assertThrows(IllegalArgumentException.class, () -> s3StorageClient.init());
+    when(storageProperties.getTypes())
+        .thenReturn(
+            new HashMap<String, StorageProperties.StorageTypeProperties>() {
+              {
+                put(StorageType.S3.getValue(), null);
+              }
+            });
+    assertThrows(IllegalArgumentException.class, () -> s3StorageClient.init());
+  }
+
+  @Test
   public void testS3StorageClientValidProperties() {
     when(storageProperties.getTypes())
         .thenReturn(
