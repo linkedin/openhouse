@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class StorageType {
   public static final Type HDFS = new Type("hdfs");
   public static final Type LOCAL = new Type("local");
+  public static final Type S3 = new Type("s3");
 
   @AllArgsConstructor
   @EqualsAndHashCode
@@ -30,6 +31,8 @@ public class StorageType {
       return HDFS;
     } else if (LOCAL.getValue().equals(type)) {
       return LOCAL;
+    } else if (S3.getValue().equals(type)) {
+      return S3;
     } else {
       throw new IllegalArgumentException("Unknown storage type: " + type);
     }
