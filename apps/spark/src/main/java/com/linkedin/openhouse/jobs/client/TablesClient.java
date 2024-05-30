@@ -244,7 +244,7 @@ public class TablesClient {
         Collections.emptyList());
   }
 
-  protected TableMetadata mapTableResponseToTableMetadata(GetTableResponseBody responseBody) {
+  private TableMetadata mapTableResponseToTableMetadata(GetTableResponseBody responseBody) {
     TableMetadata metadata =
         TableMetadata.builder()
             .dbName(responseBody.getDatabaseId())
