@@ -84,7 +84,7 @@ public class TablesClient {
         (RetryCallback<GetTableResponseBody, Exception>)
             context ->
                 tableApi
-                    .getTableV0(tableMetadata.getDbName(), tableMetadata.getTableName())
+                    .getTableV1(tableMetadata.getDbName(), tableMetadata.getTableName())
                     .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
         null);
   }
@@ -145,12 +145,12 @@ public class TablesClient {
                     context -> {
                       GetAllTablesResponseBody response =
                           tableApi
-                              .getAllTablesV0(dbName)
+                              .searchTablesV1(dbName)
                               .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
                       return Optional.ofNullable(response.getResults())
                           .map(Collection::stream)
                           .orElseGet(Stream::empty)
-                          .map(this::parseGetTableResponse)
+                          .map(this::mapTableResponseToTableMetadata)
                           .filter(databaseFilter::apply)
                           .collect(Collectors.toList());
                     },
@@ -176,12 +176,12 @@ public class TablesClient {
                   context -> {
                     GetAllTablesResponseBody response =
                         tableApi
-                            .getAllTablesV1(dbName)
+                            .searchTablesV1(dbName)
                             .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
                     return Optional.ofNullable(response.getResults())
                         .map(Collection::stream)
                         .orElseGet(Stream::empty)
-                        .map(this::parseGetTableResponseToTableDirectoryName)
+                        .map(this::mapTableResponseToTableDirectoryName)
                         .filter(databaseFilter::applyTableDirectoryPath)
                         .collect(Collectors.toSet());
                   },
@@ -233,7 +233,7 @@ public class TablesClient {
             context -> {
               GetAllDatabasesResponseBody response =
                   databaseApi
-                      .getAllDatabasesV0()
+                      .getAllDatabasesV1()
                       .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
               return Optional.ofNullable(response == null ? null : response.getResults())
                   .map(Collection::stream)
@@ -244,15 +244,27 @@ public class TablesClient {
         Collections.emptyList());
   }
 
-  protected TableMetadata parseGetTableResponse(GetTableResponseBody responseBody) {
+  private TableMetadata mapTableResponseToTableMetadata(GetTableResponseBody responseBody) {
+    TableMetadata metadata =
+        TableMetadata.builder()
+            .dbName(responseBody.getDatabaseId())
+            .tableName(responseBody.getTableId())
+            .build();
+    String creator = getTable(metadata).getTableCreator();
     return TableMetadata.builder()
+        .creator(creator)
         .dbName(responseBody.getDatabaseId())
         .tableName(responseBody.getTableId())
-        .creator(responseBody.getTableCreator())
         .build();
   }
 
-  private String parseGetTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
-    return new Path(responseBody.getTableLocation()).getParent().getName();
+  private String mapTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
+    TableMetadata metadata =
+        TableMetadata.builder()
+            .dbName(responseBody.getDatabaseId())
+            .tableName(responseBody.getTableId())
+            .build();
+    String location = getTable(metadata).getTableLocation();
+    return new Path(location).getParent().getName();
   }
 }
