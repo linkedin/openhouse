@@ -92,30 +92,48 @@ public class TablesClientTest {
     GetTableResponseBody partitionedTableResponseBodyMock =
         createPartitionedTableResponseBodyMock(
             testDbName, testTableNamePartitioned, testPartitionColumnName, testRetentionTTLDays);
-    GetDatabaseResponseBody databaseResponseMock = createGetDatabaseResponseBodyMock("db");
+    GetDatabaseResponseBody databaseResponseMock = createGetDatabaseResponseBodyMock(testDbName);
+    GetTableResponseBody unPartitionedTableIdentifierMock =
+        createTableResponseBodyMock(testDbName, testTableName);
+    GetTableResponseBody partitionedTableIdentifierMock =
+        createTableResponseBodyMock(testDbName, testTableNamePartitioned);
 
     Mockito.when(allDatabasesResponseBodyMock.getResults())
         .thenReturn(Arrays.asList(databaseResponseMock));
-
     Mockito.when(allTablesResponseBodyMock.getResults())
         .thenReturn(
-            Arrays.asList(partitionedTableResponseBodyMock, unPartitionedTableResponseBodyMock));
+            Arrays.asList(unPartitionedTableIdentifierMock, partitionedTableIdentifierMock));
 
     Mono<GetAllTablesResponseBody> responseMock =
         (Mono<GetAllTablesResponseBody>) Mockito.mock(Mono.class);
     Mono<GetAllDatabasesResponseBody> dbResponseMock =
         (Mono<GetAllDatabasesResponseBody>) Mockito.mock(Mono.class);
+    Mono<GetTableResponseBody> unPartitionedTableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mono<GetTableResponseBody> partitionedTableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
 
     Mockito.when(responseMock.block(any(Duration.class))).thenReturn(allTablesResponseBodyMock);
     Mockito.when(dbResponseMock.block(any(Duration.class)))
         .thenReturn(allDatabasesResponseBodyMock);
+    Mockito.when(unPartitionedTableResponseMock.block(any(Duration.class)))
+        .thenReturn(unPartitionedTableResponseBodyMock);
+    Mockito.when(partitionedTableResponseMock.block(any(Duration.class)))
+        .thenReturn(partitionedTableResponseBodyMock);
     Mockito.when(dbApiMock.getAllDatabasesV1()).thenReturn(dbResponseMock);
-    Mockito.when(apiMock.searchTablesV1("db")).thenReturn(responseMock);
+    Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(responseMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
+        .thenReturn(unPartitionedTableResponseMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName))
+        .thenReturn(partitionedTableResponseMock);
+
     Assertions.assertEquals(
         Arrays.asList(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build(),
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()),
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build(),
+            TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build()),
         client.getTables());
+    Mockito.verify(unPartitionedTableResponseMock, Mockito.times(1)).block(any(Duration.class));
+    Mockito.verify(partitionedTableResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(dbResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(allTablesResponseBodyMock, Mockito.times(1)).getResults();
@@ -129,12 +147,18 @@ public class TablesClientTest {
         Mockito.mock(GetAllTablesResponseBody.class);
     GetTableResponseBody tableResponseBodyMock =
         createTableWithLocationResponseBodyMock(testDbName, testTableName, tableLocationMetadata);
+    GetTableResponseBody tableIdentifierMock =
+        createTableResponseBodyMock(testDbName, testTableName);
     Mockito.when(allTablesResponseBodyMock.getResults())
-        .thenReturn(Arrays.asList(tableResponseBodyMock));
+        .thenReturn(Arrays.asList(tableIdentifierMock));
     Mono<GetAllTablesResponseBody> responseMock =
         (Mono<GetAllTablesResponseBody>) Mockito.mock(Mono.class);
+    Mono<GetTableResponseBody> tableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
     Mockito.when(responseMock.block(any(Duration.class))).thenReturn(allTablesResponseBodyMock);
-    Mockito.when(apiMock.getAllTablesV1(testDbName)).thenReturn(responseMock);
+    Mockito.when(tableResponseMock.block(any(Duration.class))).thenReturn(tableResponseBodyMock);
+    Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(responseMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(tableResponseMock);
 
     Assertions.assertEquals(
         Stream.of(testTableName + "-" + testTableUUID).collect(Collectors.toSet()),
@@ -149,12 +173,18 @@ public class TablesClientTest {
         Mockito.mock(GetAllTablesResponseBody.class);
     GetTableResponseBody tableResponseBodyMock =
         createTableWithLocationResponseBodyMock(testDbName, testTableName, tableLocationMetadata);
+    GetTableResponseBody tableIdentifierMock =
+        createTableResponseBodyMock(testDbName, testTableName);
     Mockito.when(allTablesResponseBodyMock.getResults())
-        .thenReturn(Arrays.asList(tableResponseBodyMock));
+        .thenReturn(Arrays.asList(tableIdentifierMock));
     Mono<GetAllTablesResponseBody> responseMock =
         (Mono<GetAllTablesResponseBody>) Mockito.mock(Mono.class);
+    Mono<GetTableResponseBody> tableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
     Mockito.when(responseMock.block(any(Duration.class))).thenReturn(allTablesResponseBodyMock);
-    Mockito.when(apiMock.getAllTablesV1(testDbName)).thenReturn(responseMock);
+    Mockito.when(tableResponseMock.block(any(Duration.class))).thenReturn(tableResponseBodyMock);
+    Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(responseMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(tableResponseMock);
 
     Mockito.when(storageClient.getSubDirectoriesWithOwners(Mockito.any(Path.class)))
         .thenAnswer(
@@ -458,6 +488,13 @@ public class TablesClientTest {
     Mockito.when(dbApiMock.getAllDatabasesV1()).thenReturn(dbResponseMock);
     Assertions.assertEquals(client.getDatabases().size(), 0);
     Mockito.verify(dbResponseMock, Mockito.times(1)).block(any(Duration.class));
+  }
+
+  private GetTableResponseBody createTableResponseBodyMock(String dbName, String tableName) {
+    GetTableResponseBody responseBody = Mockito.mock(GetTableResponseBody.class);
+    Mockito.when(responseBody.getTableId()).thenReturn(tableName);
+    Mockito.when(responseBody.getDatabaseId()).thenReturn(dbName);
+    return responseBody;
   }
 
   private GetTableResponseBody createUnpartitionedTableResponseBodyMock(

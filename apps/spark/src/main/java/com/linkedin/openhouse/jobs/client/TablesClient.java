@@ -176,7 +176,7 @@ public class TablesClient {
                   context -> {
                     GetAllTablesResponseBody response =
                         tableApi
-                            .getAllTablesV1(dbName)
+                            .searchTablesV1(dbName)
                             .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
                     return Optional.ofNullable(response.getResults())
                         .map(Collection::stream)
