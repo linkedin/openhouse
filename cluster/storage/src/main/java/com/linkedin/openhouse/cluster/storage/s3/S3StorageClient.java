@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.cluster.storage.s3;
 
 import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
-import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.util.HashMap;
@@ -25,7 +24,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 @Slf4j
 @Lazy
 @Component
-public class S3StorageClient implements StorageClient<S3Client> {
+public class S3StorageClient extends BaseStorageClient<S3Client> {
   // Storage type.
   private static final StorageType.Type S3_TYPE = StorageType.S3;
 
@@ -42,7 +41,7 @@ public class S3StorageClient implements StorageClient<S3Client> {
   @PostConstruct
   public synchronized void init() {
     log.info("Initializing storage client for type: " + S3_TYPE);
-    BaseStorageClient.validateProperties(storageProperties, S3_TYPE);
+    validateProperties(storageProperties, S3_TYPE);
     Map properties =
         new HashMap(storageProperties.getTypes().get(S3_TYPE.getValue()).getParameters());
 

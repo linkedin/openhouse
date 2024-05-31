@@ -11,7 +11,7 @@ package com.linkedin.openhouse.cluster.storage;
  *
  * @param <T> the type of the native client of the storage system
  */
-public interface StorageClient<T> extends BaseStorageClient<T> {
+public interface StorageClient<T> {
 
   /**
    * Get the native client of the storage system.

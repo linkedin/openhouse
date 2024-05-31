@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.cluster.storage.hdfs;
 
 import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
-import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.io.IOException;
@@ -19,7 +18,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Lazy
 @Component
-public class HdfsStorageClient implements StorageClient<FileSystem> {
+public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
 
   private FileSystem fs;
 
@@ -31,7 +30,7 @@ public class HdfsStorageClient implements StorageClient<FileSystem> {
   @PostConstruct
   public synchronized void init() throws IOException {
     log.info("Initializing storage client for type: " + HDFS_TYPE);
-    BaseStorageClient.validateProperties(storageProperties, HDFS_TYPE);
+    validateProperties(storageProperties, HDFS_TYPE);
     StorageProperties.StorageTypeProperties hdfsStorageProperties =
         storageProperties.getTypes().get(HDFS_TYPE.getValue());
     org.apache.hadoop.conf.Configuration configuration = new org.apache.hadoop.conf.Configuration();

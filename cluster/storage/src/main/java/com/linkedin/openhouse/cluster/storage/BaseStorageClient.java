@@ -5,17 +5,17 @@ import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import org.springframework.util.CollectionUtils;
 
 /**
- * BaseStorageClient is the interface that holds common functionality for all storage clients like
- * validating the configuration and storage properties for a given storage type.
+ * BaseStorageClient is the abstract class that holds common functionality for all storage clients
+ * like validating the configuration and storage properties for a given storage type.
  *
  * @param <T> native client type for the storage backend.
  */
-public interface BaseStorageClient<T> {
+public abstract class BaseStorageClient<T> implements StorageClient<T> {
   // Validates the configuration for the given storage type. Validates that:
   // 1. The storageProperties contain the entry for the given storage type.
   // 2. The storageProperties value for the given storage type is not null and has the endpoint and
   // root path configured.
-  static void validateProperties(
+  protected void validateProperties(
       StorageProperties storageProperties, StorageType.Type storageType) {
     Preconditions.checkArgument(
         !CollectionUtils.isEmpty(storageProperties.getTypes())

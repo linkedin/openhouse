@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.cluster.storage.local;
 
 import com.google.common.base.Preconditions;
-import com.linkedin.openhouse.cluster.storage.StorageClient;
+import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.io.IOException;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Lazy
 @Component
-public class LocalStorageClient implements StorageClient<FileSystem> {
+public class LocalStorageClient extends BaseStorageClient<FileSystem> {
 
   private FileSystem fs;
 
@@ -45,15 +45,7 @@ public class LocalStorageClient implements StorageClient<FileSystem> {
 
     URI uri;
     if (storageProperties.getTypes() != null && !storageProperties.getTypes().isEmpty()) {
-      Preconditions.checkArgument(
-          storageProperties.getTypes().containsKey(LOCAL_TYPE.getValue()),
-          "Storage properties doesn't contain type: " + LOCAL_TYPE.getValue());
-      Preconditions.checkArgument(
-          storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getEndpoint() != null,
-          "Storage properties doesn't contain endpoint for: " + LOCAL_TYPE.getValue());
-      Preconditions.checkArgument(
-          storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getRootPath() != null,
-          "Storage properties doesn't contain rootpath for: " + LOCAL_TYPE.getValue());
+      validateProperties(storageProperties, LOCAL_TYPE);
       Preconditions.checkArgument(
           storageProperties
               .getTypes()
