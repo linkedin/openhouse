@@ -56,6 +56,12 @@ public class JobsClientTest {
         TEST_JOB_ID,
         client.launch(TEST_JOB_NAME, TEST_JOB_TYPE, TEST_PROXY_USER, testArgs).orElse(null));
 
+    ArgumentCaptor<CreateJobRequestBody> createRequest =
+        ArgumentCaptor.forClass(CreateJobRequestBody.class);
+    Mockito.verify(apiMock).createJob(createRequest.capture());
+    Assertions.assertNotNull(createRequest.getValue().getJobConf());
+    Assertions.assertNotNull(createRequest.getValue().getJobConf().getExecutionConf());
+
     ArgumentCaptor<CreateJobRequestBody> argumentCaptor =
         ArgumentCaptor.forClass(CreateJobRequestBody.class);
     Mockito.verify(apiMock, Mockito.times(1)).createJob(argumentCaptor.capture());
