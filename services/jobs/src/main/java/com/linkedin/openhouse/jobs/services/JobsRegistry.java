@@ -40,7 +40,9 @@ public class JobsRegistry {
     if (authTokenPath != null) {
       propsMap.put("spark.sql.catalog.openhouse.auth-token", getToken(authTokenPath));
     }
-    populateSparkProps(conf.getExecutionConf(), propsMap);
+    if (conf.getExecutionConf() != null) {
+      populateSparkProps(conf.getExecutionConf(), propsMap);
+    }
     defaultConf.setSparkProperties(propsMap);
     JobLaunchConf.JobLaunchConfBuilder builder = defaultConf.toBuilder();
 
