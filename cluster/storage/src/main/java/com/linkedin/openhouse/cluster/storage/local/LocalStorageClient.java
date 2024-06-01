@@ -45,7 +45,15 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
 
     URI uri;
     if (storageProperties.getTypes() != null && !storageProperties.getTypes().isEmpty()) {
-      validateProperties(storageProperties, LOCAL_TYPE);
+      Preconditions.checkArgument(
+          storageProperties.getTypes().containsKey(LOCAL_TYPE.getValue()),
+          "Storage properties doesn't contain type: " + LOCAL_TYPE.getValue());
+      Preconditions.checkArgument(
+          storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getEndpoint() != null,
+          "Storage properties doesn't contain endpoint for: " + LOCAL_TYPE.getValue());
+      Preconditions.checkArgument(
+          storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getRootPath() != null,
+          "Storage properties doesn't contain rootpath for: " + LOCAL_TYPE.getValue());
       Preconditions.checkArgument(
           storageProperties
               .getTypes()
@@ -76,6 +84,11 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
   @Override
   public FileSystem getNativeClient() {
     return fs;
+  }
+
+  @Override
+  public StorageType.Type getStorageType() {
+    return LOCAL_TYPE;
   }
 
   @Override

@@ -21,6 +21,13 @@ public interface StorageClient<T> {
   T getNativeClient();
 
   /**
+   * Get the storage type for the storage system.
+   *
+   * @return the storage type. Examples include "HDFS", "S3" etc.
+   */
+  StorageType.Type getStorageType();
+
+  /**
    * Get the endpoint of the storage system.
    *
    * <p>Example: For HDFS, the endpoint could be "hdfs://localhost:9000". For local file system, the

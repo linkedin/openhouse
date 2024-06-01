@@ -25,23 +25,23 @@ import software.amazon.awssdk.services.s3.S3Client;
 @Lazy
 @Component
 public class S3StorageClient extends BaseStorageClient<S3Client> {
-  // Storage type.
-  private static final StorageType.Type S3_TYPE = StorageType.S3;
-
   // Storage properties.
   @Autowired private StorageProperties storageProperties;
+
+  // Storage type.
+  private static final StorageType.Type S3_TYPE = StorageType.S3;
 
   // S3 client.
   private S3Client s3;
 
   /**
    * Initialize the S3 client when the bean is accessed the first time. AWS_REGION must be set in
-   * the evironment variable or in the storage properties.
+   * the environment variable or in the storage properties.
    */
   @PostConstruct
   public synchronized void init() {
     log.info("Initializing storage client for type: " + S3_TYPE);
-    validateProperties(storageProperties, S3_TYPE);
+    validateProperties();
     Map properties =
         new HashMap(storageProperties.getTypes().get(S3_TYPE.getValue()).getParameters());
 
@@ -65,12 +65,27 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
   }
 
   @Override
-  public String getEndpoint() {
-    return storageProperties.getTypes().get(S3_TYPE.getValue()).getEndpoint();
+  public StorageType.Type getStorageType() {
+    return S3_TYPE;
   }
 
+  /**
+   * Returns the endpoint for the given storage type.
+   *
+   * @return endpoint for the given storage type.
+   */
+  @Override
+  public String getEndpoint() {
+    return storageProperties.getTypes().get(getStorageType().getValue()).getEndpoint();
+  }
+
+  /**
+   * Returns the root prefix for the given storage type.
+   *
+   * @return root prefix for the given storage type.
+   */
   @Override
   public String getRootPrefix() {
-    return storageProperties.getTypes().get(S3_TYPE.getValue()).getRootPath();
+    return storageProperties.getTypes().get(getStorageType().getValue()).getRootPath();
   }
 }

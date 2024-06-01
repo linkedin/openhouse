@@ -22,6 +22,7 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
 
   private FileSystem fs;
 
+  // Holds storage properties for all configured storage types.
   @Autowired private StorageProperties storageProperties;
 
   private static final StorageType.Type HDFS_TYPE = StorageType.HDFS;
@@ -30,7 +31,7 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
   @PostConstruct
   public synchronized void init() throws IOException {
     log.info("Initializing storage client for type: " + HDFS_TYPE);
-    validateProperties(storageProperties, HDFS_TYPE);
+    validateProperties();
     StorageProperties.StorageTypeProperties hdfsStorageProperties =
         storageProperties.getTypes().get(HDFS_TYPE.getValue());
     org.apache.hadoop.conf.Configuration configuration = new org.apache.hadoop.conf.Configuration();
@@ -44,12 +45,27 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
   }
 
   @Override
-  public String getEndpoint() {
-    return storageProperties.getTypes().get(HDFS_TYPE.getValue()).getEndpoint();
+  public StorageType.Type getStorageType() {
+    return HDFS_TYPE;
   }
 
+  /**
+   * Returns the endpoint for the given storage type.
+   *
+   * @return endpoint for the given storage type.
+   */
+  @Override
+  public String getEndpoint() {
+    return storageProperties.getTypes().get(getStorageType().getValue()).getEndpoint();
+  }
+
+  /**
+   * Returns the root prefix for the given storage type.
+   *
+   * @return root prefix for the given storage type.
+   */
   @Override
   public String getRootPrefix() {
-    return storageProperties.getTypes().get(HDFS_TYPE.getValue()).getRootPath();
+    return storageProperties.getTypes().get(getStorageType().getValue()).getRootPath();
   }
 }

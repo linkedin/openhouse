@@ -2,6 +2,8 @@ package com.linkedin.openhouse.cluster.storage;
 
 import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.CollectionUtils;
 
 /**
@@ -10,27 +12,44 @@ import org.springframework.util.CollectionUtils;
  *
  * @param <T> native client type for the storage backend.
  */
+@Slf4j
 public abstract class BaseStorageClient<T> implements StorageClient<T> {
-  // Validates the configuration for the given storage type. Validates that:
+  // Holds storage properties for all configured storage types.
+  @Autowired private StorageProperties storageProperties;
+
+  // Validates the configuration for the given storage type.
+  // The storage type is determined based on the derived class implementation of getStorageType().
+  // Validates that:
   // 1. The storageProperties contain the entry for the given storage type.
   // 2. The storageProperties value for the given storage type is not null and has the endpoint and
   // root path configured.
-  protected void validateProperties(
-      StorageProperties storageProperties, StorageType.Type storageType) {
+  protected void validateProperties() {
+    // Get the storage type from the derived class implementation.
+    StorageType.Type storageType = getStorageType();
+
+    // Validate that the storageProperties contains the given storage type.
     Preconditions.checkArgument(
         !CollectionUtils.isEmpty(storageProperties.getTypes())
             && storageProperties.getTypes().containsKey(storageType.getValue()),
         "Storage properties doesn't contain type: " + storageType.getValue());
-    StorageProperties.StorageTypeProperties hdfsStorageProperties =
+
+    // Extract the value of storage properties for the given storage type.
+    StorageProperties.StorageTypeProperties storagePropertiesForType =
         storageProperties.getTypes().get(storageType.getValue());
+
+    // Validate that the storage properties for the given type are not null.
     Preconditions.checkArgument(
-        hdfsStorageProperties != null,
+        storagePropertiesForType != null,
         "Storage properties doesn't contain type: " + storageType.getValue());
+
+    // Validate that the endpoint is configured in the storage properties for the given type.
     Preconditions.checkArgument(
-        hdfsStorageProperties.getEndpoint() != null,
+        getEndpoint() != null,
         "Storage properties doesn't contain endpoint for: " + storageType.getValue());
+
+    // Validate that the root prefix is configured in the storage properties for the given type.
     Preconditions.checkArgument(
-        hdfsStorageProperties.getRootPath() != null,
+        getRootPrefix() != null,
         "Storage properties doesn't contain rootpath for: " + storageType.getValue());
   }
 }
