@@ -68,24 +68,4 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
   public StorageType.Type getStorageType() {
     return S3_TYPE;
   }
-
-  /**
-   * Returns the endpoint for the given storage type.
-   *
-   * @return endpoint for the given storage type.
-   */
-  @Override
-  public String getEndpoint() {
-    return storageProperties.getTypes().get(getStorageType().getValue()).getEndpoint();
-  }
-
-  /**
-   * Returns the root prefix for the given storage type.
-   *
-   * @return root prefix for the given storage type.
-   */
-  @Override
-  public String getRootPrefix() {
-    return storageProperties.getTypes().get(getStorageType().getValue()).getRootPath();
-  }
 }
