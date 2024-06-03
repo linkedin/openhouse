@@ -7,7 +7,6 @@ import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import lombok.AllArgsConstructor;
@@ -34,7 +33,6 @@ public class JobsClient {
     jobConf.setJobType(jobType);
     jobConf.setProxyUser(proxyUser);
     jobConf.setArgs(args);
-    jobConf.setExecutionConf(new HashMap<>());
     request.setJobConf(jobConf);
     return Optional.ofNullable(
         RetryUtil.executeWithRetry(
