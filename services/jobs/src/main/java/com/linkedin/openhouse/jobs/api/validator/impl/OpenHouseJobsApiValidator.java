@@ -53,7 +53,7 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
   private static class JobConfValidator {
     private static boolean validateExecutionConfig(Map<String, String> conf) {
       String memory = conf.getOrDefault(JOB_MEMORY_CONFIG, "");
-      return memory.matches(SPARK_MEMORY_FORMAT);
+      return memory.matches(SPARK_MEMORY_REGEX_ALLOW);
     }
 
     private static void validate(@NonNull JobConf conf, List<String> validationFailures) {
@@ -62,8 +62,8 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
           && !JobConfValidator.validateExecutionConfig(executionConfig)) {
         validationFailures.add(
             String.format(
-                "memory : provided %s, %s",
-                executionConfig.get(JOB_MEMORY_CONFIG), SPARK_MEMORY_FORMAT));
+                "jobConf.executionConf.memory : provided %s, %s",
+                executionConfig.get(JOB_MEMORY_CONFIG), SPARK_MEMORY_ERROR_MSG_ALLOW));
       }
     }
   }
