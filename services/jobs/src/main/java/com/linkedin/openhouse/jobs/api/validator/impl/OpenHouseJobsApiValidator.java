@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
+import org.apache.commons.collections.MapUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -40,14 +41,13 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
               "clusterId : provided %s, %s",
               createJobRequestBody.getClusterId(), ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW));
     }
-    if (!createJobRequestBody.getJobConf().getExecutionConf().isEmpty()
-        && !JobConfValidator.executionConfigValidator(
-            createJobRequestBody.getJobConf().getExecutionConf())) {
+    final Map<String, String> executionConf = createJobRequestBody.getJobConf().getExecutionConf();
+    if (!MapUtils.isEmpty(executionConf)
+        && !JobConfValidator.executionConfigValidator(executionConf)) {
       validationFailures.add(
           String.format(
               "memory : provided %s, %s",
-              createJobRequestBody.getJobConf().getExecutionConf().get(JOB_MEMORY_CONFIG),
-              SPARK_MEMORY_FORMAT));
+              executionConf.get(JOB_MEMORY_CONFIG), SPARK_MEMORY_FORMAT));
     }
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
