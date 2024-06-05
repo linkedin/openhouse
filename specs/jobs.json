@@ -37,14 +37,14 @@
           }
         ],
         "responses": {
+          "409": {
+            "description": "Job PUT: CONFLICT"
+          },
           "200": {
             "description": "Job PUT: UPDATED"
           },
           "404": {
             "description": "Job PUT: NOT_FOUND"
-          },
-          "409": {
-            "description": "Job PUT: CONFLICT"
           }
         }
       }
@@ -111,8 +111,8 @@
           }
         ],
         "responses": {
-          "404": {
-            "description": "Job GET: NOT_FOUND",
+          "200": {
+            "description": "Job GET: OK",
             "content": {
               "application/json": {
                 "schema": {
@@ -121,8 +121,8 @@
               }
             }
           },
-          "200": {
-            "description": "Job GET: OK",
+          "404": {
+            "description": "Job GET: NOT_FOUND",
             "content": {
               "application/json": {
                 "schema": {
@@ -173,11 +173,20 @@
               "RETENTION",
               "ORPHAN_FILES_DELETION",
               "SNAPSHOTS_EXPIRATION",
-              "STAGED_FILES_DELETION"
+              "STAGED_FILES_DELETION",
+              "DATA_COMPACTION",
+              "ORPHAN_DIRECTORY_DELETION",
+              "TABLE_STATS_COLLECTION"
             ]
           },
           "proxyUser": {
             "type": "string"
+          },
+          "executionConf": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           },
           "args": {
             "type": "array",
