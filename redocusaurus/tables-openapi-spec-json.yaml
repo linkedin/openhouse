@@ -1056,20 +1056,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GetAclPoliciesResponseBody'
-  /v0/databases:
-    get:
-      tags:
-        - Database
-      summary: List all Databases
-      description: Returns a list of Database resources.
-      operationId: getAllDatabasesV0
-      responses:
-        '200':
-          description: 'Database GET_ALL: OK'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GetAllDatabasesResponseBody'
   /v0/databases/{databaseId}/aclPolicies:
     get:
       tags:
@@ -1139,6 +1125,20 @@ paths:
           description: 'AclPolicies PATCH: FORBIDDEN'
         '404':
           description: 'AclPolicies PATCH: DB_NOT_FOUND'
+  /v0/databases:
+    get:
+      tags:
+        - Database
+      summary: List all Databases
+      description: Returns a list of Database resources.
+      operationId: getAllDatabasesV0
+      responses:
+        '200':
+          description: 'Database GET_ALL: OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAllDatabasesResponseBody'
   /databases/{databaseId}/aclPolicies:
     get:
       tags:
@@ -1193,9 +1193,12 @@ components:
             dot-separated name (for example: 'eventHeader.countryCode').Column
             name is case-sensitive.
           example: clusteringColumn
+        transform:
+          $ref: '#/components/schemas/Transform'
       description: Clustering columns for the table
       nullable: true
-      example: '"clustering":[{"columnName":"country"},{"columnName":"city"}]'
+      example: >-
+        "clustering":[{"columnName":"country"},{"columnName":"city","transform":{"transformType":"TRUNCATE","transformParams":["1000"]}}]
     CreateUpdateTableRequestBody:
       required:
         - baseTableVersion
@@ -1238,7 +1241,8 @@ components:
           type: array
           description: Clustering columns for the table
           nullable: true
-          example: '"clustering":[{"columnName":"country"},{"columnName":"city"}]'
+          example: >-
+            "clustering":[{"columnName":"country"},{"columnName":"city","transform":{"transformType":"TRUNCATE","transformParams":["1000"]}}]
           items:
             $ref: '#/components/schemas/ClusteringColumn'
         tableProperties:
@@ -1282,6 +1286,16 @@ components:
           items:
             type: string
             description: List of json serialized snapshots to put
+        snapshotRefs:
+          type: object
+          additionalProperties:
+            type: string
+            description: >-
+              Map of branch name to json serialized SnapshotRef. Key is the
+              branch name, and value is the SnapshotRef.
+          description: >-
+            Map of branch name to json serialized SnapshotRef. Key is the branch
+            name, and value is the SnapshotRef.
         createUpdateTableRequestBody:
           $ref: '#/components/schemas/CreateUpdateTableRequestBody'
       description: Request containing a list of JSON serialized Iceberg Snapshots to be put
@@ -1396,6 +1410,31 @@ components:
       description: Time partitioning of the table
       nullable: true
       example: '"timePartitioning":{"columnName":"timestampCol","granularity":"HOUR"}'
+    Transform:
+      required:
+        - transformType
+      type: object
+      properties:
+        transformType:
+          type: string
+          description: Type of the transform
+          example: TRUNCATE
+          enum:
+            - TRUNCATE
+        transformParams:
+          type: array
+          description: Parameters of the transform. This field can be null
+          nullable: true
+          example:
+            - '1000'
+          items:
+            type: string
+            description: Parameters of the transform. This field can be null
+            nullable: true
+            example: '["1000"]'
+      description: Transform of the clustering column. This field is optional.
+      nullable: true
+      example: '{"transformType":"TRUNCATE","transformParams":["1000"]}}'
     GetTableResponseBody:
       type: object
       properties:
@@ -1518,6 +1557,17 @@ components:
           enum:
             - GRANT
             - REVOKE
+        expirationEpochTimeSeconds:
+          type: integer
+          description: Optional epoch time in seconds for the role to expire
+          format: int64
+          example: 1707791165
+        properties:
+          type: object
+          additionalProperties:
+            type: string
+            description: Optional properties to accept key-value pair
+          description: Optional properties to accept key-value pair
       description: Request containing aclPolicies of the Database to be updated
     AclPolicy:
       type: object
@@ -1529,6 +1579,11 @@ components:
         role:
           type: string
           description: Role associated with the principal
+          readOnly: true
+        expirationEpochTimeSeconds:
+          type: integer
+          description: Optional epoch time in seconds for the role to expire
+          format: int64
           readOnly: true
         properties:
           type: object
