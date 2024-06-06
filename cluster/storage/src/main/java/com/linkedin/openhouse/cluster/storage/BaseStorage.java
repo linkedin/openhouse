@@ -45,7 +45,7 @@ public abstract class BaseStorage implements Storage {
   }
 
   /**
-   * Allocates Table Space for the storage.
+   * Allocates Table Storage and return location.
    *
    * <p>Default tableLocation looks like: {endpoint}/{rootPrefix}/{databaseId}/{tableId}-{tableUUID}
    *
