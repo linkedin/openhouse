@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateProperties;
 
@@ -142,8 +143,9 @@ public final class InternalRepositoryUtils {
             .tableUUID(megaProps.get(getCanonicalFieldName("tableUUID")))
             .tableLocation(
                 URI.create(
-                        storage.getClient().getEndpoint()
-                            + megaProps.get(getCanonicalFieldName("tableLocation")))
+                        StringUtils.prependIfMissing(
+                            megaProps.get(getCanonicalFieldName("tableLocation")),
+                            storage.getClient().getEndpoint()))
                     .normalize()
                     .toString())
             .tableVersion(megaProps.get(getCanonicalFieldName("tableVersion")))

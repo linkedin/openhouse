@@ -4,6 +4,7 @@ import com.linkedin.openhouse.cluster.storage.BaseStorage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import java.nio.file.Paths;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -50,5 +51,23 @@ public class LocalStorage extends BaseStorage {
   @Override
   public StorageClient<?> getClient() {
     return localStorageClient;
+  }
+
+  /**
+   * Allocates Table Space for the Local Storage.
+   *
+   * <p>tableLocation looks like: /{rootPrefix}/{databaseId}/{tableId}-{tableUUID} We strip the
+   * endpoint as it's not needed for Local Storage.
+   *
+   * @return the table location
+   */
+  @Override
+  public String allocateTableSpace(
+      String databaseId,
+      String tableId,
+      String tableUUID,
+      String tableCreator,
+      boolean skipProvisioning) {
+    return Paths.get(getClient().getRootPrefix(), databaseId, tableId + "-" + tableUUID).toString();
   }
 }

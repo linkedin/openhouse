@@ -48,4 +48,32 @@ public interface Storage {
    * @return a client to interact with the storage
    */
   StorageClient<?> getClient();
+
+  /**
+   * Allocates Table Space for the storage.
+   *
+   * <p>Allocating involves creating directory structure/ creating bucket, and setting appropriate
+   * permissions etc. Please note that this method should avoid creating TableFormat specific
+   * directories (ex: /data, /metadata for Iceberg or _delta_log for DeltaLake). Such provisioning
+   * should be done by the TableFormat implementation.
+   *
+   * <p>After allocation is done, this method should return the table location where the table data
+   * should be stored. Example: /rootPrefix/databaseId/tableId-UUID for HDFS storage
+   * /tmp/databaseId/tableId-UUID for Local storage s3://bucket/databaseId/tableId-UUID for S3
+   * storage
+   *
+   * @param databaseId the database id of the table
+   * @param tableId the table id of the table
+   * @param tableUUID the UUID of the table
+   * @param tableCreator the creator of the table
+   * @param skipProvisioning Set to true if heavy-lifting allocation work needs to be skipped and
+   *     only the table location needs to be returned
+   * @return the table location after provisioning is done
+   */
+  String allocateTableSpace(
+      String databaseId,
+      String tableId,
+      String tableUUID,
+      String tableCreator,
+      boolean skipProvisioning);
 }

@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.cluster.storage;
 
+import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -40,5 +42,38 @@ public abstract class BaseStorage implements Storage {
         .map(StorageProperties.StorageTypeProperties::getParameters)
         .map(HashMap::new)
         .orElseGet(HashMap::new);
+  }
+
+  /**
+   * Allocates Table Space for the storage.
+   *
+   * <p>Default tableLocation looks like: {endpoint}/{rootPrefix}/{databaseId}/{tableId}-{tableUUID}
+   *
+   * @return the table location where the table data should be stored
+   */
+  @Override
+  public String allocateTableSpace(
+      String databaseId,
+      String tableId,
+      String tableUUID,
+      String tableCreator,
+      boolean skipProvisioning) {
+    Preconditions.checkArgument(databaseId != null, "Database ID cannot be null");
+    Preconditions.checkArgument(tableId != null, "Table ID cannot be null");
+    Preconditions.checkArgument(tableUUID != null, "Table UUID cannot be null");
+    Preconditions.checkState(
+        storageProperties.getTypes().containsKey(getType().getValue()),
+        "Storage properties doesn't contain type: " + getType().getValue());
+    return URI.create(
+            getClient().getEndpoint()
+                + getClient().getRootPrefix()
+                + "/"
+                + databaseId
+                + "/"
+                + tableId
+                + "-"
+                + tableUUID)
+        .normalize()
+        .toString();
   }
 }
