@@ -113,7 +113,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               partitionSpec,
               storageManager
                   .getDefaultStorage()
-                  .allocateTableSpace(
+                  .allocateTableLocation(
                       tableDto.getDatabaseId(),
                       tableDto.getTableId(),
                       tableDto.getTableUUID(),

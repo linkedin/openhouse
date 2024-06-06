@@ -68,7 +68,7 @@ public class HdfsStorageTest {
     String expected = "/data/openhouse/db1/table1-uuid1";
     assertEquals(
         expected,
-        hdfsStorage.allocateTableSpace(
+        hdfsStorage.allocateTableLocation(
             databaseId, tableId, tableUUID, tableCreator, skipProvisioning));
   }
 }

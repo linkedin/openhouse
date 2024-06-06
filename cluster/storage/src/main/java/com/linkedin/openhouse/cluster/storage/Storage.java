@@ -50,7 +50,7 @@ public interface Storage {
   StorageClient<?> getClient();
 
   /**
-   * Allocates Table Space for the storage.
+   * Allocates Table Storage and return location.
    *
    * <p>Allocating involves creating directory structure/ creating bucket, and setting appropriate
    * permissions etc. Please note that this method should avoid creating TableFormat specific
@@ -70,7 +70,7 @@ public interface Storage {
    *     only the table location needs to be returned
    * @return the table location after provisioning is done
    */
-  String allocateTableSpace(
+  String allocateTableLocation(
       String databaseId,
       String tableId,
       String tableUUID,

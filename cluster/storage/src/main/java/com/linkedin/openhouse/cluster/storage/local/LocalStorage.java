@@ -62,7 +62,7 @@ public class LocalStorage extends BaseStorage {
    * @return the table location
    */
   @Override
-  public String allocateTableSpace(
+  public String allocateTableLocation(
       String databaseId,
       String tableId,
       String tableUUID,

@@ -96,7 +96,7 @@ public class LocalStorageTest {
     String expected = "/tmp/db1/table1-uuid1";
     assertEquals(
         expected,
-        localStorage.allocateTableSpace(
+        localStorage.allocateTableLocation(
             databaseId, tableId, tableUUID, tableCreator, skipProvisioning));
   }
 }

@@ -49,10 +49,16 @@ public abstract class BaseStorage implements Storage {
    *
    * <p>Default tableLocation looks like: {endpoint}/{rootPrefix}/{databaseId}/{tableId}-{tableUUID}
    *
+   * @param databaseId the database id of the table
+   * @param tableId the table id of the table
+   * @param tableUUID the UUID of the table
+   * @param tableCreator the creator of the table
+   * @param skipProvisioning Set to true if heavy-lifting allocation work needs to be skipped and
+   *     only the table location needs to be returned
    * @return the table location where the table data should be stored
    */
   @Override
-  public String allocateTableSpace(
+  public String allocateTableLocation(
       String databaseId,
       String tableId,
       String tableUUID,
