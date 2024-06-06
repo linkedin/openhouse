@@ -15,6 +15,10 @@ dependencies {
   implementation project(':cluster:storage')
   implementation project(':cluster:metrics')
 
+  // for ADLS interfacing
+  implementation 'org.apache.iceberg:iceberg-azure:1.5.2'
+  implementation('org.apache.iceberg:iceberg-azure-bundle:1.5.2')
+
   // Needed for testing against manually bootstrapped HTS server through bootRun task.
   testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"
   // Needed for testing against mock HTS server along with other constructs in /tables module.
