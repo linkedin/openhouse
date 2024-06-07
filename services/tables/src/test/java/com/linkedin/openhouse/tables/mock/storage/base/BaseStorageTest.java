@@ -9,6 +9,8 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
+import javax.annotation.PostConstruct;
+import lombok.Setter;
 import org.apache.hadoop.fs.FileSystem;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,13 +26,14 @@ public class BaseStorageTest {
   @MockBean private HdfsStorageClient hdfsStorageClient;
 
   @TestComponent
+  @Setter
   public static class DummyBaseStorage extends BaseStorage {
 
-    @Autowired private HdfsStorageClient hdfsStorageClient;
+    HdfsStorageClient hdfsStorageClient;
 
     @Override
     public StorageType.Type getType() {
-      return StorageType.HDFS; // return a dummy type
+      return new StorageType.Type("TEST"); // return a dummy type
     }
 
     @Override
@@ -41,19 +44,22 @@ public class BaseStorageTest {
 
   @Autowired private DummyBaseStorage baseStorage;
 
+  @PostConstruct
+  public void setupTest() {
+    baseStorage.setHdfsStorageClient(hdfsStorageClient);
+  }
+
   private static final String databaseId = "db1";
   private static final String tableId = "table1";
   private static final String tableUUID = "uuid1";
   private static final String tableCreator = "creator1";
-  private static final boolean skipProvisioning = false;
 
   @Test
   public void testAllocateTableLocationPattern1() {
     mockStorageProperties("hdfs://localhost:9000", "/data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(
-            databaseId, tableId, tableUUID, tableCreator, skipProvisioning));
+        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
 
   @Test
@@ -61,8 +67,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "/data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(
-            databaseId, tableId, tableUUID, tableCreator, skipProvisioning));
+        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
 
   @Test
@@ -70,8 +75,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(
-            databaseId, tableId, tableUUID, tableCreator, skipProvisioning));
+        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
 
   @Test
@@ -79,8 +83,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "data");
     assertEquals(
         "hdfs://localhost:9000/data/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(
-            databaseId, tableId, tableUUID, tableCreator, skipProvisioning));
+        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
 
   @Test
@@ -88,8 +91,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs:///", "data/openhouse");
     assertEquals(
         "hdfs:///data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(
-            databaseId, tableId, tableUUID, tableCreator, skipProvisioning));
+        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
 
   void mockStorageProperties(String endpoint, String rootPrefix) {
@@ -98,7 +100,7 @@ public class BaseStorageTest {
     when(storageProperties.getTypes())
         .thenReturn(
             ImmutableMap.of(
-                StorageType.HDFS.getValue(),
+                "TEST",
                 new StorageProperties.StorageTypeProperties(
                     rootPrefix, endpoint, ImmutableMap.of())));
   }
