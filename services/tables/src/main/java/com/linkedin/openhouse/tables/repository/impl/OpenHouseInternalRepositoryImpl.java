@@ -111,12 +111,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               tableIdentifier,
               writeSchema,
               partitionSpec,
-              constructTablePath(
-                      storageManager,
+              storageManager
+                  .getDefaultStorage()
+                  .allocateTableLocation(
                       tableDto.getDatabaseId(),
                       tableDto.getTableId(),
-                      tableDto.getTableUUID())
-                  .toString(),
+                      tableDto.getTableUUID(),
+                      tableDto.getTableCreator()),
               computePropsForTableCreation(tableDto));
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(
