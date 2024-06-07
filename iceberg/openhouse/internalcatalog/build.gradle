@@ -2,6 +2,7 @@ plugins {
   id 'openhouse.springboot-conventions'
   id 'openhouse.client-codegen-convention'
   id 'openhouse.iceberg-conventions'
+  id 'openhouse.iceberg-aws-conventions'
   id 'openhouse.hadoop-conventions'
   id 'openhouse.maven-publish'
   id 'java-test-fixtures'
@@ -13,8 +14,6 @@ dependencies {
   implementation project(':client:hts')
   implementation project(':cluster:storage')
   implementation project(':cluster:metrics')
-  implementation 'org.apache.iceberg:iceberg-aws:1.5.2'
-  implementation('org.apache.iceberg:iceberg-aws-bundle:1.5.2')
 
   // Needed for testing against manually bootstrapped HTS server through bootRun task.
   testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"

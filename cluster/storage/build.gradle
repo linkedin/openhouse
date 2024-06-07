@@ -9,6 +9,4 @@ plugins {
 dependencies {
   implementation project(':cluster:configs')
   implementation 'org.springframework.boot:spring-boot-autoconfigure:' + spring_web_version
-  implementation 'org.apache.iceberg:iceberg-aws:1.5.2'
-  implementation('org.apache.iceberg:iceberg-aws-bundle:1.5.2')
 }

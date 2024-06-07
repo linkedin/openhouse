@@ -8,8 +8,8 @@ cluster:
     default-type: "s3"
     types:
       s3:
-        rootpath: "/openhouse-bucket"
-        endpoint: "s3:/"
+        rootpath: "openhouse-bucket"
+        endpoint: "s3://"
         parameters:
           s3.endpoint: "http://minioS3:9000"
           s3.access-key-id: "admin"
