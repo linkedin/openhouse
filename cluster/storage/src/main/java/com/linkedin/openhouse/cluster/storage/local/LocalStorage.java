@@ -57,9 +57,8 @@ public class LocalStorage extends BaseStorage {
    * Allocates Table Space for the Local Storage.
    *
    * <p>tableLocation looks like: /{rootPrefix}/{databaseId}/{tableId}-{tableUUID} We strip the
-   * endpoint as it's not needed for Local Storage.
-   *
-   * @return the table location
+   * endpoint to ensure backward-compatibility. This override should be removed after resolving <a
+   * href="https://github.com/linkedin/openhouse/issues/121">
    */
   @Override
   public String allocateTableLocation(

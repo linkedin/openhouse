@@ -58,8 +58,8 @@ public interface Storage {
    * should be done by the TableFormat implementation.
    *
    * <p>After allocation is done, this method should return the table location where the table data
-   * should be stored. Example: /rootPrefix/databaseId/tableId-UUID for HDFS storage;
-   * /tmp/databaseId/tableId-UUID for Local storage; s3://bucket/databaseId/tableId-UUID for S3
+   * should be stored. Example: hdfs:///rootPrefix/databaseId/tableId-UUID for HDFS storage;
+   * file:/tmp/databaseId/tableId-UUID for Local storage; s3://bucket/databaseId/tableId-UUID for S3
    * storage
    *
    * @param databaseId the database id of the table

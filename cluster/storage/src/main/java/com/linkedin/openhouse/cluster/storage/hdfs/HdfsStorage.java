@@ -42,7 +42,8 @@ public class HdfsStorage extends BaseStorage {
    * Allocates Table Space for the HDFS storage.
    *
    * <p>tableLocation looks like: /{rootPrefix}/{databaseId}/{tableId}-{tableUUID} We strip the
-   * endpoint as it's not needed for HDFS.
+   * endpoint to ensure backward-compatibility. This override should be removed after resolving <a
+   * href="https://github.com/linkedin/openhouse/issues/121">
    *
    * @return the table location
    */
