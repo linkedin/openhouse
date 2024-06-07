@@ -241,7 +241,7 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2
   --conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
   --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
   --conf spark.sql.catalog.openhouse.cluster=LocalFSCluster  \
-  --conf spark.sql.catalog.openhouse.com.linkedin.openhouse.relocated.io-impl=org.apache.iceberg.aws.s3.S3FileIO  \
+  --conf spark.sql.catalog.openhouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO  \
   --conf spark.sql.catalog.openhouse.s3.endpoint=http://minioS3:9000 \
   --conf spark.sql.catalog.openhouse.s3.access-key-id=admin \
   --conf spark.sql.catalog.openhouse.s3.secret-access-key=password \
