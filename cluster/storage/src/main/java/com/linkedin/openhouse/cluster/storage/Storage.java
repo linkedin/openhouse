@@ -66,14 +66,8 @@ public interface Storage {
    * @param tableId the table id of the table
    * @param tableUUID the UUID of the table
    * @param tableCreator the creator of the table
-   * @param skipProvisioning Set to true if heavy-lifting allocation work needs to be skipped and
-   *     only the table location needs to be returned
    * @return the table location after provisioning is done
    */
   String allocateTableLocation(
-      String databaseId,
-      String tableId,
-      String tableUUID,
-      String tableCreator,
-      boolean skipProvisioning);
+      String databaseId, String tableId, String tableUUID, String tableCreator);
 }

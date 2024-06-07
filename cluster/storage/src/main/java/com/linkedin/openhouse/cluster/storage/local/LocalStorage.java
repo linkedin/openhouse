@@ -62,11 +62,7 @@ public class LocalStorage extends BaseStorage {
    */
   @Override
   public String allocateTableLocation(
-      String databaseId,
-      String tableId,
-      String tableUUID,
-      String tableCreator,
-      boolean skipProvisioning) {
+      String databaseId, String tableId, String tableUUID, String tableCreator) {
     return Paths.get(getClient().getRootPrefix(), databaseId, tableId + "-" + tableUUID).toString();
   }
 }

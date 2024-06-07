@@ -117,8 +117,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                       tableDto.getDatabaseId(),
                       tableDto.getTableId(),
                       tableDto.getTableUUID(),
-                      tableDto.getTableCreator(),
-                      false),
+                      tableDto.getTableCreator()),
               computePropsForTableCreation(tableDto));
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(
