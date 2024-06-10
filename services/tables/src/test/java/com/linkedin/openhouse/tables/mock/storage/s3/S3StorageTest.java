@@ -71,11 +71,10 @@ public class S3StorageTest {
         .thenReturn(
             ImmutableMap.of(
                 StorageType.S3.getValue(),
-                new StorageProperties.StorageTypeProperties(
-                    "/mybucket", "http://S3:9000", testMap)));
-    when(s3StorageClient.getEndpoint()).thenReturn("http://S3:9000");
-    when(s3StorageClient.getRootPrefix()).thenReturn("/mybucket");
-    String expected = "http://S3:9000/mybucket/db1/table1-uuid1";
+                new StorageProperties.StorageTypeProperties("mybucket", "S3://", testMap)));
+    when(s3StorageClient.getEndpoint()).thenReturn("S3://");
+    when(s3StorageClient.getRootPrefix()).thenReturn("mybucket");
+    String expected = "S3://mybucket/db1/table1-uuid1";
     assertEquals(
         expected, s3Storage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
