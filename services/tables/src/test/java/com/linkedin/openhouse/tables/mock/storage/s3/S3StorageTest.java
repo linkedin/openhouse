@@ -55,7 +55,28 @@ public class S3StorageTest {
             ImmutableMap.of(
                 StorageType.S3.getValue(),
                 new StorageProperties.StorageTypeProperties(
-                    "/mybucket", "hdfs://S3:9000", testMap)));
+                    "/mybucket", "http://S3:9000", testMap)));
     assertEquals(testMap, s3Storage.getProperties());
+  }
+
+  @Test
+  public void testAllocateTableSpace() {
+    String databaseId = "db1";
+    String tableId = "table1";
+    String tableUUID = "uuid1";
+    String tableCreator = "creator1";
+    boolean skipProvisioning = false;
+    Map<String, String> testMap = ImmutableMap.of(AwsClientProperties.CLIENT_REGION, "us-east-1");
+    when(storageProperties.getTypes())
+        .thenReturn(
+            ImmutableMap.of(
+                StorageType.S3.getValue(),
+                new StorageProperties.StorageTypeProperties(
+                    "/mybucket", "http://S3:9000", testMap)));
+    when(s3StorageClient.getEndpoint()).thenReturn("http://S3:9000");
+    when(s3StorageClient.getRootPrefix()).thenReturn("/mybucket");
+    String expected = "http://S3:9000/mybucket/db1/table1-uuid1";
+    assertEquals(
+        expected, s3Storage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
 }
