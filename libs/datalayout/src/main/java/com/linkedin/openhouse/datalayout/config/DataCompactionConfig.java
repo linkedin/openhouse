@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.jobs.config;
+package com.linkedin.openhouse.datalayout.config;
 
 import lombok.Builder;
 import lombok.Getter;
@@ -24,12 +24,13 @@ public final class DataCompactionConfig {
       RewriteDataFiles.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT;
   public static final double DEFAULT_ENTROPY_THRESHOLD = 10000.0; // 100MB variance
 
-  private long targetByteSize;
-  private long minByteSize;
-  private long maxByteSize;
-  private int minInputFiles;
-  private int maxConcurrentFileGroupRewrites;
-  private boolean partialProgressEnabled;
-  private int partialProgressMaxCommits;
-  private double entropyThreshold;
+  @Builder.Default private long targetByteSize = DEFAULT_TARGET_BYTE_SIZE;
+  @Builder.Default private int minInputFiles = DEFAULT_MIN_INPUT_FILES;
+
+  @Builder.Default
+  private int maxConcurrentFileGroupRewrites = DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES;
+
+  @Builder.Default private boolean partialProgressEnabled = true;
+  @Builder.Default private int partialProgressMaxCommits = DEFAULT_PARTIAL_PROGRESS_MAX_COMMITS;
+  @Builder.Default private double fileEntropyThreshold = DEFAULT_ENTROPY_THRESHOLD;
 }
