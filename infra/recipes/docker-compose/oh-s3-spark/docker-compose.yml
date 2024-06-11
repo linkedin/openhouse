@@ -10,7 +10,7 @@ services:
     depends_on:
       - openhouse-housetables
       - minioS3
-      - mc
+      - minioClient
       - prometheus
       - opa
     environment:
@@ -65,14 +65,14 @@ services:
   minioS3:
     container_name: local.minioS3
     extends:
-      file: ../common/aws-services.yml
+      file: ../common/s3-services.yml
       service: minioS3
 
-  mc:
-    container_name: local.mc
+  minioClient:
+    container_name: local.minioClient
     extends:
-      file: ../common/aws-services.yml
-      service: mc
+      file: ../common/s3-services.yml
+      service: minioClient
 
   spark-master:
     container_name: local.spark-master

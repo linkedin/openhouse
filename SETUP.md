@@ -78,6 +78,7 @@ spark-master|9001
 livy-server|9003
 hdfs-namenode|9870
 minio-s3-ui|9871
+minio-s3-server|9870
 mysql|3306
 spark-livy|8998
 opa|8181

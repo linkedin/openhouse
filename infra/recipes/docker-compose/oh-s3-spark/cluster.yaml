@@ -1,5 +1,5 @@
 cluster:
-  name: "LocalAwsCluster"
+  name: "LocalS3Cluster"
   storages:
     default-type: "s3"
     types:
