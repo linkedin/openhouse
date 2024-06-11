@@ -9,7 +9,7 @@ configurations {
 }
 
 ext {
-  springVersion = '2.6.6'
+  springVersion = '2.7.14'
   springLog4jVersion = '2.3.4.RELEASE'
 }
 

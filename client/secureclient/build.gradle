@@ -9,7 +9,7 @@ dependencies {
     implementation project(':client:tableclient')
     implementation project(':client:jobsclient')
     implementation project(':client:hts')
-    implementation 'org.springframework.boot:spring-boot-starter-webflux:2.6.6'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.14'
     testImplementation 'io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64'
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'

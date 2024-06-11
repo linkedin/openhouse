@@ -1,6 +1,6 @@
 plugins {
   id 'java'
-  id 'com.github.johnrengelman.shadow' version '6.0.0'
+  id 'com.github.johnrengelman.shadow' version '7.1.2'
   id 'openhouse.maven-publish'
 }
 
@@ -34,7 +34,7 @@ dependencies {
   testImplementation('org.apache.hadoop:hadoop-common:3.2.0'){
     transitive = false
   }
-  testRuntime("org.eclipse.jetty:jetty-server:11.0.2")
+  testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
 
 
 }

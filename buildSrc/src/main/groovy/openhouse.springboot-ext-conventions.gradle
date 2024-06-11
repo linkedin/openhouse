@@ -1,6 +1,7 @@
 // plugin for extensible springboot services
 plugins {
   id 'openhouse.springboot-conventions'
+  id "org.springframework.boot"
 }
 
 jar {
