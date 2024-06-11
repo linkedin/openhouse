@@ -7,7 +7,7 @@ services:
       - MINIO_ROOT_PASSWORD=password
     ports:
       - 9871:9001
-      - 9870:9000
+      - 9870:9000  # Minio Server will be available at this port
     command: [ "server", "/data", "--console-address", ":9001" ]
   minioClient:
     depends_on:
