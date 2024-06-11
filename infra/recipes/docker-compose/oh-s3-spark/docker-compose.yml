@@ -14,8 +14,6 @@ services:
       - prometheus
       - opa
     environment:
-      - AWS_ACCESS_KEY_ID=admin
-      - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
 
   openhouse-jobs:
