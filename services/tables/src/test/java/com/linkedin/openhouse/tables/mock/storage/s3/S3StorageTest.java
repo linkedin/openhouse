@@ -9,7 +9,6 @@ import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.s3.S3Storage;
 import com.linkedin.openhouse.cluster.storage.s3.S3StorageClient;
 import java.util.Map;
-import org.apache.iceberg.aws.AwsClientProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -48,8 +47,8 @@ public class S3StorageTest {
 
   @Test
   public void testS3StoragePropertiesReturned() {
-    Map<String, String> testMap =
-        ImmutableMap.of("k1", "v1", "k2", "v2", AwsClientProperties.CLIENT_REGION, "us-east-1");
+    Map<String, String> testMap = ImmutableMap.of("k1", "v1", "k2", "v2");
+    System.setProperty("aws.region", "us-east-1");
     when(storageProperties.getTypes())
         .thenReturn(
             ImmutableMap.of(
@@ -66,7 +65,8 @@ public class S3StorageTest {
     String tableUUID = "uuid1";
     String tableCreator = "creator1";
     boolean skipProvisioning = false;
-    Map<String, String> testMap = ImmutableMap.of(AwsClientProperties.CLIENT_REGION, "us-east-1");
+    Map<String, String> testMap = ImmutableMap.of("k1", "v1", "k2", "v2");
+    System.setProperty("aws.region", "us-east-1");
     when(storageProperties.getTypes())
         .thenReturn(
             ImmutableMap.of(
