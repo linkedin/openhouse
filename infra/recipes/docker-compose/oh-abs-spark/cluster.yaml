@@ -1,0 +1,37 @@
+cluster:
+  name: "LocalFSCluster" # Not great name, but keep for now
+  storage:
+    type: "hadoop"
+    uri: "hdfs://namenode:9000/"
+    root-path: "/data/openhouse"
+  storages:
+    default-type: "adls"
+    types:
+      adls:
+        rootpath: "blobcontainer@containerstorageabs.dfs.core.windows.net"
+        endpoint: "abfs://"
+        parameters:
+          abs.local-storage-account-name: "containerstorageabs"
+          abs.local-storage-account-key: "ADD_KEY_HERE"
+  iceberg:
+    write:
+      format:
+        default: "orc"
+      metadata:
+        previous-versions-max: 28
+        delete-after-commit:
+          enabled: true
+  housetables:
+    base-uri: "http://openhouse-housetables:8080"
+    database:
+      type: "MYSQL" # difference between this and IN_MEMORY?
+      url: "jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false"
+  security:
+    token:
+      interceptor:
+        classname: "com.linkedin.openhouse.common.security.DummyTokenInterceptor"
+    tables:
+      authorization:
+        enabled: true
+        opa:
+          base-uri: "http://opa:8181"

@@ -1,0 +1,37 @@
+version: "3.3"
+
+# will have to examine ABS image spec
+services:
+
+  abs:
+    image: mcr.microsoft.com/azure-blob-storage:latest
+    restart: always
+    ports:
+      - 11002:11002
+
+
+  # minioS3:
+  #   image: minio/minio
+  #   environment:
+  #     - MINIO_ROOT_USER=admin
+  #     - MINIO_ROOT_PASSWORD=password
+  #   ports:
+  #     - 9871:9001
+  #     - 9870:9000
+  #   command: [ "server", "/data", "--console-address", ":9001" ]
+  # mc:
+  #   depends_on:
+  #     - minioS3
+  #   image: minio/mc
+  #   environment:
+  #     - AWS_ACCESS_KEY_ID=admin
+  #     - AWS_SECRET_ACCESS_KEY=password
+  #     - AWS_REGION=us-east-1
+  #   entrypoint: >
+  #     /bin/sh -c "
+  #     until (/usr/bin/mc config host add minio http://minioS3:9000 admin password) do echo '...waiting...' && sleep 1; done;
+  #     /usr/bin/mc rm -r --force minio/openhouse-bucket;
+  #     /usr/bin/mc mb minio/openhouse-bucket;
+  #     /usr/bin/mc policy set public minio/openhouse-bucket;
+  #     tail -f /dev/null
+  #     "
