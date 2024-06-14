@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.cluster.storage.local;
 
 import com.google.common.base.Preconditions;
-import com.linkedin.openhouse.cluster.storage.StorageClient;
+import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.io.IOException;
@@ -22,15 +22,19 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Lazy
 @Component
-public class LocalStorageClient implements StorageClient<FileSystem> {
+public class LocalStorageClient extends BaseStorageClient<FileSystem> {
 
   private FileSystem fs;
 
   private static final StorageType.Type LOCAL_TYPE = StorageType.LOCAL;
 
-  private static final String DEFAULT_ENDPOINT = "file://";
+  private static final String DEFAULT_ENDPOINT = "file:";
 
   private static final String DEFAULT_ROOTPATH = "/tmp";
+
+  private String endpoint;
+
+  private String rootPath;
 
   @Autowired private StorageProperties storageProperties;
 
@@ -57,19 +61,19 @@ public class LocalStorageClient implements StorageClient<FileSystem> {
               .getEndpoint()
               .startsWith(DEFAULT_ENDPOINT),
           "Storage properties endpoint was misconfigured for: " + LOCAL_TYPE.getValue());
-      try {
-        uri =
-            new URI(
-                storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getEndpoint()
-                    + storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getRootPath());
-      } catch (URISyntaxException e) {
-        throw new IllegalArgumentException(
-            "Storage properties 'endpoint', 'rootpath' was incorrectly configured for: "
-                + LOCAL_TYPE.getValue(),
-            e);
-      }
+      endpoint = storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getEndpoint();
+      rootPath = storageProperties.getTypes().get(LOCAL_TYPE.getValue()).getRootPath();
     } else {
-      uri = new URI(DEFAULT_ENDPOINT + DEFAULT_ROOTPATH);
+      endpoint = DEFAULT_ENDPOINT;
+      rootPath = DEFAULT_ROOTPATH;
+    }
+    try {
+      uri = new URI(endpoint + rootPath);
+    } catch (URISyntaxException e) {
+      throw new IllegalArgumentException(
+          "Storage properties 'endpoint', 'rootpath' was incorrectly configured for: "
+              + LOCAL_TYPE.getValue(),
+          e);
     }
     this.fs = FileSystem.get(uri, new org.apache.hadoop.conf.Configuration());
     Preconditions.checkArgument(
@@ -80,5 +84,20 @@ public class LocalStorageClient implements StorageClient<FileSystem> {
   @Override
   public FileSystem getNativeClient() {
     return fs;
+  }
+
+  @Override
+  public StorageType.Type getStorageType() {
+    return LOCAL_TYPE;
+  }
+
+  @Override
+  public String getEndpoint() {
+    return endpoint;
+  }
+
+  @Override
+  public String getRootPrefix() {
+    return rootPath;
   }
 }

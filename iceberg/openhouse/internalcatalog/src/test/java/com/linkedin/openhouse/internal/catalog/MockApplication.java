@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOConfig;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.function.Consumer;
@@ -11,7 +13,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.io.FileIO;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -25,9 +26,11 @@ public class MockApplication {
 
   @MockBean Catalog openHouseInternalCatalog;
 
-  @MockBean FileIO fileIO;
+  @MockBean StorageManager storageManager;
 
-  @MockBean FsStorageProvider fsStorageProvider;
+  @MockBean FileIOManager fileIOManager;
+
+  @MockBean FileIOConfig fileIOConfig;
 
   static final FsPermission perm = new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE);
 

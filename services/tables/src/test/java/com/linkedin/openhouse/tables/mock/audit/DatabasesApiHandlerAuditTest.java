@@ -42,7 +42,7 @@ public class DatabasesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_DATABASES_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_DATABASES_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -54,7 +54,7 @@ public class DatabasesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_DATABASES_ACL_POLICIES_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_DATABASES_ACL_POLICIES_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -68,7 +68,8 @@ public class DatabasesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_DATABASES_ACL_POLICIES_SUCCESS, excludeFields)
+        new ReflectionEquals(
+                TABLE_AUDIT_EVENT_UPDATE_DATABASES_ACL_POLICIES_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 }

@@ -57,6 +57,12 @@ public class StorageTypeEnumTest {
   }
 
   @Test
+  public void testTypeToString() {
+    Assertions.assertEquals(StorageType.HDFS.toString(), "StorageType.Type(hdfs)");
+    Assertions.assertEquals(StorageType.LOCAL.toString(), "StorageType.Type(local)");
+  }
+
+  @Test
   public void testExceptionForInvalidString() {
     StorageType storageType = new StorageType();
     Assertions.assertThrows(

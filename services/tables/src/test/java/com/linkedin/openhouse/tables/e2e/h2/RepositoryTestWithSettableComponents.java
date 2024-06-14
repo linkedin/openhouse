@@ -5,10 +5,11 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.TABLE_DTO;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.SnapshotInspector;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -26,6 +27,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.PostConstruct;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -52,17 +54,24 @@ public class RepositoryTestWithSettableComponents {
 
   @SpyBean @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   @Autowired Catalog catalog;
 
-  @Autowired FileIO fileIO;
+  @Autowired FileIOManager fileIOManager;
 
   @Autowired SnapshotInspector snapshotInspector;
 
   @Autowired HouseTableMapper houseTableMapper;
 
   @Autowired MeterRegistry meterRegistry;
+
+  FileIO fileIO;
+
+  @PostConstruct
+  public void init() {
+    fileIO = fileIOManager.getFileIO(storageManager.getDefaultStorage().getType());
+  }
 
   /**
    * mocking the behavior of HouseTableRepository to throw exception for triggering retry when
@@ -80,7 +89,7 @@ public class RepositoryTestWithSettableComponents {
     return htsRepo;
   }
 
-  @Test()
+  @Test
   void testNoRetryInternalRepo() {
     TableIdentifier tableIdentifier =
         TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId());
@@ -173,7 +182,7 @@ public class RepositoryTestWithSettableComponents {
     return htsRepo;
   }
 
-  @Test()
+  @Test
   void testFailedHtsRepoWhenGet() {
     TableIdentifier tableIdentifier =
         TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId());

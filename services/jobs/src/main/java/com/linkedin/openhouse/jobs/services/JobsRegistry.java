@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.services;
 
+import com.google.common.base.Strings;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
 import com.linkedin.openhouse.jobs.config.JobsProperties;
@@ -18,6 +19,7 @@ import java.util.Map;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
+import org.apache.commons.collections.MapUtils;
 
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class JobsRegistry {
@@ -31,7 +33,6 @@ public class JobsRegistry {
       throw new JobEngineException(String.format("Job %s is not supported", type));
     }
     JobLaunchConf defaultConf = jobLaunchDefaultConfByType.get(type);
-    JobLaunchConf.JobLaunchConfBuilder builder = defaultConf.toBuilder();
     Map<String, String> propsMap = defaultConf.getSparkProperties();
     /*
     if properties has authTokenPath, read and set authToken as spark.sql.catalog.openhouse.auth-token
@@ -39,8 +40,13 @@ public class JobsRegistry {
     */
     if (authTokenPath != null) {
       propsMap.put("spark.sql.catalog.openhouse.auth-token", getToken(authTokenPath));
-      defaultConf.setSparkProperties(propsMap);
     }
+    if (MapUtils.isNotEmpty(conf.getExecutionConf())) {
+      populateSparkProps(conf.getExecutionConf(), propsMap);
+    }
+    defaultConf.setSparkProperties(propsMap);
+    JobLaunchConf.JobLaunchConfBuilder builder = defaultConf.toBuilder();
+
     // required arguments
     List<String> extendedArgs =
         new ArrayList<>(Arrays.asList("--jobId", jobId, "--storageURL", storageUri));
@@ -49,6 +55,15 @@ public class JobsRegistry {
     // runtime arguments provided in the request
     extendedArgs.addAll(conf.getArgs());
     return builder.proxyUser(conf.getProxyUser()).args(extendedArgs).build();
+  }
+
+  private void populateSparkProps(
+      @NonNull Map<String, String> executionConf, Map<String, String> sparkPropsMap) {
+    String memory = executionConf.getOrDefault("memory", null);
+    if (!Strings.isNullOrEmpty(memory)) {
+      sparkPropsMap.put("spark.driver.memory", memory);
+      sparkPropsMap.put("spark.executor.memory", memory);
+    }
   }
 
   public static JobsRegistry from(JobsProperties properties, Map<String, String> storageProps) {

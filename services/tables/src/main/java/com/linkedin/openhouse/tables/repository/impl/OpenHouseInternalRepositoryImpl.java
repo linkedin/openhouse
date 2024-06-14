@@ -10,7 +10,7 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
 import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -18,6 +18,7 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -71,7 +72,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired TableTypeMapper tableTypeMapper;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired FileIOManager fileIOManager;
+
+  @Autowired StorageManager storageManager;
 
   @Autowired MeterRegistry meterRegistry;
 
@@ -108,12 +111,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               tableIdentifier,
               writeSchema,
               partitionSpec,
-              constructTablePath(
-                      fsStorageProvider,
+              storageManager
+                  .getDefaultStorage()
+                  .allocateTableLocation(
                       tableDto.getDatabaseId(),
                       tableDto.getTableId(),
-                      tableDto.getTableUUID())
-                  .toString(),
+                      tableDto.getTableUUID(),
+                      tableDto.getTableCreator()),
               computePropsForTableCreation(tableDto));
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(
@@ -150,7 +154,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           System.currentTimeMillis() - startTime);
     }
     return convertToTableDto(
-        table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper);
+        table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
   }
 
   /**
@@ -454,7 +458,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
     return Optional.of(
         convertToTableDto(
-            table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper));
+            table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper));
   }
 
   // FIXME: Likely need a cache layer to avoid expensive tableScan.
@@ -484,7 +488,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .map(
             table ->
                 convertToTableDto(
-                    table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper))
+                    table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper))
         .collect(Collectors.toList());
   }
 
@@ -516,7 +520,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .map(
             table ->
                 convertToTableDto(
-                    table, fsStorageProvider, partitionSpecMapper, policiesMapper, tableTypeMapper))
+                    table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper))
         .collect(Collectors.toList());
   }
 

@@ -81,7 +81,7 @@ public class SmokeTest {
     Assertions.assertDoesNotThrow(
         () ->
             snapshotApi
-                .putSnapshotsV0("database", "table", new IcebergSnapshotsRequestBody())
+                .putSnapshotsV1("database", "table", new IcebergSnapshotsRequestBody())
                 .block());
   }
 

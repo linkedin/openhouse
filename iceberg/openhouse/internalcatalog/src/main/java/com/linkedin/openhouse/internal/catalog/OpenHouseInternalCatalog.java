@@ -3,6 +3,8 @@ package com.linkedin.openhouse.internal.catalog;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.METRICS_PREFIX;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -34,7 +36,9 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired HouseTableRepository houseTableRepository;
 
-  @Autowired FileIO fileIO;
+  @Autowired FileIOManager fileIOManager;
+
+  @Autowired StorageManager storageManager;
 
   @Autowired SnapshotInspector snapshotInspector;
 
@@ -46,7 +50,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     return new OpenHouseInternalTableOperations(
         houseTableRepository,
-        fileIO,
+        fileIOManager.getFileIO(storageManager.getDefaultStorage().getType()),
         snapshotInspector,
         houseTableMapper,
         tableIdentifier,
@@ -97,6 +101,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     }
     if (purge) {
       // Delete data and metadata files from storage.
+      FileIO fileIO = fileIOManager.getFileIO(storageManager.getDefaultStorage().getType());
       if (fileIO instanceof SupportsPrefixOperations) {
         log.debug("Deleting files for table {}", tableLocation);
         ((SupportsPrefixOperations) fileIO).deletePrefix(tableLocation);

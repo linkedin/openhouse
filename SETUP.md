@@ -15,7 +15,7 @@ OpenHouse locally on laptop. Script has been tested to work fine on MacOS.
 
 Multiple recipes are provided for locally bringing up a docker-compose environment that can be used for testing.
 
-Config| docker-dompose Directory |Notes
+Config| docker-compose Directory |Notes
 ---|--------------------------|---
 Run OpenHouse Services Only | oh-only                  | Stores data on local filesystem within the application container, with in-memory database. Least resource consuming.
 Run OpenHouse Services on HDFS | oh-hadoop                | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database.
@@ -77,6 +77,8 @@ prometheus|9090
 spark-master|9001
 livy-server|9003
 hdfs-namenode|9870
+minio-s3-ui|9871
+minio-s3-server|9870
 mysql|3306
 spark-livy|8998
 opa|8181

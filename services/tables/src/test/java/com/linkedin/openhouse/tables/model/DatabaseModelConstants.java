@@ -3,13 +3,13 @@ package com.linkedin.openhouse.tables.model;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 
 public class DatabaseModelConstants {
-  private static final String clusterName = "local-cluster";
+  private static final String CLUSTER_NAME = "local-cluster";
 
   public static final GetDatabaseResponseBody GET_DATABASE_RESPONSE_BODY =
-      GetDatabaseResponseBody.builder().databaseId("d1").clusterId(clusterName).build();
+      GetDatabaseResponseBody.builder().databaseId("d1").clusterId(CLUSTER_NAME).build();
 
   public static final GetDatabaseResponseBody GET_DATABASE_RESPONSE_BODY_DIFF_DB =
-      GetDatabaseResponseBody.builder().databaseId("d2").clusterId(clusterName).build();
+      GetDatabaseResponseBody.builder().databaseId("d2").clusterId(CLUSTER_NAME).build();
 
   public static final DatabaseDto DATABASE_DTO =
       DatabaseModelConstants.buildDatabaseDto(GET_DATABASE_RESPONSE_BODY);

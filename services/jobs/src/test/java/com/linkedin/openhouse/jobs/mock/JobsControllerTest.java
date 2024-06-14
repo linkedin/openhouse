@@ -133,7 +133,7 @@ public class JobsControllerTest {
     Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(SERVICE_AUDIT_EVENT_GET_JOB_SUCCESS, excludeFields)
+        new ReflectionEquals(SERVICE_AUDIT_EVENT_GET_JOB_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -145,7 +145,7 @@ public class JobsControllerTest {
     Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(SERVICE_AUDIT_EVENT_GET_JOB_FAILED, excludeFields)
+        new ReflectionEquals(SERVICE_AUDIT_EVENT_GET_JOB_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 }

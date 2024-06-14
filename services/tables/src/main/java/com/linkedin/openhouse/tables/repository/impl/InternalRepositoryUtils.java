@@ -3,8 +3,10 @@ package com.linkedin.openhouse.tables.repository.impl;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.Storage;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.TableTypeMapper;
@@ -17,7 +19,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import org.apache.hadoop.fs.Path;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateProperties;
 
@@ -34,8 +36,13 @@ public final class InternalRepositoryUtils {
   }
 
   public static java.nio.file.Path constructTablePath(
-      FsStorageProvider fsStorageProvider, String databaseID, String tableId, String tableUUID) {
-    return Paths.get(fsStorageProvider.rootPath(), databaseID, tableId + "-" + tableUUID);
+      StorageManager storageManager, String databaseID, String tableId, String tableUUID) {
+    // TODO: Default storage is used here. Support for non-default storage type per table needs to
+    // be added.
+    return Paths.get(
+        storageManager.getDefaultStorage().getClient().getRootPrefix(),
+        databaseID,
+        tableId + "-" + tableUUID);
   }
 
   /**
@@ -120,13 +127,13 @@ public final class InternalRepositoryUtils {
   @VisibleForTesting
   static TableDto convertToTableDto(
       Table table,
-      FsStorageProvider fsStorageProvider,
+      FileIOManager fileIOManager,
       PartitionSpecMapper partitionSpecMapper,
       PoliciesSpecMapper policiesMapper,
       TableTypeMapper tableTypeMapper) {
     /* Contains everything needed to populate dto */
     final Map<String, String> megaProps = table.properties();
-
+    Storage storage = fileIOManager.getStorage(table.io());
     TableDto tableDto =
         TableDto.builder()
             .tableId(megaProps.get(getCanonicalFieldName("tableId")))
@@ -135,9 +142,12 @@ public final class InternalRepositoryUtils {
             .tableUri(megaProps.get(getCanonicalFieldName("tableUri")))
             .tableUUID(megaProps.get(getCanonicalFieldName("tableUUID")))
             .tableLocation(
-                fsStorageProvider
-                    .storageClient()
-                    .makeQualified(new Path(megaProps.get(getCanonicalFieldName("tableLocation"))))
+                URI.create(
+                        StringUtils.prependIfMissing( // remove after resolving
+                            // https://github.com/linkedin/openhouse/issues/121
+                            megaProps.get(getCanonicalFieldName("tableLocation")),
+                            storage.getClient().getEndpoint()))
+                    .normalize()
                     .toString())
             .tableVersion(megaProps.get(getCanonicalFieldName("tableVersion")))
             .tableCreator(megaProps.get(getCanonicalFieldName("tableCreator")))

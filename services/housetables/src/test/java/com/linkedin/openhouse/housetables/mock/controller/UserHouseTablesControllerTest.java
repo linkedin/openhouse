@@ -81,7 +81,7 @@ public class UserHouseTablesControllerTest {
     Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(SERVICE_AUDIT_EVENT_PUT_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(SERVICE_AUDIT_EVENT_PUT_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 }

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.cluster.storage.hdfs;
 import com.linkedin.openhouse.cluster.storage.BaseStorage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
+import java.nio.file.Paths;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -35,5 +36,20 @@ public class HdfsStorage extends BaseStorage {
   @Override
   public StorageClient<?> getClient() {
     return hdfsStorageClient;
+  }
+
+  /**
+   * Allocates Table Space for the HDFS storage.
+   *
+   * <p>tableLocation looks like: /{rootPrefix}/{databaseId}/{tableId}-{tableUUID} We strip the
+   * endpoint to ensure backward-compatibility. This override should be removed after resolving <a
+   * href="https://github.com/linkedin/openhouse/issues/121">
+   *
+   * @return the table location
+   */
+  @Override
+  public String allocateTableLocation(
+      String databaseId, String tableId, String tableUUID, String tableCreator) {
+    return Paths.get(getClient().getRootPrefix(), databaseId, tableId + "-" + tableUUID).toString();
   }
 }

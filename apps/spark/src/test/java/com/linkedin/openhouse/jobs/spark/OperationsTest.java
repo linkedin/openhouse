@@ -533,12 +533,23 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int numInserts = 3;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
-      populateTable(ops, tableName, 1);
       IcebergTableStats stats = ops.collectTableStats(tableName);
+
+      // Validate empty data files case
+      Assertions.assertEquals(stats.getNumReferencedDataFiles(), 0);
+      Assertions.assertEquals(stats.getNumExistingMetadataJsonFiles(), 1);
+      long modifiedTimeStamp = System.currentTimeMillis();
+
+      populateTable(ops, tableName, 1);
+      stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), 1);
+      Assertions.assertTrue(stats.getTableLastUpdatedTimestamp() >= modifiedTimeStamp);
+
+      // Capture first snapshot timestamp
       Table table = ops.getTable(tableName);
       long oldestSnapshot = table.currentSnapshot().timestampMillis();
 
+      // Add more records and validate other stats
       populateTable(ops, tableName, numInserts);
       table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
@@ -695,12 +706,12 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   private static List<String> getSnapshotOperationTypes(Operations ops, String tableName) {
     log.info("Getting snapshot Operations");
-    List<Row> ordered_snapshots =
+    List<Row> orderedSnapshots =
         ops.spark()
             .sql(String.format("SELECT * FROM %s.snapshots order by committed_at desc", tableName))
             .collectAsList();
-    ordered_snapshots.forEach(s -> log.info(s.toString()));
-    return ordered_snapshots.stream()
+    orderedSnapshots.forEach(s -> log.info(s.toString()));
+    return orderedSnapshots.stream()
         .map(r -> r.getString(r.fieldIndex("operation")))
         .collect(Collectors.toList());
   }

@@ -42,7 +42,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -54,7 +54,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_TABLE_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -66,7 +66,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_TABLES_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_TABLES_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -78,7 +78,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_TABLES_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_TABLES_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -93,7 +93,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
 
     // test create table using PUT api
@@ -105,7 +105,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent2 = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent2));
   }
 
@@ -120,7 +120,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
 
     // test create table using PUT api
@@ -132,7 +132,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent2 = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_CREATE_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent2));
   }
 
@@ -146,7 +146,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_STAGED_CREATE_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_STAGED_CREATE_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -160,7 +160,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_STAGED_CREATE_TABLE_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_STAGED_CREATE_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -174,7 +174,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -188,7 +188,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_TABLE_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -200,7 +200,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_DELETE_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_DELETE_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -212,7 +212,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_DELETE_TABLE_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_DELETE_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -225,7 +225,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ACL_POLICIES_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ACL_POLICIES_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -238,7 +238,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ACL_POLICIES_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ACL_POLICIES_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -253,7 +253,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_ACL_POLICIES_SUCCESS, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_ACL_POLICIES_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -268,7 +268,7 @@ public class TablesApiHandlerAuditTest {
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_ACL_POLICIES_FAILED, excludeFields)
+        new ReflectionEquals(TABLE_AUDIT_EVENT_UPDATE_ACL_POLICIES_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 }

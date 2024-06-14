@@ -8,7 +8,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY_SAME_DB;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -44,7 +44,7 @@ public class DatabasesControllerTest {
 
   @Autowired MockMvc mvc;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   private void deleteTableAndValidateResponse(GetTableResponseBody getTableResponseBody)
       throws Exception {
@@ -62,11 +62,11 @@ public class DatabasesControllerTest {
   @Tag("cleanUp")
   public void testGetAllDatabases() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, storageManager);
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, storageManager);
 
     mvc.perform(
             MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases")
@@ -126,7 +126,9 @@ public class DatabasesControllerTest {
 
   @AfterEach
   private void cleanUpHelper(TestInfo info) {
-    if (!info.getTags().contains("cleanUp")) return;
+    if (!info.getTags().contains("cleanUp")) {
+      return;
+    }
     try {
       // clean up the table if exists
       deleteTableAndValidateResponse(GET_TABLE_RESPONSE_BODY);

@@ -7,7 +7,9 @@ apply plugin: 'application'
 mainClassName = 'com.linkedin.openhouse.tools.dummytokens.DummyTokenGenerator'
 
 dependencies {
-    implementation project(':services:common')
+    implementation(project(':services:common')){
+        exclude group: 'org.apache.iceberg'
+    }
     implementation 'commons-cli:commons-cli:1.5.0'
     implementation 'org.codehaus.jettison:jettison:1.3.8'
 }

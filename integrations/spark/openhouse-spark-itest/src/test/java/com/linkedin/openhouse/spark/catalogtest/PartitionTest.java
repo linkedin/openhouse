@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.catalog.e2e;
+package com.linkedin.openhouse.spark.catalogtest;
 
 import static org.junit.jupiter.api.Assertions.*;
 

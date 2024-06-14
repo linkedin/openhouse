@@ -56,4 +56,17 @@ public class HdfsStorageTest {
                     "/data/openhouse", "hdfs://localhost:9000", testMap)));
     assertEquals(testMap, hdfsStorage.getProperties());
   }
+
+  @Test
+  public void testAllocateTableSpace() {
+    String databaseId = "db1";
+    String tableId = "table1";
+    String tableUUID = "uuid1";
+    String tableCreator = "creator1";
+    boolean skipProvisioning = false;
+    when(hdfsStorageClient.getRootPrefix()).thenReturn("/data/openhouse");
+    String expected = "/data/openhouse/db1/table1-uuid1";
+    assertEquals(
+        expected, hdfsStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+  }
 }

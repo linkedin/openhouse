@@ -6,7 +6,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import lombok.SneakyThrows;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 @SpringBootTest
 public class TableUUIDGeneratorTest {
 
-  @Autowired private FsStorageProvider fsStorageProvider;
+  @Autowired private StorageManager storageManager;
 
   @Autowired private TableUUIDGenerator tableUUIDGenerator;
 
@@ -64,13 +65,13 @@ public class TableUUIDGeneratorTest {
   @Test
   public void testUUIDExtractedFromTablePropertySuccessfulPutSnapshot() {
     UUID expectedUUID = UUID.randomUUID();
-    fsStorageProvider
-        .storageClient()
-        .create(
-            new Path(
-                InternalRepositoryUtils.constructTablePath(
-                        fsStorageProvider, "db", "t", expectedUUID.toString())
-                    .toString()));
+    FileSystem fsClient =
+        (FileSystem) storageManager.getDefaultStorage().getClient().getNativeClient();
+    fsClient.create(
+        new Path(
+            InternalRepositoryUtils.constructTablePath(
+                    storageManager, "db", "t", expectedUUID.toString())
+                .toString()));
     UUID existingUUID =
         tableUUIDGenerator.generateUUID(
             IcebergSnapshotsRequestBody.builder()
@@ -98,13 +99,13 @@ public class TableUUIDGeneratorTest {
   @Test
   public void testUUIDExtractedFromTablePropertySuccessfulCreateTable() {
     UUID expectedUUID = UUID.randomUUID();
-    fsStorageProvider
-        .storageClient()
-        .create(
-            new Path(
-                InternalRepositoryUtils.constructTablePath(
-                        fsStorageProvider, "db", "t", expectedUUID.toString())
-                    .toString()));
+    FileSystem fsClient =
+        (FileSystem) storageManager.getDefaultStorage().getClient().getNativeClient();
+    fsClient.create(
+        new Path(
+            InternalRepositoryUtils.constructTablePath(
+                    storageManager, "db", "t", expectedUUID.toString())
+                .toString()));
     UUID existingUUID =
         tableUUIDGenerator.generateUUID(
             CreateUpdateTableRequestBody.builder()
@@ -197,7 +198,9 @@ public class TableUUIDGeneratorTest {
                             .build())
                     .jsonSnapshots(
                         Collections.singletonList(
-                            getIcebergSnapshot(fsStorageProvider.rootPath() + "/db")))
+                            getIcebergSnapshot(
+                                storageManager.getDefaultStorage().getClient().getRootPrefix()
+                                    + "/db")))
                     .build()));
   }
 
@@ -220,7 +223,8 @@ public class TableUUIDGeneratorTest {
                         .jsonSnapshots(
                             Collections.singletonList(
                                 getIcebergSnapshot(
-                                    fsStorageProvider.rootPath() + "/db/t-NOTUUID/maniffest-list")))
+                                    storageManager.getDefaultStorage().getClient().getRootPrefix()
+                                        + "/db/t-NOTUUID/maniffest-list")))
                         .build()));
     Assertions.assertTrue(exception.getMessage().contains("contains invalid UUID"));
   }
@@ -293,7 +297,7 @@ public class TableUUIDGeneratorTest {
       String databaseId, String tableId, UUID tableUUID, String appendedPath) {
     return getIcebergSnapshot(
         InternalRepositoryUtils.constructTablePath(
-                fsStorageProvider, databaseId, tableId, tableUUID.toString())
+                storageManager, databaseId, tableId, tableUUID.toString())
             + appendedPath);
   }
 

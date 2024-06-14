@@ -349,7 +349,7 @@ public class TablesControllerTest {
     Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(SERVICE_AUDIT_EVENT_CREATE_TABLE_SUCCESS, excludeFields)
+        new ReflectionEquals(SERVICE_AUDIT_EVENT_CREATE_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -365,7 +365,7 @@ public class TablesControllerTest {
     Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED, excludeFields)
+        new ReflectionEquals(SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 
@@ -379,7 +379,7 @@ public class TablesControllerTest {
     Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
     assertTrue(
-        new ReflectionEquals(SERVICE_AUDIT_EVENT_RUNTIME_EXCEPTION, excludeFields)
+        new ReflectionEquals(SERVICE_AUDIT_EVENT_RUNTIME_EXCEPTION, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
 

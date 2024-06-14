@@ -1,0 +1,12 @@
+ext {
+  icebergAwsVersion = '1.5.2'
+}
+
+dependencies {
+  implementation('org.apache.iceberg:iceberg-aws:' + icebergAwsVersion) {
+    exclude group: 'org.apache.iceberg'
+  }
+  implementation('org.apache.iceberg:iceberg-aws-bundle:' + icebergAwsVersion) {
+    exclude group: 'org.apache.iceberg'
+  }
+}

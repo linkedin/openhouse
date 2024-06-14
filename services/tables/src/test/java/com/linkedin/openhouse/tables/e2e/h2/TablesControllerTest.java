@@ -14,7 +14,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.jayway.jsonpath.JsonPath;
-import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
@@ -76,7 +76,7 @@ public class TablesControllerTest {
 
   @Autowired MockMvc mvc;
 
-  @Autowired FsStorageProvider fsStorageProvider;
+  @Autowired StorageManager storageManager;
 
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptorServiceAudit;
 
@@ -92,13 +92,13 @@ public class TablesControllerTest {
     // Create tables
     MvcResult mvcResultT1d1 =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     MvcResult mvcResultT2d1 =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, fsStorageProvider);
+            GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, storageManager);
     MvcResult mvcResultT1d2 =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, fsStorageProvider);
+            GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, storageManager);
 
     String tableLocation = RequestAndValidateHelper.obtainTableLocationFromMvcResult(mvcResultT1d1);
     String tableSameDbLocation =
@@ -110,19 +110,19 @@ public class TablesControllerTest {
     // 200.
     RequestAndValidateHelper.updateTableAndValidateResponse(
         mvc,
-        fsStorageProvider,
+        storageManager,
         buildGetTableResponseBody(mvcResultT1d1),
         INITIAL_TABLE_VERSION,
         false);
     RequestAndValidateHelper.updateTableAndValidateResponse(
         mvc,
-        fsStorageProvider,
+        storageManager,
         buildGetTableResponseBody(mvcResultT2d1),
         INITIAL_TABLE_VERSION,
         false);
     RequestAndValidateHelper.updateTableAndValidateResponse(
         mvc,
-        fsStorageProvider,
+        storageManager,
         buildGetTableResponseBody(mvcResultT1d2),
         INITIAL_TABLE_VERSION,
         false);
@@ -130,11 +130,11 @@ public class TablesControllerTest {
     // Sending the object with updated schema, expecting version moving ahead.
     // Creating a container GetTableResponseBody to update schema ONLY
     RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc, fsStorageProvider, evolveDummySchema(mvcResultT1d1), tableLocation);
+        mvc, storageManager, evolveDummySchema(mvcResultT1d1), tableLocation);
     RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc, fsStorageProvider, evolveDummySchema(mvcResultT2d1), tableSameDbLocation);
+        mvc, storageManager, evolveDummySchema(mvcResultT2d1), tableSameDbLocation);
     RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc, fsStorageProvider, evolveDummySchema(mvcResultT1d2), tableDiffDbLocation);
+        mvc, storageManager, evolveDummySchema(mvcResultT1d2), tableDiffDbLocation);
 
     RequestAndValidateHelper.listAllAndValidateResponse(
         mvc,
@@ -154,7 +154,7 @@ public class TablesControllerTest {
   public void testUpdateProperties() throws Exception {
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
 
     Map<String, String> baseTblProps = new HashMap<>();
     baseTblProps.putAll(TABLE_PROPS);
@@ -258,7 +258,7 @@ public class TablesControllerTest {
   @Test
   public void testCreateTableAlreadyExists() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
 
     mvc.perform(
             MockMvcRequestBuilders.post(
@@ -308,12 +308,12 @@ public class TablesControllerTest {
 
     MvcResult previousMvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            getTableResponseBodyWithPartitioning, mvc, fsStorageProvider);
+            getTableResponseBodyWithPartitioning, mvc, storageManager);
 
     GetTableResponseBody getTableResponseBody = GetTableResponseBody.builder().build();
     RequestAndValidateHelper.updateTableAndValidateResponse(
         mvc,
-        fsStorageProvider,
+        storageManager,
         // There's no actual updates for this check and it is just updating the partitioning fields
         buildGetTableResponseBody(previousMvcResult, getTableResponseBody),
         INITIAL_TABLE_VERSION,
@@ -462,7 +462,7 @@ public class TablesControllerTest {
                 .policies(TABLE_POLICIES_COMPLEX)
                 .build(),
             mvc,
-            fsStorageProvider);
+            storageManager);
 
     LinkedHashMap<String, LinkedHashMap> currentPolicies =
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
@@ -637,13 +637,13 @@ public class TablesControllerTest {
     // Create tables with tableType set in CreateUpdateTableRequest
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY_WITH_TABLE_TYPE, mvc, fsStorageProvider);
+            GET_TABLE_RESPONSE_BODY_WITH_TABLE_TYPE, mvc, storageManager);
 
     String tableType = JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.tableType");
     // Sending the same object for update should expect no new object returned and status code being
     // 200.
     RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc, fsStorageProvider, buildGetTableResponseBody(mvcResult), INITIAL_TABLE_VERSION, false);
+        mvc, storageManager, buildGetTableResponseBody(mvcResult), INITIAL_TABLE_VERSION, false);
     Assertions.assertEquals(
         tableType, GET_TABLE_RESPONSE_BODY_WITH_TABLE_TYPE.getTableType().toString());
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
@@ -686,11 +686,11 @@ public class TablesControllerTest {
   @Test
   public void testGetAllDatabases() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, storageManager);
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, storageManager);
 
     mvc.perform(
             MockMvcRequestBuilders.get(
@@ -736,7 +736,7 @@ public class TablesControllerTest {
   @Test
   public void testStagedCreateDoesntExistInConsecutiveCalls() {
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider, true);
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager, true);
     // Staged table should not exist
     mvc.perform(
             MockMvcRequestBuilders.get(
@@ -752,7 +752,7 @@ public class TablesControllerTest {
   @Test
   public void testServiceAuditGetTableSucceed() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     mvc.perform(
         MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d1/tables/t1")
             .accept(MediaType.APPLICATION_JSON));
@@ -760,7 +760,7 @@ public class TablesControllerTest {
     ServiceAuditEvent actualEvent = argCaptorServiceAudit.getValue();
     assertTrue(
         new ReflectionEquals(
-                SERVICE_AUDIT_EVENT_END_TO_END, ServiceAuditModelConstants.excludeFields)
+                SERVICE_AUDIT_EVENT_END_TO_END, ServiceAuditModelConstants.EXCLUDE_FIELDS)
             .matches(actualEvent));
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
@@ -768,12 +768,12 @@ public class TablesControllerTest {
   @Test
   public void testTableAuditSucceed() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptorTableAudit.capture());
     TableAuditEvent actualEvent = argCaptorTableAudit.getValue();
     assertTrue(
         new ReflectionEquals(
-                TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS_E2E, TableAuditModelConstants.excludeFields)
+                TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS_E2E, TableAuditModelConstants.EXCLUDE_FIELDS)
             .matches(actualEvent));
     assertNotNull(actualEvent.getCurrentTableRoot());
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
@@ -782,9 +782,9 @@ public class TablesControllerTest {
   @Test
   public void testSearchTablesWithDatabaseId() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, fsStorageProvider);
+        GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, storageManager);
 
     mvc.perform(
             MockMvcRequestBuilders.post(
@@ -816,7 +816,7 @@ public class TablesControllerTest {
   public void testUpdateSucceedsForColumnTags() throws Exception {
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY, mvc, fsStorageProvider);
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
 
     LinkedHashMap<String, LinkedHashMap> currentPolicies =
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");

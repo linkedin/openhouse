@@ -4,6 +4,12 @@ cluster:
     type: "hadoop"
     uri: "hdfs://namenode:9000/"
     root-path: "/data/openhouse"
+  storages:
+    default-type: "hdfs"
+    types:
+      hdfs:
+        rootpath: "/data/openhouse"
+        endpoint: "hdfs://namenode:9000/"
   iceberg:
     write:
       format:

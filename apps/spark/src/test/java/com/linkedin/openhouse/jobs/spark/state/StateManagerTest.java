@@ -18,7 +18,7 @@ import reactor.core.publisher.Mono;
 
 @SuppressWarnings("unchecked")
 public class StateManagerTest {
-  private static final String testJobId = "test_job_id";
+  private static final String TEST_JOB_ID = "test_job_id";
   private JobApi apiMock;
 
   @BeforeEach
@@ -35,7 +35,7 @@ public class StateManagerTest {
 
     Mockito.when(responseEntityMock.getEntity()).thenReturn(jobMock);
     Mockito.when(responseMock.block(Mockito.any())).thenReturn(responseEntityMock);
-    Mockito.when(apiMock.getJob(Mockito.refEq(testJobId))).thenReturn(responseMock);
+    Mockito.when(apiMock.getJob(Mockito.refEq(TEST_JOB_ID))).thenReturn(responseMock);
     Mockito.when(apiMock.putJob(Mockito.any())).thenReturn(responseMock);
 
     Instant now = Instant.now();
@@ -43,10 +43,10 @@ public class StateManagerTest {
     StateManager stateManager = createStateManager(0);
     try (MockedStatic<Instant> instant = Mockito.mockStatic(Instant.class)) {
       instant.when(Instant::now).thenReturn(now);
-      stateManager.updateStartTime(testJobId);
-      stateManager.updateFinishTime(testJobId);
-      stateManager.sendHeartbeat(testJobId);
-      stateManager.updateState(testJobId, JobState.RUNNING);
+      stateManager.updateStartTime(TEST_JOB_ID);
+      stateManager.updateFinishTime(TEST_JOB_ID);
+      stateManager.sendHeartbeat(TEST_JOB_ID);
+      stateManager.updateState(TEST_JOB_ID, JobState.RUNNING);
       Mockito.verify(jobMock).setStartTimeMs(now.toEpochMilli());
       Mockito.verify(jobMock).setFinishTimeMs(now.toEpochMilli());
       Mockito.verify(jobMock).setHeartbeatTimeMs(now.toEpochMilli());
@@ -61,18 +61,18 @@ public class StateManagerTest {
         (Mono<EntityResponseBodyJob>) Mockito.mock(Mono.class);
 
     Mockito.when(responseMock.block(Mockito.any())).thenReturn(null);
-    Mockito.when(apiMock.getJob(Mockito.refEq(testJobId))).thenReturn(responseMock);
+    Mockito.when(apiMock.getJob(Mockito.refEq(TEST_JOB_ID))).thenReturn(responseMock);
 
     Instant now = Instant.now();
     StateManager stateManager = createStateManager(numAttempts);
     try (MockedStatic<Instant> instant = Mockito.mockStatic(Instant.class)) {
       instant.when(Instant::now).thenReturn(now);
-      stateManager.updateStartTime(testJobId);
-      stateManager.updateFinishTime(testJobId);
-      stateManager.sendHeartbeat(testJobId);
-      stateManager.updateState(testJobId, JobState.RUNNING);
+      stateManager.updateStartTime(TEST_JOB_ID);
+      stateManager.updateFinishTime(TEST_JOB_ID);
+      stateManager.sendHeartbeat(TEST_JOB_ID);
+      stateManager.updateState(TEST_JOB_ID, JobState.RUNNING);
       Mockito.verify(apiMock, Mockito.never()).putJob(Mockito.any());
-      Mockito.verify(apiMock, Mockito.times(numAttempts * 4)).getJob(Mockito.eq(testJobId));
+      Mockito.verify(apiMock, Mockito.times(numAttempts * 4)).getJob(Mockito.eq(TEST_JOB_ID));
     }
   }
 
@@ -83,19 +83,19 @@ public class StateManagerTest {
         (Mono<EntityResponseBodyJob>) Mockito.mock(Mono.class);
 
     Mockito.when(responseMock.block(Mockito.any())).thenThrow(ReadTimeoutException.class);
-    Mockito.when(apiMock.getJob(Mockito.refEq(testJobId))).thenReturn(responseMock);
+    Mockito.when(apiMock.getJob(Mockito.refEq(TEST_JOB_ID))).thenReturn(responseMock);
 
     Instant now = Instant.now();
 
     StateManager stateManager = createStateManager(numAttempts);
     try (MockedStatic<Instant> instant = Mockito.mockStatic(Instant.class)) {
       instant.when(Instant::now).thenReturn(now);
-      stateManager.updateStartTime(testJobId);
-      stateManager.updateFinishTime(testJobId);
-      stateManager.sendHeartbeat(testJobId);
-      stateManager.updateState(testJobId, JobState.RUNNING);
+      stateManager.updateStartTime(TEST_JOB_ID);
+      stateManager.updateFinishTime(TEST_JOB_ID);
+      stateManager.sendHeartbeat(TEST_JOB_ID);
+      stateManager.updateState(TEST_JOB_ID, JobState.RUNNING);
       Mockito.verify(apiMock, Mockito.never()).putJob(Mockito.any());
-      Mockito.verify(apiMock, Mockito.times(numAttempts * 4)).getJob(Mockito.eq(testJobId));
+      Mockito.verify(apiMock, Mockito.times(numAttempts * 4)).getJob(Mockito.eq(TEST_JOB_ID));
     }
   }
 
