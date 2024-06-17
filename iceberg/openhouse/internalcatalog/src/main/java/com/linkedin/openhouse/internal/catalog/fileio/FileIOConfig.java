@@ -77,10 +77,18 @@ public class FileIOConfig {
           (S3Client) storageManager.getStorage(StorageType.S3).getClient().getNativeClient();
       return new S3FileIO(() -> s3);
     } catch (IllegalArgumentException e) {
-      // If the S3 storage type is not configured, return null
-      // Spring doesn't define the bean if the return value is null
-      log.debug("S3 storage type is not configured", e);
-      return null;
+      // If S3 storage is not configured then return null, otherwise throw an exception.
+      try {
+        storageManager.getStorage(StorageType.S3);
+      } catch (IllegalArgumentException err) {
+        // S3 storage type is not configured. Return null.
+        // Spring doesn't define the bean if the return value is null
+        log.debug("S3 storage type is not configured", err);
+        return null;
+      }
+      // S3 storage configured but could not instantiate S3FileIO.
+      throw new IllegalArgumentException(
+          "S3 storage configured but could not initialize S3FileIO" + e.getMessage());
     }
   }
 }

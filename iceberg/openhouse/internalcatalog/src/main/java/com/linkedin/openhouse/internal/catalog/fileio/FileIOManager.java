@@ -9,6 +9,7 @@ import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.s3.S3Storage;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,8 +35,7 @@ public class FileIOManager {
   FileIO localFileIO;
 
   @Autowired(required = false)
-  @Qualifier("S3FileIO")
-  FileIO s3FileIO;
+  S3FileIO s3FileIO;
 
   @Autowired HdfsStorage hdfsStorage;
 
