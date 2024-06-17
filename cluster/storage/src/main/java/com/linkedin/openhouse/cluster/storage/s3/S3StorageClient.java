@@ -7,10 +7,8 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.aws.AwsClientFactories;
 import org.apache.iceberg.aws.AwsClientFactory;
-import org.apache.iceberg.aws.S3FileIOAwsClientFactories;
-import org.apache.iceberg.aws.s3.S3FileIOAwsClientFactory;
-import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -44,19 +42,8 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
     validateProperties();
     Map properties =
         new HashMap(storageProperties.getTypes().get(S3_TYPE.getValue()).getParameters());
-
-    S3FileIOProperties s3FileIOProperties =
-        new S3FileIOProperties(
-            storageProperties.getTypes().get(S3_TYPE.getValue()).getParameters());
-    if (s3 == null) {
-      Object clientFactory = S3FileIOAwsClientFactories.initialize(properties);
-      if (clientFactory instanceof S3FileIOAwsClientFactory) {
-        this.s3 = ((S3FileIOAwsClientFactory) clientFactory).s3();
-      }
-      if (clientFactory instanceof AwsClientFactory) {
-        this.s3 = ((AwsClientFactory) clientFactory).s3();
-      }
-    }
+    AwsClientFactory clientFactory = AwsClientFactories.from(properties);
+    this.s3 = clientFactory.s3();
   }
 
   @Override
