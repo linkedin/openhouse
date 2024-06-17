@@ -58,7 +58,6 @@ public class TablesApiHandlerAuditTest {
             .matches(actualEvent));
   }
 
-  @Test
   public void testGetAllTablesSuccessfulPath() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
@@ -70,7 +69,6 @@ public class TablesApiHandlerAuditTest {
             .matches(actualEvent));
   }
 
-  @Test
   public void testGetAllTablesFailedPath() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables")

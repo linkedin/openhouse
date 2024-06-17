@@ -145,7 +145,6 @@ public class TablesControllerTest {
         .andExpect(status().isForbidden());
   }
 
-  @Test
   public void findAllTables2xx() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
@@ -156,7 +155,6 @@ public class TablesControllerTest {
         .andExpect(content().json(RequestConstants.TEST_GET_ALL_TABLES_RESPONSE_BODY.toJson()));
   }
 
-  @Test
   public void findAllTables4xx() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables")

@@ -83,11 +83,8 @@ public class TablesController {
   public ResponseEntity<GetAllTablesResponseBody> getAllTables(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId) {
 
-    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllTablesResponseBody> apiResponse =
-        tablesApiHandler.getAllTables(databaseId);
-
-    return new ResponseEntity<>(
-        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+    throw new UnsupportedOperationException(
+        "The getAllTables API is deprecated and please use searchTables API.");
   }
 
   @Operation(
