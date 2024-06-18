@@ -94,3 +94,4 @@ We welcome contributions to OpenHouse. To get involved:
 
 Please refer to the [CONTRIBUTING](CONTRIBUTING.md) guide for more details.
 To get started on the high-level architecture, please refer to the [ARCHITECTURE](ARCHITECTURE.md) guide.
+This is a dummy change
