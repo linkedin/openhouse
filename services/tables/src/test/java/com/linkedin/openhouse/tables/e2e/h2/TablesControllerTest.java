@@ -86,6 +86,7 @@ public class TablesControllerTest {
 
   @Autowired private AuditHandler<TableAuditEvent> tableAuditHandler;
 
+  @Test
   public void testCrudTables() throws Exception {
 
     // Create tables
@@ -234,24 +235,6 @@ public class TablesControllerTest {
                         + "/databases/not_found/tables/not_found")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
-  }
-
-  @Test
-  public void testEmptyDatabase() throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.post(
-                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                        + "/databases/not_found/tables/search")
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(
-            content()
-                .json(
-                    GetAllTablesResponseBody.builder()
-                        .results(new ArrayList<>())
-                        .build()
-                        .toJson()));
   }
 
   @Test

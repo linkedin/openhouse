@@ -476,21 +476,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         true);
   }
 
-  @Timed(metricKey = MetricsConstant.REPO_TABLES_FIND_BY_DATABASE_TIME)
-  @Override
-  public List<TableDto> findAllByDatabaseId(String databaseId) {
-    List<Table> tables =
-        catalog.listTables(Namespace.of(databaseId)).stream()
-            .map(tableIdentifier -> catalog.loadTable(tableIdentifier))
-            .collect(Collectors.toList());
-    return tables.stream()
-        .map(
-            table ->
-                convertToTableDto(
-                    table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper))
-        .collect(Collectors.toList());
-  }
-
   @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_TIME)
   @Override
   public List<TableDto> searchTables(String databaseId) {

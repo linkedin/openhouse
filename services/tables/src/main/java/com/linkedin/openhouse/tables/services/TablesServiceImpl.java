@@ -61,11 +61,6 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
-  public List<TableDto> getAllTables(String databaseId) {
-    return openHouseInternalRepository.findAllByDatabaseId(databaseId);
-  }
-
-  @Override
   public List<TableDto> searchTables(String databaseId) {
     return openHouseInternalRepository.searchTables(databaseId);
   }

@@ -67,27 +67,6 @@ public class TablesController {
   }
 
   @Operation(
-      summary = "List Tables in a Database",
-      description =
-          "Returns a list of Table resources present in a database identified by databaseId.",
-      tags = {"Table"})
-  @ApiResponses(
-      value = {
-        @ApiResponse(responseCode = "200", description = "Table GET_ALL: OK"),
-        @ApiResponse(responseCode = "401", description = "Table GET_ALL: UNAUTHORIZED"),
-        @ApiResponse(responseCode = "404", description = "Table GET_ALL: DB NOT_FOUND")
-      })
-  @GetMapping(
-      value = {"/v0/databases/{databaseId}/tables", "/v1/databases/{databaseId}/tables"},
-      produces = {"application/json"})
-  public ResponseEntity<GetAllTablesResponseBody> getAllTables(
-      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId) {
-
-    throw new UnsupportedOperationException(
-        "The getAllTables API is deprecated and please use searchTables API.");
-  }
-
-  @Operation(
       summary = "Search Tables in a Database",
       description =
           "Returns a list of Table resources present in a database. Only filter supported is 'database_id'.",

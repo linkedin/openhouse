@@ -58,28 +58,6 @@ public class TablesApiHandlerAuditTest {
             .matches(actualEvent));
   }
 
-  public void testGetAllTablesSuccessfulPath() throws Exception {
-    mvc.perform(
-        MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
-            .accept(MediaType.APPLICATION_JSON));
-    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
-    TableAuditEvent actualEvent = argCaptor.getValue();
-    assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_TABLES_SUCCESS, EXCLUDE_FIELDS)
-            .matches(actualEvent));
-  }
-
-  public void testGetAllTablesFailedPath() throws Exception {
-    mvc.perform(
-        MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables")
-            .accept(MediaType.APPLICATION_JSON));
-    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
-    TableAuditEvent actualEvent = argCaptor.getValue();
-    assertTrue(
-        new ReflectionEquals(TABLE_AUDIT_EVENT_GET_ALL_TABLES_FAILED, EXCLUDE_FIELDS)
-            .matches(actualEvent));
-  }
-
   @Test
   public void testCreateTableSuccessfulPath() throws Exception {
     // test create table using POST api
