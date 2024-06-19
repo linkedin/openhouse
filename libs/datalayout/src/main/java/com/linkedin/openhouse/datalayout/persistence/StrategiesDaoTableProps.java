@@ -11,6 +11,10 @@ import lombok.Builder;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.spark.sql.SparkSession;
 
+/**
+ * DAO implementation for persisting and loading data layout optimization strategies in table
+ * properties.
+ */
 @Builder
 public class StrategiesDaoTableProps implements StrategiesDao {
   public static final String DATA_LAYOUT_STRATEGIES_PROPERTY_KEY = "write.data-layout.strategies";
