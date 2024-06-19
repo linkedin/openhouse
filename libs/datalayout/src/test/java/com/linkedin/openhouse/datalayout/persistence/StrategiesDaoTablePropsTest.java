@@ -3,13 +3,13 @@ package com.linkedin.openhouse.datalayout.persistence;
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.layoutselection.DataLayoutOptimizationStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class UtilsTest extends OpenHouseSparkITest {
+public class StrategiesDaoTablePropsTest extends OpenHouseSparkITest {
   @Test
   public void testStrategyPersistence() throws Exception {
     final String testTable = "db.test_table_strategy_persistence";
@@ -19,9 +19,11 @@ public class UtilsTest extends OpenHouseSparkITest {
           DataLayoutOptimizationStrategy.builder()
               .config(DataCompactionConfig.builder().build())
               .build();
-      List<DataLayoutOptimizationStrategy> strategyList = Arrays.asList(strategy, strategy);
-      Utils.saveStrategies(spark, testTable, strategyList);
-      Assertions.assertEquals(strategyList, Utils.loadStrategies(spark, testTable));
+      // validate up-to 100 strategies can be saved and loaded
+      List<DataLayoutOptimizationStrategy> strategyList = Collections.nCopies(100, strategy);
+      StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
+      dao.save(testTable, strategyList);
+      Assertions.assertEquals(strategyList, dao.load(testTable));
     }
   }
 

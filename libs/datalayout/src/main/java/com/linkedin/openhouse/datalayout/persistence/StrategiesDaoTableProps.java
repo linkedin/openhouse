@@ -7,33 +7,35 @@ import com.linkedin.openhouse.datalayout.layoutselection.DataLayoutOptimizationS
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.Builder;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.spark.sql.SparkSession;
 
-/** Utility class for strategies persistence. */
-public final class Utils {
-  public static final String DATA_LAYOUT_PROPERTY_KEY = "data-layout-strategies";
+@Builder
+public class StrategiesDaoTableProps implements StrategiesDao {
+  public static final String DATA_LAYOUT_STRATEGIES_PROPERTY_KEY = "write.data-layout.strategies";
+  private final SparkSession spark;
 
-  private Utils() {}
-
-  public static void saveStrategies(
-      SparkSession spark, String tableName, List<DataLayoutOptimizationStrategy> strategies) {
+  @Override
+  public void save(String fqtn, List<DataLayoutOptimizationStrategy> strategies) {
     Gson gson = new GsonBuilder().create();
     Type type = new TypeToken<ArrayList<DataLayoutOptimizationStrategy>>() {}.getType();
     String propValue = StringEscapeUtils.escapeJava(gson.toJson(strategies, type));
     spark.sql(
         String.format(
             "ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')",
-            tableName, DATA_LAYOUT_PROPERTY_KEY, propValue));
+            fqtn, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY, propValue));
   }
 
-  public static List<DataLayoutOptimizationStrategy> loadStrategies(
-      SparkSession spark, String tableName) {
+  @Override
+  public List<DataLayoutOptimizationStrategy> load(String fqtn) {
     Gson gson = new GsonBuilder().create();
     Type type = new TypeToken<ArrayList<DataLayoutOptimizationStrategy>>() {}.getType();
     String propValue =
         spark
-            .sql(String.format("SHOW TBLPROPERTIES %s ('%s')", tableName, DATA_LAYOUT_PROPERTY_KEY))
+            .sql(
+                String.format(
+                    "SHOW TBLPROPERTIES %s ('%s')", fqtn, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY))
             .collectAsList()
             .get(0)
             .getString(1);
