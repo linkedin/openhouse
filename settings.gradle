@@ -41,6 +41,8 @@ include ':integrations:java:openhouse-java-itest'
 include ':iceberg:openhouse:htscatalog'
 include ':iceberg:openhouse:internalcatalog'
 
+include ':libs:datalayout'
+
 include ':services:common'
 include ':services:housetables'
 include ':services:jobs'
