@@ -2,13 +2,13 @@ plugins {
   id 'openhouse.java-conventions'
   id 'openhouse.hadoop-conventions'
   id 'openhouse.iceberg-aws-conventions'
+  id 'openhouse.iceberg-azure-conventions'
   id 'openhouse.iceberg-conventions'
   id 'openhouse.maven-publish'
 }
 
 dependencies {
   implementation project(':cluster:configs')
+  implementation project(':iceberg:azure')
   implementation 'org.springframework.boot:spring-boot-autoconfigure:' + spring_web_version
-  implementation 'org.apache.iceberg:iceberg-azure:1.5.2'
-  implementation('org.apache.iceberg:iceberg-azure-bundle:1.5.2')
 }

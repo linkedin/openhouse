@@ -26,7 +26,7 @@ public final class DummyTokenGenerator {
   private DummyTokenGenerator() {}
 
   public static void main(String[] args) throws org.apache.commons.cli.ParseException, IOException {
-
+    System.out.println("IN MAIN OF DUMMYTOKENGENERATOR");
     Option optionDirPath =
         Option.builder("d")
             .required(true)

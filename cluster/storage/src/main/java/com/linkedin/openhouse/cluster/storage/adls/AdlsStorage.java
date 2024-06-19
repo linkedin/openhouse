@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.cluster.storage.abs;
+package com.linkedin.openhouse.cluster.storage.adls;
 
 import com.linkedin.openhouse.cluster.storage.BaseStorage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
@@ -12,13 +12,10 @@ import org.springframework.stereotype.Component;
  * Data Lake Storage.
  */
 @Component
-public class ADLSStorage extends BaseStorage {
+public class AdlsStorage extends BaseStorage {
 
-  @Autowired @Lazy
-  private ADLSStorageClient
-      adlsStorageClient; // declare client class to interact with ADLS filesystem
-
-  // do we need an isConfigured method? to check if ADLS is configured. Leaving out for now
+  // Declare client class to interact with ADLS filesystem
+  @Autowired @Lazy private AdlsStorageClient adlsStorageClient;
 
   @Override
   public StorageType.Type getType() {

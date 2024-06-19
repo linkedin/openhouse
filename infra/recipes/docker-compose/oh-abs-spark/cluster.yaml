@@ -1,5 +1,5 @@
 cluster:
-  name: "LocalFSCluster" # Not great name, but keep for now
+  name: "LocalFSCluster"
   storage:
     type: "hadoop"
     uri: "hdfs://namenode:9000/"
@@ -8,11 +8,11 @@ cluster:
     default-type: "adls"
     types:
       adls:
-        rootpath: "blobcontainer@containerstorageabs.dfs.core.windows.net"
+        rootpath: "<BLOB_CONTAINER_NAME>@<STORAGE_ACCOUNT_NAME>.dfs.core.windows.net" # populate your values here
         endpoint: "abfs://"
         parameters:
-          abs.local-storage-account-name: "containerstorageabs"
-          abs.local-storage-account-key: "ADD_KEY_HERE"
+           adls.auth.shared-key.account.name: STORAGE_ACCOUNT_NAME # add your Azure Storage Account name here
+           adls.auth.shared-key.account.key: STORAGE_ACCOUNT_KEY # add your Azure Storage Account key here
   iceberg:
     write:
       format:
@@ -24,7 +24,7 @@ cluster:
   housetables:
     base-uri: "http://openhouse-housetables:8080"
     database:
-      type: "MYSQL" # difference between this and IN_MEMORY?
+      type: "MYSQL"
       url: "jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false"
   security:
     token:

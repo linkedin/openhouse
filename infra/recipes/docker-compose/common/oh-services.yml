@@ -6,12 +6,6 @@ services:
       dockerfile: tables-service.Dockerfile
     ports:
       - 8000:8080
-    environment:
-      - LOCAL_STORAGE_ACCOUNT_NAME=containerstorageabs
-      - LOCAL_STORAGE_ACCOUNT_KEY= # add account key
-      - AZURE_CLIENT_ID=005f5b8a-f69f-4e59-96fc-09334a45d64c # these are all for Kai's personal account, should switch when merged with main branch
-      - AZURE_TENANT_ID=8050f649-c5b5-45a7-8f30-3e7dcd9c7b3d
-      - AZURE_CLIENT_SECRET= # add secret
   openhouse-housetables:
     build:
       context: ../../../..
