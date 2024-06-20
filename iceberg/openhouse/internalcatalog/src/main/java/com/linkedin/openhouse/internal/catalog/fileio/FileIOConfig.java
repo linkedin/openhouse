@@ -5,7 +5,6 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.adls.AdlsStorageClient;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
@@ -64,33 +63,6 @@ public class FileIOConfig {
       // Spring doesn't define the bean if the return value is null
       log.debug("Local storage type is not configured", e);
       return null;
-    }
-  }
-
-  /**
-   * Provides the S3FileIO bean for S3 storage type
-   *
-   * @return S3FileIO bean for S3 storage type, or null if S3 storage type is not configured
-   */
-  @Bean("S3FileIO")
-  S3FileIO provideS3FileIO() {
-    try {
-      S3Client s3 =
-          (S3Client) storageManager.getStorage(StorageType.S3).getClient().getNativeClient();
-      return new S3FileIO(() -> s3);
-    } catch (IllegalArgumentException e) {
-      // If S3 storage is not configured then return null, otherwise throw an exception.
-      try {
-        storageManager.getStorage(StorageType.S3);
-      } catch (IllegalArgumentException err) {
-        // S3 storage type is not configured. Return null.
-        // Spring doesn't define the bean if the return value is null
-        log.debug("S3 storage type is not configured", err);
-        return null;
-      }
-      // S3 storage configured but could not instantiate S3FileIO.
-      throw new IllegalArgumentException(
-          "S3 storage configured but could not initialize S3FileIO" + e.getMessage());
     }
   }
 
