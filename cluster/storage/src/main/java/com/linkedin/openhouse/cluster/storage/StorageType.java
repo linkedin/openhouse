@@ -37,7 +37,7 @@ public class StorageType {
     } else if (ADLS.getValue().equals(type)) {
       return ADLS;
     } else {
-      throw new IllegalArgumentException("Unknown storage type" + type);
+      throw new IllegalArgumentException("Unknown storage type " + type);
     }
   }
 }

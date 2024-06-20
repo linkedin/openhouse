@@ -231,7 +231,7 @@ By default it picks up `openhouse` user.
 docker exec -it local.spark-master /bin/bash
 ```
 
-Start `spark-shell` with the following command: Available users are `openhouse` and `u_tableowner`. 
+Start `spark-shell` with the following command: Available users are `openhouse` and `u_tableowner`.
 ```
 bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0,com.azure:azure-storage-file-datalake:12.19.0,org.apache.hadoop:hadoop-azure:3.4.0   \
   --jars openhouse-spark-runtime_2.12-*-all.jar  \
