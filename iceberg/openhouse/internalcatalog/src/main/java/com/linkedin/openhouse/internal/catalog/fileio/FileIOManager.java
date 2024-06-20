@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.internal.catalog.fileio;
 
-import static com.linkedin.openhouse.cluster.storage.StorageType.*;
+import static com.linkedin.openhouse.cluster.storage.StorageType.ADLS;
+import static com.linkedin.openhouse.cluster.storage.StorageType.HDFS;
+import static com.linkedin.openhouse.cluster.storage.StorageType.LOCAL;
 
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageType;
@@ -48,8 +50,8 @@ public class FileIOManager {
 
   @Autowired S3Storage s3Storage;
 
-  @Autowired ADLSStorage adlsStorage;
-  
+  @Autowired AdlsStorage adlsStorage;
+
   /**
    * Returns the FileIO implementation for the given storage type.
    *
