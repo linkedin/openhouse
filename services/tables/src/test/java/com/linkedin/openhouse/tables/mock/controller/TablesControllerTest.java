@@ -146,26 +146,6 @@ public class TablesControllerTest {
   }
 
   @Test
-  public void findAllTables2xx() throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
-                .accept(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Bearer " + jwtAccessToken))
-        .andExpect(status().isOk())
-        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(content().json(RequestConstants.TEST_GET_ALL_TABLES_RESPONSE_BODY.toJson()));
-  }
-
-  @Test
-  public void findAllTables4xx() throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables")
-                .accept(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Bearer " + jwtAccessToken))
-        .andExpect(status().isNotFound());
-  }
-
-  @Test
   public void createTable2xx() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")

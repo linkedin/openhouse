@@ -238,24 +238,6 @@ public class TablesControllerTest {
   }
 
   @Test
-  public void testEmptyDatabase() throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.get(
-                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                        + "/databases/not_found/tables/")
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(
-            content()
-                .json(
-                    GetAllTablesResponseBody.builder()
-                        .results(new ArrayList<>())
-                        .build()
-                        .toJson()));
-  }
-
-  @Test
   public void testCreateTableAlreadyExists() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
         GET_TABLE_RESPONSE_BODY, mvc, storageManager);

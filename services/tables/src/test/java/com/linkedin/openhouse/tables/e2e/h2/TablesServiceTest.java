@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
-import static org.assertj.core.api.Assertions.*;
 
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
@@ -21,17 +20,13 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
-import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -234,35 +229,6 @@ public class TablesServiceTest {
     Assertions.assertThrows(
         NoSuchUserTableException.class,
         () -> tablesService.getTable("DB_NOT_FOUND", "TBL_NOT_FOUND", TEST_USER));
-  }
-
-  @Test
-  public void testGetAll() {
-    verifyPutTableRequest(TABLE_DTO, null, true);
-    verifyPutTableRequest(TABLE_DTO_SAME_DB, null, true);
-
-    List<TableDto> tables = tablesService.getAllTables(TABLE_DTO.getDatabaseId());
-    List<TableDto> tableDtoList = new ArrayList<>();
-    tableDtoList.add(TableModelConstants.TABLE_DTO);
-    tableDtoList.add(TableModelConstants.TABLE_DTO_SAME_DB);
-
-    assertThat(tableDtoList.stream().map(TableDto::getTableId).collect(Collectors.toList()))
-        .hasSameElementsAs(tables.stream().map(TableDto::getTableId).collect(Collectors.toList()));
-    assertThat(tableDtoList.stream().map(TableDto::getDatabaseId).collect(Collectors.toList()))
-        .hasSameElementsAs(
-            tables.stream().map(TableDto::getDatabaseId).collect(Collectors.toList()));
-    assertThat(tableDtoList.stream().map(TableDto::getClusterId).collect(Collectors.toList()))
-        .hasSameElementsAs(
-            tables.stream().map(TableDto::getClusterId).collect(Collectors.toList()));
-    assertThat(tableDtoList.stream().map(TableDto::getTableUri).collect(Collectors.toList()))
-        .hasSameElementsAs(tables.stream().map(TableDto::getTableUri).collect(Collectors.toList()));
-
-    assertThat(new ArrayList<>()).hasSameElementsAs(tablesService.getAllTables("DB_NOT_FOUND"));
-
-    // Delete as clean up.
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
-    tablesService.deleteTable(
-        TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER);
   }
 
   @Test

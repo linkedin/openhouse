@@ -16,15 +16,6 @@ public interface TablesApiValidator {
   void validateGetTable(String databaseId, String tableId);
 
   /**
-   * Function to validate a request to get all Table Resources in a given databaseId
-   *
-   * @param databaseId
-   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
-   *     invalid
-   */
-  void validateGetAllTables(String databaseId);
-
-  /**
    * Function to validate a request to get all Table Resources in a given databaseId by filters and
    * requested columns.
    *

@@ -75,24 +75,6 @@ public class TablesValidatorTest {
   }
 
   @Test
-  public void validateGetAllTablesSuccess() {
-    assertDoesNotThrow(() -> tablesApiValidator.validateGetAllTables("d"));
-  }
-
-  @Test
-  public void validateGetAllTablesSpecialCharacter() {
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> tablesApiValidator.validateGetAllTables("%%"));
-  }
-
-  @Test
-  public void validateGetAllTablesEmptyString() {
-    assertThrows(
-        RequestValidationFailureException.class, () -> tablesApiValidator.validateGetAllTables(""));
-  }
-
-  @Test
   public void validateCreateTableSuccess() {
     assertDoesNotThrow(
         () ->

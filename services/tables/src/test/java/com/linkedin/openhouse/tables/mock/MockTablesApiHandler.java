@@ -36,21 +36,6 @@ public class MockTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
-  public ApiResponse<GetAllTablesResponseBody> getAllTables(String databaseId) {
-    switch (databaseId) {
-      case "d200":
-        return ApiResponse.<GetAllTablesResponseBody>builder()
-            .httpStatus(HttpStatus.OK)
-            .responseBody(RequestConstants.TEST_GET_ALL_TABLES_RESPONSE_BODY)
-            .build();
-      case "d404":
-        throw new NoSuchUserTableException(databaseId, "");
-      default:
-        return null;
-    }
-  }
-
-  @Override
   public ApiResponse<GetAllTablesResponseBody> searchTables(String databaseId) {
     switch (databaseId) {
       case "d200":

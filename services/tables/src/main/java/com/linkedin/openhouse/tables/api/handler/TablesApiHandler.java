@@ -25,14 +25,6 @@ public interface TablesApiHandler {
       String databaseId, String tableId, String actingPrincipal);
 
   /**
-   * Function to Get all Table Resources in a given databaseId
-   *
-   * @param databaseId
-   * @return Response containing a list of tables that would be returned to the client.
-   */
-  ApiResponse<GetAllTablesResponseBody> getAllTables(String databaseId);
-
-  /**
    * Function to Get all Table Resources in a given databaseId by filters and return requested
    * columns. If no columns are specified only identifier columns are returned.
    *

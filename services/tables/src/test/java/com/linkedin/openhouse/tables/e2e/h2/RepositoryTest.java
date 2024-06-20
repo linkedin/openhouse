@@ -25,7 +25,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -112,13 +111,6 @@ public class RepositoryTest {
     verifyTable(houseTable);
 
     Assertions.assertTrue(openHouseInternalRepository.existsById(key));
-
-    List<TableDto> tableDtos =
-        openHouseInternalRepository.findAllByDatabaseId(creationDTO.getDatabaseId());
-    Assertions.assertEquals(1, tableDtos.size());
-    for (TableDto tableDto : tableDtos) {
-      verifyTable(tableDto);
-    }
 
     openHouseInternalRepository.deleteById(key);
     Assertions.assertFalse(openHouseInternalRepository.existsById(key));
@@ -280,11 +272,6 @@ public class RepositoryTest {
   }
 
   @Test
-  public void testEmptyDatabase() {
-    Assertions.assertEquals(0, openHouseInternalRepository.findAllByDatabaseId("NOT_FOUND").size());
-  }
-
-  @Test
   public void testExistsByIdThatDoesNotExist() {
 
     Assertions.assertFalse(
@@ -297,11 +284,6 @@ public class RepositoryTest {
             () -> openHouseInternalRepository.existsById(TableDtoPrimaryKey.builder().build()));
     Assertions.assertEquals(
         "Cannot create a namespace with a null level", nullPointerException.getMessage());
-  }
-
-  @Test
-  public void testFindAllByDatabaseIdNotFound() {
-    Assertions.assertEquals(0, openHouseInternalRepository.findAllByDatabaseId("not_found").size());
   }
 
   @Test
