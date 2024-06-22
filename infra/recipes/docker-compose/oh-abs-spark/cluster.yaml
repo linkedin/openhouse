@@ -8,11 +8,15 @@ cluster:
     default-type: "adls"
     types:
       adls:
-        rootpath: "blobcontainer@containerstorageabs.dfs.core.windows.net" # populate your values here
-        endpoint: "abfs://"
+        rootpath: "" 
+        endpoint: "abfs://blobcontainer@containerstorageabs.dfs.core.windows.net/" # populate your values here
         parameters:
            adls.auth.shared-key.account.name: containerstorageabs # add your Azure Storage Account name here
+<<<<<<< HEAD
            adls.auth.shared-key.account.key: # add your Azure Storage Account key here
+=======
+           adls.auth.shared-key.account.key:  # add your Azure Storage Account key here
+>>>>>>> f02b0f5 (changes to fix client side)
   iceberg:
     write:
       format:

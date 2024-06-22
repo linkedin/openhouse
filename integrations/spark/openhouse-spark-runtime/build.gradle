@@ -4,6 +4,7 @@ plugins {
   id 'com.github.johnrengelman.shadow' version '6.0.0'
   id 'scala'
   id 'antlr'
+  id 'openhouse.iceberg-conventions'
 }
 
 ext {
@@ -36,6 +37,17 @@ dependencies {
   // Required because we remove antlr plugin dependencies from the compile configuration, see note above
   runtimeOnly "org.antlr:antlr4-runtime:4.7.1"
   antlr "org.antlr:antlr4:4.7.1"
+
+  // runtimeOnly("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0")
+  implementation("com.azure:azure-storage-file-datalake:12.19.0") {
+    exclude group: 'io.netty'
+  }
+  // other options: upgrade netty for client side; downgrade 12.9.0, required additional dependencies
+
+
+  // runtimeOnly("org.apache.iceberg:iceberg-azure:1.5.0")
+  // runtimeOnly("io.netty:netty-transport:4.1.75.Final")
+  // runtimeOnly("io.netty:netty-codec-http:4.1.75.Final")
 
   compileOnly(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
   compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {

@@ -35,7 +35,7 @@ import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
  * Support</a>
  */
 class ADLSLocation {
-  private static final Pattern URI_PATTERN = Pattern.compile("^abfss?://([^/?#]+)(.*)?$");
+  private static final Pattern URI_PATTERN = Pattern.compile("^(abfss?://)?([^/?#]+)(.*)?$");
 
   private final String storageAccount;
   private final String container;
@@ -49,11 +49,12 @@ class ADLSLocation {
   ADLSLocation(String location) {
     Preconditions.checkArgument(location != null, "Invalid location: null");
 
+    // both needed because the metadata URI starts without the "adfs"
     Matcher matcher = URI_PATTERN.matcher(location);
 
     ValidationException.check(matcher.matches(), "Invalid ADLS URI: %s", location);
 
-    String authority = matcher.group(1);
+    String authority = matcher.group(2);
     String[] parts = authority.split("@", -1);
     if (parts.length > 1) {
       this.container = parts[0];
@@ -63,7 +64,7 @@ class ADLSLocation {
       this.storageAccount = authority;
     }
 
-    String uriPath = matcher.group(2);
+    String uriPath = matcher.group(3);
     uriPath = uriPath == null ? "" : uriPath.startsWith("/") ? uriPath.substring(1) : uriPath;
     this.path = uriPath.split("\\?", -1)[0].split("#", -1)[0];
   }
