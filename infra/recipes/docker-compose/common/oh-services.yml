@@ -7,9 +7,9 @@ services:
     ports:
       - 8000:8080
     environment:
-      - AZURE_CLIENT_ID=
-      - AZURE_TENANT_ID= 
-      - AZURE_CLIENT_SECRET=
+      - AZURE_CLIENT_ID= # add your client id here
+      - AZURE_TENANT_ID= # add your tenant id here
+      - AZURE_CLIENT_SECRET= # add your client secret here
   openhouse-housetables:
     build:
       context: ../../../..

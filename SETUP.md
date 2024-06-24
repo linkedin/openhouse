@@ -244,8 +244,8 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.apache.ice
   --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
   --conf spark.sql.catalog.openhouse.cluster=LocalFSCluster \
   --conf spark.sql.catalog.openhouse.io-impl=org.apache.iceberg.azure.adlsv2.ADLSFileIO \
-  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.name=containerstorageabs \
-  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.key= <add key here >
+  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.name= <account name> \
+  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.key= <account key>
 ```
 
 #### Create a table
