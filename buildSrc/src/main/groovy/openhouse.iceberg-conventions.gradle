@@ -7,4 +7,5 @@ dependencies {
   implementation('org.apache.iceberg:iceberg-data:' + icebergVersion)
   implementation('org.apache.iceberg:iceberg-core:' + icebergVersion)
   implementation('org.apache.iceberg:iceberg-common:' + icebergVersion)
+  implementation('org.testcontainers:testcontainers:1.19.8')
 }
