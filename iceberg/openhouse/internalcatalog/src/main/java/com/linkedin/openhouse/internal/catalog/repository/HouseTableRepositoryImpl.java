@@ -25,7 +25,7 @@ import org.apache.directory.api.util.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.retry.support.RetryTemplateBuilder;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -35,7 +35,7 @@ import reactor.core.publisher.Mono;
  * in build time.
  */
 @SuppressWarnings("unchecked")
-@Component
+@Repository
 public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   /**

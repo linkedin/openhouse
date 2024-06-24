@@ -10,7 +10,7 @@ plugins {
    * Please remove the version from the offending request and make sure the module
    * containing the requested plugin 'org.springframework.boot' is an implementation dependency.
    */
-  id 'org.springframework.boot' version '2.1.2.RELEASE'
+  id 'org.springframework.boot' version '2.7.14'
 
   /**
    * These are the dependencies to enable client generation for the service.

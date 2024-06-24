@@ -39,7 +39,7 @@ tasks.named('test') {
 jacocoTestReport {
   dependsOn test
   reports {
-    html.enabled true
+    html.required = true
   }
   afterEvaluate {
     classDirectories.setFrom(files(classDirectories.files.collect {

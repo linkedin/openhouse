@@ -11,5 +11,5 @@ dependencies {
 
   testImplementation "com.squareup.okhttp3:okhttp:4.0.1"
   testImplementation "com.squareup.okhttp3:mockwebserver:4.0.1"
-  testCompile "org.apache.iceberg:iceberg-bundled-guava:" + icebergVersion
+  testImplementation "org.apache.iceberg:iceberg-bundled-guava:" + icebergVersion
 }

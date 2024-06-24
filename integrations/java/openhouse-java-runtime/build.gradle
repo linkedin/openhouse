@@ -1,7 +1,7 @@
 plugins {
   id 'openhouse.java-minimal-conventions'
   id 'openhouse.maven-publish'
-  id 'com.github.johnrengelman.shadow' version '6.0.0'
+  id 'com.github.johnrengelman.shadow' version '7.1.2'
 }
 
 configurations {
@@ -22,7 +22,7 @@ configurations {
 ext {
   icebergVersion = '1.2.0'
   sparkVersion = '3.1.1'
-  springVersion = '2.6.6'
+  springVersion = '2.7.14'
   hadoopVersion = '2.10.0'
 }
 
