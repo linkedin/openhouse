@@ -2,8 +2,10 @@ package com.linkedin.openhouse.internal.catalog.fileio;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
+import com.linkedin.openhouse.cluster.storage.adls.AdlsStorageClient;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +61,25 @@ public class FileIOConfig {
       // If the Local storage type is not configured, return null
       // Spring doesn't define the bean if the return value is null
       log.debug("Local storage type is not configured", e);
+      return null;
+    }
+  }
+
+  /**
+   * Provides the ADLSFileIO bean for ADLS storage type
+   *
+   * @return ADLSFileIO bean for ADLS storage type, or null if ADLS storage type is not configured
+   */
+  @Bean
+  ADLSFileIO provideADLSFileIO() {
+    try {
+      // get the already-created FileIO from the ADLS Manager
+      ADLSFileIO fileIO =
+          ((AdlsStorageClient) storageManager.getStorage(StorageType.ADLS).getClient()).getFileIO();
+      return fileIO;
+    } catch (IllegalArgumentException e) {
+      // If the ADLS storage type is not configured, return null
+      // Spring doesn't define the bean if the return value is null
       return null;
     }
   }
