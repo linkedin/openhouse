@@ -1,17 +1,18 @@
 package com.linkedin.openhouse.datalayout.datasource;
 
 import java.io.Serializable;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** Represents the statistics of a file. */
+/** Represents table partition. */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public final class FileStat implements Serializable {
-  private String path;
-  private long size;
+public class PartitionStat implements Serializable {
+  private List<String> values;
+  private int fileCount;
 }
