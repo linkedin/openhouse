@@ -6,7 +6,7 @@ resource "azurerm_kubernetes_cluster" "sandbox" {
 
     default_node_pool {
       name = "default"
-      node_count = 1
+      node_count = var.node_count
       vm_size = "Standard_D2_v2"
     }
 
