@@ -3,7 +3,8 @@ package com.linkedin.openhouse.datalayout.e2e;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.layoutselection.DataLayoutOptimizationStrategy;
 import com.linkedin.openhouse.datalayout.layoutselection.OpenHouseDataLayoutGenerator;
-import com.linkedin.openhouse.datalayout.persistence.Utils;
+import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
+import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
 import org.apache.spark.sql.SparkSession;
@@ -25,9 +26,9 @@ public class IntegrationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(1, strategies.size());
       Assertions.assertEquals(1, strategies.get(0).getConfig().getPartialProgressMaxCommits());
       Assertions.assertTrue(strategies.get(0).getConfig().isPartialProgressEnabled());
-      Utils.saveStrategies(spark, testTable, strategies);
-      List<DataLayoutOptimizationStrategy> retrievedStrategies =
-          Utils.loadStrategies(spark, testTable);
+      StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
+      dao.save(testTable, strategies);
+      List<DataLayoutOptimizationStrategy> retrievedStrategies = dao.load(testTable);
       Assertions.assertEquals(strategies, retrievedStrategies);
     }
   }
