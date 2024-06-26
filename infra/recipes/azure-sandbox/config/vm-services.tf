@@ -31,7 +31,7 @@ resource "azurerm_network_interface" "sandbox" {
 resource "azurerm_virtual_machine" "sandbox" {
     name = "sandbox-vm"
     location = azurerm_resource_group.sandbox.location
-    resource_group_name = azurerm_storage_account.sandbox.name
+    resource_group_name = azurerm_resource_group.sandbox.name
     network_interface_ids = [azurerm_network_interface.sandbox.id]
     vm_size = "Standard_DS1_v2"
 
@@ -44,7 +44,7 @@ resource "azurerm_virtual_machine" "sandbox" {
     }
 
     os_profile_linux_config {
-      disable_password_authentication = true // force using admin password
+      disable_password_authentication = false // force using admin password
     }
 
     storage_os_disk {
