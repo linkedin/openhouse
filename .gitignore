@@ -63,3 +63,4 @@ infra/recipes/docker-compose/oh-hadoop-spark/u_tableowner.token
 .terraform
 terraform.tfstate
 terraform.tfstate.backup
+.terraform.lock.hcl
