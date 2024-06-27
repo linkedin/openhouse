@@ -1,0 +1,7 @@
+
+[submodule "iceberg/submodule/iceberg"]
+	path = iceberg/submodule/iceberg
+	url = https://github.com/apache/iceberg
+[submodule "iceberg-repo/iceberg"]
+	path = iceberg-repo/iceberg
+	url = https://github.com/apache/iceberg

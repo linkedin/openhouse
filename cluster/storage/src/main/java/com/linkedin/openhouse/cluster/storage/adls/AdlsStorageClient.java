@@ -38,36 +38,23 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
   @PostConstruct
   public synchronized void init() {
 
-    URI uri;
-    Map properties;
-    String endpoint;
-    String rootPath;
-    if (storageProperties.getTypes() != null && !storageProperties.getTypes().isEmpty()) {
+    validateProperties();
 
-      validateProperties();
-
-      endpoint = storageProperties.getTypes().get(ADLS_TYPE.getValue()).getEndpoint();
-      rootPath = storageProperties.getTypes().get(ADLS_TYPE.getValue()).getRootPath();
-
-      // Gets the parameters from the ADLS storage type
-      properties =
-          new HashMap(storageProperties.getTypes().get(ADLS_TYPE.getValue()).getParameters());
-
-    } else {
-      throw new IllegalArgumentException("Missing properties and URI information.");
-    }
+    // Gets the parameters from the ADLS storage type
+    Map properties =
+        new HashMap(storageProperties.getTypes().get(ADLS_TYPE.getValue()).getParameters());
 
     // Try to create a URI with the endpoint and rootpath
     try {
-      uri = new URI(endpoint + rootPath);
+      URI uri = new URI(getRootPrefix());
     } catch (URISyntaxException e) {
       throw new IllegalArgumentException(
           "Storage properties 'endpoint', 'rootpath' was incorrectly configured for: "
               + ADLS_TYPE.getValue()
               + "; endpoint: "
-              + endpoint
+              + getEndpoint()
               + " and rootpath: "
-              + rootPath,
+              + getRootPrefix(),
           e);
     }
 

@@ -14,14 +14,24 @@ import org.springframework.stereotype.Component;
 @Component
 public class AdlsStorage extends BaseStorage {
 
-  // Declare client class to interact with ADLS filesystem
+  // Declare client class to interact with ADLS filesystems/storage
   @Autowired @Lazy private AdlsStorageClient adlsStorageClient;
 
+  /**
+   * Get the type of the ADLS storage.
+   *
+   * @return the type of the ADLS storage
+   */
   @Override
   public StorageType.Type getType() {
     return StorageType.ADLS;
   }
 
+  /**
+   * Get the ADLS storage client.
+   *
+   * @return the ADLS storage client
+   */
   @Override
   public StorageClient<?> getClient() {
     return adlsStorageClient;
