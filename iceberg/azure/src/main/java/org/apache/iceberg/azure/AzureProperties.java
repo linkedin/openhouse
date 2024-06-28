@@ -29,6 +29,10 @@ import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.PropertyUtil;
 
+/**
+ * A class that holds the configuration properties for Azure integration with Iceberg. Handles user
+ * credentials in various ways depending on the inputted properties.
+ */
 public class AzureProperties implements Serializable {
   public static final String ADLS_SAS_TOKEN_PREFIX = "adls.sas-token.";
   public static final String ADLS_CONNECTION_STRING_PREFIX = "adls.connection-string.";

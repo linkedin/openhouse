@@ -3,7 +3,3 @@ plugins {
   id 'openhouse.iceberg-conventions'
   id 'openhouse.iceberg-azure-conventions'
 }
-
-dependencies {
-
-}
