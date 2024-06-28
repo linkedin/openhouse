@@ -45,8 +45,9 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
         new HashMap(storageProperties.getTypes().get(ADLS_TYPE.getValue()).getParameters());
 
     // Try to create a URI with the endpoint and rootpath
+    URI uri;
     try {
-      URI uri = new URI(getRootPrefix());
+      uri = new URI(getEndpoint() + getRootPrefix());
     } catch (URISyntaxException e) {
       throw new IllegalArgumentException(
           "Storage properties 'endpoint', 'rootpath' was incorrectly configured for: "
