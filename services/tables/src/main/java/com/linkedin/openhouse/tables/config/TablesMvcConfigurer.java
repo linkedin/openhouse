@@ -35,7 +35,7 @@ public class TablesMvcConfigurer implements WebMvcConfigurer {
             registry
                 .addInterceptor((HandlerInterceptor) cons.get().newInstance())
                 .addPathPatterns("/**")
-                .excludePathPatterns("/actuator/**", "/**/api-docs/**");
+                .excludePathPatterns("/actuator/**", "/**/api-docs/**", "/**/swagger-ui/**");
           } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
             throw new RuntimeException(
                 "Unable to install the configured Request Interception Handler", e);
