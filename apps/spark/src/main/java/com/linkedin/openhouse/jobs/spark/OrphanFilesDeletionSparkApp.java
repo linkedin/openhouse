@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.Iterables;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import io.opentelemetry.api.common.AttributeKey;
@@ -50,17 +50,12 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         skipStaging);
     DeleteOrphanFiles.Result result =
         ops.deleteOrphanFiles(ops.getTable(fqtn), trashDir, olderThanTimestampMillis, skipStaging);
-    List<String> orphanFileLocations = Lists.newArrayList(result.orphanFileLocations().iterator());
-    log.info(
-        "Detected {} orphan files older than {}ms",
-        orphanFileLocations.size(),
-        olderThanTimestampMillis);
+    int numOrphanFiles = Iterables.size(result.orphanFileLocations());
+    log.info("Detected {} orphan files older than {}ms", numOrphanFiles, olderThanTimestampMillis);
     METER
         .counterBuilder(AppConstants.ORPHAN_FILE_COUNT)
         .build()
-        .add(
-            orphanFileLocations.size(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+        .add(numOrphanFiles, Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
   }
 
   public static void main(String[] args) {
