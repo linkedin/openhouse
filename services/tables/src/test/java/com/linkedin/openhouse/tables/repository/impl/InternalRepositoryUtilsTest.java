@@ -197,7 +197,7 @@
 //    String uuid = UUID.randomUUID().toString();
 //    Mockito.when(fsStorageProvider.rootPath()).thenReturn(someRoot);
 //    Assertions.assertEquals(
-//        InternalRepositoryUtils.constructTablePath(fsStorageProvider, dbId, tbId, uuid),
+//        InternalRepositoryUtils.constructTablePath(fsStorageProvider, dbId, tbId, uuid).getPath(),
 //        Paths.get(someRoot, dbId, tbId + "-" + uuid));
 //  }
 //

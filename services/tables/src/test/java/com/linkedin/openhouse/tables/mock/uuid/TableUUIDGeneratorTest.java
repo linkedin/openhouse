@@ -71,6 +71,7 @@ public class TableUUIDGeneratorTest {
         new Path(
             InternalRepositoryUtils.constructTablePath(
                     storageManager, "db", "t", expectedUUID.toString())
+                .getPath()
                 .toString()));
     UUID existingUUID =
         tableUUIDGenerator.generateUUID(
@@ -105,6 +106,7 @@ public class TableUUIDGeneratorTest {
         new Path(
             InternalRepositoryUtils.constructTablePath(
                     storageManager, "db", "t", expectedUUID.toString())
+                .getPath()
                 .toString()));
     UUID existingUUID =
         tableUUIDGenerator.generateUUID(

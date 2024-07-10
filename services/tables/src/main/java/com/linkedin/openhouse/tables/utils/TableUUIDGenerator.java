@@ -144,8 +144,10 @@ public class TableUUIDGenerator {
         extractFromTblPropsIfExists(databaseId + "." + tableId, tableProperties, TBL_RAW_KEY);
 
     java.nio.file.Path previousPath =
-        InternalRepositoryUtils.constructTablePath(
-            storageManager, dbIdFromProps, tblIdFromProps, tableUUIDProperty);
+        Paths.get(
+            InternalRepositoryUtils.constructTablePath(
+                    storageManager, dbIdFromProps, tblIdFromProps, tableUUIDProperty)
+                .getPath());
     if (TableType.REPLICA_TABLE != tableType && !doesPathExist(previousPath)) {
       log.error("Previous tableLocation: {} doesn't exist", previousPath);
       throw new RequestValidationFailureException(

@@ -19,7 +19,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateProperties;
 
@@ -35,14 +34,19 @@ public final class InternalRepositoryUtils {
     // Utils' class constructor, noop
   }
 
-  public static java.nio.file.Path constructTablePath(
+  public static URI constructTablePath(
       StorageManager storageManager, String databaseID, String tableId, String tableUUID) {
     // TODO: Default storage is used here. Support for non-default storage type per table needs to
     // be added.
-    return Paths.get(
-        storageManager.getDefaultStorage().getClient().getRootPrefix(),
-        databaseID,
-        tableId + "-" + tableUUID);
+    String endpoint = storageManager.getDefaultStorage().getClient().getEndpoint();
+    String path =
+        Paths.get(
+                storageManager.getDefaultStorage().getClient().getRootPrefix(),
+                databaseID,
+                tableId + "-" + tableUUID)
+            .toString();
+
+    return URI.create(endpoint + '/' + path).normalize();
   }
 
   /**
@@ -142,11 +146,7 @@ public final class InternalRepositoryUtils {
             .tableUri(megaProps.get(getCanonicalFieldName("tableUri")))
             .tableUUID(megaProps.get(getCanonicalFieldName("tableUUID")))
             .tableLocation(
-                URI.create(
-                        StringUtils.prependIfMissing( // remove after resolving
-                            // https://github.com/linkedin/openhouse/issues/121
-                            megaProps.get(getCanonicalFieldName("tableLocation")),
-                            storage.getClient().getEndpoint()))
+                URI.create(megaProps.get(getCanonicalFieldName("tableLocation")))
                     .normalize()
                     .toString())
             .tableVersion(megaProps.get(getCanonicalFieldName("tableVersion")))
@@ -161,7 +161,6 @@ public final class InternalRepositoryUtils {
             .jsonSnapshots(null)
             .tableProperties(megaProps)
             .build();
-
     return tableDto;
   }
 
