@@ -84,10 +84,7 @@ public class RequestAndValidateHelper {
             .andExpect(jsonPath("$.databaseId", is(equalTo(getTableResponseBody.getDatabaseId()))))
             .andExpect(jsonPath("$.clusterId", is(equalTo(getTableResponseBody.getClusterId()))))
             .andExpect(jsonPath("$.tableUri", is(equalTo(getTableResponseBody.getTableUri()))))
-            .andExpect(
-                jsonPath(
-                    "$.tableVersion",
-                    is(equalTo(TablesServiceTest.stripPathScheme(previousTableLocation)))))
+            .andExpect(jsonPath("$.tableVersion", is(equalTo(previousTableLocation))))
             .andReturn();
     ValidationUtilities.validateUUID(mvcResult, getTableResponseBody.getTableUUID());
     ValidationUtilities.validateSchema(mvcResult, getTableResponseBody.getSchema());
@@ -358,10 +355,7 @@ public class RequestAndValidateHelper {
             .andExpect(
                 jsonPath(
                     "$.tableVersion",
-                    is(
-                        equalTo(
-                            TablesServiceTest.stripPathScheme(
-                                icebergSnapshotsRequestBody.getBaseTableVersion())))))
+                    is(equalTo(icebergSnapshotsRequestBody.getBaseTableVersion()))))
             .andReturn();
 
     validateSnapshots(catalog, result, icebergSnapshotsRequestBody);

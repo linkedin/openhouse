@@ -13,6 +13,7 @@ import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
@@ -223,9 +224,11 @@ public class TableUUIDGenerator {
   @VisibleForTesting
   private UUID extractUUIDFromExistingManifestListPath(
       java.nio.file.Path manifestListPath, java.nio.file.Path databaseDirPath, String tableId) {
+    java.nio.file.Path manifestListSchemelessPath =
+        Paths.get(URI.create(manifestListPath.toString()).getPath());
     boolean isProperPathPrefix =
-        manifestListPath.startsWith(databaseDirPath)
-            && databaseDirPath.getNameCount() < manifestListPath.getNameCount();
+        manifestListSchemelessPath.startsWith(databaseDirPath)
+            && databaseDirPath.getNameCount() < manifestListSchemelessPath.getNameCount();
     if (!isProperPathPrefix) {
       log.error(
           "Provided Snapshot location is incorrect, should be in: {}, but provided {}",
@@ -235,13 +238,13 @@ public class TableUUIDGenerator {
           String.format("Provided snapshot is invalid for %s", tableId));
     }
     java.nio.file.Path tableDirectoryPath =
-        manifestListPath
-            .subpath(databaseDirPath.getNameCount(), manifestListPath.getNameCount())
+        manifestListSchemelessPath
+            .subpath(databaseDirPath.getNameCount(), manifestListSchemelessPath.getNameCount())
             .iterator()
             .next();
     /* check if tableDirectory is of the form "tablename-<UUID>", if it is, extract UUID */
     String tableIdDash = String.format("%s-", tableId);
-    if (!tableDirectoryPath.toString().startsWith(tableIdDash)) {
+    if (!tableDirectoryPath.startsWith(tableIdDash)) {
       log.error(
           "Provided Snapshot location is incorrect, should have table name: {}_, but provided {}",
           tableId,

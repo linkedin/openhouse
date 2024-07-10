@@ -82,10 +82,9 @@ public class TablesServiceTest {
             storageManager.getDefaultStorage().getClient().getRootPrefix(),
             actual.getDatabaseId(),
             actual.getTableId() + "-" + actual.getTableUUID());
-    Assertions.assertTrue(actual.getTableLocation().startsWith(expectedPath.toString()));
+    Assertions.assertTrue(Paths.get(actual.getTableLocation()).startsWith(expectedPath.toString()));
     if (previousVersion != null) {
-      Assertions.assertEquals(
-          stripPathScheme(previousVersion.getTableLocation()), actual.getTableVersion());
+      Assertions.assertEquals(previousVersion.getTableLocation(), actual.getTableVersion());
     } else {
       Assertions.assertEquals(INITIAL_TABLE_VERSION, actual.getTableVersion());
     }
@@ -149,20 +148,17 @@ public class TablesServiceTest {
     TableDto updatedPutResultCreate =
         verifyPutTableRequest(evolveDummySchema(putResultCreate), putResultCreate, false);
     Assertions.assertEquals(
-        updatedPutResultCreate.getTableVersion(),
-        stripPathScheme(putResultCreate.getTableLocation()));
+        updatedPutResultCreate.getTableVersion(), putResultCreate.getTableLocation());
     TableDto updatedPutResultCreateSameDB =
         verifyPutTableRequest(
             evolveDummySchema(putResultCreateSameDB), putResultCreateSameDB, false);
     Assertions.assertEquals(
-        updatedPutResultCreateSameDB.getTableVersion(),
-        stripPathScheme(putResultCreateSameDB.getTableLocation()));
+        updatedPutResultCreateSameDB.getTableVersion(), putResultCreateSameDB.getTableLocation());
     TableDto updatedPutResultCreateDiffDB =
         verifyPutTableRequest(
             evolveDummySchema(putResultCreateDiffDB), putResultCreateDiffDB, false);
     Assertions.assertEquals(
-        updatedPutResultCreateDiffDB.getTableVersion(),
-        stripPathScheme(putResultCreateDiffDB.getTableLocation()));
+        updatedPutResultCreateDiffDB.getTableVersion(), putResultCreateDiffDB.getTableLocation());
 
     // Delete Table
     tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
@@ -212,8 +208,7 @@ public class TablesServiceTest {
         verifyPutTableRequest(decorateSchemaEvolution(baseResult, baseInt2Long), baseResult, false);
 
     // Verify version
-    Assertions.assertEquals(
-        stripPathScheme(baseResult.getTableLocation()), updatedResult.getTableVersion());
+    Assertions.assertEquals(baseResult.getTableLocation(), updatedResult.getTableVersion());
 
     // Verify schema updated
     // Again schema's namespace might be not matching so only compare fields.

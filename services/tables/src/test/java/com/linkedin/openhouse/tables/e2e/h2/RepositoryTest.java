@@ -646,7 +646,7 @@ public class RepositoryTest {
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertEquals(TABLE_DTO.getTimePartitioning(), table.getTimePartitioning());
     Assertions.assertEquals(TABLE_DTO.getClustering(), table.getClustering());
-    Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));
+    Assertions.assertTrue(Paths.get(table.getTableLocation()).startsWith(path.toString()));
   }
 
   private void verifyTable(HouseTable table) {
@@ -656,9 +656,10 @@ public class RepositoryTest {
     Assertions.assertEquals(TABLE_DTO.getTableUri(), table.getTableUri());
     Path path =
         Paths.get(
+            "file:",
             storageManager.getDefaultStorage().getClient().getRootPrefix(),
             table.getDatabaseId(),
             table.getTableId() + "-" + table.getTableUUID());
-    Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));
+    Assertions.assertTrue(Paths.get(table.getTableLocation()).startsWith(path.toString()));
   }
 }

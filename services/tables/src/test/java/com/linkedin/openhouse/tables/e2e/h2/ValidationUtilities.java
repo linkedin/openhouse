@@ -97,7 +97,7 @@ public final class ValidationUtilities {
     String tableLocation =
         JsonPath.read(result.getResponse().getContentAsString(), "$.tableLocation");
     Path expectedPath = Paths.get("file:", rootPath, databaseId, tableId + "-" + tableUUID);
-    Assertions.assertTrue(Paths.get(tableLocation).toString().startsWith(expectedPath.toString()));
+    Assertions.assertTrue(Paths.get(tableLocation).startsWith(expectedPath.toString()));
   }
 
   static void validateTimestamp(
