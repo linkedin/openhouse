@@ -235,7 +235,8 @@ public final class Operations implements AutoCloseable {
   }
 
   private Path getTrashPath(String path, String filePath, String trashDir) {
-    return new Path(filePath.replace(path, new Path(path, trashDir).toString()));
+    return new Path(
+        filePath.replace(new Path(path).toString(), new Path(path, trashDir).toString()));
   }
 
   /**

@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import io.opentelemetry.api.metrics.Meter;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -186,15 +187,21 @@ public class OperationsTest extends OpenHouseSparkITest {
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), false);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
+      List<String> orphanFilesWithoutMetadata =
+          orphanFiles.stream()
+              .filter(f -> !f.endsWith("metadata.json"))
+              .collect(Collectors.toList());
+      log.info("Detected {} orphan files (without metadata)", orphanFilesWithoutMetadata.size());
+      for (String of : orphanFilesWithoutMetadata) {
         log.info("File {}", of);
       }
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(TRASH_DIR, testOrphanFileName))));
-      Assertions.assertEquals(1, orphanFiles.size());
+      Assertions.assertEquals(1, orphanFilesWithoutMetadata.size());
       Assertions.assertTrue(
-          orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
+          orphanFilesWithoutMetadata
+              .get(0)
+              .endsWith(Paths.get(table.location(), testOrphanFileName).toString()));
       Assertions.assertFalse(fs.exists(orphanFilePath));
     }
   }
@@ -226,8 +233,13 @@ public class OperationsTest extends OpenHouseSparkITest {
       DeleteOrphanFiles.Result result2 =
           ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), false);
       List<String> orphanFiles2 = Lists.newArrayList(result2.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles2.size());
-      Assertions.assertEquals(0, orphanFiles2.size());
+      List<String> orphanFilesWithoutMetadata =
+          orphanFiles2.stream()
+              .filter(f -> !f.endsWith("metadata.json"))
+              .collect(Collectors.toList());
+      log.info(
+          "Detected {} orphan files (excluding metadata files)", orphanFilesWithoutMetadata.size());
+      Assertions.assertEquals(0, orphanFilesWithoutMetadata.size());
       Assertions.assertTrue(fs.exists(trashFilePath));
     }
   }
@@ -256,15 +268,21 @@ public class OperationsTest extends OpenHouseSparkITest {
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), true);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
+      List<String> orphanFilesWithoutMetadata =
+          orphanFiles.stream()
+              .filter(f -> !f.endsWith("metadata.json"))
+              .collect(Collectors.toList());
+      log.info("Detected {} orphan files", orphanFilesWithoutMetadata.size());
+      for (String of : orphanFilesWithoutMetadata) {
         log.info("File {}", of);
       }
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(TRASH_DIR, testOrphanFileName))));
-      Assertions.assertEquals(1, orphanFiles.size());
+      Assertions.assertEquals(1, orphanFilesWithoutMetadata.size());
       Assertions.assertTrue(
-          orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
+          orphanFilesWithoutMetadata
+              .get(0)
+              .endsWith(Paths.get(table.location(), testOrphanFileName).toString()));
       Assertions.assertFalse(fs.exists(orphanFilePath));
     }
   }
