@@ -93,7 +93,8 @@ public class LocalStorageTest {
     String tableCreator = "creator1";
     boolean skipProvisioning = false;
     when(localStorageClient.getRootPrefix()).thenReturn("/tmp");
-    String expected = "/tmp/db1/table1-uuid1";
+    when(localStorageClient.getEndpoint()).thenReturn("file://");
+    String expected = "file:///tmp/db1/table1-uuid1";
     assertEquals(
         expected, localStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }

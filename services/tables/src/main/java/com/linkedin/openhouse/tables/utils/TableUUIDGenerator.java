@@ -244,7 +244,7 @@ public class TableUUIDGenerator {
             .next();
     /* check if tableDirectory is of the form "tablename-<UUID>", if it is, extract UUID */
     String tableIdDash = String.format("%s-", tableId);
-    if (!tableDirectoryPath.startsWith(tableIdDash)) {
+    if (!tableDirectoryPath.toString().startsWith(tableIdDash.toString())) {
       log.error(
           "Provided Snapshot location is incorrect, should have table name: {}_, but provided {}",
           tableId,

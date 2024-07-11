@@ -39,8 +39,7 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
               .getParent();
       Map<String, Long> expectedStats = new HashMap<>();
       for (FileStatus fileStatus : fs.listStatus(new Path(tableDirectory, "data"))) {
-        expectedStats.put(
-            fileStatus.getPath().toString().substring("file:".length()), fileStatus.getLen());
+        expectedStats.put(fileStatus.getPath().toString(), fileStatus.getLen());
       }
       Assertions.assertEquals(expectedStats, stats);
     }

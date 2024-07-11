@@ -65,7 +65,8 @@ public class HdfsStorageTest {
     String tableCreator = "creator1";
     boolean skipProvisioning = false;
     when(hdfsStorageClient.getRootPrefix()).thenReturn("/data/openhouse");
-    String expected = "/data/openhouse/db1/table1-uuid1";
+    when(hdfsStorageClient.getEndpoint()).thenReturn("hdfs://");
+    String expected = "hdfs:///data/openhouse/db1/table1-uuid1";
     assertEquals(
         expected, hdfsStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }

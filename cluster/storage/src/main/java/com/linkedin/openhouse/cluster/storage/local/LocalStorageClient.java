@@ -28,7 +28,7 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
 
   private static final StorageType.Type LOCAL_TYPE = StorageType.LOCAL;
 
-  private static final String DEFAULT_ENDPOINT = "file:/";
+  private static final String DEFAULT_ENDPOINT = "file://";
 
   private static final String DEFAULT_ROOTPATH = "/tmp";
 

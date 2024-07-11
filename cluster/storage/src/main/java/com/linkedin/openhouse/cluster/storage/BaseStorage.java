@@ -60,10 +60,6 @@ public abstract class BaseStorage implements Storage {
       String databaseId, String tableId, String tableUUID, String tableCreator) {
     Preconditions.checkArgument(databaseId != null, "Database ID cannot be null");
     Preconditions.checkArgument(tableId != null, "Table ID cannot be null");
-    Preconditions.checkArgument(tableUUID != null, "Table UUID cannot be null");
-    Preconditions.checkState(
-        storageProperties.getTypes().containsKey(getType().getValue()),
-        "Storage properties doesn't contain type: " + getType().getValue());
     return URI.create(
             getClient().getEndpoint()
                 + getClient().getRootPrefix()
