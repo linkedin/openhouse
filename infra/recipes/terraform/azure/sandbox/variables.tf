@@ -1,12 +1,12 @@
 variable "username" {
   type        = string
-  description = "The admin username for the virtual machine and MySQL server."
+  description = "The admin username for multiple services."
   default     = "azureadmin"
 }
 
 variable "password" {
     type = string
-    description = "The admin password for the virtual machine and MySQL server."
+    description = "The admin password for multiple services."
     default = "Pa33word"
 }
 

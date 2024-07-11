@@ -3,11 +3,3 @@ resource "kubernetes_namespace" "sandbox" {
     name = "sandbox"
   }
 }
-
-# use a format like this: 
-# resource "kubernetes_deployment" "..." {
-# }
-
-
-# resource "kubernetes_service" "..." {
-# }
