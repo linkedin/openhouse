@@ -15,3 +15,9 @@ variable "node_count" {
   description = "The initial quantity of nodes for the node pool."
   default     = 1
 }
+
+variable "vm_size" {
+  type = string
+  description = "The size of the virtual machine."
+  default = "Standard_D2_v2"
+}
