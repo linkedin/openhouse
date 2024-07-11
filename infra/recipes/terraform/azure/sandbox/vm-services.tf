@@ -27,7 +27,7 @@ resource "azurerm_network_interface" "sandbox" {
   }
 }
 
-// defint the virtual machine
+// define the virtual machine
 resource "azurerm_virtual_machine" "sandbox" {
     name = "sandbox-vm"
     location = azurerm_resource_group.sandbox.location
