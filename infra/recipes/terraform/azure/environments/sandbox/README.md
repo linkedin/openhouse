@@ -17,13 +17,6 @@ You could set the environment variables for variables to stored terraform backen
 
 To deploy the sandbox, run:
 
-### Linking variables
-
-To link the common variables to the specific environment, navigate to the `infra/recipes/terraform/azure/environments/sandbox` directory and run:
-```
-ln -s ../variables.tf common_variables.tf
-```
-
 ### Initialization
 
 Run `terraform init` when setting up a new configuration, changing backend settings, or modifying provider versions. You don't need to run it for regular operations like `terraform plan` and `terraform apply` unless the configuration changes.
