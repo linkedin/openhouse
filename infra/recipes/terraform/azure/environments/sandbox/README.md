@@ -3,9 +3,11 @@ Ensure you have a Azure account. As part of sandbox we use Terraform to provisio
 ## Terraform Backend
  
 Terraform backend state can be stored locally or in Azure blob store. To configure this you will be setting the variables like those in `infra/recipes/terraform/azure/backend.tfvars.template`.
+
 ### Using Environment Variables
 You could set the environment variables for variables to stored terraform backend state. For example, to initialize `storage_account_name` you can set the following environment variable.
 `export TF_VAR_storage_account_name="foobar"`
+
 ### Using tfvars
 1. Create a copy of the file backend.tfvars.template by running
 `cp backend.tfvars.template backend.tfvars`.
