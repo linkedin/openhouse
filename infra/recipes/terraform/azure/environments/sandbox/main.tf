@@ -26,3 +26,12 @@ module "mysql" {
     db_admin_password = "Pa33word"
     db_name = "sandbox-db"
 }
+
+module "k8s" {
+  source = "../../modules/k8s"
+  k8s_cluster_name = "sandbox-k8s"
+  resource_group_name = azurerm_resource_group.sandbox.name
+  location = azurerm_resource_group.sandbox.location
+  node_count = 1
+  vm_size = module.vm.vm_size
+}
