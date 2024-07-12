@@ -3,16 +3,6 @@ variable "virtual_network_name" {
     description = "The name of the virtual network."
 }
 
-variable "location" {
-    type = string
-    description = "The location for the virtual network."
-}
-
-variable "resource_group_name" {
-    type = string
-    description = "The name of the resource group associated with the virtual machine resources."
-}
-
 variable "subnet_name" {
     type = string
     description = "The name of the Azure subnet."

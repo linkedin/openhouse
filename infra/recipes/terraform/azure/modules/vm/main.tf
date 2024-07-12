@@ -2,7 +2,7 @@
 resource "azurerm_virtual_network" "virtual-network" {
   name                = var.virtual_network_name
   address_space       = ["10.0.0.0/16"]
-  location            = var.location
+  location            = var.resource_group_location
   resource_group_name = var.resource_group_name
 }
 
@@ -10,14 +10,14 @@ resource "azurerm_virtual_network" "virtual-network" {
 resource "azurerm_subnet" "subnet" {
   name = var.subnet_name
   resource_group_name =  var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.sandbox.name
+  virtual_network_name = azurerm_virtual_network.virtual-network.name
   address_prefixes = ["10.0.1.0/24"]
 }
 
 // define the network interface, allowing the VM to connect to the network
 resource "azurerm_network_interface" "nic" {
   name = var.network_interface_name
-  location = var.location
+  location = var.resource_group_location
   resource_group_name = var.resource_group_name
 
   ip_configuration {
@@ -30,7 +30,7 @@ resource "azurerm_network_interface" "nic" {
 // define the virtual machine
 resource "azurerm_virtual_machine" "vm" {
     name = var.vm_name
-    location = var.location
+    location = var.resource_group_location
     resource_group_name = var.resource_group_name
     network_interface_ids = [azurerm_network_interface.nic.id]
     vm_size = var.vm_size
