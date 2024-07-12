@@ -35,3 +35,10 @@ module "k8s" {
   node_count = 1
   vm_size = module.vm.vm_size
 }
+
+module "storage" {
+    source = "../../modules/storage"
+    storage_account_name = "sandboxstorageopenhouse"
+    resource_group_name = azurerm_resource_group.sandbox.name
+    location = azurerm_resource_group.sandbox.location
+}
