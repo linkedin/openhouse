@@ -9,3 +9,8 @@ variable "resource_group_location" {
   default     = "westus"
   description = "Location of the resource group."
 }
+
+variable "storage_account_name" {
+  type = string
+  description = "Name of the storage account for the backend."
+}
