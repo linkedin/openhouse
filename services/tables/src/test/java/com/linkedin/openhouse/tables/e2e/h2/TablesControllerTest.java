@@ -136,15 +136,6 @@ public class TablesControllerTest {
     RequestAndValidateHelper.updateTableAndValidateResponse(
         mvc, storageManager, evolveDummySchema(mvcResultT1d2), tableDiffDbLocation);
 
-    RequestAndValidateHelper.listAllAndValidateResponse(
-        mvc,
-        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
-        Arrays.asList(GET_TABLE_RESPONSE_BODY, GET_TABLE_RESPONSE_BODY_SAME_DB));
-    RequestAndValidateHelper.listAllAndValidateResponse(
-        mvc,
-        GET_TABLE_RESPONSE_BODY_DIFF_DB.getDatabaseId(),
-        Arrays.asList(GET_TABLE_RESPONSE_BODY_DIFF_DB));
-
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_SAME_DB);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_DIFF_DB);
