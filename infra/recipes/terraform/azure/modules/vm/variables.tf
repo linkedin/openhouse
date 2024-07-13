@@ -21,7 +21,7 @@ variable "vm_name" {
 variable "vm_size" {
     type = string
     description = "The size of the virtual machine."
-    default = "Standard_DS1_v2"
+    default = "Standard_D2s_v3" // compatible with Azure Kubernetes Cluster
 }
 
 variable "vm_username" {

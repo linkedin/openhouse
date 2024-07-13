@@ -1,5 +1,18 @@
 # Initialize and Run Azure Sandbox
 Ensure you have a Azure account. As part of sandbox we use Terraform to provision a resource group, storage account, and blob container within that storage account. 
+
+## Azure Login
+
+Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), and ensure that you are logged in with your Azure account. You can login in multiple ways.
+
+### Using username/password
+
+This is the simplest version. Run `az login` and login to your account on a web browser.
+
+### Using Service Principal
+
+Following the steps [here](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli-service-principal), you can run `az login --service-principal -u <app-id> -p <password-or-cert> --tenant <tenant>` to gain more control over your subscription and account.
+
 ## Terraform Backend
  
 Terraform backend state can be stored locally or in Azure blob store. To configure this you will be setting the variables like those in `infra/recipes/terraform/azure/backend.tfvars.template`.
@@ -22,7 +35,7 @@ To deploy the sandbox, run:
 Run `terraform init` when setting up a new configuration, changing backend settings, or modifying provider versions. You don't need to run it for regular operations like `terraform plan` and `terraform apply` unless the configuration changes.
 
 _If using tfvars_
-`terraform init -backend-config="./tfbackend.tfvars"`
+`terraform init -backend-config="./backend.tfvars"`
 _If using environment variables_
 `terraform init`
 

@@ -6,9 +6,8 @@ resource "azurerm_resource_group" "sandbox" {
 module "vm" {
     source = "../../modules/vm"
     virtual_network_name = "sandbox-network"
-    location = var.resource_group_location
     resource_group_name = var.resource_group_name
-    subnet_name = "sandbox-subnet"
+    subnet_name = "sandbox-subnet-vm"
     network_interface_name = "sandbox-nic"
     vm_name = "sandbox-vm"
     vm_username = "azureadmin"
@@ -17,28 +16,25 @@ module "vm" {
 
 module "mysql" {
     source = "../../modules/mysql"
-    subnet_name = "sandbox-subnet"
+    subnet_name = "sandbox-subnet-db"
     resource_group_name = azurerm_resource_group.sandbox.name
-    virtual_network_name = module.vm.virtual_network_name
     server_name = "sandbox-mysql-server"
-    location = azurerm_resource_group.sandbox.location
     db_admin_login = "azureadmin"
     db_admin_password = "Pa33word"
     db_name = "sandbox-db"
+    virtual_network_name = module.vm.virtual_network_name
 }
 
 module "k8s" {
   source = "../../modules/k8s"
   k8s_cluster_name = "sandbox-k8s"
   resource_group_name = azurerm_resource_group.sandbox.name
-  location = azurerm_resource_group.sandbox.location
   node_count = 1
   vm_size = module.vm.vm_size
 }
 
 module "storage" {
     source = "../../modules/storage"
-    storage_account_name = "sandboxstorageopenhouse"
+    storage_account_name = "sandboxstorage729387" // added random string of numbers to make it unique
     resource_group_name = azurerm_resource_group.sandbox.name
-    location = azurerm_resource_group.sandbox.location
 }

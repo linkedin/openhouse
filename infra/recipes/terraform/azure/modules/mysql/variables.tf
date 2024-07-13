@@ -23,3 +23,8 @@ variable "db_name" {
     type = string
     description = "The name for the MySQL database."
 }
+
+variable "virtual_network_name" {
+    type = string
+    description = "The name of the virtual network for the MySQL subnet."
+}
