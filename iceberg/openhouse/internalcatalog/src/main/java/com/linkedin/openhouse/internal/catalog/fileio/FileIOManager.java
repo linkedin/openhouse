@@ -9,7 +9,6 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.adls.AdlsStorage;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
-import com.linkedin.openhouse.cluster.storage.s3.S3Storage;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.apache.iceberg.azure.adlsv2.ADLSFileIO;

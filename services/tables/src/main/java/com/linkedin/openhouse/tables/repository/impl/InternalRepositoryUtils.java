@@ -184,11 +184,6 @@ public final class InternalRepositoryUtils {
    * in HTS and client-visible table location.
    */
   static String getSchemeLessPath(String rawPath) {
-    URI uri = URI.create(rawPath);
-    String schemeSpecificPart = uri.getSchemeSpecificPart();
-    if (schemeSpecificPart.startsWith("//")) {
-      schemeSpecificPart = schemeSpecificPart.substring(2);
-    }
-    return URI.create(schemeSpecificPart).getPath();
+    return URI.create(rawPath).getPath();
   }
 }

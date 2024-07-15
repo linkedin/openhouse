@@ -11,7 +11,6 @@ import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import software.amazon.awssdk.services.s3.S3Client;
 
 /**
  * Configures the FileIO beans for storages configured in {@link StorageManager}
