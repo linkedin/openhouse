@@ -28,7 +28,9 @@ You could set the environment variables for variables to stored terraform backen
 
 ## Deployment
 
-To deploy the sandbox, run:
+### Installation
+
+Install the `terraform` CLI by following [this](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli) link.
 
 ### Initialization
 
