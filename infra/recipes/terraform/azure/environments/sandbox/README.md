@@ -1,6 +1,14 @@
 # Initialize and Run Azure Sandbox
 Ensure you have a Azure account. As part of sandbox we use Terraform to provision a resource group, storage account, and blob container within that storage account. 
 
+## Creating an Azure Account
+
+Create an Azure account [here](https://azure.microsoft.com/en-us/pricing/purchase-options/azure-account). If you haven't created one already, you can use the free trial to get free credits. Create a subscription using this free trial, or with another option if the free trial is over.
+
+### Creating a Storage Account
+
+A storage account must be created to hold the backend terraform files. Create a new storage account using an arbitrary resource group. It is typical to name these resources starting with `tfbackend`. Then, within this storage account, create a new blob container. Note the resource group name, storage account name, and blob container name. Also note the storage account key, which can be found in the "Access keys" sidebar option in the storage account. These variables will be used when configuring the backend.
+
 ## Azure Login
 
 Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), and ensure that you are logged in with your Azure account. You can login in multiple ways.
@@ -15,7 +23,7 @@ Following the steps [here](https://learn.microsoft.com/en-us/cli/azure/authentic
 
 ## Terraform Backend
  
-Terraform backend state can be stored locally or in Azure blob store. To configure this you will be setting the variables like those in `infra/recipes/terraform/azure/backend.tfvars.template`.
+Terraform backend state can be stored locally or in Azure blob store. To configure this you will be setting the variables like those in `infra/recipes/terraform/azure/backend.tfvars.template`. These variables are the ones found when setting up the storage account.
 
 ### Using Environment Variables
 You could set the environment variables for variables to stored terraform backend state. For example, to initialize `storage_account_name` you can set the following environment variable.

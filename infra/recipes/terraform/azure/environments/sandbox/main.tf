@@ -1,40 +1,35 @@
-resource "azurerm_resource_group" "sandbox" {
+resource "azurerm_resource_group" "openhouse_sandbox" {
     name = var.resource_group_name
     location = var.resource_group_location
 }
 
 module "vm" {
     source = "../../modules/vm"
-    virtual_network_name = "sandbox-network"
+    virtual_network_name = "openhouse-sandbox-network"
     resource_group_name = var.resource_group_name
-    subnet_name = "sandbox-subnet-vm"
-    network_interface_name = "sandbox-nic"
-    vm_name = "sandbox-vm"
-    vm_username = "azureadmin"
-    vm_password = "Pa33word"
+    subnet_name = "openhouse-sandbox-subnet"
 }
 
 module "mysql" {
     source = "../../modules/mysql"
-    subnet_name = "sandbox-subnet-db"
-    resource_group_name = azurerm_resource_group.sandbox.name
-    server_name = "sandbox-mysql-server"
+    subnet_id = module.vm.subnet_id
+    resource_group_name = azurerm_resource_group.openhouse_sandbox.name
+    server_name = "openhouse-sandbox-mysql-server"
     db_admin_login = "azureadmin"
     db_admin_password = "Pa33word"
-    db_name = "sandbox-db"
-    virtual_network_name = module.vm.virtual_network_name
+    db_name = "openhouse-sandbox-db"
 }
 
 module "k8s" {
   source = "../../modules/k8s"
-  k8s_cluster_name = "sandbox-k8s"
-  resource_group_name = azurerm_resource_group.sandbox.name
+  k8s_cluster_name = "openhouse-sandbox-k8s"
+  resource_group_name = azurerm_resource_group.openhouse_sandbox.name
   node_count = 1
-  vm_size = module.vm.vm_size
+  vm_size = "Standard_D2s_v3"
 }
 
 module "storage" {
     source = "../../modules/storage"
-    storage_account_name = "sandboxstorage729387" // added random string of numbers to make it unique
-    resource_group_name = azurerm_resource_group.sandbox.name
+    storage_account_name = "openhousestorage729387" // added random string of numbers to make it unique
+    resource_group_name = azurerm_resource_group.openhouse_sandbox.name
 }
