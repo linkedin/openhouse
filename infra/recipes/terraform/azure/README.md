@@ -13,7 +13,7 @@ This directory is intended to provide a customizable configuration for Microsoft
         ├── mysql               # The Azure MySQL configurations and services
         ├── storage             # The Azure storage configurations and services
         ├── vm                  # The Azure virtual machine and network configurations and services
-    ├── provider.tf             # Specific variables used for the kubernetes provider configuration
+    ├── k8s_variables.tf             # Specific variables used for the kubernetes provider configuration
     ├── provider.tf             # The global azure and other providers needed for the configurations
     ├── variables.tf            # Global variables that can be reused across modules/environments
     ├── versions.tf             # The Azure Resource Manager version
