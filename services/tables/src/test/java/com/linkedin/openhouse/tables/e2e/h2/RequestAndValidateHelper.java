@@ -4,9 +4,7 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INI
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.oneOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -21,9 +19,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequest
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.common.TableType;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import org.apache.directory.api.util.Strings;
 import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
@@ -267,48 +263,6 @@ public class RequestAndValidateHelper {
           ((JsonObject) (mapDiff.get("onlyOnRight"))).has(badKey)
               || ((JsonObject) (mapDiff.get("onlyOnLeft"))).has(badKey));
     }
-  }
-
-  static void listAllAndValidateResponse(
-      MockMvc mvc, String databaseId, List<GetTableResponseBody> inputTableList) throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.get(
-                    String.format(
-                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
-                        databaseId))
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andDo(MockMvcResultHandlers.print())
-        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.results", hasSize(inputTableList.size())))
-        .andExpect(
-            jsonPath(
-                "$.results[*].tableId",
-                oneOf(
-                    inputTableList.stream()
-                        .map(GetTableResponseBody::getTableId)
-                        .collect(Collectors.toList()))))
-        .andExpect(
-            jsonPath(
-                "$.results[*].databaseId",
-                oneOf(
-                    inputTableList.stream()
-                        .map(GetTableResponseBody::getDatabaseId)
-                        .collect(Collectors.toList()))))
-        .andExpect(
-            jsonPath(
-                "$.results[*].clusterId",
-                oneOf(
-                    inputTableList.stream()
-                        .map(GetTableResponseBody::getClusterId)
-                        .collect(Collectors.toList()))))
-        .andExpect(
-            jsonPath(
-                "$.results[*].tableUri",
-                oneOf(
-                    inputTableList.stream()
-                        .map(GetTableResponseBody::getTableUri)
-                        .collect(Collectors.toList()))));
   }
 
   static void deleteTableAndValidateResponse(MockMvc mvc, GetTableResponseBody getTableResponseBody)

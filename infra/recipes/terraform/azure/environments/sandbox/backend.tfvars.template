@@ -1,0 +1,4 @@
+resource_group_name = "<RESOURCE GROUP NAME HERE>"
+storage_account_name = "<ACCOUNT NAME HERE>"
+container_name = "<BLOB CONTAINER NAME HERE>"
+key = "<BLOB CONTAINER KEY HERE>"

@@ -12,8 +12,6 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public interface OpenHouseInternalRepository extends CrudRepository<TableDto, TableDtoPrimaryKey> {
-  List<TableDto> findAllByDatabaseId(String databaseId);
-
   List<TableDtoPrimaryKey> findAllIds();
 
   List<TableDto> searchTables(String databaseId);
