@@ -42,18 +42,12 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   @Override
-  public void validateGetAllTables(String databaseId) {
+  public void validateSearchTables(String databaseId) {
     List<String> validationFailures = new ArrayList<>();
     validateDatabaseId(databaseId, validationFailures);
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
-  }
-
-  @Override
-  public void validateSearchTables(String databaseId) {
-    // Validation is similar to GetAllTables.
-    validateGetAllTables(databaseId);
   }
 
   @SuppressWarnings("checkstyle:OperatorWrap")

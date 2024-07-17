@@ -4,7 +4,7 @@ To enable a server to produce OpenApi spec, just include the following code bloc
 ```
 plugin {
   id 'com.github.johnrengelman.processes' version '0.5.0'
-  id 'org.springdoc.openapi-gradle-plugin' version '1.3.3'
+  id 'org.springdoc.openapi-gradle-plugin' version '1.6.0'
   id 'openhouse.service-specgen-convention'
 }
 ```

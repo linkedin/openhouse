@@ -22,14 +22,6 @@ public interface TablesService {
   TableDto getTable(String databaseId, String tableId, String actingPrincipal);
 
   /**
-   * Given a databaseId, prepare list of {@link TableDto}s that are part of database.
-   *
-   * @param databaseId
-   * @return list of {@link TableDto}
-   */
-  List<TableDto> getAllTables(String databaseId);
-
-  /**
    * Given a databaseId, prepare list of {@link TableDto}s.
    *
    * @param databaseId

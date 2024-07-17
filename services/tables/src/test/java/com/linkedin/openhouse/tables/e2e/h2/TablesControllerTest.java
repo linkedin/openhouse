@@ -146,15 +146,6 @@ public class TablesControllerTest {
     RequestAndValidateHelper.updateTableAndValidateResponse(
         mvc, storageManager, evolveDummySchema(mvcResultT1d2), tableDiffDbLocation);
 
-    RequestAndValidateHelper.listAllAndValidateResponse(
-        mvc,
-        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
-        Arrays.asList(GET_TABLE_RESPONSE_BODY, GET_TABLE_RESPONSE_BODY_SAME_DB));
-    RequestAndValidateHelper.listAllAndValidateResponse(
-        mvc,
-        GET_TABLE_RESPONSE_BODY_DIFF_DB.getDatabaseId(),
-        Arrays.asList(GET_TABLE_RESPONSE_BODY_DIFF_DB));
-
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_SAME_DB);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_DIFF_DB);
@@ -245,24 +236,6 @@ public class TablesControllerTest {
                         + "/databases/not_found/tables/not_found")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
-  }
-
-  @Test
-  public void testEmptyDatabase() throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.get(
-                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                        + "/databases/not_found/tables/")
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(
-            content()
-                .json(
-                    GetAllTablesResponseBody.builder()
-                        .results(new ArrayList<>())
-                        .build()
-                        .toJson()));
   }
 
   @Test
