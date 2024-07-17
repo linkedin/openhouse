@@ -30,7 +30,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.common.TableType;
-import com.linkedin.openhouse.tables.mock.controller.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ServiceAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
@@ -94,6 +94,16 @@ public class TablesControllerTest {
     mvc.perform(
             MockMvcRequestBuilders.get("/tables/swagger-ui/index.html").header("Authorization", ""))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  public void testGetDatabasesWithoutAuth401() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
+                .header("Authorization", "")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isUnauthorized());
   }
 
   @Test

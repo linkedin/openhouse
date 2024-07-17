@@ -22,6 +22,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.controller.TablesController;
 import com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
+import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.*;

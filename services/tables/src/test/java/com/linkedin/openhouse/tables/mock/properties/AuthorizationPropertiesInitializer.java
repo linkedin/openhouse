@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.mock.controller;
+package com.linkedin.openhouse.tables.mock.properties;
 
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ConfigurableApplicationContext;

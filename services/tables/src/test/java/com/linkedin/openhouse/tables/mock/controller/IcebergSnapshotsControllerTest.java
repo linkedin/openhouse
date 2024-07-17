@@ -8,6 +8,7 @@ import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.controller.IcebergSnapshotsController;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
+import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import java.text.ParseException;
 import org.codehaus.jettison.json.JSONException;
 import org.junit.jupiter.api.BeforeEach;

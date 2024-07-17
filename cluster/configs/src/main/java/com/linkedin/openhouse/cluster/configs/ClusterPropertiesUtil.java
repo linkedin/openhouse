@@ -9,25 +9,27 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class ClusterPropertiesUtil {
   public static Optional<HandlerInterceptor> getClusterSecurityTokenInterceptor(
       ClusterProperties clusterProperties) {
+    Optional<Constructor<?>> optionalCons = Optional.empty();
+
     try {
       Class<?> coordinatorClass =
           ClassUtils.resolveClassName(
               clusterProperties.getClusterSecurityTokenInterceptorClassname(), null);
-      Optional<Constructor<?>> cons =
-          Optional.ofNullable(ClassUtils.getConstructorIfAvailable(coordinatorClass));
-      if (cons.isPresent()) {
-        try {
-          return Optional.of((HandlerInterceptor) cons.get().newInstance());
-        } catch (InstantiationException
-            | IllegalAccessException
-            | IllegalArgumentException
-            | InvocationTargetException e) {
-          throw new RuntimeException(
-              "Unable to install the configured Request Interception Handler", e);
-        }
-      }
+      optionalCons = Optional.ofNullable(ClassUtils.getConstructorIfAvailable(coordinatorClass));
     } catch (IllegalArgumentException ignored) {
     }
-    return Optional.empty();
+    return optionalCons.map(
+        cons -> {
+          try {
+            return (HandlerInterceptor) cons.newInstance();
+          } catch (InstantiationException
+              | IllegalAccessException
+              | IllegalArgumentException
+              | InvocationTargetException
+              | ClassCastException e) {
+            throw new RuntimeException(
+                "Unable to install the configured Request Interception Handler", e);
+          }
+        });
   }
 }
