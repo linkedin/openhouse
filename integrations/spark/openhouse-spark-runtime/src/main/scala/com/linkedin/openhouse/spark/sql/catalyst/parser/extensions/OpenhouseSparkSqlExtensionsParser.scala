@@ -89,6 +89,9 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
     toResult(parser)
   }
 
+  override def parseQuery(sqlText: String): LogicalPlan = {
+    parsePlan(sqlText)
+  }
 }
 
 /* Copied from Apache Spark's to avoid dependency on Spark Internals */

@@ -20,8 +20,8 @@ configurations {
 }
 
 ext {
-  icebergVersion = '1.2.0'
-  sparkVersion = '3.1.1'
+  icebergVersion = '1.5.0'
+  sparkVersion = '3.5.1'
   springVersion = '2.6.6'
   hadoopVersion = '2.10.0'
 }
@@ -29,7 +29,7 @@ ext {
 dependencies {
   compileOnly project(':client:secureclient')
   compileOnly project(':client:tableclient')
-  compileOnly("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
+  compileOnly("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion)
   compileOnly ("org.springframework.boot:spring-boot-starter-webflux:" + springVersion)
 
   fatJarPackagedDependencies(project(':client:secureclient'))

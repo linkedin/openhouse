@@ -9,7 +9,7 @@ import org.apache.iceberg.spark.Spark3Util
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, GenericInternalRow}
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
-import org.apache.spark.sql.execution.datasources.v2.V2CommandExec
+import org.apache.spark.sql.execution.datasources.v2.{LeafV2CommandExec, V2CommandExec}
 import org.apache.spark.sql.execution.LeafExecNode
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -20,7 +20,7 @@ case class ShowGrantsStatementExec(
   output: Seq[Attribute],
   resourceType: GrantableResourceType,
   catalog: TableCatalog,
-  ident: Identifier) extends V2CommandExec  with LeafExecNode {
+  ident: Identifier) extends LeafV2CommandExec {
 
   override protected def run(): Seq[InternalRow] = {
     /** Extract {@link OpenHouseCatalog}  from {@link TableCatalog} */

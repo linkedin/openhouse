@@ -6,8 +6,8 @@ plugins {
 }
 
 ext {
-    icebergVersion = '1.2.0'
-    sparkVersion = '3.1.1'
+    icebergVersion = '1.5.0'
+    sparkVersion = '3.5.1'
     springVersion = '2.6.6'
     hadoopVersion = '2.10.0'
 }
@@ -21,7 +21,7 @@ dependencies {
         exclude group: 'io.netty'
     }
     implementation 'org.apache.hadoop:hadoop-common:2.10.0'
-    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
+    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:' + icebergVersion
 
     testImplementation project(':integrations:spark:openhouse-spark-runtime_2.12')
     // Otherwise throws the error: Scala module 2.10.0 requires Jackson Databind version >= 2.10.0 and < 2.11.0

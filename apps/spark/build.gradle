@@ -15,8 +15,8 @@ configurations {
 }
 
 ext {
-    sparkVersion = '3.1.1'
-    icebergVersion = '1.2.0'
+    sparkVersion = '3.5.1'
+    icebergVersion = '1.5.0'
 }
 
 dependencies {
@@ -36,7 +36,7 @@ dependencies {
         exclude group: 'io.netty'
     }
     implementation 'org.apache.hadoop:hadoop-common:2.10.0'
-    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
+    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:' + icebergVersion
     implementation 'commons-cli:commons-cli:1.5.0'
     implementation 'org.reflections:reflections:0.10.2'
     implementation 'org.springframework.boot:spring-boot-starter-webflux:2.6.6'

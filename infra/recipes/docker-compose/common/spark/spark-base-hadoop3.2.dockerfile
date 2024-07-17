@@ -9,7 +9,7 @@ RUN update-alternatives --install "/usr/bin/python" "python" "$(which python3)" 
 
 # Fix the value of PYTHONHASHSEED
 # Note: this is needed when you use Python 3.3 or greater
-ENV SPARK_VERSION=3.1.1 \
+ENV SPARK_VERSION=3.5.1 \
 LIVY_VERSION=0.8.0-incubating-SNAPSHOT \
 LIVY_HOME=/opt/livy \
 HADOOP_VERSION=3.2 \

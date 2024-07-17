@@ -4,7 +4,7 @@ plugins {
 }
 
 ext {
-  icebergVersion = '1.2.0'
+  icebergVersion = '1.5.0'
 }
 dependencies {
   testImplementation(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))

@@ -233,7 +233,7 @@ docker exec -it local.spark-master /bin/bash
 
 Start `spark-shell` with the following command: Available users are `openhouse` and `u_tableowner`.
 ```
-bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0   \
+bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0   \
   --jars openhouse-spark-runtime_2.12-*-all.jar  \
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions   \
   --conf spark.sql.catalog.openhouse=org.apache.iceberg.spark.SparkCatalog   \

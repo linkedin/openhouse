@@ -22,7 +22,7 @@ TABLES_SERVICE_TOKEN_FILE = pathlib.Path('services/common/src/main/resources/dum
 TABLES_SERVICE_TOKEN = TABLES_SERVICE_TOKEN_FILE.read_text()
 SESSION_REQUEST_DATA_TEMPLATE = {
 	'conf': {
-		'spark.jars.packages': 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0',
+		'spark.jars.packages': 'org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.2.0',
 		'spark.sql.extensions': 'org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions',
 		'spark.sql.catalog.openhouse': 'org.apache.iceberg.spark.SparkCatalog',
 		'spark.sql.catalog.openhouse.catalog-impl': 'com.linkedin.openhouse.spark.OpenHouseCatalog',
