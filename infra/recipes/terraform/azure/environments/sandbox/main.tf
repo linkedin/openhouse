@@ -3,6 +3,11 @@ resource "azurerm_resource_group" "openhouse_sandbox" {
     location = var.resource_group_location
 }
 
+resource "random_string" "storage_name" {
+    length = 5
+    special = false
+}
+
 module "vm" {
     source = "../../modules/vm"
     virtual_network_name = "openhouse-sandbox-network"
@@ -30,6 +35,11 @@ module "k8s" {
 
 module "storage" {
     source = "../../modules/storage"
-    storage_account_name = "openhousestorage729387" // added random string of numbers to make it unique
+    storage_account_name = "openhousestorage${random_string.storage_name.result}" // added random string of numbers to make it unique
     resource_group_name = azurerm_resource_group.openhouse_sandbox.name
+}
+
+module "helm_release" {
+    source = "../../modules/helm_release"
+    depends_on = [ module.k8s ] // so k8s cluster is instantiated before helm deployment
 }
