@@ -30,6 +30,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.mock.controller.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ServiceAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
@@ -57,7 +58,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -66,8 +66,11 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-@WithMockUser(username = "testUser")
+@ContextConfiguration(
+    initializers = {
+      PropertyOverrideContextInitializer.class,
+      AuthorizationPropertiesInitializer.class
+    })
 public class TablesControllerTest {
 
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
@@ -85,6 +88,13 @@ public class TablesControllerTest {
   @Autowired private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
 
   @Autowired private AuditHandler<TableAuditEvent> tableAuditHandler;
+
+  @Test
+  public void testSwaggerDocsWithoutAuth() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.get("/tables/swagger-ui/index.html").header("Authorization", ""))
+        .andExpect(status().isOk());
+  }
 
   @Test
   public void testCrudTables() throws Exception {
