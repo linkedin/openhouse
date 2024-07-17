@@ -1,0 +1,35 @@
+cluster:
+  name: "AKSCluster"
+  storage:
+    type: "hadoop"
+    uri: "hdfs://namenode:9000/"
+    root-path: "/data/openhouse"
+  storages:
+    default-type: "adls"
+    types:
+      adls:
+        rootpath: <container-name>@<storage-account-name>.dfs.core.windows.net 
+        endpoint: "abfs://"
+        parameters:
+          adls.auth.shared-key.account.name: <storage-account-name>
+          adls.auth.shared-key.account.key: <storage-account-key>
+iceberg:
+  write:
+    format:
+      default: "orc"
+    metadata:
+      previous-versions-max: 78
+      delete-after-commit:
+        enabled: true
+housetables:
+  base-uri: "https://openhouse-housetables:8080"
+  database:
+    type: "MYSQL"
+    url: <database-url>
+security:
+  token:
+    interceptor:
+      classname: "com.linkedin.openhouse.common.security.DummyTokenInterceptor"
+  tables:
+    authorization:
+      enabled: false

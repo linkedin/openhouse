@@ -1,0 +1,25 @@
+namespace: "default"
+
+openhouseClusterTag: "openhouse"
+
+clusterPropertiesPath: "config/azure/sandbox/cluster.yaml"
+
+tablesService:
+  replicaCount: 1
+  image:
+    repository: "openhouse-tables-service"
+    tag: "latest"
+    pullPolicy: Never
+  service:
+    type: ClusterIP
+    port: 8080
+  port: 8080
+  resources:
+    requests:
+      cpu: 2
+      memory: 1G
+    limits:
+      cpu: 2
+      memory: 2G
+  command: "java -Xmx1024M -Xms128M -XX:NativeMemoryTracking=summary -cp tables.jar -Dloader.main=com.linkedin.openhouse.tables.TablesSpringApplication org.springframework.boot.loader.PropertiesLauncher $APP_NAME.jar $@"
+  appName: tables-service
