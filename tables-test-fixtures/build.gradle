@@ -26,7 +26,7 @@ dependencies {
   implementation 'org.springframework.boot:spring-boot-starter-webflux:' + spring_web_version
   implementation 'org.springframework.boot:spring-boot-starter-data-jpa:' + spring_web_version
   implementation 'org.springframework.boot:spring-boot-starter-actuator:2.7.11'
-  compileOnly('org.projectlombok:lombok:' + '1.18.20')
+  compileOnly('org.projectlombok:lombok:' + '1.18.34')
   implementation project(':cluster:storage')
   implementation project(':iceberg:openhouse:internalcatalog')
 

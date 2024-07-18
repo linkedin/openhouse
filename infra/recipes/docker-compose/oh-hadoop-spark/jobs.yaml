@@ -7,7 +7,7 @@ jobs:
         "spark.sql.catalog.openhouse.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog",
         "spark.sql.catalog.openhouse.uri": "http://openhouse-tables:8080",
         "spark.sql.catalog.openhouse.cluster": "LocalHadoopCluster",
-        "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0",
+        "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.4_2.12:1.5.0",
         "spark.sql.autoBroadcastJoinThreshold": "-1",
         "spark.driver.memory": "2g"
       }
