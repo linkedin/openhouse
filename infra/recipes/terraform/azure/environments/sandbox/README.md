@@ -1,4 +1,5 @@
 MAKE SURE DOCKER IS RUNNING LOCALLY 
+need to run terraform from 2 envs
 
 # Initialize and Run Azure Sandbox
 Ensure you have a Azure account. As part of sandbox we use Terraform to provision a resource group, storage account, and blob container within that storage account. 

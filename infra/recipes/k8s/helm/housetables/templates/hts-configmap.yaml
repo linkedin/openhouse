@@ -9,7 +9,10 @@ data:
 {{- $path := .Values.clusterPropertiesPath }}
 {{- $content := .Files.Get $path }}
 {{- if $content }}
-{{ $content | nindent 4 }}
+{{ $content |
+  regexReplaceAllLiteral "<database-url>" .Values.housetables.database.url |
+  nindent 4
+}}
 {{- else }}
 {{ fail (printf "File at %s not found or empty" $path) }}
 {{- end }}
