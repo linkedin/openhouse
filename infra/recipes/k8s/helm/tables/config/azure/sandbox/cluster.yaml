@@ -21,15 +21,11 @@ iceberg:
       previous-versions-max: 78
       delete-after-commit:
         enabled: true
-# housetables:
-#   base-uri: "https://openhouse-housetables:8080"
-#   database:
-#     type: "MYSQL"
-#     url: <database-url>
 housetables:
-  base-uri: "http://openhouse-housetables-service:8080"
+  base-uri: "https://openhouse-housetables-service:8080"
   database:
-    type: "IN_MEMORY"
+    type: "MYSQL"
+    url: <database-url>
 security:
   token:
     interceptor:
