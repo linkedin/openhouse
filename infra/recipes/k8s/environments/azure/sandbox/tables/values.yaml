@@ -11,7 +11,7 @@ tablesService:
     tag: "latest"
     pullPolicy: IfNotPresent
   service:
-    type: ClusterIP
+    type: NodePort
     port: 8080
   port: 8080
   resources:
@@ -27,3 +27,8 @@ tablesService:
 housetables:
   database:
     url: ""
+
+storageProperties:
+  containerName: ""
+  storageAccountName: ""
+  storageAccountKey: ""

@@ -2,7 +2,7 @@ namespace: "default"
 
 openhouseClusterTag: "openhouse"
 
-clusterPropertiesPath: "config/minikube/cluster.yaml"
+clusterPropertiesPath: "config/azure/sandbox/cluster.yaml"
 
 htsService:
   replicaCount: 1
