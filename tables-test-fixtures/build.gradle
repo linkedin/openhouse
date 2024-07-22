@@ -60,6 +60,7 @@ shadowJar {
     exclude(dependency('ch.qos.logback::'))
     exclude(dependency('com.fasterxml.jackson.module::'))
     exclude(dependency('com.fasterxml.jackson.core::'))
+    exclude(dependency('org.apache.hadoop::'))
     relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
     relocate ('com.jayway.jsonpath', 'openhouse.relocated.com.jayway.jsonpath')
     relocate ('org.json', 'openhouse.relocated.org.json')
