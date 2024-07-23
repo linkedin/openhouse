@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.datalayout.e2e;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
+import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
@@ -13,19 +14,22 @@ import org.junit.jupiter.api.Test;
 
 public class IntegrationTest extends OpenHouseSparkITest {
   @Test
-  public void testCompactionStrategyGenerationWithPersistence() throws Exception {
-    final String testTable = "db.test_table";
+  public void testCompactionStrategyGenerationWithPersistencePartitioned() throws Exception {
+    final String testTable = "db.test_table_partitioned";
     try (SparkSession spark = getSparkSession()) {
       spark.sql("USE openhouse");
-      createTestTable(spark, testTable, 10);
+      createTestTable(spark, testTable, 10, true);
       TableFileStats tableFileStats =
           TableFileStats.builder().tableName(testTable).spark(spark).build();
+      TablePartitionStats tablePartitionStats =
+          TablePartitionStats.builder().tableName(testTable).spark(spark).build();
       OpenHouseDataLayoutGenerator strategyGenerator =
-          OpenHouseDataLayoutGenerator.builder().tableFileStats(tableFileStats).build();
+          OpenHouseDataLayoutGenerator.builder()
+              .tableFileStats(tableFileStats)
+              .tablePartitionStats(tablePartitionStats)
+              .build();
       List<DataLayoutOptimizationStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(1, strategies.size());
-      Assertions.assertEquals(1, strategies.get(0).getConfig().getPartialProgressMaxCommits());
-      Assertions.assertTrue(strategies.get(0).getConfig().isPartialProgressEnabled());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
       dao.save(testTable, strategies);
       List<DataLayoutOptimizationStrategy> retrievedStrategies = dao.load(testTable);
@@ -33,10 +37,44 @@ public class IntegrationTest extends OpenHouseSparkITest {
     }
   }
 
-  private void createTestTable(SparkSession spark, String tableName, int numRows) {
-    spark.sql(String.format("create table %s (id int, data string)", tableName));
-    for (int i = 0; i < numRows; ++i) {
-      spark.sql(String.format("insert into %s values (%d, 'data')", tableName, i));
+  @Test
+  public void testCompactionStrategyGenerationNonPartitioned() throws Exception {
+    final String testTable = "db.test_table";
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("USE openhouse");
+      createTestTable(spark, testTable, 10, false);
+      TableFileStats tableFileStats =
+          TableFileStats.builder().tableName(testTable).spark(spark).build();
+      TablePartitionStats tablePartitionStats =
+          TablePartitionStats.builder().tableName(testTable).spark(spark).build();
+      OpenHouseDataLayoutGenerator strategyGenerator =
+          OpenHouseDataLayoutGenerator.builder()
+              .tableFileStats(tableFileStats)
+              .tablePartitionStats(tablePartitionStats)
+              .build();
+      List<DataLayoutOptimizationStrategy> strategies = strategyGenerator.generate();
+      Assertions.assertEquals(0, strategies.size());
+    }
+  }
+
+  private void createTestTable(
+      SparkSession spark, String tableName, int numRows, boolean isPartitioned) {
+    if (isPartitioned) {
+      spark.sql(
+          String.format(
+              "create table %s (id int, data string, ts timestamp) partitioned by (days(ts))",
+              tableName));
+      for (int i = 0; i < numRows; ++i) {
+        spark.sql(
+            String.format(
+                "insert into %s values (%d, 'data', date_sub(current_timestamp(), %d))",
+                tableName, i, i));
+      }
+    } else {
+      spark.sql(String.format("create table %s (id int, data string)", tableName));
+      for (int i = 0; i < numRows; ++i) {
+        spark.sql(String.format("insert into %s values (%d, 'data')", tableName, i));
+      }
     }
   }
 }

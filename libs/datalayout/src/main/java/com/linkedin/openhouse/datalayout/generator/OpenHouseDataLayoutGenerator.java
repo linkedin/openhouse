@@ -18,13 +18,18 @@ import org.apache.spark.sql.Encoders;
  */
 @Builder
 public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
-  private static final long FILE_BLOCK_SIZE_BYTES = 1024L * 1024L * 256; // 256MB
-  private static final long FILE_BLOCK_MARGIN_BYTES = 1024L * 1024L * 10; // 10MB
-  private static final long NUM_FILE_GROUPS_PER_COMMIT = 50;
-  private static final long REWRITE_MEGA_BYTES_PER_SECOND = 2;
+  private static final long MB = 1024 * 1024;
+  private static final long FILE_BLOCK_SIZE_BYTES = 256 * MB;
+  private static final long FILE_BLOCK_MARGIN_BYTES = 10 * MB;
+  private static final long NUM_FILE_GROUPS_PER_COMMIT = 100;
+  private static final long MAX_NUM_COMMITS = 30;
+  private static final long MAX_BYTES_SIZE_RATIO = 10;
+  private static final long REWRITE_BYTES_PER_SECOND = 2 * MB;
   private static final long EXECUTOR_MEMORY_MB = 2048;
+  private static final int MAX_CONCURRENT_FILE_GROUP_REWRITES = 50;
   private static final int REWRITE_PARALLELISM = 900; // number of Spark tasks to run in parallel
   private static final long TARGET_BYTES_SIZE = 2 * FILE_BLOCK_SIZE_BYTES - FILE_BLOCK_MARGIN_BYTES;
+  private static final double COMPUTE_STARTUP_COST_GB_HR = 0.5;
   private final TableFileStats tableFileStats;
   private final TablePartitionStats tablePartitionStats;
 
@@ -34,6 +39,10 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
    */
   @Override
   public List<DataLayoutOptimizationStrategy> generate() {
+    // skip single partition and non-partitioned tables
+    if (tablePartitionStats.get().count() <= 1) {
+      return Collections.emptyList();
+    }
     return Collections.singletonList(generateCompactionStrategy());
   }
 
@@ -52,45 +61,40 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
 
     configBuilder.targetByteSize(TARGET_BYTES_SIZE);
 
-    // TODO: take partitioning into account
-    // This is a under-estimation if partitions are smaller than
-    // DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT
     long totalSizeBytes = fileSizes.stream().reduce(0L, Long::sum);
-    int estimatedMaxNumFileGroups =
+    long estimatedFileGroupsCount =
         Math.max(
-            1, (int) (totalSizeBytes / DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT));
+            tablePartitionStats.get().count(),
+            totalSizeBytes / DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT);
 
-    int maxNumCommits =
+    int maxCommitsCount =
         (int)
             Math.min(
-                1000L,
-                (estimatedMaxNumFileGroups + NUM_FILE_GROUPS_PER_COMMIT - 1)
+                MAX_NUM_COMMITS,
+                (estimatedFileGroupsCount + NUM_FILE_GROUPS_PER_COMMIT - 1)
                     / NUM_FILE_GROUPS_PER_COMMIT);
-    configBuilder.partialProgressMaxCommits(maxNumCommits);
+    configBuilder.partialProgressMaxCommits(maxCommitsCount);
 
-    int estimatedNumTasksPerFileGroup =
+    int estimatedTasksPerFileGroupCount =
         (int) (DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT / TARGET_BYTES_SIZE);
 
-    // TODO: take partitioning into account
-    // This is a under-estimation if partitions are much smaller than
-    // DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT
     configBuilder.maxConcurrentFileGroupRewrites(
         Math.min(
-            50,
-            (estimatedNumTasksPerFileGroup + REWRITE_PARALLELISM - 1)
-                / estimatedNumTasksPerFileGroup));
+            MAX_CONCURRENT_FILE_GROUP_REWRITES,
+            (estimatedTasksPerFileGroupCount + REWRITE_PARALLELISM - 1)
+                / estimatedTasksPerFileGroupCount));
 
     // don't split large files
-    configBuilder.maxByteSizeRatio(10);
+    configBuilder.maxByteSizeRatio(MAX_BYTES_SIZE_RATIO);
 
     long filesReducedCount = estimateReducedFilesCount(fileSizes);
     double computeGbHr = estimateComputeGbHr(fileSizes);
-    double filesReducesCountPerComputeGbHr = filesReducedCount / computeGbHr;
+    double filesReducedCountPerComputeGbHr = filesReducedCount / computeGbHr;
     return DataLayoutOptimizationStrategy.builder()
         .config(configBuilder.build())
         .cost(computeGbHr)
         .gain(filesReducedCount)
-        .score(filesReducesCountPerComputeGbHr)
+        .score(filesReducedCountPerComputeGbHr)
         .build();
   }
 
@@ -101,9 +105,9 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
   }
 
   private double estimateComputeGbHr(List<Long> fileSizes) {
-    long candidateFilesBytes = fileSizes.stream().reduce(0L, Long::sum);
-    long rewriteSeconds = candidateFilesBytes / 1024 / 1024 / REWRITE_MEGA_BYTES_PER_SECOND;
+    double candidateFilesBytes = fileSizes.stream().reduce(0L, Long::sum);
+    double rewriteSeconds = candidateFilesBytes / REWRITE_BYTES_PER_SECOND;
     double rewriteHours = rewriteSeconds / 3600.0;
-    return rewriteHours * EXECUTOR_MEMORY_MB / 1024;
+    return rewriteHours * EXECUTOR_MEMORY_MB / 1024 + COMPUTE_STARTUP_COST_GB_HR;
   }
 }
