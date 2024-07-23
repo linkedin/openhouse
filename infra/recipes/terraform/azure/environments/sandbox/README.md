@@ -64,3 +64,12 @@ You will need to run `terraform plan` and `terraform apply` from two dirrent dir
 ## Deconfiguration
 
 Run `terraform destroy` once you are done to tear down the services you have created.
+
+# Access Created Services
+
+Once you have successfully run the above steps so the sandbox has been run, you can now access the pods in AKS in your local terminal by ensuring you are logged in to the Azure CLI with `az login` and then running
+`az aks get-credentials --resource-group <resource-group> --name <cluster-name>`. You can then run any `kubectl` commands.
+
+## Make requests to services
+
+To make requests to the services, set up port forwarding by running `kubectl port-forward <pod-name> 8080:8080`. Then, you can make requests to HTS and Tables service via `http:localhost:8080`.

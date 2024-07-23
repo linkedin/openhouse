@@ -3,7 +3,7 @@ cluster:
   storage:
     type: "hadoop"
     uri: "file:///"
-    root-path: "/tmp/minikube_openhouse"
+    root-path: "/tmp/openhouse"
   iceberg:
     write:
       format:
@@ -13,7 +13,7 @@ cluster:
         delete-after-commit:
           enabled: true
   housetables:
-    base-uri: "https://openhouse-housetables-service:8080"
+    base-uri: "http://openhouse-housetables-service:8080"
     database:
       type: "MYSQL"
       url: <database-url>
