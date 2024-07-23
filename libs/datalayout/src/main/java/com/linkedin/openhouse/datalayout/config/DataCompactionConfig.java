@@ -26,8 +26,7 @@ public final class DataCompactionConfig {
       RewriteDataFiles.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT;
   public static final long MAX_FILE_GROUP_SIZE_BYTES_DEFAULT =
       RewriteDataFiles.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT;
-  public static final double ENTROPY_THRESHOLD_DEFAULT =
-      9E15; // file size < 87.5% default target size 512MB on average
+  public static final int EXECUTOR_MEMORY_MB_DEFAULT = 1024;
 
   @Builder.Default private long targetByteSize = TARGET_BYTE_SIZE_DEFAULT;
   @Builder.Default private double minByteSizeRatio = MIN_BYTE_SIZE_RATIO_DEFAULT;
@@ -40,5 +39,5 @@ public final class DataCompactionConfig {
   @Builder.Default private boolean partialProgressEnabled = true;
   @Builder.Default private int partialProgressMaxCommits = PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT;
   @Builder.Default private long maxFileGroupSizeBytes = MAX_FILE_GROUP_SIZE_BYTES_DEFAULT;
-  @Builder.Default private double fileEntropyThreshold = ENTROPY_THRESHOLD_DEFAULT;
+  @Builder.Default private int executorMemoryMb = EXECUTOR_MEMORY_MB_DEFAULT;
 }

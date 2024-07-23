@@ -1,10 +1,10 @@
 package com.linkedin.openhouse.datalayout.e2e;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
-import com.linkedin.openhouse.datalayout.layoutselection.DataLayoutOptimizationStrategy;
-import com.linkedin.openhouse.datalayout.layoutselection.OpenHouseDataLayoutGenerator;
+import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutOptimizationStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
 import org.apache.spark.sql.SparkSession;

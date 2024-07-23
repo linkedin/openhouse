@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.datalayout.persistence;
 
-import com.linkedin.openhouse.datalayout.layoutselection.DataLayoutOptimizationStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutOptimizationStrategy;
 import java.util.List;
 
 /** DAO interface for persisting and loading data layout optimization strategies. */

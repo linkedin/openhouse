@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.datalayout.layoutselection;
+package com.linkedin.openhouse.datalayout.strategy;
 
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import lombok.Builder;
