@@ -40,6 +40,10 @@ To be able to build the Tables and Housetables service images, you will need to 
 
 Sometimes, the images may stop building or uploading to the ACR. This is likely because docker has run out of local memory. To fix this, run `docker system prune --volumes` locally.
 
+### Building OpenHouse project
+
+Before building the images, run `./gradlew clean build` from the root directory. This only works on Java8.
+
 ## Deployment
 
 ### Installation
