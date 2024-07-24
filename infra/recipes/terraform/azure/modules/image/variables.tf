@@ -1,4 +1,4 @@
 variable "registry_login_server" {
-  type = string
+  type        = string
   description = "The server name for the Azure container registry."
 }

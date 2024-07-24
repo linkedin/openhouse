@@ -1,7 +1,7 @@
 variable "resource_group_name" {
-    type = string
-    default = "resources"
-    description = "Name of the resource group."
+  type        = string
+  default     = "resources"
+  description = "Name of the resource group."
 }
 
 variable "resource_group_location" {
@@ -11,13 +11,13 @@ variable "resource_group_location" {
 }
 
 variable "k8s_cluster_name" {
-    type = string
-    default = "openhouse_cluster"
-    description = "The name of the Azure k8s cluster."
+  type        = string
+  default     = "openhouse_cluster"
+  description = "The name of the Azure k8s cluster."
 }
 
 variable "registry_name" {
-  type = string
+  type        = string
   description = "The name of the container registry."
-  default = "containerregistryopenhouse"
+  default     = "containerregistryopenhouse"
 }
