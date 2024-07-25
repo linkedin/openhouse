@@ -1,8 +1,12 @@
+locals {
+  codebase_root = "${abspath(path.module)}/../../../../../.."
+}
+
 resource "docker_image" "housetables" {
   name = "${var.registry_login_server}/openhouse-housetables-service:latest"
 
   build {
-    context    = "${path.cwd}/../../../../../.."
+    context    = local.codebase_root
     dockerfile = "housetables-service.Dockerfile"
   }
 }
@@ -17,7 +21,7 @@ resource "docker_image" "tables" {
   name = "${var.registry_login_server}/openhouse-tables-service:latest"
 
   build {
-    context    = "${path.cwd}/../../../../../.."
+    context    = local.codebase_root
     dockerfile = "tables-service.Dockerfile"
   }
 }

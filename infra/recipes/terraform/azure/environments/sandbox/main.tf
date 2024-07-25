@@ -2,6 +2,12 @@ data "azurerm_resource_group" "openhouse_sandbox" {
   name = var.resource_group_name
 }
 
+data "azurerm_storage_account" "default" {
+  depends_on          = [module.storage]
+  resource_group_name = var.resource_group_name
+  name                = local.storage_account_name
+}
+
 resource "random_string" "storage_name" {
   length  = 5
   special = false
@@ -35,7 +41,7 @@ module "mysql" {
   db_admin_login      = local.db_username
   db_admin_password   = local.db_password
   db_name             = local.db_name
-  server_sku          = "B_Standard_B2ms"
+  server_sku          = "B_Standard_B2ms" # 2 vCPU and 8 GiB memory
 }
 
 module "k8s" {
@@ -45,7 +51,7 @@ module "k8s" {
   resource_group_name = data.azurerm_resource_group.openhouse_sandbox.name
   min_node_count      = 2
   max_node_count      = 5
-  vm_size             = "Standard_B2pls_v2"
+  vm_size             = "Standard_B2pls_v2"  # 2 vCPU and 4 GiB memory
   acr_id              = data.azurerm_container_registry.default.id
 }
 
@@ -58,25 +64,19 @@ module "storage" {
 }
 
 module "helm_release" {
-  source               = "../../modules/helm_release"
-  depends_on           = [module.k8s, module.storage] // so k8s cluster is instantiated before helm deployment
-  storage_account_name = local.storage_account_name
-  storage_account_key  = data.azurerm_storage_account.default.primary_access_key
-  container_name       = local.container_name
-  db_username          = local.db_username
-  db_password          = local.db_password
-  db_name              = local.db_name
-  server_name          = local.db_server_name
+  source                  = "../../modules/helm_release"
+  depends_on              = [module.k8s, module.storage] // so k8s cluster is instantiated before helm deployment
+  storage_account_name    = local.storage_account_name
+  storage_account_key     = data.azurerm_storage_account.default.primary_access_key
+  container_name          = local.container_name
+  db_username             = local.db_username
+  db_password             = local.db_password
+  db_name                 = local.db_name
+  server_name             = local.db_server_name
+  container_registry_name = data.azurerm_container_registry.default.name
 }
 
 module "image" {
   source                = "../../modules/image"
   registry_login_server = data.azurerm_container_registry.default.login_server
 }
-
-data "azurerm_storage_account" "default" {
-  depends_on          = [module.storage]
-  resource_group_name = var.resource_group_name
-  name                = local.storage_account_name
-}
-

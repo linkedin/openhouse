@@ -7,9 +7,8 @@ clusterPropertiesPath: "config/azure/sandbox/cluster.yaml"
 htsService:
   replicaCount: 1
   image:
-    repository: "containerregistryopenhouse.azurecr.io/openhouse-housetables-service"
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   service:
     type: ClusterIP
     port: 8080
@@ -28,7 +27,3 @@ htsService:
       HTS_DB_PASSWORD: MYSQL_PASSWORD
   command: "java -Xmx1024M -Xms128M -XX:NativeMemoryTracking=summary -cp housetables.jar -Dloader.main=com.linkedin.openhouse.HouseTablesSpringApplication org.springframework.boot.loader.PropertiesLauncher $APP_NAME.jar $@"
   appName: housetables-service
-
-housetables:
-  database:
-    url: ""

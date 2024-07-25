@@ -19,5 +19,5 @@ variable "k8s_cluster_name" {
 variable "registry_name" {
   type        = string
   description = "The name of the container registry."
-  default     = "containerregistryopenhouse"
+  default     = "openhousecontainerregistry"
 }

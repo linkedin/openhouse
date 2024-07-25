@@ -42,7 +42,11 @@ Sometimes, the images may stop building or uploading to the ACR. This is likely 
 
 ### Building OpenHouse project
 
-Before building the images, run `./gradlew clean build` from the root directory. This only works on Java8.
+Before building the images with Terraform, run `./gradlew clean build` from the root directory to configure the JAR files for image builds. This only works on Java8.
+
+## Helm releases
+
+The sandbox uses helm releases to pull the specific service's image from the ACR repository and then deploy it on AKS. This also requires a Kubernetes secret to authenticate with the MySQL database.
 
 ## Deployment
 
@@ -76,4 +80,4 @@ Once you have successfully run the above steps so the sandbox has been run, you 
 
 ## Make requests to services
 
-To make requests to the services, set up port forwarding by running `kubectl port-forward <pod-name> 8080:8080`. Then, you can make requests to HTS and Tables service via `http:localhost:8080`.
+To make requests to the services, set up port forwarding by running `kubectl port-forward <pod-name> 8080:<destination-port>`. You can get the pod name by running `kubectl get pods`. Then, you can make requests to HTS and Tables service via `http://localhost:<destination-port>`. If you want to make requests to both HTS and Tables services you will need to forward to two separate ports.

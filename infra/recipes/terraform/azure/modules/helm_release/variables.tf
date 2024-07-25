@@ -34,3 +34,20 @@ variable "db_name" {
   type        = string
   description = "The name of the MySQL database."
 }
+
+variable "container_registry_name" {
+  type        = string
+  description = "The name of the container registry where the build images are stored."
+}
+
+variable "tables_release_name" {
+  type        = string
+  default     = "openhouse-tables-service"
+  description = "The name of the tables service Helm release."
+}
+
+variable "housetables_release_name" {
+  type        = string
+  default     = "openhouse-housetables-service"
+  description = "The name of the tables service Helm release."
+}
