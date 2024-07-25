@@ -11,6 +11,10 @@ services:
       - openhouse-housetables
       - prometheus
       - opa
+    environment:
+      - AZURE_CLIENT_ID= # add your client id here
+      - AZURE_TENANT_ID= # add your tenant id here
+      - AZURE_CLIENT_SECRET= # add your client secret here
 
   openhouse-jobs:
     container_name: local.openhouse-jobs
@@ -90,8 +94,3 @@ services:
     extends:
       file: ../common/opa-services.yml
       service: opa
-
-volumes:
-  hadoop_namenode:
-  hadoop_datanode:
-  dockersock:
