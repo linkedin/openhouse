@@ -51,7 +51,7 @@ module "k8s" {
   resource_group_name = data.azurerm_resource_group.openhouse_sandbox.name
   min_node_count      = 2
   max_node_count      = 5
-  vm_size             = "Standard_B2pls_v2"  # 2 vCPU and 4 GiB memory
+  vm_size             = "Standard_B2pls_v2" # 2 vCPU and 4 GiB memory
   acr_id              = data.azurerm_container_registry.default.id
 }
 
