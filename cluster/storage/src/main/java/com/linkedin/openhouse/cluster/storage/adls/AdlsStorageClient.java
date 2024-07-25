@@ -50,10 +50,9 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
       uri = new URI(getEndpoint() + getRootPrefix());
     } catch (URISyntaxException e) {
       throw new IllegalArgumentException(
-        String.format("Bad storage properties provided: [endpoint: %s, rootPrefix: %s] for type [%s]", 
-            getEndpoint(),
-            getRootPrefix(),
-            ADLS_TYPE.getValue())
+          String.format(
+              "Bad storage properties provided: [endpoint: %s, rootPrefix: %s] for type [%s]",
+              getEndpoint(), getRootPrefix(), ADLS_TYPE.getValue()),
           e);
     }
 
