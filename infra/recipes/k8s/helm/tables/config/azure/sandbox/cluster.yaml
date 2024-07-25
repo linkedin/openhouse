@@ -9,7 +9,7 @@ cluster:
       format:
         default: "orc"
       metadata:
-        previous-versions-max: 78
+        previous-versions-max: 28
         delete-after-commit:
           enabled: true
   housetables:
@@ -20,7 +20,7 @@ cluster:
   security:
     token:
       interceptor:
-        classname: "com.linkedin.openhouse.common.security.DummyTokenInterceptor"
+        classname: null
     tables:
       authorization:
         enabled: false

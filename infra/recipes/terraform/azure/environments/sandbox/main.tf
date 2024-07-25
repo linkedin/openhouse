@@ -1,23 +1,22 @@
+/**
+This environment is used to provision the configuration and resources needed
+for the Azure sandbox to host Openhouse services. The following resources are
+created/used:
+
+- azurerm_resource_group: The Azure resource group that all other resources use.
+- locals: Local variables that specify configuration settings.
+- module.vm: The virtual network and subnet where other resources are located.
+- module.mysql: The MySQL database for HTS.
+- module.k8s: The AKS clusters.
+- module.helm_release: The helm releases of the Tables and HTS Services.
+- module.image: The Docker images for Tables and HTS and their connections to the Azure Container Registry.
+*/
+
 data "azurerm_resource_group" "openhouse_sandbox" {
   name = var.resource_group_name
 }
 
-data "azurerm_storage_account" "default" {
-  depends_on          = [module.storage]
-  resource_group_name = var.resource_group_name
-  name                = local.storage_account_name
-}
-
-resource "random_string" "storage_name" {
-  length  = 5
-  special = false
-  lower   = true
-  upper   = false
-}
-
 locals {
-  storage_account_name = "openhousestorage${random_string.storage_name.result}" // added random string of numbers to make it unique
-  container_name       = "blobcontainer"
   db_username          = "azureadmin"
   db_password          = "Pa33word"
   db_name              = "openhouse-sandbox-db"
@@ -55,20 +54,9 @@ module "k8s" {
   acr_id              = data.azurerm_container_registry.default.id
 }
 
-module "storage" {
-  source               = "../../modules/storage"
-  depends_on           = [data.azurerm_resource_group.openhouse_sandbox]
-  storage_account_name = local.storage_account_name
-  resource_group_name  = data.azurerm_resource_group.openhouse_sandbox.name
-  container_name       = local.container_name
-}
-
 module "helm_release" {
   source                  = "../../modules/helm_release"
-  depends_on              = [module.k8s, module.storage] // so k8s cluster is instantiated before helm deployment
-  storage_account_name    = local.storage_account_name
-  storage_account_key     = data.azurerm_storage_account.default.primary_access_key
-  container_name          = local.container_name
+  depends_on              = [module.k8s] // so k8s cluster is instantiated before helm deployment
   db_username             = local.db_username
   db_password             = local.db_password
   db_name                 = local.db_name

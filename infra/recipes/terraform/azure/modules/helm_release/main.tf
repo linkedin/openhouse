@@ -9,21 +9,6 @@ resource "helm_release" "tables" {
 
   values = ["${file("${local.k8s_path}/environments/azure/sandbox/tables/values.yaml")}"]
 
-  set {
-    name  = "storageProperties.containerName"
-    value = var.container_name
-  }
-
-  set {
-    name  = "storageProperties.storageAccountName"
-    value = var.storage_account_name
-  }
-
-  set {
-    name  = "storageProperties.storageAccountKey"
-    value = var.storage_account_key
-  }
-
   set_sensitive {
     name  = "housetables.database.url"
     value = "mysql://${var.db_username}:${var.db_password}@${var.server_name}.mysql.database.azure.com:8080/${var.db_name}"
