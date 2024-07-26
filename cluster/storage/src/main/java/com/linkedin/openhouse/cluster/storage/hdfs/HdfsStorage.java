@@ -3,7 +3,9 @@ package com.linkedin.openhouse.cluster.storage.hdfs;
 import com.linkedin.openhouse.cluster.storage.BaseStorage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
+import java.io.IOException;
 import java.nio.file.Paths;
+import org.apache.hadoop.fs.Path;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -51,5 +53,17 @@ public class HdfsStorage extends BaseStorage {
   public String allocateTableLocation(
       String databaseId, String tableId, String tableUUID, String tableCreator) {
     return Paths.get(getClient().getRootPrefix(), databaseId, tableId + "-" + tableUUID).toString();
+  }
+
+  /**
+   * Deallocates/deletes Table Storage location recursively for Hdfs storage
+   *
+   * @param location the base location of the table
+   * @param tableCreator the creator of the table
+   * @throws IOException
+   */
+  @Override
+  public void deallocateTableLocation(String location, String tableCreator) throws IOException {
+    this.hdfsStorageClient.getNativeClient().delete(new Path(location), true);
   }
 }

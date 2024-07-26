@@ -30,6 +30,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -472,9 +473,25 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Timed(metricKey = MetricsConstant.REPO_TABLE_DELETE_TIME)
   @Override
   public void deleteById(TableDtoPrimaryKey tableDtoPrimaryKey) {
+    Table table =
+        catalog.loadTable(
+            TableIdentifier.of(
+                tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()));
+    String location = table.location();
+    String tableCreator = table.properties().get("openhouse.tableCreator");
     catalog.dropTable(
         TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()),
-        true);
+        false);
+
+    try {
+      storageManager.getDefaultStorage().deallocateTableLocation(location, tableCreator);
+    } catch (IOException e) {
+      String errMsg =
+          String.format(
+              "Exception while deleting table location %s for %s.%s",
+              location, tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId());
+      throw new RuntimeException(errMsg, e);
+    }
   }
 
   @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_TIME)

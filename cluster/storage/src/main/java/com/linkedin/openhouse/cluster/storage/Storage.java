@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.cluster.storage;
 
+import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -70,4 +71,13 @@ public interface Storage {
    */
   String allocateTableLocation(
       String databaseId, String tableId, String tableUUID, String tableCreator);
+
+  /**
+   * Deallocates/deletes Table Storage location
+   *
+   * @param location the base location of the table
+   * @param tableCreator the creator of the table
+   * @throws IOException
+   */
+  void deallocateTableLocation(String location, String tableCreator) throws IOException;
 }

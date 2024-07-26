@@ -9,9 +9,13 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import javax.annotation.PostConstruct;
 import lombok.Setter;
 import org.apache.hadoop.fs.FileSystem;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -92,6 +96,21 @@ public class BaseStorageTest {
     assertEquals(
         "hdfs:///data/openhouse/db1/table1-uuid1",
         baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+  }
+
+  @Test
+  public void testDeallocateTableLocation() throws IOException {
+
+    Path dir = Files.createTempDirectory("test");
+    // Create some files and subdirectories within the test directory
+    Files.createFile(dir.resolve("file1.txt"));
+    Files.createFile(dir.resolve("file2.txt"));
+    Path subdir = Files.createDirectory(dir.resolve("subdir"));
+    Files.createFile(dir.resolve("subdir").resolve("file3.txt"));
+
+    baseStorage.deallocateTableLocation(dir.toString(), "tableCreator");
+    Assertions.assertFalse(Files.exists(dir));
+    Assertions.assertFalse(Files.exists(subdir));
   }
 
   void mockStorageProperties(String endpoint, String rootPrefix) {

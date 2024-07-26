@@ -2,8 +2,15 @@ package com.linkedin.openhouse.cluster.storage;
 
 import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,5 +82,35 @@ public abstract class BaseStorage implements Storage {
                 + tableUUID)
         .normalize()
         .toString();
+  }
+
+  /**
+   * Deallocates/deletes Table Storage location Walk through the directory structure, sort the paths
+   * in reverse order to ensure files are deleted before directories, and deletes each path.
+   *
+   * @param location the base location of the table
+   * @param tableCreator the creator of the table
+   * @throws IOException
+   */
+  @Override
+  public void deallocateTableLocation(String location, String tableCreator) throws IOException {
+    List<IOException> exceptions = new ArrayList<>();
+    Files.walk(Paths.get(location))
+        .sorted(Comparator.reverseOrder())
+        .forEach(
+            (Path p) -> {
+              try {
+                Files.delete(p);
+              } catch (IOException e) {
+                exceptions.add(e);
+              }
+            });
+
+    if (!exceptions.isEmpty()) {
+      IOException exception =
+          new IOException("Failed to delete one or more files/directories in " + location);
+      exceptions.forEach(exception::addSuppressed);
+      throw exception;
+    }
   }
 }

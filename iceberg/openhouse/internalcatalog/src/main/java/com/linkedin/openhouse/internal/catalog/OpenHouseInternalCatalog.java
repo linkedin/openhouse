@@ -19,8 +19,6 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
-import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -99,20 +97,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
           String.format("The table %s cannot be dropped due to the server side error:", identifier),
           houseTableRepositoryException);
     }
-    if (purge) {
-      // Delete data and metadata files from storage.
-      FileIO fileIO = fileIOManager.getFileIO(storageManager.getDefaultStorage().getType());
-      if (fileIO instanceof SupportsPrefixOperations) {
-        log.debug("Deleting files for table {}", tableLocation);
-        ((SupportsPrefixOperations) fileIO).deletePrefix(tableLocation);
-      } else {
-        log.debug(
-            "Failed to delete files for table {}. fileIO does not support prefix operations.",
-            tableLocation);
-        throw new UnsupportedOperationException(
-            "Drop table is supported only with a fileIO instance that SupportsPrefixOperations");
-      }
-    }
+
     return true;
   }
 
