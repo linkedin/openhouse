@@ -56,8 +56,9 @@ public class TablesMvcConfigurer implements WebMvcConfigurer {
     // docs:
     // https://github.com/OAI/OpenAPI-Specification/blob/main/versions/3.0.3.md#security-requirement-object
     final String securitySchemaName = "BearerAuth";
-    SecurityRequirement securityRequirement = new SecurityRequirement().addList(securitySchemaName);
-    SecurityScheme securityScheme =
+    final SecurityRequirement securityRequirement =
+        new SecurityRequirement().addList(securitySchemaName);
+    final SecurityScheme securityScheme =
         new SecurityScheme().type(SecurityScheme.Type.HTTP).bearerFormat("JWT").scheme("bearer");
 
     openAPI
