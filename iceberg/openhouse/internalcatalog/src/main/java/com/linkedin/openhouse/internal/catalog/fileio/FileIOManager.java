@@ -1,14 +1,15 @@
 package com.linkedin.openhouse.internal.catalog.fileio;
 
-import static com.linkedin.openhouse.cluster.storage.StorageType.HDFS;
-import static com.linkedin.openhouse.cluster.storage.StorageType.LOCAL;
+import static com.linkedin.openhouse.cluster.storage.StorageType.*;
 
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
+import com.linkedin.openhouse.cluster.storage.s3.S3Storage;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,9 +34,15 @@ public class FileIOManager {
   @Qualifier("LocalFileIO")
   FileIO localFileIO;
 
+  @Autowired(required = false)
+  S3FileIO s3FileIO;
+
   @Autowired HdfsStorage hdfsStorage;
 
   @Autowired LocalStorage localStorage;
+
+  @Autowired S3Storage s3Storage;
+
   /**
    * Returns the FileIO implementation for the given storage type.
    *
@@ -50,6 +57,8 @@ public class FileIOManager {
       return Optional.ofNullable(hdfsFileIO).orElseThrow(exceptionSupplier);
     } else if (LOCAL.equals(storageType)) {
       return Optional.ofNullable(localFileIO).orElseThrow(exceptionSupplier);
+    } else if (S3.equals(storageType)) {
+      return Optional.ofNullable(s3FileIO).orElseThrow(exceptionSupplier);
     } else {
       throw new IllegalArgumentException("FileIO not supported for storage type: " + storageType);
     }
@@ -67,6 +76,8 @@ public class FileIOManager {
       return hdfsStorage;
     } else if (fileIO.equals(localFileIO)) {
       return localStorage;
+    } else if (fileIO.equals(s3FileIO)) {
+      return s3Storage;
     } else {
       throw new IllegalArgumentException("Storage not supported for fileIO: " + fileIO);
     }

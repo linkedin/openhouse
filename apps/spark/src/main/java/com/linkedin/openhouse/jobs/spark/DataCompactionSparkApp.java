@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.linkedin.openhouse.jobs.config.DataCompactionConfig;
+import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import io.opentelemetry.api.common.AttributeKey;
@@ -17,8 +17,9 @@ import org.apache.iceberg.actions.RewriteDataFiles;
  * Spark app that compacts data files in a table to optimize the file sizes and number of files.
  *
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp --tableName
- * db.testTable --targetByteSize 1048576 --minByteSize 786432 --maxByteSize 1887436 --minInputFiles
- * 5 --maxConcurrentFileGroupRewrites 2 --partialProgressEnabled --partialProgressMaxCommits 10
+ * db.testTable --targetByteSize 1048576 --maxByteSizeRatio 0.75 --maxByteSizeRatio 1.8
+ * --minInputFiles 5 --maxConcurrentFileGroupRewrites 2 --partialProgressEnabled
+ * --partialProgressMaxCommits 10
  */
 @Slf4j
 public class DataCompactionSparkApp extends BaseTableSparkApp {
@@ -37,8 +38,8 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
         ops.rewriteDataFiles(
             ops.getTable(fqtn),
             config.getTargetByteSize(),
-            config.getMinByteSize(),
-            config.getMaxByteSize(),
+            (long) (config.getTargetByteSize() * config.getMinByteSizeRatio()),
+            (long) (config.getTargetByteSize() * config.getMaxByteSizeRatio()),
             config.getMinInputFiles(),
             config.getMaxConcurrentFileGroupRewrites(),
             config.isPartialProgressEnabled(),
@@ -131,18 +132,18 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     long targetByteSize =
         NumberUtils.toLong(
             cmdLine.getOptionValue("targetByteSize"),
-            DataCompactionConfig.DEFAULT_TARGET_BYTE_SIZE);
+            DataCompactionConfig.TARGET_BYTE_SIZE_DEFAULT);
     double minByteSizeRatio =
         NumberUtils.toDouble(
             cmdLine.getOptionValue("minByteSizeRatio"),
-            DataCompactionConfig.DEFAULT_MIN_BYTE_SIZE_RATIO);
+            DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
     if (minByteSizeRatio <= 0.0 || minByteSizeRatio >= 1.0) {
       throw new RuntimeException("minByteSizeRatio must be in range (0.0, 1.0)");
     }
     double maxByteSizeRatio =
         NumberUtils.toDouble(
             cmdLine.getOptionValue("maxByteSizeRatio"),
-            DataCompactionConfig.DEFAULT_MAX_BYTE_SIZE_RATIO);
+            DataCompactionConfig.MAX_BYTE_SIZE_RATIO_DEFAULT);
     if (maxByteSizeRatio <= 1.0) {
       throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
     }
@@ -152,22 +153,21 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
         cmdLine.getOptionValue("tableName"),
         DataCompactionConfig.builder()
             .targetByteSize(targetByteSize)
-            .minByteSize((long) (targetByteSize * minByteSizeRatio))
-            .maxByteSize((long) (targetByteSize * maxByteSizeRatio))
+            .minByteSizeRatio(minByteSizeRatio)
+            .maxByteSizeRatio(maxByteSizeRatio)
             .minInputFiles(
                 NumberUtils.toInt(
                     cmdLine.getOptionValue("minInputFiles"),
-                    DataCompactionConfig.DEFAULT_MIN_INPUT_FILES))
+                    DataCompactionConfig.MIN_INPUT_FILES_DEFAULT))
             .maxConcurrentFileGroupRewrites(
                 NumberUtils.toInt(
                     cmdLine.getOptionValue("maxConcurrentFileGroupRewrites"),
-                    DataCompactionConfig.DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES))
+                    DataCompactionConfig.MAX_CONCURRENT_FILE_GROUP_REWRITES_DEFAULT))
             .partialProgressEnabled(cmdLine.hasOption("partialProgressEnabled"))
             .partialProgressMaxCommits(
                 NumberUtils.toInt(
                     cmdLine.getOptionValue("partialProgressMaxCommits"),
-                    com.linkedin.openhouse.jobs.config.DataCompactionConfig
-                        .DEFAULT_PARTIAL_PROGRESS_MAX_COMMITS))
+                    DataCompactionConfig.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT))
             .build());
   }
 }

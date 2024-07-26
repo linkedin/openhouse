@@ -3,6 +3,7 @@ plugins {
   id 'openhouse.client-codegen-convention'
   id 'openhouse.iceberg-conventions'
   id 'openhouse.hadoop-conventions'
+  id 'openhouse.iceberg-aws-conventions'
   id 'openhouse.maven-publish'
   id 'java-test-fixtures'
 }

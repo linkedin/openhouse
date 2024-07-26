@@ -10,10 +10,6 @@ public final class AppConstants {
   // Spark App observability constants
   public static final String TYPE = "type";
   public static final String JOB_TYPE = "job_type";
-  public static final String DATA_FILES = "data_files";
-  public static final String MANIFEST_FILES = "manifest_files";
-  public static final String MANIFEST_LIST_FILES = "manifest_list_files";
-  public static final String EXPIRED_FILE_COUNT = "expired_file_count";
   public static final String ORPHAN_FILE_COUNT = "orphan_file_count";
   public static final String STAGED_FILE_COUNT = "staged_file_count";
   public static final String ORPHAN_DIRECTORY_COUNT = "orphan_directory_count";

@@ -26,7 +26,6 @@ import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
-import org.apache.iceberg.actions.ExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -201,22 +200,18 @@ public final class Operations implements AutoCloseable {
     }
   }
 
-  /** Run ExpireSnapshots operation on a given fully-qualified table name. */
-  public ExpireSnapshots.Result expireSnapshots(String fqtn, long expireBeforeTimestampMs) {
-    return expireSnapshots(getTable(fqtn), expireBeforeTimestampMs);
+  /** Expire snapshots on a given fully-qualified table name. */
+  public void expireSnapshots(String fqtn, long expireBeforeTimestampMs) {
+    expireSnapshots(getTable(fqtn), expireBeforeTimestampMs);
   }
 
-  /** Run ExpireSnapshots operation on a given {@link Table}. */
-  public ExpireSnapshots.Result expireSnapshots(Table table, long expireBeforeTimestampMs) {
-    return SparkActions.get(spark)
-        .expireSnapshots(table)
+  /** Expire snapshots on a given {@link Table}. */
+  public void expireSnapshots(Table table, long expireBeforeTimestampMs) {
+    table
+        .expireSnapshots()
+        .cleanExpiredFiles(false)
         .expireOlderThan(expireBeforeTimestampMs)
-        .deleteWith(
-            (file) -> {
-              // skip deletion
-              log.info("Detected file {} that is not part of survived snapshots", file);
-            })
-        .execute();
+        .commit();
   }
 
   /**

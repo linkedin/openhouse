@@ -38,6 +38,7 @@ dependencies {
         exclude group: 'org.apache.hadoop', module: 'hadoop-common'
         exclude group: 'org.apache.hadoop', module: 'hadoop-client'
     }
+    implementation project(':libs:datalayout')
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
         exclude group: 'org.apache.hadoop', module: 'hadoop-common'

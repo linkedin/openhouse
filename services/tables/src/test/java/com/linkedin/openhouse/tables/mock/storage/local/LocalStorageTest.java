@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.mock.storage.local;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -82,5 +83,18 @@ public class LocalStorageTest {
     LocalFileSystem localFileSystem = new LocalFileSystem();
     when(localStorageClient.getNativeClient()).thenReturn(localFileSystem);
     assertTrue(localStorage.getClient().getNativeClient().equals(localFileSystem));
+  }
+
+  @Test
+  public void testAllocateTableSpace() {
+    String databaseId = "db1";
+    String tableId = "table1";
+    String tableUUID = "uuid1";
+    String tableCreator = "creator1";
+    boolean skipProvisioning = false;
+    when(localStorageClient.getRootPrefix()).thenReturn("/tmp");
+    String expected = "/tmp/db1/table1-uuid1";
+    assertEquals(
+        expected, localStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
   }
 }

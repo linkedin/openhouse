@@ -19,6 +19,7 @@ import java.util.Map;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
+import org.apache.commons.collections.MapUtils;
 
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class JobsRegistry {
@@ -40,7 +41,9 @@ public class JobsRegistry {
     if (authTokenPath != null) {
       propsMap.put("spark.sql.catalog.openhouse.auth-token", getToken(authTokenPath));
     }
-    populateSparkProps(conf.getExecutionConf(), propsMap);
+    if (MapUtils.isNotEmpty(conf.getExecutionConf())) {
+      populateSparkProps(conf.getExecutionConf(), propsMap);
+    }
     defaultConf.setSparkProperties(propsMap);
     JobLaunchConf.JobLaunchConfBuilder builder = defaultConf.toBuilder();
 
@@ -55,7 +58,7 @@ public class JobsRegistry {
   }
 
   private void populateSparkProps(
-      Map<String, String> executionConf, Map<String, String> sparkPropsMap) {
+      @NonNull Map<String, String> executionConf, Map<String, String> sparkPropsMap) {
     String memory = executionConf.getOrDefault("memory", null);
     if (!Strings.isNullOrEmpty(memory)) {
       sparkPropsMap.put("spark.driver.memory", memory);

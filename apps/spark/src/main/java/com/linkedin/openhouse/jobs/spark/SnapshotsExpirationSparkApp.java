@@ -1,16 +1,12 @@
 package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
-import com.linkedin.openhouse.jobs.util.AppConstants;
-import io.opentelemetry.api.common.AttributeKey;
-import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
-import org.apache.iceberg.actions.ExpireSnapshots;
 
 /**
  * Class with main entry point to run as a table snapshot expiration job. Snapshots for table which
@@ -40,42 +36,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
         granularity);
     long expireBeforeTimestampMs = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(count);
     log.info("Expire snapshots before timestamp ms {}", expireBeforeTimestampMs);
-    ExpireSnapshots.Result result = ops.expireSnapshots(fqtn, expireBeforeTimestampMs);
-    log.info(
-        "Detected {} data files, {} manifest files, {} manifest list files that become orphaned as the result of snapshots expiration",
-        result.deletedDataFilesCount(),
-        result.deletedManifestsCount(),
-        result.deletedManifestListsCount());
-    METER
-        .counterBuilder(AppConstants.EXPIRED_FILE_COUNT)
-        .build()
-        .add(
-            result.deletedDataFilesCount(),
-            Attributes.of(
-                AttributeKey.stringKey(AppConstants.TABLE_NAME),
-                fqtn,
-                AttributeKey.stringKey(AppConstants.TYPE),
-                AppConstants.DATA_FILES));
-    METER
-        .counterBuilder(AppConstants.EXPIRED_FILE_COUNT)
-        .build()
-        .add(
-            result.deletedManifestsCount(),
-            Attributes.of(
-                AttributeKey.stringKey(AppConstants.TABLE_NAME),
-                fqtn,
-                AttributeKey.stringKey(AppConstants.TYPE),
-                AppConstants.MANIFEST_FILES));
-    METER
-        .counterBuilder(AppConstants.EXPIRED_FILE_COUNT)
-        .build()
-        .add(
-            result.deletedManifestListsCount(),
-            Attributes.of(
-                AttributeKey.stringKey(AppConstants.TABLE_NAME),
-                fqtn,
-                AttributeKey.stringKey(AppConstants.TYPE),
-                AppConstants.MANIFEST_LIST_FILES));
+    ops.expireSnapshots(fqtn, expireBeforeTimestampMs);
   }
 
   public static void main(String[] args) {

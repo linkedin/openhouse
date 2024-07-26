@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.cluster.storage.local;
 
 import com.google.common.base.Preconditions;
-import com.linkedin.openhouse.cluster.storage.StorageClient;
+import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.io.IOException;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Lazy
 @Component
-public class LocalStorageClient implements StorageClient<FileSystem> {
+public class LocalStorageClient extends BaseStorageClient<FileSystem> {
 
   private FileSystem fs;
 
@@ -84,6 +84,11 @@ public class LocalStorageClient implements StorageClient<FileSystem> {
   @Override
   public FileSystem getNativeClient() {
     return fs;
+  }
+
+  @Override
+  public StorageType.Type getStorageType() {
+    return LOCAL_TYPE;
   }
 
   @Override
