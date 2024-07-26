@@ -9,7 +9,7 @@ configurations {
 }
 
 ext {
-  springVersion = '2.7.14'
+  springVersion = '2.7.8'
   springLog4jVersion = '2.3.4.RELEASE'
 }
 
@@ -25,7 +25,7 @@ dependencies {
   implementation 'org.springframework.boot:spring-boot-starter-web:' + springVersion
 
   implementation 'org.springframework.boot:spring-boot-starter-log4j2:' + springLog4jVersion
-  implementation 'org.springframework.boot:spring-boot-starter-actuator:2.7.11'
+  implementation 'org.springframework.boot:spring-boot-starter-actuator:2.7.8'
   implementation 'org.springframework.boot:spring-boot-starter-validation:' + springVersion
   annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:' + springVersion
   testImplementation 'org.springframework.boot:spring-boot-starter-test:' + springVersion

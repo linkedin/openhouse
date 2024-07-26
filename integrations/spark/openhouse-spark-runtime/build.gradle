@@ -43,17 +43,22 @@ dependencies {
     exclude group: 'org.apache.arrow'
     exclude group: 'io.netty', module: 'netty-buffer'
     exclude group: 'org.roaringbitmap'
+    exclude group: 'com.zaxxer', module: 'HikariCP'
+    exclude group: 'org.apache.hadoop', module: 'hadoop-client'
   }
 
-  testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
-  testImplementation(project(':tables-test-fixtures_2.12'))
+  testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion) {
+    exclude group: "io.netty"
+  }
+  testImplementation(project(':tables-test-fixtures_2.12')) {
+    exclude group: "io.netty"
+  }
   testImplementation('org.apache.spark:spark-sql_2.12:' + spark_version){
     // These classes are available from `client-codegen-convention.gradle`
-    exclude group: "io.netty"
   }
   testImplementation(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
 
-  fatJarPackagedDependencies(project(path: ':integrations:java:openhouse-java-runtime'))
+  fatJarPackagedDependencies(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
   fatJarRuntimeDependencies("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
 
   generateGrammarSource {
@@ -70,12 +75,12 @@ shadowJar {
 
   configurations = [project.configurations.fatJarPackagedDependencies]
   mergeServiceFiles()
-  classifier null
+  //classifier null
   zip64 true
 }
 
 jar.enabled=false
 
-artifacts {
+/*artifacts {
   archives shadowJar
-}
+}*/

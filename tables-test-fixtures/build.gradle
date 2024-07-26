@@ -25,7 +25,8 @@ dependencies {
 
   implementation 'org.springframework.boot:spring-boot-starter-webflux:' + spring_web_version
   implementation 'org.springframework.boot:spring-boot-starter-data-jpa:' + spring_web_version
-  implementation 'org.springframework.boot:spring-boot-starter-actuator:2.7.11'
+  implementation 'org.springframework.boot:spring-boot-starter-actuator:2.7.8'
+  implementation group: 'com.zaxxer', name: 'HikariCP', version: '4.0.3'
   compileOnly('org.projectlombok:lombok:' + '1.18.20')
   implementation project(':cluster:storage')
   implementation project(':iceberg:openhouse:internalcatalog')
@@ -33,6 +34,7 @@ dependencies {
 
   testImplementation('org.apache.hadoop:hadoop-common:3.2.0'){
     transitive = false
+    exclude group: "io.netty"
   }
   testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
 

@@ -22,7 +22,7 @@ configurations {
 ext {
   icebergVersion = '1.2.0'
   sparkVersion = '3.1.1'
-  springVersion = '2.7.14'
+  springVersion = '2.7.8'
   hadoopVersion = '2.10.0'
 }
 
@@ -37,6 +37,8 @@ dependencies {
   fatJarRuntimeDependencies("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
     exclude group: 'junit', module: 'junit'
     exclude group: 'javax', module: 'servlet-api'
+    exclude group: "io.netty"
+    exclude group: 'com.zaxxer', module: 'HikariCP-java7'
   }
 }
 
@@ -71,12 +73,12 @@ shadowJar {
 
   configurations = [project.configurations.fatJarPackagedDependencies]
   mergeServiceFiles()
-  classifier null
+  //classifier null
   zip64 true
 }
 
 jar.enabled=false
 
-artifacts {
+/*artifacts {
   archives shadowJar
-}
+}*/

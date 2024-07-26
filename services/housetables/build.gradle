@@ -10,7 +10,7 @@ plugins {
    * Please remove the version from the offending request and make sure the module
    * containing the requested plugin 'org.springframework.boot' is an implementation dependency.
    */
-  id 'org.springframework.boot' version '2.7.14'
+  id 'org.springframework.boot' version '2.7.8'
 
   /**
    * These are the dependencies to enable client generation for the service.
@@ -35,7 +35,7 @@ dependencies {
   // See https://stackoverflow.com/questions/43574426 for details.
   implementation "jakarta.xml.bind:jakarta.xml.bind-api:2.3.2"
   implementation "org.glassfish.jaxb:jaxb-runtime:2.3.2"
-  implementation "mysql:mysql-connector-java:8.+"
+  implementation "mysql:mysql-connector-java:8.0.32"
   implementation "org.jetbrains:annotations:16.0.3"
   testImplementation(testFixtures(project(':services:common')))
 }

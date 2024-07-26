@@ -6,5 +6,8 @@ dependencies {
   implementation("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
     exclude group: 'junit', module: 'junit'
     exclude group: 'javax', module: 'servlet-api'
+    exclude group: 'com.zaxxer', module: 'HikariCP-java7'
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
+  implementation 'org.apache.commons:commons-lang3:3.12.0'
 }

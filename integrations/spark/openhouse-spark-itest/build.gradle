@@ -3,18 +3,29 @@ plugins {
   id 'openhouse.maven-publish'
 }
 
+configurations.all {
+  resolutionStrategy {
+    force 'org.apache.commons:commons-lang3:3.12.0'
+  }
+}
+
 dependencies {
 
-  testImplementation(project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow'))
+  testImplementation(project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
+  }
 
   testImplementation("org.apache.spark:spark-sql_2.12:" + spark_version){
     // These classes are available from `client-codegen-convention.gradle`
     exclude group: "io.netty"
+    exclude group: 'org.apache.hadoop', module: 'hadoop-common'
+    exclude group: 'org.apache.hadoop', module: 'hadoop-client'
   }
 
   // Required to test /tables mockserver
-  testImplementation "com.squareup.okhttp3:okhttp:4.0.1"
-  testImplementation "com.squareup.okhttp3:mockwebserver:4.0.1"
+  testImplementation 'org.apache.commons:commons-lang3:3.12.0'
+  testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
+  testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"
   // Otherwise throws the error: Scala module 2.10.0 requires Jackson Databind version >= 2.10.0 and < 2.11.0
   testImplementation "com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1"
   testImplementation "org.openapitools:jackson-databind-nullable:0.2.1"
