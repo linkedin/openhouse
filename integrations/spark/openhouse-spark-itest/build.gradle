@@ -11,6 +11,8 @@ configurations.all {
 
 dependencies {
 
+  testImplementation 'com.google.code.gson:gson:2.8.9'
+  
   testImplementation(project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
     exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
@@ -22,7 +24,7 @@ dependencies {
     exclude group: 'org.apache.hadoop', module: 'hadoop-client'
   }
 
-  testImplementation(project(':tables-test-fixtures_2.12'))
+  testImplementation project(':tables-test-fixtures_2.12')
   testImplementation 'org.junit.platform:junit-platform-runner:1.8.2'
   // Required to test /tables mockserver
   testImplementation 'org.apache.commons:commons-lang3:3.12.0'
