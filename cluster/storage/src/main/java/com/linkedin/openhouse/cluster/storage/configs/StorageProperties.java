@@ -3,11 +3,13 @@ package com.linkedin.openhouse.cluster.storage.configs;
 import com.linkedin.openhouse.cluster.configs.YamlPropertySourceFactory;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.PostConstruct;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
@@ -27,9 +29,16 @@ import org.springframework.context.annotation.PropertySource;
     ignoreResourceNotFound = true)
 @Getter
 @Setter
+@Slf4j
 public class StorageProperties {
   private String defaultType;
   private Map<String, StorageTypeProperties> types;
+
+  @PostConstruct
+  public void print() {
+    log.info("system: {}", System.getProperty("OPENHOUSE_CLUSTER_CONFIG_PATH"));
+    log.info("postconstruct: {}", this);
+  }
 
   @Getter
   @Setter
