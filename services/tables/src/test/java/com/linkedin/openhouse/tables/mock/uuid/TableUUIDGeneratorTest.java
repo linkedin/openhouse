@@ -12,6 +12,7 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.mock.properties.DefaultClusterPropertiesInitializer;
 import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Collections;
@@ -25,8 +26,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
+@ContextConfiguration(initializers = DefaultClusterPropertiesInitializer.class)
 public class TableUUIDGeneratorTest {
 
   @Autowired private StorageManager storageManager;
