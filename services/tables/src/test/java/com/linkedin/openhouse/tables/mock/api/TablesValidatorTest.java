@@ -45,6 +45,7 @@ public class TablesValidatorTest {
     try {
       Object bean = appContext.getBean("storageManager");
       log.info("bean: {}", bean);
+      log.info("system: {}", System.getProperty("OPENHOUSE_CLUSTER_CONFIG_PATH"));
     } catch (Exception e) {
       log.error("ignore bean");
     }

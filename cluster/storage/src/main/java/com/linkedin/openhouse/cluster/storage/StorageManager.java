@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -18,6 +19,7 @@ import org.springframework.util.StringUtils;
  * appropriate storage implementation based on the configuration.
  */
 @Component
+@Slf4j
 public class StorageManager {
 
   @Autowired StorageProperties storageProperties;
@@ -41,6 +43,8 @@ public class StorageManager {
    */
   @PostConstruct
   public void validateProperties() {
+    log.info("system: {}", System.getProperty("OPENHOUSE_CLUSTER_CONFIG_PATH"));
+    log.info("postconstruct: {}", this);
     String clusterYamlError = "Cluster yaml is incorrectly configured: ";
     if (StringUtils.hasText(storageProperties.getDefaultType())) {
       // default-type is configured, types should contain the default-type

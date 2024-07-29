@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.mock.service;
 
 import static com.linkedin.openhouse.tables.mock.RequestConstants.*;
 
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -35,8 +36,9 @@ public class TablesServiceTest {
   @Test
   public void tmp() {
     try {
-      Object bean = appContext.getBean("storageManager");
+      StorageManager bean = (StorageManager) appContext.getBean("storageManager");
       log.info("bean: {}", bean);
+      log.info("system: {}", System.getProperty("OPENHOUSE_CLUSTER_CONFIG_PATH"));
     } catch (Exception e) {
       log.error("ignore bean");
     }
