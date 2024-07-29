@@ -75,12 +75,7 @@ shadowJar {
 
   configurations = [project.configurations.fatJarPackagedDependencies]
   mergeServiceFiles()
-  //classifier null
   zip64 true
 }
 
 jar.enabled=false
-
-/*artifacts {
-  archives shadowJar
-}*/

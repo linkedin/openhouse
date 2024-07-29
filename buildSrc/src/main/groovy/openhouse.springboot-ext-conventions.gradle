@@ -18,10 +18,3 @@ tasks.named("bootJar") {
     attributes ('Main-Class': 'org.springframework.boot.loader.PropertiesLauncher')
   }
 }
-
-configurations {
-  /*[apiElements, runtimeElements].each {
-    it.outgoing.artifacts.removeIf { it.buildDependencies.getDependencies(null).contains(jar) }
-    it.outgoing.artifact(bootJar)
-  }*/
-}
