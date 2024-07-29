@@ -13,6 +13,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
@@ -111,5 +112,10 @@ public class HdfsDelegationTokenRefresherEnabledTest {
                   + "          token.refresh.schedule.cron: \"* * * * * ?\"");
       return yamlMapper.writeValueAsString(jsonNode);
     }
+  }
+
+  @AfterAll
+  static void unsetSysProp() {
+    System.clearProperty("OPENHOUSE_CLUSTER_CONFIG_PATH");
   }
 }
