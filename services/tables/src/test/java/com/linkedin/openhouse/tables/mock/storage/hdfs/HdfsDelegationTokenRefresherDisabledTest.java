@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import lombok.SneakyThrows;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
@@ -73,5 +74,10 @@ public class HdfsDelegationTokenRefresherDisabledTest {
                   + "          token.refresh.schedule.cron: \"* * * * * ?\"");
       return yamlMapper.writeValueAsString(jsonNode);
     }
+  }
+
+  @AfterAll
+  static void unsetSysProp() {
+    System.clearProperty("OPENHOUSE_CLUSTER_CONFIG_PATH");
   }
 }
