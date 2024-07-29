@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.services.IcebergSnapshotsService;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Optional;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.junit.jupiter.api.Assertions;
@@ -30,6 +31,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.data.util.Pair;
 
 @SpringBootTest
+@Slf4j
 public class IcebergSnapshotsServiceTest {
 
   private static final String TEST_TABLE_CREATOR = "test_user";
@@ -45,6 +47,18 @@ public class IcebergSnapshotsServiceTest {
   private OpenHouseInternalRepository mockRepository;
 
   @Captor ArgumentCaptor<TableDto> tableDtoArgumentCaptor;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @BeforeEach
   void setup() {

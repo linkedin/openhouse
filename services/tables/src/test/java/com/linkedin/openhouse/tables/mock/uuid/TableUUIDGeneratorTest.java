@@ -12,7 +12,6 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.common.TableType;
-import com.linkedin.openhouse.tables.mock.properties.DefaultClusterPropertiesInitializer;
 import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Collections;
@@ -20,21 +19,34 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ContextConfiguration;
+import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
-@ContextConfiguration(initializers = DefaultClusterPropertiesInitializer.class)
+@Slf4j
 public class TableUUIDGeneratorTest {
 
   @Autowired private StorageManager storageManager;
 
   @Autowired private TableUUIDGenerator tableUUIDGenerator;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Test
   public void testUUIDExtractedFromSnapshotSuccessfulPutSnapshot() {

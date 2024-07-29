@@ -11,13 +11,16 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.validator.IcebergSnapshotsApiValidator;
 import java.util.Collections;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class IcebergSnapshotsApiValidatorTest {
   private static final CreateUpdateTableRequestBody VALID_METADATA_BODY =
       CreateUpdateTableRequestBody.builder()
@@ -34,6 +37,18 @@ public class IcebergSnapshotsApiValidatorTest {
           .tableProperties(ImmutableMap.of())
           .baseTableVersion("v0")
           .build();
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Autowired private IcebergSnapshotsApiValidator icebergSnapshotsApiValidator;
 

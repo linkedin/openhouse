@@ -10,6 +10,7 @@ import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import java.util.Collections;
 import java.util.HashMap;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,11 +19,22 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class LocalStorageClientTest {
 
   @MockBean private StorageProperties storageProperties;
 
   @Autowired private ApplicationContext context;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = context.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   private LocalStorageClient localStorageClient;
 

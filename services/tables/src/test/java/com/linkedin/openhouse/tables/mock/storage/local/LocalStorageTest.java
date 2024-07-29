@@ -10,13 +10,16 @@ import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import java.util.HashMap;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class LocalStorageTest {
 
   @Autowired private LocalStorage localStorage;
@@ -26,6 +29,18 @@ public class LocalStorageTest {
   @MockBean private LocalStorageClient localStorageClient;
 
   private static final String DEFAULT_TYPE = "hdfs";
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Test
   public void testLocalStorageIsConfiguredWhenDefaultTypeIsNull() {

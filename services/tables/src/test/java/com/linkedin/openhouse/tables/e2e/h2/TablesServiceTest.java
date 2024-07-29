@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -36,12 +37,14 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.data.util.Pair;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest(classes = SpringH2Application.class)
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
+@Slf4j
 public class TablesServiceTest {
 
   @Autowired TablesService tablesService;
@@ -53,6 +56,18 @@ public class TablesServiceTest {
   @MockBean AuthorizationHandler authorizationHandler;
 
   @Autowired AuthorizationUtils authorizationUtils;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @BeforeEach
   public void setup() {

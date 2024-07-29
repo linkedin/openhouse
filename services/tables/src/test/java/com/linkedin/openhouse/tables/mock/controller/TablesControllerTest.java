@@ -27,6 +27,7 @@ import java.text.ParseException;
 import java.util.*;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.codehaus.jettison.json.JSONException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,7 @@ import org.mockito.internal.matchers.apachecommons.ReflectionEquals;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.web.FilterChainProxy;
@@ -49,6 +51,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
+@Slf4j
 public class TablesControllerTest {
 
   private MockMvc mvc;
@@ -66,6 +69,18 @@ public class TablesControllerTest {
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptor;
 
   @MockBean private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @BeforeEach
   public void setup() throws IOException, JSONException, ParseException {

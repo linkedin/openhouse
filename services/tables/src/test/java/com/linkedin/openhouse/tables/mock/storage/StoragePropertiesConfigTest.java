@@ -3,20 +3,35 @@ package com.linkedin.openhouse.tables.mock.storage;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.tables.mock.properties.CustomClusterPropertiesInitializer;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = CustomClusterPropertiesInitializer.class)
+@Slf4j
 public class StoragePropertiesConfigTest {
   @Autowired private StorageProperties storageProperties;
 
   @MockBean private StorageManager storageManager;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   private static final String DEFAULT_TYPE = "hdfs";
 

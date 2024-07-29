@@ -4,16 +4,31 @@ import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.toggle.BaseTableFeatureToggle;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class BaseTableFeatureToggleTest {
   @Autowired BaseTableFeatureToggle baseFeatureToggle;
 
   @Autowired ToggleStatusesRepository toggleStatusesRepository;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Test
   public void testDummyToggle() {

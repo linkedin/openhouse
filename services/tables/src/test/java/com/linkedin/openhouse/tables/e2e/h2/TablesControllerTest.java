@@ -41,6 +41,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
@@ -55,6 +56,7 @@ import org.mockito.internal.matchers.apachecommons.ReflectionEquals;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -68,6 +70,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @AutoConfigureMockMvc
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @WithMockUser(username = "testUser")
+@Slf4j
 public class TablesControllerTest {
 
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
@@ -85,6 +88,18 @@ public class TablesControllerTest {
   @Autowired private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
 
   @Autowired private AuditHandler<TableAuditEvent> tableAuditHandler;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Test
   public void testCrudTables() throws Exception {

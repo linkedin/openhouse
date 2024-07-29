@@ -9,18 +9,33 @@ import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.s3.S3Storage;
 import com.linkedin.openhouse.cluster.storage.s3.S3StorageClient;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class S3StorageTest {
   @Autowired private S3Storage s3Storage;
 
   @MockBean private StorageProperties storageProperties;
 
   @MockBean private S3StorageClient s3StorageClient;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Test
   public void testS3StorageIsConfiguredWhenTypeIsProvided() {

@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
@@ -20,6 +21,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
+@Slf4j
 @ContextConfiguration(
     initializers =
         HdfsDelegationTokenRefresherDisabledTest.DisabledTokenRefreshPropertiesInitializer.class)
@@ -28,6 +30,16 @@ public class HdfsDelegationTokenRefresherDisabledTest {
   @MockBean StorageManager storageManager;
 
   @Autowired private ApplicationContext ctx;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = ctx.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   /**
    * cluster-test-properties.yaml contains the following properties:

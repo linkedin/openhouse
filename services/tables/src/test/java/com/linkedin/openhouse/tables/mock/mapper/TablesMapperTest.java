@@ -12,17 +12,32 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
 import java.util.Collections;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class TablesMapperTest {
 
   @Autowired protected TablesMapper tablesMapper;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   // Note that LOAD_ICEBERG_SNAPSHOT_REQUEST_BODY and PATCH_ICEBERG_SNAPSHOTS_BODY
   // are affiliated with CREATE_TABLE_REQUEST_BODY

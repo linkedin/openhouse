@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -41,6 +42,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
@@ -49,6 +51,7 @@ import org.springframework.test.context.ContextConfiguration;
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(SettableTestConfig.class)
+@Slf4j
 public class RepositoryTestWithSettableComponents {
   @SpyBean @Autowired HouseTableRepository houseTablesRepository;
 
@@ -67,6 +70,18 @@ public class RepositoryTestWithSettableComponents {
   @Autowired MeterRegistry meterRegistry;
 
   FileIO fileIO;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @PostConstruct
   public void init() {

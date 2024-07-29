@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class TablesServiceTest {
 
   private static final String TEST_TABLE_CREATOR = "test_user";
@@ -27,6 +29,18 @@ public class TablesServiceTest {
   @Autowired private TablesService service;
 
   private OpenHouseInternalRepository mockRepository;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @BeforeEach
   void setup() {

@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -47,12 +48,14 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
+@Slf4j
 public class RepositoryTest {
 
   @Autowired HouseTableRepository houseTablesRepository;
@@ -64,6 +67,18 @@ public class RepositoryTest {
   @Autowired Catalog catalog;
 
   @Autowired SchemaValidator validator;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Test
   void extractReservedProps() {

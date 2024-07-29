@@ -10,6 +10,7 @@ import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import java.util.HashMap;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,11 +18,22 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class HdfsStorageClientTest {
 
   @MockBean private StorageProperties storageProperties;
 
   @Autowired private ApplicationContext context;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = context.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   private HdfsStorageClient hdfsStorageClient;
 

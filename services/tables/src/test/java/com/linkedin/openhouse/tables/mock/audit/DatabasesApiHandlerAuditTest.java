@@ -8,6 +8,7 @@ import static org.mockito.Mockito.*;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
@@ -27,12 +29,25 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @AutoConfigureMockMvc
 @ContextConfiguration
 @WithMockUser(username = "testUser")
+@Slf4j
 public class DatabasesApiHandlerAuditTest {
   @Autowired private MockMvc mvc;
 
   @MockBean private AuditHandler<TableAuditEvent> tableAuditHandler;
 
   @Captor private ArgumentCaptor<TableAuditEvent> argCaptor;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @Test
   public void testGetAllDatabasesSuccessfulPath() throws Exception {

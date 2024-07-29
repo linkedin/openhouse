@@ -10,6 +10,7 @@ import com.linkedin.openhouse.cluster.storage.s3.S3StorageClient;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,10 +18,21 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationContext;
 
 @SpringBootTest
+@Slf4j
 public class S3StorageClientTest {
   @MockBean private StorageProperties storageProperties;
   @Autowired private ApplicationContext context;
   private S3StorageClient s3StorageClient;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = context.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   @PostConstruct
   public void setupTest() {

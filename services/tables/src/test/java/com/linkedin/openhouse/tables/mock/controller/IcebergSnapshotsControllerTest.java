@@ -9,11 +9,13 @@ import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.controller.IcebergSnapshotsController;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
 import java.text.ParseException;
+import lombok.extern.slf4j.Slf4j;
 import org.codehaus.jettison.json.JSONException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,12 +25,25 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
+@Slf4j
 public class IcebergSnapshotsControllerTest {
   private MockMvc mvc;
 
   @Autowired private IcebergSnapshotsController icebergSnapshotsController;
 
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   private String jwtAccessToken;
 

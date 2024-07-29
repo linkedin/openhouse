@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.Snapshot;
@@ -36,6 +37,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -43,6 +45,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
@@ -54,6 +57,7 @@ import org.springframework.test.web.servlet.MvcResult;
 @ExtendWith(CustomParameterResolver.class)
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @WithMockUser(username = "testUser")
+@Slf4j
 public class SnapshotsControllerTest {
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
@@ -62,6 +66,18 @@ public class SnapshotsControllerTest {
   @Autowired MockMvc mvc;
 
   @Autowired StorageManager storageManager;
+
+  @Autowired private ApplicationContext appContext;
+
+  @Test
+  public void tmp() {
+    try {
+      Object bean = appContext.getBean("storageManager");
+      log.info("bean: {}", bean);
+    } catch (Exception e) {
+      log.error("ignore bean");
+    }
+  }
 
   /** For now starting with a naive object feeder. */
   private static Stream<GetTableResponseBody> responseBodyFeeder() {
