@@ -38,6 +38,7 @@ public class StorageProperties {
   public void print() {
     log.info("system: {}", System.getProperty("OPENHOUSE_CLUSTER_CONFIG_PATH"));
     log.info("postconstruct: {}", this);
+    log.info("defaultType: {}", defaultType);
   }
 
   @Getter

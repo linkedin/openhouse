@@ -46,6 +46,7 @@ public class StorageManager {
     log.info("system: {}", System.getProperty("OPENHOUSE_CLUSTER_CONFIG_PATH"));
     log.info("postconstruct: {}", this);
     log.info("prop: {}", storageProperties);
+    log.info("defaultType: {}", storageProperties.getDefaultType());
     String clusterYamlError = "Cluster yaml is incorrectly configured: ";
     if (StringUtils.hasText(storageProperties.getDefaultType())) {
       // default-type is configured, types should contain the default-type

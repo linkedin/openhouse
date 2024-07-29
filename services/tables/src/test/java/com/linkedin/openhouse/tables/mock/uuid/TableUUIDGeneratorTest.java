@@ -44,6 +44,7 @@ public class TableUUIDGeneratorTest {
       Object bean = appContext.getBean("storageManager");
       log.info("bean: {}", bean);
       log.info("system: {}", System.getProperty("OPENHOUSE_CLUSTER_CONFIG_PATH"));
+      log.info("default storage: {}", storageManager.getDefaultStorage().getClient().getEndpoint());
     } catch (Exception e) {
       log.error("ignore bean");
     }
