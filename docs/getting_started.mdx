@@ -14,14 +14,15 @@ import TabItem from '@theme/TabItem';
 
 <Tabs>
     <TabItem value="s3" label="S3" default>
-# OpenHouse on Spark & S3
+# OpenHouse with Spark & S3
 
 In this guide, we will quickly set up a running environment and experiment with some simple SQL commands. Our
 environment will include all the core OpenHouse services such as [Catalog Service](./intro.md#catalog-service),
 [House Table service](./intro.md#house-table-service) and [others](./intro.md#control-plane-for-tables),
 [a Spark 3.1 engine](https://spark.apache.org/releases/spark-release-3-1-1.html) and
-also [MinIO S3 Instance](https://min.io/docs/minio/container/index.html). By the end of this walkthrough, we will have created some tables on OpenHouse,
-inserted data in them, and queried data. For more information on various docker environments and how to set them up
+also [MinIO S3 Instance](https://min.io/docs/minio/container/index.html).
+In this walkthrough, we will create some tables on OpenHouse, insert data in them and query the data.
+For more information on various docker environments and how to set them up
 please see the [SETUP.md](https://github.com/linkedin/openhouse/blob/main/SETUP.md) guide.
 
 In the consecutive optional section, you can learn more about some simple GRANT REVOKE commands and how
@@ -71,20 +72,25 @@ the configuration `spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080`
 running the [OpenHouse Catalog Service](./intro.md#catalog-service).
 :::
 :::note
+the configuration `spark.sql.catalog.openhouse.io-impl` is set to `org.apache.iceberg.aws.s3.S3FileIO` in order
+enable IO operations on S3. Parameters for this connection is configured via the prefix `spark.sql.catalog.openhouse.s3.*`.
+:::
+:::note
 you can access the MinIO UI at `http://localhost:9871` of your host machine and inspect the state of objects
 created for your table. The username is `admin` and password is `password` for the MinIO docker setup.
 :::
 
     </TabItem>
     <TabItem value="hdfs" label="HDFS">
-# OpenHouse on Spark & HDFS
+# OpenHouse with Spark & HDFS
 
 In this guide, we will quickly set up a running environment and experiment with some simple SQL commands. Our
 environment will include all the core OpenHouse services such as [Catalog Service](./intro.md#catalog-service),
 [House Table service](./intro.md#house-table-service) and [others](./intro.md#control-plane-for-tables),
 [a Spark 3.1 engine](https://spark.apache.org/releases/spark-release-3-1-1.html) and
-also [HDFS namenode and datanode](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html#NameNode+and+DataNodes). By the end of this walkthrough, we will have created some tables on OpenHouse,
-inserted data in them, and queried data. For more information on various docker environments and how to set them up
+also [HDFS namenode and datanode](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html#NameNode+and+DataNodes).
+In this walkthrough, we will create some tables on OpenHouse, insert data in them and query the data.
+For more information on various docker environments and how to set them up
 please see the [SETUP.md](https://github.com/linkedin/openhouse/blob/main/SETUP.md) guide.
 
 In the consecutive optional section, you can learn more about some simple GRANT REVOKE commands and how
