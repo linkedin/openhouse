@@ -1,12 +1,16 @@
 package com.linkedin.openhouse.tables.config;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
+import com.linkedin.openhouse.cluster.configs.ClusterPropertiesUtil;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.License;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.util.ReflectionUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -19,29 +23,46 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 public class TablesMvcConfigurer implements WebMvcConfigurer {
-
   @Autowired private ClusterProperties clusterProperties;
+  OpenAPI openAPI =
+      new OpenAPI()
+          .info(
+              new Info()
+                  .title("OpenHouse Tables APIs")
+                  .description("API description for OpenHouse Tables API")
+                  .termsOfService("http://swagger.io/terms")
+                  .version("v0.1")
+                  .license(new License().name("Apache 2.0").url("http://springdoc.org")));
 
   public void addInterceptors(InterceptorRegistry registry) {
-    if (clusterProperties.getClusterSecurityTokenInterceptorClassname() != null) {
-      Class<?> coordinatorClass =
-          ReflectionUtils.loadIfPresent(
-              clusterProperties.getClusterSecurityTokenInterceptorClassname(),
-              getClass().getClassLoader());
-      if (coordinatorClass != null) {
-        Optional<Constructor<?>> cons = ReflectionUtils.findConstructor(coordinatorClass);
-        if (cons.isPresent()) {
-          try {
-            registry
-                .addInterceptor((HandlerInterceptor) cons.get().newInstance())
-                .addPathPatterns("/**")
-                .excludePathPatterns("/actuator/**", "/**/api-docs/**", "/**/swagger-ui/**");
-          } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
-            throw new RuntimeException(
-                "Unable to install the configured Request Interception Handler", e);
-          }
-        }
-      }
-    }
+    Optional<HandlerInterceptor> handlerInterceptor =
+        ClusterPropertiesUtil.getClusterSecurityTokenInterceptor(clusterProperties);
+    handlerInterceptor.ifPresent(
+        interceptor -> {
+          registry
+              .addInterceptor(interceptor)
+              .addPathPatterns("/**")
+              .excludePathPatterns("/actuator/**", "/**/api-docs/**", "/**/swagger-ui/**");
+          addOpenAPISecurityScheme();
+        });
+  }
+
+  @Bean
+  public OpenAPI houseTablesOpenAPI() {
+    return openAPI;
+  }
+
+  private void addOpenAPISecurityScheme() {
+    // docs:
+    // https://github.com/OAI/OpenAPI-Specification/blob/main/versions/3.0.3.md#security-requirement-object
+    final String securitySchemaName = "BearerAuth";
+    final SecurityRequirement securityRequirement =
+        new SecurityRequirement().addList(securitySchemaName);
+    final SecurityScheme securityScheme =
+        new SecurityScheme().type(SecurityScheme.Type.HTTP).bearerFormat("JWT").scheme("bearer");
+
+    openAPI
+        .addSecurityItem(securityRequirement)
+        .schemaRequirement(securitySchemaName, securityScheme);
   }
 }
