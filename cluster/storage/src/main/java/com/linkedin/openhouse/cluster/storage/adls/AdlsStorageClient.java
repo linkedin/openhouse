@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.cluster.storage.adls;
 
 import com.azure.storage.file.datalake.DataLakeFileClient;
-import com.azure.storage.file.datalake.DataLakeFileSystemClient;
 import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
@@ -12,7 +11,6 @@ import java.util.Map;
 import javax.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -30,9 +28,10 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
 
   @Autowired private StorageProperties storageProperties;
 
-  private DataLakeFileClient dataLakeClient;
+  @Getter private Map properties;
 
-  @Getter private ADLSFileIO fileIO;
+  // TODO: Instantiate DLFC
+  private DataLakeFileClient dataLakeClient = null;
 
   /** Intialize the ADLS Client when the bean is accessed the first time. */
   @PostConstruct
@@ -41,7 +40,7 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
     validateProperties();
 
     // Gets the parameters from the ADLS storage type
-    Map properties =
+    properties =
         new HashMap(storageProperties.getTypes().get(ADLS_TYPE.getValue()).getParameters());
 
     // Try to create a URI with the endpoint and rootpath
@@ -54,14 +53,6 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
               "Bad storage properties provided: [endpoint: %s, rootPrefix: %s] for type [%s]",
               getEndpoint(), getRootPrefix(), ADLS_TYPE.getValue()),
           e);
-    }
-
-    // If client not instantiated, create client and fileIO
-    if (dataLakeClient == null) {
-      this.fileIO = new ADLSFileIO();
-      fileIO.initialize(properties);
-      DataLakeFileSystemClient client = fileIO.client(uri.toString());
-      this.dataLakeClient = client.getFileClient(uri.toString());
     }
   }
 
