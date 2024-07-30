@@ -1,3 +1,6 @@
+/**
+Defines resources for building images for openhouse services such as table and housetables.
+*/
 locals {
   codebase_root = "${abspath(path.module)}/../../../../../.."
 }
