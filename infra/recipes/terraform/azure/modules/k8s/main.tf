@@ -1,3 +1,6 @@
+/**
+Defines k8s module resources and configuration. These includes AKS cluster configuration, node pool, role assignment etc.
+*/
 resource "azurerm_kubernetes_cluster" "aks_cluster" {
   name                = var.k8s_cluster_name
   resource_group_name = var.resource_group_name
