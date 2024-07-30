@@ -34,15 +34,10 @@ You could set the environment variables for variables to stored terraform backen
 `cp backend.tfvars.template ./environments/<environment-name>/backend.tfvars`.
 2. Edit the backend.tfvars to configure the necessary TF backend state.
 
-## Docker setup
+## OpenHouse  - Build
 
-To be able to build the Tables and Housetables service images, you will need to ensure Docker is installed and running on your local machine. You can check for this by running a command like `docker info` in the terminal.
+Follow the steps described in [SETUP.md](SETUP.md#build-containers) to build JAR artifacts locally for OpenHouse services using Gradle. Currently, running only tables and housetables service is supported in Azure.
 
-Sometimes, the images may stop building or uploading to the ACR, a process that should be completed automatically after the `terraform apply` commands. If a docker related error is shown, it is likely because docker has run out of local memory. To fix this, run `docker system prune --volumes` locally.
-
-### Building OpenHouse project
-
-Before running `terraform apply`, run `./gradlew clean build` from the root directory to configure the JAR files for image builds.
 
 ## Deployment
 
