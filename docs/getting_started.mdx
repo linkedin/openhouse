@@ -8,14 +8,89 @@ tags:
   - Iceberg
 sidebar_position: 2
 ---
-# OpenHouse on Spark & HDFS
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs>
+    <TabItem value="s3" label="S3" default>
+# OpenHouse with Spark & S3
 
 In this guide, we will quickly set up a running environment and experiment with some simple SQL commands. Our
 environment will include all the core OpenHouse services such as [Catalog Service](./intro.md#catalog-service),
 [House Table service](./intro.md#house-table-service) and [others](./intro.md#control-plane-for-tables),
 [a Spark 3.1 engine](https://spark.apache.org/releases/spark-release-3-1-1.html) and
-also [HDFS namenode and datanode](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html#NameNode+and+DataNodes). By the end of this walkthrough, we will have created some tables on OpenHouse,
-inserted data in them, and queried data. For more information on various docker environments and how to set them up
+also [MinIO S3 Instance](https://min.io/docs/minio/container/index.html).
+In this walkthrough, we will create some tables on OpenHouse, insert data in them and query the data.
+For more information on various docker environments and how to set them up
+please see the [SETUP.md](https://github.com/linkedin/openhouse/blob/main/SETUP.md) guide.
+
+In the consecutive optional section, you can learn more about some simple GRANT REVOKE commands and how
+OpenHouse manages access control.
+
+### Prerequisites
+- [Docker CLI](https://docs.docker.com/get-docker/)
+- [Docker Compose CLI](https://github.com/docker/compose-cli/blob/main/INSTALL.md)
+
+## Create and write to OpenHouse Tables
+### Get environment ready
+First, clone [OpenHouse github repository](https://github.com/linkedin/openhouse) and
+run `./gradlew build` command at the root directory. After the command succeeds you should see `BUILD SUCCESSFUL`
+message.
+
+```shell
+openhouse$main>  ./gradlew build
+```
+
+Execute `docker compose -f infra/recipes/docker-compose/oh-s3-spark/docker-compose.yml up -d --build` command to
+bring up docker containers for OpenHouse services, Spark and S3.
+
+### Run SQL commands
+Let us execute some basic SQL commands to create table, add data and query data.
+
+First login to the driver node and start the spark-shell.
+```shell
+oh-hadoop-spark$main>  docker exec -it local.spark-master /bin/bash
+
+openhouse@0a9ed5853291:/opt/spark$  bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0,software.amazon.awssdk:bundle:2.20.18,software.amazon.awssdk:url-connection-client:2.20.18   \
+--jars openhouse-spark-runtime_2.12-*-all.jar  \
+--conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions   \
+--conf spark.sql.catalog.openhouse=org.apache.iceberg.spark.SparkCatalog   \
+--conf spark.sql.catalog.openhouse.catalog-impl=com.linkedin.openhouse.spark.OpenHouseCatalog     \
+--conf spark.sql.catalog.openhouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO   \
+--conf spark.sql.catalog.openhouse.s3.endpoint=http://minioS3:9000  \
+--conf spark.sql.catalog.openhouse.s3.access-key-id=admin  \
+--conf spark.sql.catalog.openhouse.s3.secret-access-key=password  \
+--conf spark.sql.catalog.openhouse.s3.path-style-access=true  \
+--conf spark.sql.catalog.openhouse.metrics-reporter-impl=com.linkedin.openhouse.javaclient.OpenHouseMetricsReporter    \
+--conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
+--conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/openhouse.token) \
+--conf spark.sql.catalog.openhouse.cluster=LocalS3Cluster
+```
+:::note
+the configuration `spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080` points to the docker container
+running the [OpenHouse Catalog Service](./intro.md#catalog-service).
+:::
+:::note
+the configuration `spark.sql.catalog.openhouse.io-impl` is set to `org.apache.iceberg.aws.s3.S3FileIO` in order
+enable IO operations on S3. Parameters for this connection is configured via the prefix `spark.sql.catalog.openhouse.s3.*`.
+:::
+:::note
+you can access the MinIO UI at `http://localhost:9871` of your host machine and inspect the state of objects
+created for your table. The username is `admin` and password is `password` for the MinIO docker setup.
+:::
+
+    </TabItem>
+    <TabItem value="hdfs" label="HDFS">
+# OpenHouse with Spark & HDFS
+
+In this guide, we will quickly set up a running environment and experiment with some simple SQL commands. Our
+environment will include all the core OpenHouse services such as [Catalog Service](./intro.md#catalog-service),
+[House Table service](./intro.md#house-table-service) and [others](./intro.md#control-plane-for-tables),
+[a Spark 3.1 engine](https://spark.apache.org/releases/spark-release-3-1-1.html) and
+also [HDFS namenode and datanode](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html#NameNode+and+DataNodes).
+In this walkthrough, we will create some tables on OpenHouse, insert data in them and query the data.
+For more information on various docker environments and how to set them up
 please see the [SETUP.md](https://github.com/linkedin/openhouse/blob/main/SETUP.md) guide.
 
 In the consecutive optional section, you can learn more about some simple GRANT REVOKE commands and how
@@ -59,6 +134,9 @@ openhouse@0a9ed5853291:/opt/spark$  bin/spark-shell --packages org.apache.iceber
 the configuration `spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080` points to the docker container
 running the [OpenHouse Catalog Service](./intro.md#catalog-service).
 :::
+    </TabItem>
+</Tabs>
+
 
 Once the spark-shell is up, we run the following command to create a simple table.
 
