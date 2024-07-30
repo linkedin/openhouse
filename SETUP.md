@@ -256,7 +256,7 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.apache.ice
   --conf spark.sql.catalog.openhouse.metrics-reporter-impl=com.linkedin.openhouse.javaclient.OpenHouseMetricsReporter    \
   --conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
   --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
-  --conf spark.sql.catalog.openhouse.cluster=LocalADLSCluster \
+  --conf spark.sql.catalog.openhouse.cluster=LocalABSCluster \
   --conf spark.sql.catalog.openhouse.io-impl=org.apache.iceberg.azure.adlsv2.ADLSFileIO \
   --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.name= <account name> \
   --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.key= <account key>

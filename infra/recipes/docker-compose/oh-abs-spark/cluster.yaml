@@ -1,5 +1,5 @@
 cluster:
-  name: "LocalFSCluster"
+  name: "LocalABSCluster"
   storage:
     type: "hadoop"
     uri: "hdfs://namenode:9000/"
