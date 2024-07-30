@@ -38,11 +38,6 @@ dependencies {
   runtimeOnly "org.antlr:antlr4-runtime:4.7.1"
   antlr "org.antlr:antlr4:4.7.1"
 
-  fatJarRuntimeDependencies("com.azure:azure-storage-file-datalake:12.19.1") {
-    exclude group: 'io.netty'
-    exclude group: 'io.projectreactor.netty'
-  }
-
   compileOnly(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
   compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {
     exclude group: 'org.apache.avro', module: 'avro'
