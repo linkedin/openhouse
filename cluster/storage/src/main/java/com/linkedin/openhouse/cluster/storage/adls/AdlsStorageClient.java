@@ -9,7 +9,6 @@ import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -28,9 +27,9 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
 
   @Autowired private StorageProperties storageProperties;
 
-  @Getter private Map properties;
+  private Map properties;
 
-  // TODO: Instantiate DLFC
+  // TODO: Instantiate DLFC: https://github.com/linkedin/openhouse/issues/148
   private DataLakeFileClient dataLakeClient = null;
 
   /** Intialize the ADLS Client when the bean is accessed the first time. */

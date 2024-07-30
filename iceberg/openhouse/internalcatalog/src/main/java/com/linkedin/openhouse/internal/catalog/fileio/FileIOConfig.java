@@ -2,7 +2,6 @@ package com.linkedin.openhouse.internal.catalog.fileio;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
-import com.linkedin.openhouse.cluster.storage.adls.AdlsStorageClient;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -105,9 +104,7 @@ public class FileIOConfig {
     try {
       // get the already-created FileIO from the ADLS Manager
       ADLSFileIO fileIO = new ADLSFileIO();
-      Map props =
-          ((AdlsStorageClient) storageManager.getStorage(StorageType.ADLS).getClient())
-              .getProperties();
+      Map props = storageManager.getStorage(StorageType.ADLS).getProperties();
       fileIO.initialize(props);
       return fileIO;
     } catch (IllegalArgumentException e) {

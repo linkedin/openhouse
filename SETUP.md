@@ -248,7 +248,7 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2
 If you are integrating with ADLS, use this `spark-shell` command instead:
 
 ```
-bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
+bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0,org.apache.iceberg:iceberg-bundled-guava:1.2.0,org.apache.iceberg:iceberg-data:1.2.0,org.apache.iceberg:iceberg-core:1.2.0,org.apache.iceberg:iceberg-common:1.2.0 \
   --jars openhouse-spark-apps_2.12-*-all.jar,openhouse-spark-runtime_2.12-latest-all.jar  \
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions   \
   --conf spark.sql.catalog.openhouse=org.apache.iceberg.spark.SparkCatalog   \
