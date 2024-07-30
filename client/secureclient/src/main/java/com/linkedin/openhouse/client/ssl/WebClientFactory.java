@@ -10,8 +10,8 @@ import java.time.Duration;
 import java.util.UUID;
 import javax.net.ssl.SSLException;
 import lombok.NonNull;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
@@ -24,6 +24,8 @@ public abstract class WebClientFactory {
   private static final String HTTP = "http";
   private static final String HTTPS = "https";
   private static final String SESSION_ID = "session-id";
+
+  private static final String HTTPHEADER_CLIENT_NAME = "X-Client-Name";
   private static final int IN_MEMORY_BUFFER_SIZE = 10 * 1000 * 1024;
   // The maximum number of connections per connection pool
   private static final int MAX_CONNECTION_POOL_SIZE = 500;
@@ -39,7 +41,9 @@ public abstract class WebClientFactory {
   // Set the default HttpConnectionStrategy as POOLED connection
   private HttpConnectionStrategy strategy = HttpConnectionStrategy.POOLED;
 
-  private String sessionId = null;
+  @Setter private String sessionId = null;
+
+  @Setter private String clientName = null;
 
   protected WebClientFactory() {
     setStrategy();
@@ -61,13 +65,17 @@ public abstract class WebClientFactory {
       @NonNull String baseUrl, String token, String truststoreLocation)
       throws MalformedURLException, SSLException {
     String transportProtocol = getTransportProtocol(baseUrl);
+    HttpClient httpClient = null;
     if (HTTPS.equals(transportProtocol)) {
-      return createSecureWebClient(baseUrl, truststoreLocation);
+      httpClient = createSecureHttpClient(truststoreLocation);
     } else if (HTTP.equals(transportProtocol)) {
-      return createWebClient(baseUrl);
+      httpClient = createHttpClient(baseUrl);
     } else {
       throw new RuntimeException("The transport protocol must be https/http");
     }
+    return getWebClientBuilder(baseUrl)
+        .clientConnector(new ReactorClientHttpConnector(httpClient))
+        .build();
   }
 
   /**
@@ -106,9 +114,7 @@ public abstract class WebClientFactory {
    * @param baseUrl
    * @return WebClient
    */
-  private WebClient createWebClient(String baseUrl) {
-    WebClient.Builder webClientBuilder = createWebClientBuilder();
-    setSessionIdInWebClientHeader(webClientBuilder);
+  private HttpClient createHttpClient(String baseUrl) {
     HttpClient client = null;
     if (HttpConnectionStrategy.NEW.equals(strategy)) {
       log.info("Using new connection strategy");
@@ -117,25 +123,19 @@ public abstract class WebClientFactory {
       log.info("Using connection pool strategy");
       client = HttpClient.create(getCustomConnectionProvider());
     }
-    ClientHttpConnector connector = new ReactorClientHttpConnector(client);
-    return webClientBuilder
-        .baseUrl(baseUrl)
-        .clientConnector(connector)
-        .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
-        .build();
+    return client;
   }
 
   /**
    * Creates one way SSL based WebClient. The client trusts the server certificate, but client
    * certificate not verified.
    *
-   * @param baseUrl
    * @param truststoreLocation - location of the cacert/truststore. If not specified, get the
    *     location from environment variable TRUSTSTORE_LOCATION, else throws exception
    * @return WebClient
    * @throws SSLException
    */
-  private WebClient createSecureWebClient(String baseUrl, String truststoreLocation) {
+  private HttpClient createSecureHttpClient(String truststoreLocation) {
     String truststore =
         StringUtil.isNullOrEmpty(truststoreLocation)
             ? System.getenv("TRUSTSTORE_LOCATION")
@@ -154,14 +154,16 @@ public abstract class WebClientFactory {
               .secure(t -> t.sslContext(createSslContext(truststore)));
     }
 
-    ClientHttpConnector connector = new ReactorClientHttpConnector(client);
+    return client;
+  }
+
+  private WebClient.Builder getWebClientBuilder(String baseUrl) {
     WebClient.Builder webClientBuilder = createWebClientBuilder();
     setSessionIdInWebClientHeader(webClientBuilder);
+    setClientNameInWebClientHeader(webClientBuilder);
     return webClientBuilder
-        .baseUrl(baseUrl)
-        .clientConnector(connector)
         .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
-        .build();
+        .baseUrl(baseUrl);
   }
 
   /** Set strategy from environment variable if provided */
@@ -182,16 +184,6 @@ public abstract class WebClientFactory {
       strategy = httpConnectionStrategy;
     }
   }
-
-  /**
-   * Set sessionId
-   *
-   * @param sessionId
-   */
-  public void setSessionId(String sessionId) {
-    this.sessionId = sessionId;
-  }
-
   /**
    * Set sessionId in the header of webClient. If a sessionId is not provided, generate UUID.
    *
@@ -203,6 +195,18 @@ public abstract class WebClientFactory {
     }
     log.info("Client session id: {}", sessionId);
     webClientBuilder.defaultHeaders(h -> h.add(SESSION_ID, sessionId));
+  }
+
+  /**
+   * Set clientName in the header of webClient. If a clientName is not provided, do nothing.
+   *
+   * @param webClientBuilder
+   */
+  private void setClientNameInWebClientHeader(WebClient.Builder webClientBuilder) {
+    if (clientName != null) {
+      webClientBuilder.defaultHeaders(h -> h.add(HTTPHEADER_CLIENT_NAME, clientName));
+    }
+    log.info("Client name: {}", clientName);
   }
 
   /**

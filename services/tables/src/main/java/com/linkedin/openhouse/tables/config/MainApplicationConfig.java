@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.config;
 
+import static com.linkedin.openhouse.common.Constants.*;
+
 import com.linkedin.openhouse.cluster.metrics.TagUtils;
 import com.linkedin.openhouse.cluster.storage.FsStorageUtils;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
@@ -9,10 +11,12 @@ import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -20,6 +24,8 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -27,6 +33,7 @@ import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTest
 import org.springdoc.core.customizers.OpenApiCustomiser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
+import org.springframework.boot.actuate.metrics.web.servlet.WebMvcTagsContributor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -72,6 +79,32 @@ public class MainApplicationConfig extends BaseApplicationConfig {
     ApiClient apiClient = new ApiClient(webClient);
     apiClient.setBasePath(htsBasePath);
     return new UserTableApi(apiClient);
+  }
+
+  @Bean
+  public WebMvcTagsContributor clientIdTagContributor() {
+    return new WebMvcTagsContributor() {
+      @Override
+      public Iterable<Tag> getTags(
+          HttpServletRequest request,
+          HttpServletResponse response,
+          Object handler,
+          Throwable exception) {
+        String clientName = request.getHeader(HTTPHEADER_CLIENT_NAME);
+
+        return Collections.singletonList(
+            Tag.of(
+                METRIC_KEY_CLIENT_NAME,
+                ALLOWED_CLIENT_NAME_VALUES.contains(clientName)
+                    ? clientName
+                    : CLIENT_NAME_DEFAULT_VALUE));
+      }
+
+      @Override
+      public Iterable<Tag> getLongRequestTags(HttpServletRequest request, Object handler) {
+        return Collections.emptyList();
+      }
+    };
   }
 
   @Bean

@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
+import static com.linkedin.openhouse.common.Constants.*;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
@@ -35,6 +36,8 @@ import com.linkedin.openhouse.tables.model.ServiceAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import io.micrometer.core.instrument.search.MeterNotFoundException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -58,6 +61,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -89,6 +93,8 @@ public class TablesControllerTest {
 
   @Autowired private AuditHandler<TableAuditEvent> tableAuditHandler;
 
+  @Autowired private SimpleMeterRegistry registry;
+
   @Test
   public void testSwaggerDocsWithoutAuth() throws Exception {
     mvc.perform(
@@ -104,6 +110,65 @@ public class TablesControllerTest {
                 .header("Authorization", "")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DirtiesContext
+  public void testMetricsWithClientNameHeader() throws Exception {
+    String anyTestClientName = ALLOWED_CLIENT_NAME_VALUES.get(0);
+    mvc.perform(
+        MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
+            .header(HTTPHEADER_CLIENT_NAME, anyTestClientName)
+            .accept(MediaType.APPLICATION_JSON));
+    Assertions.assertNotNull(
+        this.registry
+            .get("http.server.requests")
+            .tags(METRIC_KEY_CLIENT_NAME, anyTestClientName)
+            .timer());
+  }
+
+  @Test
+  @DirtiesContext
+  public void testMetricsWithClientNameHeaderInvalidValue() throws Exception {
+    String invalidTestClientName = "thisdoesntexist";
+    Assertions.assertFalse(ALLOWED_CLIENT_NAME_VALUES.contains(invalidTestClientName));
+    mvc.perform(
+        MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
+            .header(HTTPHEADER_CLIENT_NAME, invalidTestClientName)
+            .accept(MediaType.APPLICATION_JSON));
+    Assertions.assertNotNull(
+        this.registry
+            .get("http.server.requests")
+            .tags(METRIC_KEY_CLIENT_NAME, CLIENT_NAME_DEFAULT_VALUE)
+            .timer());
+  }
+
+  @Test
+  @DirtiesContext
+  public void testMetricsWithClientNameHeaderNotPresentDefaultValue() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
+            .accept(MediaType.APPLICATION_JSON));
+    Assertions.assertNotNull(
+        this.registry
+            .get("http.server.requests")
+            .tags("client_name", CLIENT_NAME_DEFAULT_VALUE)
+            .timer());
+  }
+
+  @Test
+  @DirtiesContext
+  public void testMetricsWithClientNameHeaderNotPresentUnexpectedValue() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
+            .accept(MediaType.APPLICATION_JSON));
+    assertThrows(
+        MeterNotFoundException.class,
+        () ->
+            this.registry
+                .get("http.server.requests")
+                .tags("client_name", ALLOWED_CLIENT_NAME_VALUES.get(0))
+                .timer());
   }
 
   @Test

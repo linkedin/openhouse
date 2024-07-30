@@ -96,6 +96,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private static final String HTTP_CONNECTION_STRATEGY = "http-connection-strategy";
 
+  private static final String CLIENT_NAME = "client-name";
+
   @Override
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
@@ -106,13 +108,15 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String truststore = properties.getOrDefault(TRUST_STORE, "");
     String token = properties.getOrDefault(AUTH_TOKEN, null);
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
+    String clientName = properties.getOrDefault(CLIENT_NAME, null);
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
+      tablesApiClientFactory.setClientName(clientName);
+      this.apiClient = tablesApiClientFactory.createApiClient(uri, token, truststore);
       if (properties.containsKey(CatalogProperties.APP_ID)) {
         tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
       }
-      this.apiClient = TablesApiClientFactory.getInstance().createApiClient(uri, token, truststore);
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
