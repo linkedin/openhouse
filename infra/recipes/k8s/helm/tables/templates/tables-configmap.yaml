@@ -9,7 +9,15 @@ data:
 {{- $path := .Values.clusterPropertiesPath }}
 {{- $content := .Files.Get $path }}
 {{- if $content }}
+{{- if and .Values.storageProperties .Values.housetables }}
+{{- $containerReplaced := regexReplaceAllLiteral "<container-name>" $content .Values.storageProperties.containerName }}
+{{- $accountReplaced := regexReplaceAllLiteral "<storage-account-name>" $containerReplaced .Values.storageProperties.storageAccountName }}
+{{- $keyReplaced := regexReplaceAllLiteral "<storage-account-key>" $accountReplaced .Values.storageProperties.storageAccountKey }}
+{{- $urlReplaced := regexReplaceAllLiteral "<database-url>" $keyReplaced .Values.housetables.database.url }}
+{{ $urlReplaced | nindent 4}}
+{{- else }}
 {{ $content | nindent 4 }}
+{{- end}}
 {{- else }}
 {{ fail (printf "File at %s not found or empty" $path) }}
 {{- end }}
