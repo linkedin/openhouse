@@ -1,3 +1,7 @@
+/**
+Defines MySQL resources and configurations.
+*/
+
 resource "azurerm_mysql_flexible_server" "mysql_server" {
   name                   = var.server_name
   resource_group_name    = var.resource_group_name
