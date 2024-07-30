@@ -1,3 +1,6 @@
+/**
+Defines helm release for openhouse services. Installs tables and housetables service using the corresponding helm charts. Tables and housetables service images are referred from Azure container registry (ACR).
+*/
 locals {
   k8s_path = "../../../../k8s"
 }
