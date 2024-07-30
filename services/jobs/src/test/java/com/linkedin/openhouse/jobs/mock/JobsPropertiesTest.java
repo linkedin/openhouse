@@ -28,6 +28,10 @@ public class JobsPropertiesTest {
     final Map<String, String> expectedDefaultSparkProperties = new HashMap<>();
     expectedDefaultSparkProperties.put("dp1", "dv1");
     expectedDefaultSparkProperties.put("dp2", "dv2");
+    final Map<String, String> expectedOFDSparkProperties =
+        new HashMap<>(expectedDefaultSparkProperties);
+    expectedOFDSparkProperties.put("m1", "2g");
+    expectedOFDSparkProperties.put("m2", "3g");
 
     final Map<String, String> expectedSparkProperties = new HashMap<>();
     expectedSparkProperties.put("p1", "v1");
@@ -84,7 +88,7 @@ public class JobsPropertiesTest {
                 .executionTags(executionTags)
                 .dependencies(Collections.singletonList("d3"))
                 .args(expectedOFDArgs)
-                .sparkProperties(expectedDefaultSparkProperties)
+                .sparkProperties(expectedOFDSparkProperties)
                 .build());
     Assertions.assertEquals(expected, properties.getApps());
     Assertions.assertEquals(

@@ -1,10 +1,8 @@
 jobs:
-  defaults:
-    &apps-defaults
-      spark-properties: {
-        "dp1": "dv1",
+  defaults: &apps-defaults
+      spark-properties: &spark-defaults
+        "dp1": "dv1"
         "dp2": "dv2"
-      }
       executionTags:
         "pool": "dev"
       jar-path: "default-jar-path"
@@ -38,3 +36,7 @@ jobs:
         dependencies: [ "d3" ]
         args: ["--trashDir", ".trash"]
         <<: *apps-defaults
+        spark-properties:
+          <<: *spark-defaults
+          "m1": "2g"
+          "m2": "3g"
