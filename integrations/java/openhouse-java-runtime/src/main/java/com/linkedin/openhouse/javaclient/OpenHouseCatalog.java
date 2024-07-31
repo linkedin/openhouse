@@ -121,13 +121,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
 
-    String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
-    this.fileIO =
-        fileIOImpl == null
-            ? new HadoopFileIO(this.conf)
-            : CatalogUtil.loadFileIO(fileIOImpl, properties, this.conf);
+    this.fileIO = loadFileIO(properties);
 
     this.cluster = properties.getOrDefault(CLUSTER_PROPERTY, DEFAULT_CLUSTER);
+  }
+
+  protected FileIO loadFileIO(Map<String, String> properties) {
+    String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
+    return fileIOImpl == null
+        ? new HadoopFileIO(this.conf)
+        : CatalogUtil.loadFileIO(fileIOImpl, properties, this.conf);
   }
 
   /**
