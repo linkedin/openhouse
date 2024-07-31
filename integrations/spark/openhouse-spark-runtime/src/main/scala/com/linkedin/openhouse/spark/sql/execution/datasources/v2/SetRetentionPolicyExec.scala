@@ -4,7 +4,7 @@ import org.apache.iceberg.spark.source.SparkTable
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
-import org.apache.spark.sql.execution.datasources.v2.V2CommandExec
+import org.apache.spark.sql.execution.datasources.v2.{LeafV2CommandExec, V2CommandExec}
 
 case class SetRetentionPolicyExec(
   catalog: TableCatalog,
@@ -13,7 +13,7 @@ case class SetRetentionPolicyExec(
   count: Int,
   colName: Option[String],
   colPattern: Option[String]
-                                 ) extends V2CommandExec {
+                                 ) extends LeafV2CommandExec {
 
   override lazy val output: Seq[Attribute] = Nil
 
