@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.config;
 
-import static com.linkedin.openhouse.common.Constants.*;
+import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
 
 import com.linkedin.openhouse.cluster.metrics.TagUtils;
 import com.linkedin.openhouse.cluster.storage.FsStorageUtils;
@@ -90,7 +90,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
           HttpServletResponse response,
           Object handler,
           Throwable exception) {
-        String clientName = request.getHeader(HTTPHEADER_CLIENT_NAME);
+        String clientName = request.getHeader(HTTP_HEADER_CLIENT_NAME);
 
         return Collections.singletonList(
             Tag.of(

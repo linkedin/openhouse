@@ -113,10 +113,10 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
       tablesApiClientFactory.setClientName(clientName);
-      this.apiClient = tablesApiClientFactory.createApiClient(uri, token, truststore);
       if (properties.containsKey(CatalogProperties.APP_ID)) {
         tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
       }
+      this.apiClient = tablesApiClientFactory.createApiClient(uri, token, truststore);
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);

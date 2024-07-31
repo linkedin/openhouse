@@ -10,7 +10,6 @@ import io.netty.handler.ssl.SslContext;
 import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -26,14 +25,9 @@ public class TablesApiClientFactoryTest {
   public static void startUp() throws IOException {
     SslContext mockSslContext = Mockito.mock(SslContext.class);
     tmpCert = File.createTempFile("tmpcacert", ".crt");
+    tmpCert.deleteOnExit();
     tablesApiClientFactorySpy = Mockito.spy(TablesApiClientFactory.getInstance());
     Mockito.doReturn(mockSslContext).when(tablesApiClientFactorySpy).createSslContext(anyString());
-  }
-
-  @AfterAll
-  public static void tearDown() {
-    tmpCert.deleteOnExit();
-    ;
   }
 
   @Test

@@ -73,9 +73,7 @@ public abstract class WebClientFactory {
     } else {
       throw new RuntimeException("The transport protocol must be https/http");
     }
-    return getWebClientBuilder(baseUrl)
-        .clientConnector(new ReactorClientHttpConnector(httpClient))
-        .build();
+    return getWebClient(baseUrl, httpClient);
   }
 
   /**
@@ -157,13 +155,15 @@ public abstract class WebClientFactory {
     return client;
   }
 
-  private WebClient.Builder getWebClientBuilder(String baseUrl) {
+  private WebClient getWebClient(String baseUrl, HttpClient httpClient) {
     WebClient.Builder webClientBuilder = createWebClientBuilder();
     setSessionIdInWebClientHeader(webClientBuilder);
     setClientNameInWebClientHeader(webClientBuilder);
     return webClientBuilder
+        .baseUrl(baseUrl)
+        .clientConnector(new ReactorClientHttpConnector(httpClient))
         .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
-        .baseUrl(baseUrl);
+        .build();
   }
 
   /** Set strategy from environment variable if provided */

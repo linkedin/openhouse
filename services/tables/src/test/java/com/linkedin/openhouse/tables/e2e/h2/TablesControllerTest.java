@@ -1,8 +1,8 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
-import static com.linkedin.openhouse.common.Constants.*;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
+import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.*;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.*;
@@ -118,7 +118,7 @@ public class TablesControllerTest {
     String anyTestClientName = ALLOWED_CLIENT_NAME_VALUES.get(0);
     mvc.perform(
         MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
-            .header(HTTPHEADER_CLIENT_NAME, anyTestClientName)
+            .header(HTTP_HEADER_CLIENT_NAME, anyTestClientName)
             .accept(MediaType.APPLICATION_JSON));
     Assertions.assertNotNull(
         this.registry
@@ -134,7 +134,7 @@ public class TablesControllerTest {
     Assertions.assertFalse(ALLOWED_CLIENT_NAME_VALUES.contains(invalidTestClientName));
     mvc.perform(
         MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
-            .header(HTTPHEADER_CLIENT_NAME, invalidTestClientName)
+            .header(HTTP_HEADER_CLIENT_NAME, invalidTestClientName)
             .accept(MediaType.APPLICATION_JSON));
     Assertions.assertNotNull(
         this.registry
