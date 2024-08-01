@@ -57,7 +57,6 @@ publishing {
         artifact tasks.named("bootJar")
         artifact sourcesJar
         artifact javadocJar
-        //artifact tasks.named("jar")
 
         configurePom(pom)
       }
