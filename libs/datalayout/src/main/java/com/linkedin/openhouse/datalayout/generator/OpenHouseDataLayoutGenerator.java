@@ -14,7 +14,7 @@ import org.apache.spark.sql.Encoders;
 
 /**
  * Data layout optimization strategies generator for OpenHouse. Generates a list of strategies with
- * cost.
+ * score.
  */
 @Builder
 public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
@@ -46,6 +46,13 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
     return Collections.singletonList(generateCompactionStrategy());
   }
 
+  /**
+   * Computes the compaction strategy for a partitioned table. Only files less than the minimum
+   * threshold are considered. The rewrite job parameters are calculated, as well as the following:
+   * * Estimated cost is computed as the GB-hrs spent in performing the compaction * Estimated gain
+   * is computed as the reduction in file count * Estimated score is computed as gain / cost, the
+   * number of files reduced per GB-hr of compute, the higher the score, the better the strategy is
+   */
   private DataLayoutOptimizationStrategy generateCompactionStrategy() {
     List<Long> fileSizes =
         tableFileStats
