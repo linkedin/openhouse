@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.datalayout.datasource;
 
-import java.io.Serializable;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,7 +11,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PartitionStat implements Serializable {
+public class PartitionStat {
   private List<String> values;
   private int fileCount;
 }

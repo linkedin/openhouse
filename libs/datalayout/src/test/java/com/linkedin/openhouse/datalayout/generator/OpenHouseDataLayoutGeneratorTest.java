@@ -51,8 +51,7 @@ public class OpenHouseDataLayoutGeneratorTest extends OpenHouseSparkITest {
       Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());
 
       Assertions.assertTrue(
-          strategy.getGain() >= 4,
-          "Gain for 6 files compaction in 2 partitions should be at least 4");
+          strategy.getGain() == 5, "Gain for 6 files compaction in 2 partitions should be 5");
       Assertions.assertTrue(
           strategy.getCost() < 1.0, "Cost for 6 files compaction should be negligible");
       Assertions.assertTrue(
