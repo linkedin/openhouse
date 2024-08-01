@@ -12,11 +12,6 @@ task javadocJar(type: Jar) {
   from javadoc.destinationDir
 }
 
-task libJar(type: Jar) {
-  archiveClassifier = "lib"
-  from sourceSets.main.output
-}
-
 [jar, sourcesJar, javadocJar].each { task ->
   task.from(rootDir) {
     include 'LICENSE'
@@ -49,7 +44,6 @@ publishing {
     if (tasks.findByName('shadowJar')) {
       shadow(MavenPublication) { publication ->
         project.shadow.component(publication)
-
         artifact sourcesJar
         artifact javadocJar
         artifact jar
@@ -60,9 +54,10 @@ publishing {
       mavenJava(MavenPublication) {
         from components.java
 
+        artifact tasks.named("bootJar")
         artifact sourcesJar
         artifact javadocJar
-        artifact libJar
+        //artifact tasks.named("jar")
 
         configurePom(pom)
       }

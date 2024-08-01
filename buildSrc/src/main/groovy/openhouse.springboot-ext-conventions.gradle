@@ -4,12 +4,9 @@ plugins {
   id "org.springframework.boot"
 }
 
-jar {
-  enabled = true
-  archiveClassifier = 'lib'
-}
-
 tasks.named("bootJar") {
+  enabled = true
+  archiveClassifier = ""
   manifest {
     // Default springboot app launcher class is JarLauncher which doesn't allow to load classes from external jars
     // (jars not packaged within the app fat jar). PropertiesLauncher allows to extend list of paths
@@ -17,4 +14,9 @@ tasks.named("bootJar") {
     // More info: https://docs.spring.io/spring-boot/docs/current/reference/html/executable-jar.html#appendix.executable-jar.launching.
     attributes ('Main-Class': 'org.springframework.boot.loader.PropertiesLauncher')
   }
+}
+
+tasks.named("jar") {
+  enabled = true
+  archiveClassifier = "lib"
 }

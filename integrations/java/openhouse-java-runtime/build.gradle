@@ -75,7 +75,8 @@ shadowJar {
 
   configurations = [project.configurations.fatJarPackagedDependencies]
   mergeServiceFiles()
+  archiveClassifier.set('uber')
   zip64 true
 }
 
-jar.enabled=false
+jar.enabled=true

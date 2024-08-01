@@ -21,6 +21,10 @@ plugins {
   id 'openhouse.service-specgen-convention'
 }
 
+/*bootJar {
+  enabled = true
+}*/
+
 dependencies {
   implementation project(':services:common')
   implementation project(':iceberg:openhouse:internalcatalog')
