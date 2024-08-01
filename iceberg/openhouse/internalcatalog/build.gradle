@@ -2,6 +2,7 @@ plugins {
   id 'openhouse.springboot-conventions'
   id 'openhouse.client-codegen-convention'
   id 'openhouse.iceberg-conventions'
+  id 'openhouse.iceberg-azure-conventions'
   id 'openhouse.hadoop-conventions'
   id 'openhouse.iceberg-aws-conventions'
   id 'openhouse.maven-publish'
@@ -14,6 +15,7 @@ dependencies {
   implementation project(':client:hts')
   implementation project(':cluster:storage')
   implementation project(':cluster:metrics')
+  implementation project(':iceberg:azure')
 
   // Needed for testing against manually bootstrapped HTS server through bootRun task.
   testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"

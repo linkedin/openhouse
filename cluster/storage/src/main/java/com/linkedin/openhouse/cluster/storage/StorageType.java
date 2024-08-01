@@ -17,6 +17,7 @@ public class StorageType {
   public static final Type HDFS = new Type("hdfs");
   public static final Type LOCAL = new Type("local");
   public static final Type S3 = new Type("s3");
+  public static final Type ADLS = new Type("adls");
 
   @AllArgsConstructor
   @EqualsAndHashCode
@@ -33,6 +34,8 @@ public class StorageType {
       return LOCAL;
     } else if (S3.getValue().equals(type)) {
       return S3;
+    } else if (ADLS.getValue().equals(type)) {
+      return ADLS;
     } else {
       throw new IllegalArgumentException("Unknown storage type: " + type);
     }

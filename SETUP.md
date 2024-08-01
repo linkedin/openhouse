@@ -232,8 +232,9 @@ docker exec -it local.spark-master /bin/bash
 ```
 
 Start `spark-shell` with the following command: Available users are `openhouse` and `u_tableowner`.
+
 ```
-bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0   \
+bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
   --jars openhouse-spark-runtime_2.12-*-all.jar  \
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions   \
   --conf spark.sql.catalog.openhouse=org.apache.iceberg.spark.SparkCatalog   \
@@ -242,6 +243,23 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2
   --conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
   --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
   --conf spark.sql.catalog.openhouse.cluster=LocalHadoopCluster
+```
+
+If you are integrating with ADLS, use this `spark-shell` command instead:
+
+```
+bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
+  --jars openhouse-spark-apps_2.12-*-all.jar,openhouse-spark-runtime_2.12-latest-all.jar  \
+  --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions   \
+  --conf spark.sql.catalog.openhouse=org.apache.iceberg.spark.SparkCatalog   \
+  --conf spark.sql.catalog.openhouse.catalog-impl=com.linkedin.openhouse.spark.OpenHouseCatalog     \
+  --conf spark.sql.catalog.openhouse.metrics-reporter-impl=com.linkedin.openhouse.javaclient.OpenHouseMetricsReporter    \
+  --conf spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080   \
+  --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
+  --conf spark.sql.catalog.openhouse.cluster=LocalABSCluster \
+  --conf spark.sql.catalog.openhouse.io-impl=org.apache.iceberg.azure.adlsv2.ADLSFileIO \
+  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.name= <account name> \
+  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.key= <account key>
 ```
 
 #### Create a table

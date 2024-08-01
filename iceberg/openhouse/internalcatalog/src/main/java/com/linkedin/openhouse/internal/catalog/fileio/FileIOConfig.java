@@ -2,9 +2,11 @@ package com.linkedin.openhouse.internal.catalog.fileio;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.aws.s3.S3FileIO;
+import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -89,6 +91,26 @@ public class FileIOConfig {
       // S3 storage configured but could not instantiate S3FileIO.
       throw new IllegalArgumentException(
           "S3 storage configured but could not initialize S3FileIO" + e.getMessage());
+    }
+  }
+
+  /**
+   * Provides the ADLSFileIO bean for ADLS storage type
+   *
+   * @return ADLSFileIO bean for ADLS storage type, or null if ADLS storage type is not configured
+   */
+  @Bean
+  ADLSFileIO provideADLSFileIO() {
+    try {
+      // get the already-created FileIO from the ADLS Manager
+      ADLSFileIO fileIO = new ADLSFileIO();
+      Map props = storageManager.getStorage(StorageType.ADLS).getProperties();
+      fileIO.initialize(props);
+      return fileIO;
+    } catch (IllegalArgumentException e) {
+      // If the ADLS storage type is not configured, return null
+      // Spring doesn't define the bean if the return value is null
+      return null;
     }
   }
 }
