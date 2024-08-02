@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.datalayout.layoutselection;
+package com.linkedin.openhouse.datalayout.strategy;
 
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import lombok.Builder;
@@ -14,6 +14,8 @@ import lombok.Getter;
 @EqualsAndHashCode
 public class DataLayoutOptimizationStrategy {
   private final double score;
+  private final double cost;
+  private final double gain;
   private final DataCompactionConfig config;
   // TODO: support sorting config
 }

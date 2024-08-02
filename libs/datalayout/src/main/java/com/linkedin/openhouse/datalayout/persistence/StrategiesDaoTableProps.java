@@ -3,7 +3,7 @@ package com.linkedin.openhouse.datalayout.persistence;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
-import com.linkedin.openhouse.datalayout.layoutselection.DataLayoutOptimizationStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutOptimizationStrategy;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;

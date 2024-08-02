@@ -16,7 +16,7 @@ public class TableFileStats implements DataSource<FileStat> {
   @Override
   public Dataset<FileStat> get() {
     return spark
-        .sql(String.format("SELECT file_path, file_size_in_bytes FROM %s.files", tableName))
+        .sql(String.format("SELECT file_path, file_size_in_bytes FROM %s.data_files", tableName))
         .map(new FileStatMapper(), Encoders.bean(FileStat.class));
   }
 

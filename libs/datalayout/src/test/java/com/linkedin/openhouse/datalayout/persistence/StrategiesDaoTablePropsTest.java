@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.datalayout.persistence;
 
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
-import com.linkedin.openhouse.datalayout.layoutselection.DataLayoutOptimizationStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutOptimizationStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Collections;
 import java.util.List;
