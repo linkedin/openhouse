@@ -10,7 +10,9 @@ import java.util.List;
 import lombok.Builder;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
+import org.apache.spark.api.java.function.ReduceFunction;
 import org.apache.spark.sql.Encoders;
+import scala.Tuple2;
 
 /**
  * Data layout optimization strategies generator for OpenHouse. Generates a list of strategies with
@@ -54,7 +56,7 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
    * number of files reduced per GB-hr of compute, the higher the score, the better the strategy is
    */
   private DataLayoutOptimizationStrategy generateCompactionStrategy() {
-    List<Long> fileSizes =
+    Tuple2<Long, Integer> fileStats =
         tableFileStats
             .get()
             .map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG())
@@ -62,17 +64,23 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
                 (FilterFunction<Long>)
                     size ->
                         size < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT)
-            .collectAsList();
+            .map(
+                (MapFunction<Long, Tuple2<Long, Integer>>) size -> new Tuple2<>(size, 1),
+                Encoders.tuple(Encoders.LONG(), Encoders.INT()))
+            .reduce(
+                (ReduceFunction<Tuple2<Long, Integer>>)
+                    (a, b) -> new Tuple2<>(a._1 + b._1, a._2 + b._2));
+    long candidateFilesBytes = fileStats._1;
+    int candidateFilesCount = fileStats._2;
 
     DataCompactionConfig.DataCompactionConfigBuilder configBuilder = DataCompactionConfig.builder();
 
     configBuilder.targetByteSize(TARGET_BYTES_SIZE);
 
-    long totalSizeBytes = fileSizes.stream().reduce(0L, Long::sum);
     long estimatedFileGroupsCount =
         Math.max(
             tablePartitionStats.get().count(),
-            totalSizeBytes / DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT);
+            candidateFilesBytes / DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT);
 
     int maxCommitsCount =
         (int)
@@ -94,8 +102,8 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
     // don't split large files
     configBuilder.maxByteSizeRatio(MAX_BYTES_SIZE_RATIO);
 
-    long filesReducedCount = estimateReducedFilesCount(fileSizes);
-    double computeGbHr = estimateComputeGbHr(fileSizes);
+    long filesReducedCount = estimateReducedFilesCount(candidateFilesBytes, candidateFilesCount);
+    double computeGbHr = estimateComputeGbHr(candidateFilesBytes);
     double filesReducedCountPerComputeGbHr = filesReducedCount / computeGbHr;
     return DataLayoutOptimizationStrategy.builder()
         .config(configBuilder.build())
@@ -105,15 +113,13 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
         .build();
   }
 
-  private long estimateReducedFilesCount(List<Long> fileSizes) {
-    long candidateFilesBytes = fileSizes.stream().reduce(0L, Long::sum);
-    long compactedFilesCount = (candidateFilesBytes + TARGET_BYTES_SIZE - 1) / TARGET_BYTES_SIZE;
-    return Math.max(0, fileSizes.size() - compactedFilesCount);
+  private long estimateReducedFilesCount(long filesBytes, int filesCount) {
+    long compactedFilesCount = (filesBytes + TARGET_BYTES_SIZE - 1) / TARGET_BYTES_SIZE;
+    return Math.max(0, filesCount - compactedFilesCount);
   }
 
-  private double estimateComputeGbHr(List<Long> fileSizes) {
-    double candidateFilesBytes = fileSizes.stream().reduce(0L, Long::sum);
-    double rewriteSeconds = candidateFilesBytes / REWRITE_BYTES_PER_SECOND;
+  private double estimateComputeGbHr(long filesBytes) {
+    double rewriteSeconds = filesBytes * 1.0 / REWRITE_BYTES_PER_SECOND;
     double rewriteHours = rewriteSeconds / 3600.0;
     return rewriteHours * EXECUTOR_MEMORY_MB / 1024 + COMPUTE_STARTUP_COST_GB_HR;
   }
