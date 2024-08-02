@@ -38,7 +38,6 @@ You could set the environment variables for variables to stored terraform backen
 
 Follow the steps described in [SETUP.md](SETUP.md#build-containers) to build JAR artifacts locally for OpenHouse services using Gradle. Currently, running only tables and housetables service is supported in Azure.
 
-
 ## Deployment
 
 ### Installation
