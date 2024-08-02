@@ -27,7 +27,7 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
   private static final long MAX_NUM_COMMITS = 30;
   private static final long MAX_BYTES_SIZE_RATIO = 10;
   private static final long REWRITE_BYTES_PER_SECOND = 2 * MB;
-  private static final long EXECUTOR_MEMORY_MB = 2048;
+  private static final long EXECUTOR_MEMORY_GB = 2;
   private static final int MAX_CONCURRENT_FILE_GROUP_REWRITES = 50;
   private static final int REWRITE_PARALLELISM = 900; // number of Spark tasks to run in parallel
   private static final long TARGET_BYTES_SIZE = 2 * FILE_BLOCK_SIZE_BYTES - FILE_BLOCK_MARGIN_BYTES;
@@ -74,8 +74,8 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
             .reduce(
                 (ReduceFunction<Tuple2<Long, Integer>>)
                     (a, b) -> new Tuple2<>(a._1 + b._1, a._2 + b._2));
-    long candidateFilesBytes = fileStats._1;
-    int candidateFilesCount = fileStats._2;
+    long rewriteFileBytes = fileStats._1;
+    int rewriteFileCount = fileStats._2;
 
     DataCompactionConfig.DataCompactionConfigBuilder configBuilder = DataCompactionConfig.builder();
 
@@ -84,7 +84,7 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
     long estimatedFileGroupsCount =
         Math.max(
             tablePartitionStats.get().count(),
-            candidateFilesBytes / DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT);
+            rewriteFileBytes / DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT);
 
     int maxCommitsCount =
         (int)
@@ -106,25 +106,27 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
     // don't split large files
     configBuilder.maxByteSizeRatio(MAX_BYTES_SIZE_RATIO);
 
-    long filesReducedCount = estimateReducedFilesCount(candidateFilesBytes, candidateFilesCount);
-    double computeGbHr = estimateComputeGbHr(candidateFilesBytes);
-    double filesReducedCountPerComputeGbHr = filesReducedCount / computeGbHr;
+    long reducedFileCount = estimateReducedFileCount(rewriteFileBytes, rewriteFileCount);
+    double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
+    // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
+    double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
     return DataLayoutOptimizationStrategy.builder()
         .config(configBuilder.build())
         .cost(computeGbHr)
-        .gain(filesReducedCount)
-        .score(filesReducedCountPerComputeGbHr)
+        .gain(reducedFileCount)
+        .score(reducedFileCountPerComputeGbHr)
         .build();
   }
 
-  private long estimateReducedFilesCount(long filesBytes, int filesCount) {
-    long compactedFilesCount = (filesBytes + TARGET_BYTES_SIZE - 1) / TARGET_BYTES_SIZE;
-    return Math.max(0, filesCount - compactedFilesCount);
+  private long estimateReducedFileCount(long rewriteFileBytes, int rewriteFileCount) {
+    // number of files after compaction rounded up
+    long resultFileCount = (rewriteFileBytes + TARGET_BYTES_SIZE - 1) / TARGET_BYTES_SIZE;
+    return Math.max(0, rewriteFileCount - resultFileCount);
   }
 
-  private double estimateComputeGbHr(long filesBytes) {
-    double rewriteSeconds = filesBytes * 1.0 / REWRITE_BYTES_PER_SECOND;
+  private double estimateComputeGbHr(long rewriteBytes) {
+    double rewriteSeconds = rewriteBytes * 1.0 / REWRITE_BYTES_PER_SECOND;
     double rewriteHours = rewriteSeconds / 3600.0;
-    return rewriteHours * EXECUTOR_MEMORY_MB / 1024 + COMPUTE_STARTUP_COST_GB_HR;
+    return rewriteHours * EXECUTOR_MEMORY_GB + COMPUTE_STARTUP_COST_GB_HR;
   }
 }
