@@ -58,7 +58,9 @@ dependencies {
   }
   testImplementation(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
 
-  fatJarPackagedDependencies(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
+  fatJarPackagedDependencies(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow')) {
+    transitive = false
+  }
   fatJarRuntimeDependencies("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
 
   generateGrammarSource {

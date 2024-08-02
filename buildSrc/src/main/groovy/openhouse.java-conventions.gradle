@@ -13,7 +13,6 @@ dependencies {
 
   implementation 'io.micrometer:micrometer-core:' + micrometerVersion
   implementation 'io.micrometer:micrometer-registry-prometheus:' + micrometerVersion
-  implementation 'com.squareup.okhttp3:okhttp:4.9.3'
   implementation 'commons-cli:commons-cli:1.5.0'
 
 }

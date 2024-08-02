@@ -51,6 +51,8 @@ shadowJar {
   dependencies {
     exclude("org/springframework/http/codec/CodecConfigurer.properties")
     exclude("javax/**")
+    exclude("okio/**")
+    exclude("kotlin/**")
 
     relocate ('io.', 'com.linkedin.openhouse.relocated.io.')
     relocate('org','com.linkedin.openhouse.relocated.org') {

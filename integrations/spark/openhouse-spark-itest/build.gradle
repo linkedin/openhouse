@@ -14,8 +14,6 @@ dependencies {
   testImplementation("org.apache.spark:spark-sql_2.12:" + spark_version){
     // These classes are available from `client-codegen-convention.gradle`
     exclude group: "io.netty"
-    exclude group: 'org.apache.hadoop', module: 'hadoop-common'
-    exclude group: 'org.apache.hadoop', module: 'hadoop-client'
   }
 
   testImplementation project(':tables-test-fixtures_2.12')
