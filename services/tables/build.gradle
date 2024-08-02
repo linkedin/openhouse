@@ -11,7 +11,7 @@ plugins {
    * Please remove the version from the offending request and make sure the module
    * containing the requested plugin 'org.springframework.boot' is an implementation dependency.
    */
-  id 'org.springframework.boot' version '2.1.2.RELEASE'
+  id 'org.springframework.boot' version '2.7.8'
 
   /**
    * These are the dependencies to enable client generation for the service.
@@ -29,8 +29,8 @@ dependencies {
   implementation project(':cluster:storage')
   implementation project(':cluster:metrics')
   implementation 'org.springframework.security:spring-security-config:' + '5.7.2'
-  implementation 'org.springframework.boot:spring-boot-starter-webflux:2.6.6'
-  testCompile 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+  implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
+  testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
   testImplementation 'org.springframework.security:spring-security-test:' + '5.7.3'
   testImplementation(testFixtures(project(':services:common')))
   testImplementation project(':tables-test-fixtures_2.12')

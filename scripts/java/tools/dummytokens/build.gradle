@@ -15,6 +15,7 @@ dependencies {
 }
 
 jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
         attributes(
             'Main-Class': 'com.linkedin.openhouse.tools.dummytokens.DummyTokenGenerator'

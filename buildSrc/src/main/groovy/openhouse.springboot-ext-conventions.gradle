@@ -1,14 +1,12 @@
 // plugin for extensible springboot services
 plugins {
   id 'openhouse.springboot-conventions'
-}
-
-jar {
-  enabled = true
-  archiveClassifier = 'lib'
+  id "org.springframework.boot"
 }
 
 tasks.named("bootJar") {
+  enabled = true
+  archiveClassifier = ""
   manifest {
     // Default springboot app launcher class is JarLauncher which doesn't allow to load classes from external jars
     // (jars not packaged within the app fat jar). PropertiesLauncher allows to extend list of paths
@@ -18,9 +16,7 @@ tasks.named("bootJar") {
   }
 }
 
-configurations {
-  [apiElements, runtimeElements].each {
-    it.outgoing.artifacts.removeIf { it.buildDependencies.getDependencies(null).contains(jar) }
-    it.outgoing.artifact(bootJar)
-  }
+tasks.named("jar") {
+  enabled = true
+  archiveClassifier = "lib"
 }

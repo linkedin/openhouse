@@ -9,7 +9,7 @@ ext {
 dependencies {
   testImplementation(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
 
-  testImplementation "com.squareup.okhttp3:okhttp:4.0.1"
-  testImplementation "com.squareup.okhttp3:mockwebserver:4.0.1"
-  testCompile "org.apache.iceberg:iceberg-bundled-guava:" + icebergVersion
+  testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
+  testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"
+  testImplementation "org.apache.iceberg:iceberg-bundled-guava:" + icebergVersion
 }

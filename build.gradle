@@ -26,7 +26,7 @@ buildscript {
 }
 
 ext {
-  spring_web_version = "2.6.6"
+  spring_web_version = "2.7.8"
   spark_version = "3.1.1"
 }
 
@@ -126,3 +126,4 @@ tasks.register('CopyGitHooksTask', Copy) {
   from file('scripts/git-hooks')
   into file('.git/hooks/')
 }
+

@@ -18,8 +18,8 @@ dependencies {
   // Needed for testing against manually bootstrapped HTS server through bootRun task.
   testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"
   // Needed for testing against mock HTS server along with other constructs in /tables module.
-  testImplementation "com.squareup.okhttp3:okhttp:4.0.1"
-  testImplementation "com.squareup.okhttp3:mockwebserver:4.0.1"
+  testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
+  testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"
   testImplementation "org.mockito:mockito-inline:4.11.0"
 }
 
