@@ -3,12 +3,6 @@ plugins {
   id 'openhouse.maven-publish'
 }
 
-configurations.all {
-  resolutionStrategy {
-    force 'org.apache.commons:commons-lang3:3.12.0'
-  }
-}
-
 dependencies {
 
   testImplementation 'com.google.code.gson:gson:2.8.9'
