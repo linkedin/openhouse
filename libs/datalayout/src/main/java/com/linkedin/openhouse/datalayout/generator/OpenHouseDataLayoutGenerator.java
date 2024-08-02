@@ -51,9 +51,13 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
   /**
    * Computes the compaction strategy for a partitioned table. Only files less than the minimum
    * threshold are considered. The rewrite job parameters are calculated, as well as the following:
-   * * Estimated cost is computed as the GB-hrs spent in performing the compaction * Estimated gain
-   * is computed as the reduction in file count * Estimated score is computed as gain / cost, the
-   * number of files reduced per GB-hr of compute, the higher the score, the better the strategy is
+   *
+   * <ul>
+   *   <li>Estimated cost is computed as the GB-hrs spent in performing the compaction
+   *   <li>Estimated gain is computed as the reduction in file count
+   *   <li>Estimated score is computed as gain / cost, the number of files reduced per GB-hr of
+   *       compute, the higher the score, the better the strategy
+   * </ul>
    */
   private DataLayoutOptimizationStrategy generateCompactionStrategy() {
     Tuple2<Long, Integer> fileStats =
