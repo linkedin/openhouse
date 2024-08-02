@@ -2,6 +2,7 @@ package com.linkedin.openhouse.datalayout.datasource;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
@@ -24,6 +25,7 @@ public class TablePartitionStatsTest extends OpenHouseSparkITest {
           TablePartitionStats.builder().spark(spark).tableName(testTable).build();
       List<PartitionStat> stats = tablePartitionStats.get().collectAsList();
       Assertions.assertEquals(2, stats.size());
+      stats.sort(Comparator.comparing(a -> a.getValues().get(0)));
       Assertions.assertEquals(Arrays.asList("2024-01-01", "0"), stats.get(0).getValues());
       Assertions.assertEquals(1, stats.get(0).getFileCount());
       Assertions.assertEquals(Arrays.asList("2024-01-02", "1"), stats.get(1).getValues());

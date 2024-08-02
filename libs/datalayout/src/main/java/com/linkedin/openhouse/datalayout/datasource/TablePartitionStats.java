@@ -16,11 +16,6 @@ public class TablePartitionStats implements DataSource<PartitionStat> {
   private final SparkSession spark;
   private final String tableName;
 
-  /**
-   * Get partition statistics dataset for the table.
-   *
-   * @return Dataset of partition statistics sorted by partition values.
-   */
   @Override
   public Dataset<PartitionStat> get() {
     StructType partitionSchema =
@@ -28,9 +23,7 @@ public class TablePartitionStats implements DataSource<PartitionStat> {
     try {
       partitionSchema.apply("partition");
       return spark
-          .sql(
-              String.format(
-                  "SELECT partition, file_count FROM %s.partitions ORDER BY partition", tableName))
+          .sql(String.format("SELECT partition, file_count FROM %s.partitions", tableName))
           .map(new TablePartitionStats.PartitionStatMapper(), Encoders.bean(PartitionStat.class));
     } catch (IllegalArgumentException e) {
       return spark
