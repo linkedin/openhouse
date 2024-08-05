@@ -7,6 +7,7 @@ created/used:
 - locals: Local variables that specify configuration settings.
 - module.vm: The virtual network and subnet where other resources are located.
 - module.mysql: The MySQL database for HTS.
+- module.storage: The Azure storage accounts and containers.
 - module.k8s: The AKS clusters.
 - module.helm_release: The helm releases of the Tables and HTS Services.
 - module.image: The Docker images for Tables and HTS and their connections to the Azure Container Registry.
@@ -16,11 +17,26 @@ data "azurerm_resource_group" "openhouse_sandbox" {
   name = var.resource_group_name
 }
 
+data "azurerm_storage_account" "default" {
+  depends_on          = [module.storage]
+  resource_group_name = var.resource_group_name
+  name                = local.storage_account_name
+}
+
+resource "random_string" "storage_name" {
+  length  = 5
+  special = false
+  lower   = true
+  upper   = false
+}
+
 locals {
   db_username          = "azureadmin"
   db_password          = "Pa33word"
   db_name              = "openhouse-sandbox-db"
   db_server_name       = "openhouse-sandbox-mysql-server"
+  storage_account_name = "openhousestorage${random_string.storage_name.result}"
+  container_name       = "blobcontainer"
 }
 
 module "vm" {
@@ -29,6 +45,8 @@ module "vm" {
   virtual_network_name = "openhouse-sandbox-network"
   resource_group_name  = var.resource_group_name
   subnet_name          = "openhouse-sandbox-subnet"
+  dns_zone_name        = "openhouse-dns-zone.mysql.database.azure.com"
+  dns_link_name        = "openhouse-dns-link"
 }
 
 module "mysql" {
@@ -41,6 +59,14 @@ module "mysql" {
   db_admin_password   = local.db_password
   db_name             = local.db_name
   server_sku          = "B_Standard_B2ms" # 2 vCPU and 8 GiB memory
+  dns_zone_id         = module.vm.dns_zone_id
+}
+
+module "storage" {
+  source               = "../../modules/storage"
+  depends_on           = [data.azurerm_resource_group.openhouse_sandbox]
+  storage_account_name = local.storage_account_name
+  container_name       = local.container_name
 }
 
 module "k8s" {
@@ -62,6 +88,9 @@ module "helm_release" {
   db_name                 = local.db_name
   server_name             = local.db_server_name
   container_registry_name = data.azurerm_container_registry.default.name
+  storage_account_name    = local.storage_account_name
+  storage_account_key     = data.azurerm_storage_account.default.primary_access_key
+  container_name          = local.container_name
 }
 
 module "image" {

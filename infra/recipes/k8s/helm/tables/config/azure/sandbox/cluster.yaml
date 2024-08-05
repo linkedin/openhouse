@@ -2,14 +2,23 @@ cluster:
   name: "AKSCluster"
   storage:
     type: "hadoop"
-    uri: "file:///"
-    root-path: "/tmp/openhouse"
+    uri: "hdfs://namenode:9000/"
+    root-path: "/data/openhouse"
+  storages:
+    default-type: "adls"
+    types:
+      adls:
+        rootpath: <container-name>@<storage-account-name>.dfs.core.windows.net 
+        endpoint: "abfs://"
+        parameters:
+          adls.auth.shared-key.account.name: <storage-account-name>
+          adls.auth.shared-key.account.key: <storage-account-key>
   iceberg:
     write:
       format:
         default: "orc"
       metadata:
-        previous-versions-max: 28
+        previous-versions-max: 78
         delete-after-commit:
           enabled: true
   housetables:
