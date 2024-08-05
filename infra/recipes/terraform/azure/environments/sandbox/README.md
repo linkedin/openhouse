@@ -104,4 +104,4 @@ to build the images and start the `local.spark-master` container.
 
 ### Start spark-shell
 
-Once the terraform services have started, run `./spark-client.sh`. This file pulls the AKS pods, gets the terraform outputs, generates the spark-shell command, and enters the spark shell within the `local.spark-master` container. Then, run commands like those found in `SETUP.md` to make requests from the client.
+Once the terraform services have started on AKS, run `./spark-client.sh`. This script gets the AKS cluster info such storage account and AKS cluster using terraform. And then pulls the details of the services running on AKS such as tables-service  address and port and generates the spark-shell start command. Lastly, starts spark shell within the `local.spark-master` container. Then, run commands like those found in `SETUP.md` to make requests from the spark client.
