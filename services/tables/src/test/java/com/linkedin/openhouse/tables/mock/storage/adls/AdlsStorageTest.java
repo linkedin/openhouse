@@ -70,7 +70,7 @@ public class AdlsStorageTest {
             ImmutableMap.of(
                 StorageType.ADLS.getValue(),
                 new StorageProperties.StorageTypeProperties(
-                    "abfs://", "testcontainer@teststorage.dfs.core.windows.net", testMap)));
+                    "testcontainer@teststorage.dfs.core.windows.net", "abfs://", testMap)));
     when(adlsStorageClient.getEndpoint()).thenReturn("abfs://");
     when(adlsStorageClient.getRootPrefix())
         .thenReturn("testcontainer@teststorage.dfs.core.windows.net");
