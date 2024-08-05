@@ -21,6 +21,21 @@ resource "helm_release" "tables" {
     name  = "tablesService.image.repository"
     value = "${var.container_registry_name}.azurecr.io/${var.tables_release_name}"
   }
+
+  set {
+    name  = "storageProperties.containerName"
+    value = var.container_name
+  }
+
+  set {
+    name  = "storageProperties.storageAccountName"
+    value = var.storage_account_name
+  }
+
+  set_sensitive {
+    name  = "storageProperties.storageAccountKey"
+    value = var.storage_account_key
+  }
 }
 
 resource "helm_release" "housetables" {

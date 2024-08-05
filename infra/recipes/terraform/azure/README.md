@@ -11,6 +11,7 @@ This directory is intended to provide a customizable configuration for Microsoft
     ├── modules                 # Reusable Azure components that are pre-defined
         ├── k8s                 # The Azure kubernetes configurations and services
         ├── mysql               # The Azure MySQL configurations and services
+        ├── storage             # The Azure storage configurations and services
         ├── image               # The Docker image builds and pushes to the ACR
         ├── vm                  # The Azure virtual machine and network configurations and services
         ├── container           # The Azure Container Registry configurations and services
