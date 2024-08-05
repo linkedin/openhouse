@@ -90,3 +90,18 @@ Once you have successfully run the above steps so the sandbox has been run, you 
 ## Make requests to services
 
 To make requests to the services, set up port forwarding by running `kubectl port-forward <pod-name> 8080:<destination-port>`. You can get the pod name by running `kubectl get pods`. Then, you can make requests to HTS and Tables service via `http://localhost:<destination-port>`. If you want to make requests to both HTS and Tables services you will need to forward to two separate ports.
+
+## Run client shell
+
+### Start local spark cluster
+
+Navigate to `infra/recipes/docker-compose/spark-only`, and run"
+```
+docker compose build
+docker compose up -d
+```
+to build the images and start the `local.spark-master` container.
+
+### Start spark-shell
+
+Once the terraform services have started on AKS, run `./spark-client.sh`. This script gets the AKS cluster info such storage account and AKS cluster using terraform. And then pulls the details of the services running on AKS such as tables-service  address and port and generates the spark-shell start command. Lastly, starts spark shell within the `local.spark-master` container. Then, run commands like those found in `SETUP.md` to make requests from the spark client.
