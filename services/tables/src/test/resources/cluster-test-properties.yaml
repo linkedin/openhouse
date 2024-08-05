@@ -18,6 +18,8 @@ cluster:
           token: xyz
   housetables:
     base-uri: "http://localhost:8080"
+  tables:
+    allowed-client-name-values: trino,spark
   security:
     tables:
       authorizations:

@@ -15,6 +15,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.jayway.jsonpath.JsonPath;
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
@@ -95,6 +96,8 @@ public class TablesControllerTest {
 
   @Autowired private SimpleMeterRegistry registry;
 
+  @Autowired private ClusterProperties clusterProperties;
+
   @Test
   public void testSwaggerDocsWithoutAuth() throws Exception {
     mvc.perform(
@@ -115,7 +118,22 @@ public class TablesControllerTest {
   @Test
   @DirtiesContext
   public void testMetricsWithClientNameHeader() throws Exception {
-    String anyTestClientName = ALLOWED_CLIENT_NAME_VALUES.get(0);
+    String anyTestClientName = clusterProperties.getAllowedClientNameValues().get(0);
+    mvc.perform(
+        MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
+            .header(HTTP_HEADER_CLIENT_NAME, anyTestClientName)
+            .accept(MediaType.APPLICATION_JSON));
+    Assertions.assertNotNull(
+        this.registry
+            .get("http.server.requests")
+            .tags(METRIC_KEY_CLIENT_NAME, anyTestClientName)
+            .timer());
+  }
+
+  @Test
+  @DirtiesContext
+  public void testMetricsWithClientNameHeaderList() throws Exception {
+    String anyTestClientName = clusterProperties.getAllowedClientNameValues().get(1);
     mvc.perform(
         MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
             .header(HTTP_HEADER_CLIENT_NAME, anyTestClientName)
@@ -131,7 +149,8 @@ public class TablesControllerTest {
   @DirtiesContext
   public void testMetricsWithClientNameHeaderInvalidValue() throws Exception {
     String invalidTestClientName = "thisdoesntexist";
-    Assertions.assertFalse(ALLOWED_CLIENT_NAME_VALUES.contains(invalidTestClientName));
+    Assertions.assertFalse(
+        clusterProperties.getAllowedClientNameValues().contains(invalidTestClientName));
     mvc.perform(
         MockMvcRequestBuilders.get(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases")
             .header(HTTP_HEADER_CLIENT_NAME, invalidTestClientName)
@@ -167,7 +186,7 @@ public class TablesControllerTest {
         () ->
             this.registry
                 .get("http.server.requests")
-                .tags("client_name", ALLOWED_CLIENT_NAME_VALUES.get(0))
+                .tags("client_name", clusterProperties.getAllowedClientNameValues().get(0))
                 .timer());
   }
 

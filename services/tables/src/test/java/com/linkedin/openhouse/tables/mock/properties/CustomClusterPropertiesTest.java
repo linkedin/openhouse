@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.mock.properties;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import java.util.Arrays;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,12 @@ public class CustomClusterPropertiesTest {
   @Test
   public void testClusterProperties() {
     Assertions.assertEquals("TestCluster", clusterProperties.getClusterName());
+  }
+
+  @Test
+  public void testClusterPropertiesTableAllowedClientNameValues() {
+    Assertions.assertEquals(
+        Arrays.asList("trino", "spark"), clusterProperties.getAllowedClientNameValues());
   }
 
   @AfterAll

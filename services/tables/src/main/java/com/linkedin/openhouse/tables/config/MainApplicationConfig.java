@@ -95,7 +95,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
         return Collections.singletonList(
             Tag.of(
                 METRIC_KEY_CLIENT_NAME,
-                ALLOWED_CLIENT_NAME_VALUES.contains(clientName)
+                clusterProperties.getAllowedClientNameValues().contains(clientName)
                     ? clientName
                     : CLIENT_NAME_DEFAULT_VALUE));
       }

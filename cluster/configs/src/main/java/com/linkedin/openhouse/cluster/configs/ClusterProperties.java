@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.cluster.configs;
 
+import java.util.List;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
@@ -71,4 +72,9 @@ public class ClusterProperties {
 
   @Value("${cluster.security.tables.authorization.opa.base-uri:#{null}}")
   private String clusterSecurityTablesAuthorizationOpaBaseUri;
+
+  // due to springboot lack of yaml list support, lists are represented in yaml as a comma separated
+  // string
+  @Value("${cluster.tables.allowed-client-name-values:}")
+  private List<String> allowedClientNameValues;
 }
