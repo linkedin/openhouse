@@ -10,6 +10,7 @@ resource "azurerm_mysql_flexible_server" "mysql_server" {
   administrator_password = var.db_admin_password
   delegated_subnet_id    = var.subnet_id
   sku_name               = var.server_sku
+  private_dns_zone_id    = var.dns_zone_id
 }
 
 resource "azurerm_mysql_flexible_database" "mysql" {

@@ -20,3 +20,12 @@ variable "address_prefixes" {
   default     = ["10.0.1.0/24"]
 }
 
+variable "dns_zone_name" {
+  type = string
+  description = "The name of the private DNS zone."
+}
+
+variable "dns_link_name" {
+  type = string
+  description = "The name of the DNS zone virtual network link."
+}

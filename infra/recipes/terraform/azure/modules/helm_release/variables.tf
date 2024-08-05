@@ -35,3 +35,19 @@ variable "housetables_release_name" {
   default     = "openhouse-housetables-service"
   description = "The name of the tables service Helm release."
 }
+
+variable "container_name" {
+  type        = string
+  description = "The name of the container for ADLS storage."
+}
+
+variable "storage_account_name" {
+  type        = string
+  description = "The name of the storage account for ADLS storage."
+}
+
+variable "storage_account_key" {
+  type        = string
+  description = "The key for the storage account for ADLS storage."
+  sensitive   = true
+}
