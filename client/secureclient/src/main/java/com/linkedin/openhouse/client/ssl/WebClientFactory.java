@@ -25,7 +25,7 @@ public abstract class WebClientFactory {
   private static final String HTTPS = "https";
   private static final String SESSION_ID = "session-id";
 
-  private static final String HTTPHEADER_CLIENT_NAME = "X-Client-Name";
+  public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
   private static final int IN_MEMORY_BUFFER_SIZE = 10 * 1000 * 1024;
   // The maximum number of connections per connection pool
   private static final int MAX_CONNECTION_POOL_SIZE = 500;
@@ -204,7 +204,7 @@ public abstract class WebClientFactory {
    */
   private void setClientNameInWebClientHeader(WebClient.Builder webClientBuilder) {
     if (clientName != null) {
-      webClientBuilder.defaultHeaders(h -> h.add(HTTPHEADER_CLIENT_NAME, clientName));
+      webClientBuilder.defaultHeaders(h -> h.add(HTTP_HEADER_CLIENT_NAME, clientName));
     }
     log.info("Client name: {}", clientName);
   }

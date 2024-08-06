@@ -96,7 +96,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private static final String HTTP_CONNECTION_STRATEGY = "http-connection-strategy";
 
-  private static final String CLIENT_NAME = "client-name";
+  public static final String CLIENT_NAME = "client-name";
 
   @Override
   public void initialize(String name, Map<String, String> properties) {
