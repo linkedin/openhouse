@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
 import com.google.common.collect.ImmutableMap;
+import com.linkedin.openhouse.gen.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.gen.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
@@ -19,8 +20,9 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.metrics.MetricsReporter;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -35,11 +37,16 @@ public class SmokeTest {
   private static MockWebServer mockTableService = null;
   private static String url = null;
 
-  @BeforeAll
-  static void setup() throws IOException {
+  @BeforeEach
+  void setup() throws IOException {
     mockTableService = new MockWebServer();
     mockTableService.start();
     url = String.format("http://%s:%s", mockTableService.getHostName(), mockTableService.getPort());
+  }
+
+  @AfterEach
+  void teardown() throws IOException {
+    mockTableService.shutdown();
   }
 
   @Test
@@ -56,6 +63,41 @@ public class SmokeTest {
                 .getTableV1("database", "table")
                 .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.empty())
                 .block());
+  }
+
+  @Test
+  public void testTableApiDefaultHeadersPropagated() throws InterruptedException {
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
+
+    String expectedHeader = WebClientFactory.HTTP_HEADER_CLIENT_NAME;
+    String expectedHeaderValue = "anyvalue";
+
+    ApiClient apiClient = new ApiClient();
+    apiClient.addDefaultHeader(expectedHeader, expectedHeaderValue);
+    apiClient.setBasePath(url);
+    new TableApi(apiClient).getTableV1("database", "table").block();
+    Assertions.assertEquals(
+        expectedHeaderValue, mockTableService.takeRequest().getHeader(expectedHeader));
+  }
+
+  @Test
+  public void testCatalogClientNamePropagated() throws InterruptedException {
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    String expectedHeader =
+        WebClientFactory
+            .HTTP_HEADER_CLIENT_NAME; // this value is a constant hidden in webclientfactory
+    String expectedHeaderValue = "anyvalue";
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogProperties.URI, url);
+    properties.put("auth-token", "token");
+    properties.put(OpenHouseCatalog.CLIENT_NAME, expectedHeaderValue);
+    openHouseCatalog.initialize("openhouse", properties);
+    openHouseCatalog.tableExists(TableIdentifier.of("db", "table"));
+    Assertions.assertEquals(
+        expectedHeaderValue, mockTableService.takeRequest().getHeader(expectedHeader));
   }
 
   @Test

@@ -42,7 +42,8 @@ public class TablesMvcConfigurer implements WebMvcConfigurer {
           registry
               .addInterceptor(interceptor)
               .addPathPatterns("/**")
-              .excludePathPatterns("/actuator/**", "/**/api-docs/**", "/**/swagger-ui/**");
+              .excludePathPatterns(
+                  "/actuator/**", "/**/api-docs/**", "/**/swagger-ui/**", "/favicon.ico", "/error");
           addOpenAPISecurityScheme();
         });
   }
