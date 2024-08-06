@@ -4,7 +4,7 @@ import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.datasource.FileStat;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
-import com.linkedin.openhouse.datalayout.strategy.DataLayoutOptimizationStrategy;
+import com.linkedin.openhouse.datalayout.strategy.RewriteStrategy;
 import java.util.Collections;
 import java.util.List;
 import lombok.Builder;
@@ -19,7 +19,7 @@ import scala.Tuple2;
  * score.
  */
 @Builder
-public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
+public class OpenHouseRewriteStrategyGenerator implements RewriteStrategyGenerator {
   private static final long MB = 1024 * 1024;
   private static final long FILE_BLOCK_SIZE_BYTES = 256 * MB;
   private static final long FILE_BLOCK_MARGIN_BYTES = 10 * MB;
@@ -40,7 +40,7 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
    * historic query patterns.
    */
   @Override
-  public List<DataLayoutOptimizationStrategy> generate() {
+  public List<RewriteStrategy> generate() {
     // skip single partition and non-partitioned tables
     if (tablePartitionStats.get().count() <= 1) {
       return Collections.emptyList();
@@ -59,7 +59,7 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
    *       compute, the higher the score, the better the strategy
    * </ul>
    */
-  private DataLayoutOptimizationStrategy generateCompactionStrategy() {
+  private RewriteStrategy generateCompactionStrategy() {
     Tuple2<Long, Integer> fileStats =
         tableFileStats
             .get()
@@ -110,7 +110,7 @@ public class OpenHouseDataLayoutGenerator implements DataLayoutGenerator {
     double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
     // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
     double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
-    return DataLayoutOptimizationStrategy.builder()
+    return RewriteStrategy.builder()
         .config(configBuilder.build())
         .cost(computeGbHr)
         .gain(reducedFileCount)
