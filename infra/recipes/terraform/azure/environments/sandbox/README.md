@@ -104,4 +104,8 @@ to build the images and start the `local.spark-master` container.
 
 ### Start spark-shell
 
-Once the terraform services have started on AKS, run `./spark-client.sh`. This script gets the AKS cluster info such storage account and AKS cluster using terraform. And then pulls the details of the services running on AKS such as tables-service  address and port and generates the spark-shell start command. Lastly, starts spark shell within the `local.spark-master` container. Then, run commands like those found in `SETUP.md` to make requests from the spark client.
+Once the terraform services have started on AKS, run `./scripts/spark-client.sh`. This script gets the AKS cluster info such storage account and AKS cluster using terraform. And then pulls the details of the services running on AKS such as tables-service  address and port and generates the spark-shell start command. Lastly, starts spark shell within the `local.spark-master` container. Then, run commands like those found in `SETUP.md` to make requests from the spark client.
+
+### Populate example tables
+
+If you would like to create a few tables and populate them with some test data, once the spark-shell has started run `:load /opt/spark/populate-tables.scala` to create and insert into two example tables. Feel free to customize `./scripts/populate-tables.scala` to change the tables and data being created.
