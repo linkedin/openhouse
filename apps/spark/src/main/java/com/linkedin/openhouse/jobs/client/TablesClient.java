@@ -90,6 +90,20 @@ public class TablesClient {
   }
 
   /**
+   * Checks if data layout strategies can be generated on the input table.
+   *
+   * @param tableMetadata table metadata
+   * @return true if data layout strategies can be generated on the table, false otherwise
+   */
+  public boolean canRunDataLayoutStrategyGeneration(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    if (response == null || response.getTimePartitioning() == null) {
+      return false;
+    }
+    return isPrimaryTable(tableMetadata);
+  }
+
+  /**
    * Checks if data compaction can be executed on the input table.
    *
    * @param tableMetadata table metadata
