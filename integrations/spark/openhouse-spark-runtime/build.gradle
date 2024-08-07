@@ -27,8 +27,7 @@ configurations {
     exclude(group: 'org.antlr') // included in spark
     exclude(group: 'org.mapstruct')
   }
-  fatJarRuntimeDependencies
-  shadow.extendsFrom fatJarRuntimeDependencies
+  shadow.extendsFrom implementation
 }
 
 
@@ -61,7 +60,7 @@ dependencies {
   fatJarPackagedDependencies(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow')) {
     transitive = false
   }
-  fatJarRuntimeDependencies("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
+  implementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
 
   generateGrammarSource {
     maxHeapSize = "64m"

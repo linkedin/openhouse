@@ -12,10 +12,6 @@ task javadocJar(type: Jar) {
   from javadoc.destinationDir
 }
 
-tasks.withType(GenerateModuleMetadata) {
-  enabled = false
-}
-
 [jar, sourcesJar, javadocJar].each { task ->
   task.from(rootDir) {
     include 'LICENSE'

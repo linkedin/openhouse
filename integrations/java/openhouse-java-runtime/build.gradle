@@ -15,8 +15,7 @@ configurations {
     exclude(group: 'io.micrometer') // not used in client
     exclude(group: 'ch.qos.logback')
   }
-  fatJarRuntimeDependencies
-  shadow.extendsFrom fatJarRuntimeDependencies
+  shadow.extendsFrom implementation
 }
 
 ext {
@@ -34,8 +33,8 @@ dependencies {
 
   implementation 'org.apache.commons:commons-lang3:3.12.0'
   fatJarPackagedDependencies(project(':client:secureclient'))
-  fatJarRuntimeDependencies("org.apache.iceberg:iceberg-core:" + icebergVersion)
-  fatJarRuntimeDependencies("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
+  implementation("org.apache.iceberg:iceberg-core:" + icebergVersion)
+  implementation("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
     exclude group: 'junit', module: 'junit'
     exclude group: 'javax', module: 'servlet-api'
     exclude group: "io.netty"
