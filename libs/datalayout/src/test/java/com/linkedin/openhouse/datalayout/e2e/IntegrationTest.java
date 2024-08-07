@@ -2,10 +2,10 @@ package com.linkedin.openhouse.datalayout.e2e;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
-import com.linkedin.openhouse.datalayout.generator.OpenHouseRewriteStrategyGenerator;
+import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
-import com.linkedin.openhouse.datalayout.strategy.RewriteStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
@@ -25,16 +25,16 @@ public class IntegrationTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       TablePartitionStats tablePartitionStats =
           TablePartitionStats.builder().tableName(testTable).spark(spark).build();
-      OpenHouseRewriteStrategyGenerator strategyGenerator =
-          OpenHouseRewriteStrategyGenerator.builder()
+      OpenHouseDataLayoutStrategyGenerator strategyGenerator =
+          OpenHouseDataLayoutStrategyGenerator.builder()
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<RewriteStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(1, strategies.size());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
       dao.save(testTable, strategies);
-      List<RewriteStrategy> retrievedStrategies = dao.load(testTable);
+      List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
       Assertions.assertEquals(strategies, retrievedStrategies);
     }
   }
@@ -49,12 +49,12 @@ public class IntegrationTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       TablePartitionStats tablePartitionStats =
           TablePartitionStats.builder().tableName(testTable).spark(spark).build();
-      OpenHouseRewriteStrategyGenerator strategyGenerator =
-          OpenHouseRewriteStrategyGenerator.builder()
+      OpenHouseDataLayoutStrategyGenerator strategyGenerator =
+          OpenHouseDataLayoutStrategyGenerator.builder()
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<RewriteStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(0, strategies.size());
     }
   }

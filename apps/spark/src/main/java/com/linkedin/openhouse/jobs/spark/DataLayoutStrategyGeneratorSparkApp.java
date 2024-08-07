@@ -2,10 +2,10 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
-import com.linkedin.openhouse.datalayout.generator.OpenHouseRewriteStrategyGenerator;
+import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
-import com.linkedin.openhouse.datalayout.strategy.RewriteStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,8 +16,9 @@ import org.apache.commons.cli.Option;
 import org.apache.spark.sql.SparkSession;
 
 @Slf4j
-public class RewriteStrategyGeneratorSparkApp extends BaseTableSparkApp {
-  protected RewriteStrategyGeneratorSparkApp(String jobId, StateManager stateManager, String fqtn) {
+public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
+  protected DataLayoutStrategyGeneratorSparkApp(
+      String jobId, StateManager stateManager, String fqtn) {
     super(jobId, stateManager, fqtn);
   }
 
@@ -27,13 +28,13 @@ public class RewriteStrategyGeneratorSparkApp extends BaseTableSparkApp {
     TableFileStats tableFileStats = TableFileStats.builder().tableName(fqtn).spark(spark).build();
     TablePartitionStats tablePartitionStats =
         TablePartitionStats.builder().tableName(fqtn).spark(spark).build();
-    OpenHouseRewriteStrategyGenerator strategiesGenerator =
-        OpenHouseRewriteStrategyGenerator.builder()
+    OpenHouseDataLayoutStrategyGenerator strategiesGenerator =
+        OpenHouseDataLayoutStrategyGenerator.builder()
             .tableFileStats(tableFileStats)
             .tablePartitionStats(tablePartitionStats)
             .build();
     log.info("Generating strategies for table {}", fqtn);
-    List<RewriteStrategy> strategies = strategiesGenerator.generate();
+    List<DataLayoutStrategy> strategies = strategiesGenerator.generate();
     log.info(
         "Generated {} strategies {}",
         strategies.size(),
@@ -46,8 +47,8 @@ public class RewriteStrategyGeneratorSparkApp extends BaseTableSparkApp {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-    RewriteStrategyGeneratorSparkApp app =
-        new RewriteStrategyGeneratorSparkApp(
+    DataLayoutStrategyGeneratorSparkApp app =
+        new DataLayoutStrategyGeneratorSparkApp(
             getJobId(cmdLine), createStateManager(cmdLine), cmdLine.getOptionValue("tableName"));
     app.run();
   }

@@ -10,7 +10,7 @@ import lombok.Data;
  */
 @Data
 @Builder
-public class RewriteStrategy {
+public class DataLayoutStrategy {
   private final double score;
   private final double cost;
   private final double gain;

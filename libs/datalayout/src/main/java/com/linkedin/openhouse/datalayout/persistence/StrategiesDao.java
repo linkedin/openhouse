@@ -1,11 +1,11 @@
 package com.linkedin.openhouse.datalayout.persistence;
 
-import com.linkedin.openhouse.datalayout.strategy.RewriteStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import java.util.List;
 
 /** DAO interface for persisting and loading data layout optimization strategies. */
 public interface StrategiesDao {
-  void save(String fqtn, List<RewriteStrategy> strategies);
+  void save(String fqtn, List<DataLayoutStrategy> strategies);
 
-  List<RewriteStrategy> load(String fqtn);
+  List<DataLayoutStrategy> load(String fqtn);
 }
