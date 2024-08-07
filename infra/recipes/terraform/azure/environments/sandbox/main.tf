@@ -23,8 +23,8 @@ data "azurerm_storage_account" "default" {
   name                = local.storage_account_name
 }
 
-resource "random_string" "storage_name" {
-  length  = 5
+resource "random_string" "name" {
+  length  = 6
   special = false
   lower   = true
   upper   = false
@@ -34,8 +34,8 @@ locals {
   db_username          = "azureadmin"
   db_password          = "Pa33word"
   db_name              = "openhouse-sandbox-db"
-  db_server_name       = "openhouse-sandbox-mysql-server"
-  storage_account_name = "openhousestorage${random_string.storage_name.result}"
+  db_server_name       = "openhouse-sandbox-mysql-server${random_string.name.result}"
+  storage_account_name = "openhousestorage${random_string.name.result}"
   container_name       = "blobcontainer"
 }
 
