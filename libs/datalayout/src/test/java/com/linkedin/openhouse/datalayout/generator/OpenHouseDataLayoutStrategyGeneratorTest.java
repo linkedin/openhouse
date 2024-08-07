@@ -2,14 +2,14 @@ package com.linkedin.openhouse.datalayout.generator;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
-import com.linkedin.openhouse.datalayout.strategy.DataLayoutOptimizationStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class OpenHouseDataLayoutGeneratorTest extends OpenHouseSparkITest {
+public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITest {
   @Test
   void testStrategySanityCheck() throws Exception {
     final String testTable = "db.test_table_sanity_check";
@@ -38,14 +38,14 @@ public class OpenHouseDataLayoutGeneratorTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       TablePartitionStats tablePartitionStats =
           TablePartitionStats.builder().tableName(testTable).spark(spark).build();
-      OpenHouseDataLayoutGenerator strategyGenerator =
-          OpenHouseDataLayoutGenerator.builder()
+      OpenHouseDataLayoutStrategyGenerator strategyGenerator =
+          OpenHouseDataLayoutStrategyGenerator.builder()
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<DataLayoutOptimizationStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(1, strategies.size());
-      DataLayoutOptimizationStrategy strategy = strategies.get(0);
+      DataLayoutStrategy strategy = strategies.get(0);
       // few groups, expect 1 commit
       Assertions.assertEquals(1, strategy.getConfig().getPartialProgressMaxCommits());
       Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());

@@ -1,17 +1,13 @@
 package com.linkedin.openhouse.datalayout.config;
 
 import lombok.Builder;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.ToString;
+import lombok.Data;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.actions.BinPackStrategy;
 import org.apache.iceberg.actions.RewriteDataFiles;
 
-@ToString
+@Data
 @Builder
-@Getter
-@EqualsAndHashCode
 public final class DataCompactionConfig {
   public static final long TARGET_BYTE_SIZE_DEFAULT =
       TableProperties.WRITE_TARGET_FILE_SIZE_BYTES_DEFAULT;

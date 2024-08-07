@@ -2,16 +2,18 @@ package com.linkedin.openhouse.datalayout.e2e;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
-import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutGenerator;
+import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
-import com.linkedin.openhouse.datalayout.strategy.DataLayoutOptimizationStrategy;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+@Slf4j
 public class IntegrationTest extends OpenHouseSparkITest {
   @Test
   public void testCompactionStrategyGenerationWithPersistencePartitioned() throws Exception {
@@ -23,16 +25,16 @@ public class IntegrationTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       TablePartitionStats tablePartitionStats =
           TablePartitionStats.builder().tableName(testTable).spark(spark).build();
-      OpenHouseDataLayoutGenerator strategyGenerator =
-          OpenHouseDataLayoutGenerator.builder()
+      OpenHouseDataLayoutStrategyGenerator strategyGenerator =
+          OpenHouseDataLayoutStrategyGenerator.builder()
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<DataLayoutOptimizationStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(1, strategies.size());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
       dao.save(testTable, strategies);
-      List<DataLayoutOptimizationStrategy> retrievedStrategies = dao.load(testTable);
+      List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
       Assertions.assertEquals(strategies, retrievedStrategies);
     }
   }
@@ -47,12 +49,12 @@ public class IntegrationTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       TablePartitionStats tablePartitionStats =
           TablePartitionStats.builder().tableName(testTable).spark(spark).build();
-      OpenHouseDataLayoutGenerator strategyGenerator =
-          OpenHouseDataLayoutGenerator.builder()
+      OpenHouseDataLayoutStrategyGenerator strategyGenerator =
+          OpenHouseDataLayoutStrategyGenerator.builder()
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<DataLayoutOptimizationStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(0, strategies.size());
     }
   }
