@@ -80,7 +80,7 @@ WORKDIR $LIVY_HOME
 RUN mkdir -p "${LIVY_HOME}/logs"
 
 COPY /infra/recipes/docker-compose/common/spark/start-spark.sh /
-COPY /build/openhouse-spark-runtime_2.12/libs/*[^sources][^javadoc].jar $SPARK_HOME/openhouse-spark-runtime_2.12-latest-all.jar
+COPY /build/openhouse-spark-runtime_2.12/libs/openhouse-spark-runtime_2.12-uber.jar $SPARK_HOME/openhouse-spark-runtime_2.12-latest-all.jar
 COPY /build/openhouse-spark-apps_2.12/libs/openhouse-spark-apps_2.12-uber.jar $SPARK_HOME/openhouse-spark-apps_2.12-latest-all.jar
 COPY /build/dummytokens/libs/dummytokens*.jar /dummytokens.jar
 RUN java -jar /dummytokens.jar -d /var/config/
