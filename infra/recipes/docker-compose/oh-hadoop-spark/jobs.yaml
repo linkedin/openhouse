@@ -57,3 +57,7 @@ jobs:
         class-name: com.linkedin.openhouse.jobs.spark.TableStatsCollectionSparkApp
         args: []
         <<: *apps-defaults
+      - type: DATA_LAYOUT_STRATEGY_GENERATION
+        class-name: com.linkedin.openhouse.jobs.spark.DataLayoutStrategyGeneratorSparkApp
+        args: []
+        <<: *apps-defaults

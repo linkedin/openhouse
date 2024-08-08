@@ -320,6 +320,47 @@ public class TablesClientTest {
   }
 
   @Test
+  void testCanRunDataLayoutStrategyGeneration() {
+    GetTableResponseBody primaryPartitionedTableResponseBodyMock =
+        createPartitionedTableResponseBodyMock(
+            testDbName, testTableNamePartitioned, testPartitionColumnName, 1);
+    Mono<GetTableResponseBody> partitionedResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(partitionedResponseMock.block(any(Duration.class)))
+        .thenReturn(primaryPartitionedTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
+        .thenReturn(partitionedResponseMock);
+
+    GetTableResponseBody primaryTableResponseBodyMock =
+        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
+
+    GetTableResponseBody replicaTableResponseBodyMock =
+        createReplicaTableResponseBodyMock(testDbName, testReplicaTableName);
+    Mono<GetTableResponseBody> replicaResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(replicaResponseMock.block(any(Duration.class)))
+        .thenReturn(replicaTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testReplicaTableName))
+        .thenReturn(replicaResponseMock);
+
+    Assertions.assertTrue(
+        client.canRunDataLayoutStrategyGeneration(
+            TableMetadata.builder()
+                .dbName(testDbName)
+                .tableName(testTableNamePartitioned)
+                .build()));
+    Assertions.assertFalse(
+        client.canRunDataLayoutStrategyGeneration(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
+    Assertions.assertFalse(
+        client.canRunDataLayoutStrategyGeneration(
+            TableMetadata.builder().dbName(testDbName).tableName(testReplicaTableName).build()));
+  }
+
+  @Test
   void testCanRunDataCompaction() {
     GetTableResponseBody primaryTableResponseBodyMock =
         createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
