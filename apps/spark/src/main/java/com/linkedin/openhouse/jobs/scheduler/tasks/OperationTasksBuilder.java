@@ -68,6 +68,7 @@ public class OperationTasksBuilder {
       case SQL_TEST:
       case TABLE_STATS_COLLECTION:
       case STAGED_FILES_DELETION:
+      case DATA_LAYOUT_STRATEGY_GENERATION:
         return prepareTableOperationTaskList(jobType);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType);
