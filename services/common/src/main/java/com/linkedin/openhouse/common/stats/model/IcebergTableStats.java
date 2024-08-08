@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.common.stats.model;
 
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -35,4 +36,6 @@ public class IcebergTableStats extends BaseTableMetadata {
   private Long numReferencedManifestFiles;
 
   private Long numReferencedManifestLists;
+
+  private Map<String, Long> snapshotCountByDay;
 }

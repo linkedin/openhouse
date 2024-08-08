@@ -9,9 +9,12 @@ import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import io.opentelemetry.api.metrics.Meter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -566,6 +569,18 @@ public class OperationsTest extends OpenHouseSparkITest {
               + stats.getNumExistingMetadataJsonFiles()
               + stats.getNumReferencedManifestFiles()
               + stats.getNumReferencedManifestLists());
+      AtomicLong snapShotCount = new AtomicLong();
+
+      table
+          .snapshots()
+          .forEach(
+              snapshot -> {
+                snapShotCount.getAndIncrement();
+              });
+
+      SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
+      Assertions.assertEquals(
+          stats.getSnapshotCountByDay().get(formatter.format(new Date())), snapShotCount.get());
     }
   }
 
