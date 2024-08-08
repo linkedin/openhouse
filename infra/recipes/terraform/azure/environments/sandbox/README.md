@@ -111,7 +111,7 @@ A storage account must be created to hold these backend terraform files. Create 
 
 ### Terraform backend setup
 
-Add these lines to the `backend.tf` files in the given environment:
+Uncomment these lines in the `backend.tf` files in the given environment:
 
 ```
 terraform {
