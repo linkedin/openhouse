@@ -1,3 +1,4 @@
-terraform {
-  backend "azurerm" {}
-}
+# UNCOMMENT FOR AZURE REMOTE BACKEND
+# terraform {
+#   backend "azurerm" {}
+# }

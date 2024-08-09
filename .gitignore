@@ -100,3 +100,6 @@ override.tf.json
 terraform.rc
 
 .terraform.lock.hcl
+
+# Ignore the spark shell bash file because it contains secrets
+start-spark-shell.sh

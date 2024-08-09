@@ -7,6 +7,7 @@ This directory is intended to provide a customizable configuration for Microsoft
 ### Overall structure
     .
     ├── environments            # Various specific environment configurations for Azure
+        ├── container           # The Azure Container Registry environment
         ├── sandbox             # The sandbox environment
     ├── modules                 # Reusable Azure components that are pre-defined
         ├── k8s                 # The Azure kubernetes configurations and services
@@ -22,6 +23,7 @@ This directory is intended to provide a customizable configuration for Microsoft
     ├── versions.tf             # The Azure Resource Manager version
     └── README.md
 
+See the README in the sandbox environment for step-by-step instructions on sandbox previsioning.
 ### Module/environment structure
 
 Each module and environment contains a structure that is similar to the following (with occasional other specific files):
