@@ -24,11 +24,10 @@ COMMAND="bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.a
   --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.key=${ACCOUNT_KEY} \
   --conf spark.sql.catalogImplementation=in-memory"
 
-echo $COMMAND > ./start-spark-shell.sh
-chmod +x ./start-spark-shell.sh
+echo $COMMAND > ./scripts/start-spark-shell.sh
+chmod +x ./scripts/start-spark-shell.sh
 
-docker cp ./start-spark-shell.sh local.spark-master:/opt/spark
+docker cp ./scripts/start-spark-shell.sh local.spark-master:/opt/spark
+docker cp ./scripts/populate-tables.scala local.spark-master:/opt/spark
 
 docker exec -it local.spark-master /bin/bash -c ./start-spark-shell.sh
-
-./start-spark-shell.sh
