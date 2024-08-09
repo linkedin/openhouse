@@ -50,8 +50,12 @@ terraform apply
 
 ## Deconfiguration
 
-Run `terraform destroy` once you are done to tear down the services you have created.
-
+To tear down the services you have created, run:
+```
+export KUBE_CONFIG_PATH=path/to/kube/config
+terraform destroy
+```
+Typically, the path to the kube config is `~/.kube/config`.
 # Access Created Services
 
 ## Run client shell
@@ -70,7 +74,7 @@ Once the terraform services have started on AKS, from the `sandbox` directory ru
 ```
 ./scripts/spark-client.sh
 ```
-This script gets the AKS cluster info such storage account and AKS cluster using terraform. And then pulls the details of the services running on AKS such as tables-service  address and port and generates the spark-shell start command. Lastly, starts spark shell within the `local.spark-master` container. Then, run commands like those found in `SETUP.md` to make requests from the spark client.
+Respond `y` to the prompts about overwriting kube config. Then, run commands like those found in `SETUP.md` to make requests from the spark client.
 
 ### Prepopulate tables (optional)
 
@@ -117,6 +121,10 @@ Terraform backend state can be stored locally or remotely. In this case, the def
 ### Azure login
 
 You can also login to Azure in with the CLI in different ways. For example, following the steps [here](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli-service-principal), you can run `az login --service-principal -u <app-id> -p <password-or-cert> --tenant <tenant>` to gain more control over your subscription and account.
+
+### Client shell script
+
+This script gets the AKS cluster info such storage account and AKS cluster using terraform. And then pulls the details of the services running on AKS such as tables-service  address and port and generates the spark-shell start command. Lastly, starts spark shell within the `local.spark-master` container.
 
 ## Storing backend files in Azure storage
 
