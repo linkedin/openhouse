@@ -15,9 +15,3 @@ variable "k8s_cluster_name" {
   default     = "openhouse_cluster"
   description = "The name of the Azure k8s cluster."
 }
-
-variable "registry_name" {
-  type        = string
-  description = "The name of the container registry."
-  default     = "openhousecontainerregistry"
-}

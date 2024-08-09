@@ -4,9 +4,21 @@ data "azurerm_kubernetes_cluster" "default" {
   name                = var.k8s_cluster_name
 }
 
+data "terraform_remote_state" "container" {
+  backend = "local"
+
+  config = {
+    path = "../container/terraform.tfstate"
+  }
+}
+
+locals {
+  registry_name = data.terraform_remote_state.container.outputs.unique_registry_name
+}
+
 data "azurerm_container_registry" "default" {
   resource_group_name = var.resource_group_name
-  name                = var.registry_name
+  name                = local.registry_name
 }
 
 provider "azurerm" {

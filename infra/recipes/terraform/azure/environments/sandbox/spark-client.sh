@@ -21,7 +21,8 @@ COMMAND="bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.a
   --conf spark.sql.catalog.openhouse.cluster=AKSCluster \
   --conf spark.sql.catalog.openhouse.io-impl=org.apache.iceberg.azure.adlsv2.ADLSFileIO \
   --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.name=${ACCOUNT_NAME} \
-  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.key=${ACCOUNT_KEY}"
+  --conf spark.sql.catalog.openhouse.adls.auth.shared-key.account.key=${ACCOUNT_KEY} \
+  --conf spark.sql.catalogImplementation=in-memory"
 
 echo $COMMAND > ./start-spark-shell.sh
 chmod +x ./start-spark-shell.sh
