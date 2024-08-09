@@ -121,6 +121,8 @@ public class TablesClientTest {
         (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
     Mono<GetTableResponseBody> partitionedTableResponseMock =
         (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mono<GetTableResponseBody> olderTableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
 
     Mockito.when(responseMock.block(any(Duration.class))).thenReturn(allTablesResponseBodyMock);
     Mockito.when(dbResponseMock.block(any(Duration.class)))
@@ -129,23 +131,36 @@ public class TablesClientTest {
         .thenReturn(unPartitionedTableResponseBodyMock);
     Mockito.when(partitionedTableResponseMock.block(any(Duration.class)))
         .thenReturn(partitionedTableResponseBodyMock);
+    Mockito.when(olderTableResponseMock.block(any(Duration.class)))
+        .thenReturn(olderTableResponseBodyMock);
     Mockito.when(dbApiMock.getAllDatabasesV1()).thenReturn(dbResponseMock);
     Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(responseMock);
     Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
         .thenReturn(unPartitionedTableResponseMock);
     Mockito.when(apiMock.getTableV1(testDbName, testTableName))
         .thenReturn(partitionedTableResponseMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNameOlder))
+        .thenReturn(olderTableResponseMock);
     List<TableMetadata> tableMetadataList = client.getTables();
     Assertions.assertEquals(
         Arrays.asList(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build(),
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build()),
+            TableMetadata.builder()
+                .dbName(testDbName)
+                .tableName(testTableName)
+                .creationTime(0L)
+                .build(),
+            TableMetadata.builder()
+                .dbName(testDbName)
+                .tableName(testTableNamePartitioned)
+                .creationTime(0L)
+                .build()),
         tableMetadataList);
     for (TableMetadata tableMetadata : tableMetadataList) {
       Assertions.assertFalse(tableMetadata.getTableName().contains(testTableNameOlder));
     }
     Mockito.verify(unPartitionedTableResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(partitionedTableResponseMock, Mockito.times(1)).block(any(Duration.class));
+    Mockito.verify(olderTableResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(dbResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(allTablesResponseBodyMock, Mockito.times(1)).getResults();

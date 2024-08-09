@@ -258,6 +258,7 @@ public class TablesClient {
         .creator(creator)
         .dbName(responseBody.getDatabaseId())
         .tableName(responseBody.getTableId())
+        .creationTime(responseBody.getCreationTime())
         .build();
   }
 

@@ -10,12 +10,14 @@ import lombok.Getter;
 public class TableMetadata extends Metadata {
   String dbName;
   String tableName;
+  Long creationTime;
 
   @Builder
-  public TableMetadata(String creator, String dbName, String tableName) {
+  public TableMetadata(String creator, String dbName, String tableName, Long creationTime) {
     super(creator);
     this.dbName = dbName;
     this.tableName = tableName;
+    this.creationTime = creationTime;
   }
 
   @Override
