@@ -1,52 +1,52 @@
 # Initialize and Run Azure Sandbox
 
-## Creating an Azure Account
+## Prerequisites
+
+### Azure account
 
 Create an Azure account [here](https://azure.microsoft.com/en-us/pricing/purchase-options/azure-account). If you haven't created one already, you can use the free trial to get free credits. Create a subscription using this free trial, or with another option if the free trial is over.
 
-## Azure Login
+### Azure CLI
 
-Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), and ensure that you are logged in with your Azure account. You can login in multiple ways.
+Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/).
 
-### Using username/password
+### Terraform
 
-This is the simplest version. Run `az login` and login to your account on a web browser.
-
-### Using Service Principal
-
-Following the steps [here](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli-service-principal), you can run `az login --service-principal -u <app-id> -p <password-or-cert> --tenant <tenant>` to gain more control over your subscription and account.
-
-## OpenHouse  - Build
-
-Follow the steps described in [SETUP.md](SETUP.md#build-containers) to build JAR artifacts locally for OpenHouse services using Gradle. Currently, running only tables and housetables service is supported in Azure.
+Install the `terraform` CLI [here](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli).
 
 ## Deployment
 
-### Before you begin
+From the root directory, follow these steps to deploy the sandbox.
 
-Install the `terraform` CLI by following [this](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli) link.
+### Step 1 - Build project
 
-### Planning & Applying
+```
+./gradlew clean build -x test
+```
 
-#### Azure Container Registry - Setup
+### Step 2 - Azure login
 
-You can use the Terraform code provided in [Azure Container Terraform Environmnet](infra/recipes/terraform/azure/environments/container) to configure the ACR.
+```
+az login
+```
 
-Run the following three commands for ACR publishing
+See knowledge section for other login options.
 
-1. `terraform init` : Run it first time to initialize backend
-2. `terraform plan` : Plan the Terraform deployment (optional)
-3. `terraform apply` : Apply the Terraform deployment
+### Step 3 - Provision Azure Container Registry
 
-#### Rest of Infra - Setup
+```
+cd infra/recipes/terraform/azure/environments/container
+terraform init
+terraform apply
+```
 
-As part of bringing OpenHouse in Azure, you will need to build the Docker images and setup other Azure services like AKS, MySQL, Storage. You can use the Terraform code provided in [Azure Sandbox Terraform Environment](infra/recipes/terraform/azure/environments/sandbox) to setup rest of infra that is required for successfully bringing up OpenHouse.
+### Step 4 - Provision Sandbox
 
-Run the following three commands for rest of infra setup
-
-1. `terraform init` : Run it first time to initialize backend
-2. `terraform plan` : Plan the Terraform deployment (optional)
-3. `terraform apply` : Apply the Terraform deployment
+```
+cd ../sandbox
+terraform init
+terraform apply
+```
 
 ## Deconfiguration
 
@@ -83,7 +83,14 @@ To make requests to the services, set up port forwarding by running `kubectl por
 
 # Troubleshooting
 
+### Destroy issues
 When running `terraform destroy`, you may encounter errors or timeouts. To unblock this, you can always manually delete resources from your Azure Portal. To ensure that the terraform state is synced, you can run `terraform state list` to see the current resources in the state and then `terraform state rm <resource-name>` to remove the resources that have been manually deleted. TODO: fix this issue.
+
+### Image build issues
+
+If the images are failing to build, you may be out of Docker system memory. Run `docker system prune --volumes` to clean this.
+
+### Other
 
 I have compiled a doc of common errors and fixes [here](https://docs.google.com/document/d/e/2PACX-1vSFvg2ef77R-OVmpaxK_70Fsc6lEvHpr3YM5G2eZOE8XLeQxtGZc-5yu-tTqhH3KEerSE3LCCzimkkS/pub).
 
@@ -102,6 +109,10 @@ To customize the resource group name or any other variable, change the default v
 ### Terraform Backend
 
 Terraform backend state can be stored locally or remotely. In this case, the default is to store the state locally but it can also be configured to be stored in Azure blob store. To set up remote backend, see the `Storing backend files in Azure Storage` section.
+
+### Azure login
+
+You can also login to Azure in with the CLI in different ways. For example, following the steps [here](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli-service-principal), you can run `az login --service-principal -u <app-id> -p <password-or-cert> --tenant <tenant>` to gain more control over your subscription and account.
 
 ## Storing backend files in Azure storage
 
