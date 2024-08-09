@@ -4,7 +4,7 @@ import java.util.regex.Pattern;
 import lombok.AllArgsConstructor;
 
 @AllArgsConstructor
-public class DatabaseTableFilter {
+public class DatabaseTableFilter implements TableFilter {
   private final Pattern databasePattern;
   private final Pattern tablePattern;
 

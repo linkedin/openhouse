@@ -12,6 +12,7 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableDirectoryOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOperationTask;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.CreationTimeFilter;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.OtelConfig;
 import io.opentelemetry.api.common.AttributeKey;
@@ -278,6 +279,13 @@ public class JobsScheduler {
     options.addOption(
         Option.builder(null)
             .required(false)
+            .hasArg()
+            .longOpt("timeFilter")
+            .desc("Time in hour for filtering older tables, defaults to 1")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
             .hasArg(false)
             .longOpt("dryRun")
             .desc("Dry run without actual action")
@@ -350,6 +358,8 @@ public class JobsScheduler {
         DatabaseTableFilter.of(
             cmdLine.getOptionValue("databaseFilter", ".*"),
             cmdLine.getOptionValue("tableFilter", ".*"));
+    CreationTimeFilter timeFilter =
+        CreationTimeFilter.of(Integer.parseInt(cmdLine.getOptionValue("timeFilter", "1")));
     ParameterizedHdfsStorageProvider hdfsStorageProvider =
         ParameterizedHdfsStorageProvider.of(
             cmdLine.getOptionValue("storageType", null),
@@ -357,7 +367,7 @@ public class JobsScheduler {
             cmdLine.getOptionValue("rootPath", null));
 
     return new TablesClientFactory(
-        cmdLine.getOptionValue("tablesURL"), filter, token, hdfsStorageProvider);
+        cmdLine.getOptionValue("tablesURL"), filter, timeFilter, token, hdfsStorageProvider);
   }
 
   protected static JobsClientFactory getJobsClientFactory(CommandLine cmdLine) {

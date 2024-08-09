@@ -6,6 +6,7 @@ import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorag
 import com.linkedin.openhouse.jobs.client.StorageClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
+import com.linkedin.openhouse.jobs.util.CreationTimeFilter;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
@@ -49,6 +50,7 @@ public class TablesClientTest {
   private final String testTableCreator = "test_table_creator";
   private final String testOrphanDirectoryName = "test_orphan_directory_name";
   private final String testTableNamePartitioned = "test_table_name_partitioned";
+  private final String testTableNameOlder = "test_table_name_older";
   private final String testPartitionColumnName = "test_partition_column_name";
   private final String testReplicaTableName = "test_replica_table_name";
   private final String testPatternColumnName = "test-pattern-columns";
@@ -59,6 +61,7 @@ public class TablesClientTest {
       new TablesClientFactory(
           "base_path",
           DatabaseTableFilter.of(".*", ".*"),
+          CreationTimeFilter.of(1),
           null,
           ParameterizedHdfsStorageProvider.of("hadoop", "hdfs://localhost/", "/jobs/openhouse/"));
   private TableApi apiMock;
@@ -93,6 +96,9 @@ public class TablesClientTest {
         createPartitionedTableResponseBodyMock(
             testDbName, testTableNamePartitioned, testPartitionColumnName, testRetentionTTLDays);
     GetDatabaseResponseBody databaseResponseMock = createGetDatabaseResponseBodyMock(testDbName);
+    GetTableResponseBody olderTableResponseBodyMock =
+        createOlderTableResponseBodyMock(
+            testDbName, testTableNameOlder, testPartitionColumnName, testRetentionTTLDays);
     GetTableResponseBody unPartitionedTableIdentifierMock =
         createTableResponseBodyMock(testDbName, testTableName);
     GetTableResponseBody partitionedTableIdentifierMock =
@@ -102,7 +108,10 @@ public class TablesClientTest {
         .thenReturn(Arrays.asList(databaseResponseMock));
     Mockito.when(allTablesResponseBodyMock.getResults())
         .thenReturn(
-            Arrays.asList(unPartitionedTableIdentifierMock, partitionedTableIdentifierMock));
+            Arrays.asList(
+                unPartitionedTableIdentifierMock,
+                partitionedTableIdentifierMock,
+                olderTableResponseBodyMock));
 
     Mono<GetAllTablesResponseBody> responseMock =
         (Mono<GetAllTablesResponseBody>) Mockito.mock(Mono.class);
@@ -126,12 +135,15 @@ public class TablesClientTest {
         .thenReturn(unPartitionedTableResponseMock);
     Mockito.when(apiMock.getTableV1(testDbName, testTableName))
         .thenReturn(partitionedTableResponseMock);
-
+    List<TableMetadata> tableMetadataList = client.getTables();
     Assertions.assertEquals(
         Arrays.asList(
             TableMetadata.builder().dbName(testDbName).tableName(testTableName).build(),
             TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build()),
-        client.getTables());
+        tableMetadataList);
+    for (TableMetadata tableMetadata : tableMetadataList) {
+      Assertions.assertFalse(tableMetadata.getTableName().contains(testTableNameOlder));
+    }
     Mockito.verify(unPartitionedTableResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(partitionedTableResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
@@ -598,6 +610,14 @@ public class TablesClientTest {
         setUpResponseBodyMock(dbName, tableName, partitionSpec, policies);
     Mockito.when(responseBody.getTableType())
         .thenReturn(GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE);
+    return responseBody;
+  }
+
+  private GetTableResponseBody createOlderTableResponseBodyMock(
+      String dbName, String tableName, String partitionColummName, int ttlDays) {
+    GetTableResponseBody responseBody =
+        createPartitionedTableResponseBodyMock(dbName, tableName, partitionColummName, ttlDays);
+    Mockito.when(responseBody.getCreationTime()).thenReturn(System.currentTimeMillis());
     return responseBody;
   }
 
