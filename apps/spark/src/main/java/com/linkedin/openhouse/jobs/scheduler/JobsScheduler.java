@@ -358,8 +358,9 @@ public class JobsScheduler {
         DatabaseTableFilter.of(
             cmdLine.getOptionValue("databaseFilter", ".*"),
             cmdLine.getOptionValue("tableFilter", ".*"));
+    // timeFilter - unit in hours
     CreationTimeFilter timeFilter =
-        CreationTimeFilter.of(Integer.parseInt(cmdLine.getOptionValue("timeFilter", "1")));
+        CreationTimeFilter.of(Integer.parseInt(cmdLine.getOptionValue("timeFilter", "72")));
     ParameterizedHdfsStorageProvider hdfsStorageProvider =
         ParameterizedHdfsStorageProvider.of(
             cmdLine.getOptionValue("storageType", null),
