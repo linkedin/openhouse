@@ -92,7 +92,7 @@ To make requests to the services, set up port forwarding by running `kubectl por
 # Troubleshooting
 
 ### Destroy issues
-When running `terraform destroy`, you may encounter errors or timeouts. To unblock this, you can always manually delete resources from your Azure Portal. To ensure that the terraform state is synced, you can run `terraform state list` to see the current resources in the state and then `terraform state rm <resource-name>` to remove the resources that have been manually deleted. TODO: fix this issue.
+When running `terraform destroy`, you may encounter errors or timeouts. To unblock this, you can always manually delete resources from your Azure Portal. To ensure that the terraform state is synced, you can run `terraform state list` to see the current resources in the state and then `terraform state rm <resource-name>` to remove the resources that have been manually deleted.
 
 ### Image build issues
 
