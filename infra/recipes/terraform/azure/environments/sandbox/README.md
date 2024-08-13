@@ -55,7 +55,7 @@ To tear down the services you have created, run:
 export KUBE_CONFIG_PATH=path/to/kube/config
 terraform destroy
 ```
-Typically, the path to the kube config is `~/.kube/config`.
+Typically, the path to the kube config is `~/.kube/config`. This only successfully runs if you have started the client cluster (or imported the AKS pods into the local state) prior.
 # Access Created Services
 
 ## Run client shell
