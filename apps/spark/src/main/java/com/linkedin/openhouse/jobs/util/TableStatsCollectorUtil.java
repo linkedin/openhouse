@@ -134,7 +134,7 @@ public final class TableStatsCollectorUtil {
   }
 
   /** Get snapshot distribution for a given table by date. */
-  private static Map<String, Long> getSnapShotDistributionPerDay(
+  private static Map<String, Long> getSnapshotDistributionPerDay(
       Table table, SparkSession spark, MetadataTableType metadataTableType) {
     Dataset<Row> snapShotDistribution =
         SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
