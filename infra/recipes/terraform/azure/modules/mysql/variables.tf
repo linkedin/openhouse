@@ -29,3 +29,8 @@ variable "server_sku" {
   description = "The SKU for the MySQL flexible server."
   default     = "GP_Standard_D2ds_v4"
 }
+
+variable "dns_zone_id" {
+  type        = string
+  description = "The id of the private DNS zone within Azure DNS."
+}

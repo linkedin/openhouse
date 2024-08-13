@@ -10,7 +10,7 @@ tablesService:
     tag: "latest"
     pullPolicy: Always
   service:
-    type: ClusterIP
+    type: LoadBalancer # Needed so that the client cluster can connect to the service via an external IP
     port: 8080
   port: 8080
   resources:

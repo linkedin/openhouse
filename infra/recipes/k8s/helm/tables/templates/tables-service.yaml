@@ -8,7 +8,11 @@ metadata:
     app.kubernetes.io/service: {{ .Release.Name }}
     app.kubernetes.io/tag: {{ .Values.openhouseClusterTag }}
 spec:
+{{- if eq .Values.tablesService.service.type "LoadBalancer" }}
+  type: LoadBalancer
+{{- else }}
   type: ClusterIP
+{{- end }}
   ports:
     - port: {{ .Values.tablesService.port }}
       targetPort: http

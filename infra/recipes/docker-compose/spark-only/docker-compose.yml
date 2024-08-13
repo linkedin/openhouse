@@ -1,0 +1,15 @@
+version: "3.3"
+services:
+  spark-master:
+    container_name: local.spark-master
+    extends:
+      file: ../common/spark-services.yml
+      service: spark-master
+
+  spark-worker-a:
+    container_name: local.spark-worker-a
+    extends:
+      file: ../common/spark-services.yml
+      service: spark-worker-a
+    depends_on:
+      - spark-master
