@@ -97,10 +97,9 @@ public class TablesClient {
    */
   public boolean canRunDataLayoutStrategyGeneration(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    if (response == null || response.getTimePartitioning() == null) {
-      return false;
-    }
-    return isPrimaryTable(tableMetadata);
+    return response != null
+        && isPrimaryTable(response)
+        && (response.getTimePartitioning() != null || response.getClustering() != null);
   }
 
   /**
