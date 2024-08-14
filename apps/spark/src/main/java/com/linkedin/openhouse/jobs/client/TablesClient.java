@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.client;
 
-import com.linkedin.openhouse.jobs.util.CreationTimeFilter;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
@@ -43,7 +42,6 @@ public class TablesClient {
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseFilter;
-  private final CreationTimeFilter creationTimeFilter;
   @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
@@ -154,7 +152,6 @@ public class TablesClient {
                           .orElseGet(Stream::empty)
                           .map(this::mapTableResponseToTableMetadata)
                           .filter(databaseFilter::apply)
-                          .filter(creationTimeFilter::apply)
                           .collect(Collectors.toList());
                     },
                 Collections.emptyList()));

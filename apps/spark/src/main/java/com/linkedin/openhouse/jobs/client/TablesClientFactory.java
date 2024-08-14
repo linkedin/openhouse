@@ -3,7 +3,6 @@ package com.linkedin.openhouse.jobs.client;
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
-import com.linkedin.openhouse.jobs.util.CreationTimeFilter;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
@@ -22,7 +21,6 @@ import org.springframework.retry.support.RetryTemplate;
 public class TablesClientFactory {
   private final String basePath;
   private final DatabaseTableFilter filter;
-  private final CreationTimeFilter timeFilter;
   private final @Nullable String token;
   protected final FsStorageProvider fsStorageProvider;
 
@@ -44,12 +42,12 @@ public class TablesClientFactory {
 
   public TablesClient create(RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi) {
     return new TablesClient(
-        retryTemplate, tableApi, dbApi, filter, timeFilter, new StorageClient(fsStorageProvider));
+        retryTemplate, tableApi, dbApi, filter, new StorageClient(fsStorageProvider));
   }
 
   @VisibleForTesting
   public TablesClient create(
       RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi, StorageClient client) {
-    return new TablesClient(retryTemplate, tableApi, dbApi, filter, timeFilter, client);
+    return new TablesClient(retryTemplate, tableApi, dbApi, filter, client);
   }
 }

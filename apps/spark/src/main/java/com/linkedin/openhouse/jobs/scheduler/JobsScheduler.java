@@ -12,7 +12,6 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableDirectoryOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOperationTask;
 import com.linkedin.openhouse.jobs.util.AppConstants;
-import com.linkedin.openhouse.jobs.util.CreationTimeFilter;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.OtelConfig;
 import io.opentelemetry.api.common.AttributeKey;
@@ -66,6 +65,7 @@ import org.reflections.Reflections;
 public class JobsScheduler {
   private static final int TASKS_WAIT_TIMEOUT_HOURS = 12;
   private static final int DEFAULT_MAX_NUM_CONCURRENT_JOBS = 40;
+  private static final int DEFAULT_TABLE_CREATION_CUTOFF_HOUR = 72;
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
   private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());
@@ -357,10 +357,10 @@ public class JobsScheduler {
     DatabaseTableFilter filter =
         DatabaseTableFilter.of(
             cmdLine.getOptionValue("databaseFilter", ".*"),
-            cmdLine.getOptionValue("tableFilter", ".*"));
-    // timeFilter - unit in hours
-    CreationTimeFilter timeFilter =
-        CreationTimeFilter.of(Integer.parseInt(cmdLine.getOptionValue("timeFilter", "72")));
+            cmdLine.getOptionValue("tableFilter", ".*"),
+            Integer.parseInt(
+                cmdLine.getOptionValue(
+                    "timeFilter", String.valueOf(DEFAULT_TABLE_CREATION_CUTOFF_HOUR))));
     ParameterizedHdfsStorageProvider hdfsStorageProvider =
         ParameterizedHdfsStorageProvider.of(
             cmdLine.getOptionValue("storageType", null),
@@ -368,7 +368,7 @@ public class JobsScheduler {
             cmdLine.getOptionValue("rootPath", null));
 
     return new TablesClientFactory(
-        cmdLine.getOptionValue("tablesURL"), filter, timeFilter, token, hdfsStorageProvider);
+        cmdLine.getOptionValue("tablesURL"), filter, token, hdfsStorageProvider);
   }
 
   protected static JobsClientFactory getJobsClientFactory(CommandLine cmdLine) {

@@ -6,7 +6,6 @@ import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorag
 import com.linkedin.openhouse.jobs.client.StorageClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
-import com.linkedin.openhouse.jobs.util.CreationTimeFilter;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
@@ -60,8 +59,7 @@ public class TablesClientTest {
   private final TablesClientFactory clientFactory =
       new TablesClientFactory(
           "base_path",
-          DatabaseTableFilter.of(".*", ".*"),
-          CreationTimeFilter.of(1),
+          DatabaseTableFilter.of(".*", ".*", 1),
           null,
           ParameterizedHdfsStorageProvider.of("hadoop", "hdfs://localhost/", "/jobs/openhouse/"));
   private TableApi apiMock;
