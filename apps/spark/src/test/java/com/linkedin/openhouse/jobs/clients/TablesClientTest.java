@@ -12,6 +12,7 @@ import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.model.ClusteringColumn;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
@@ -49,6 +50,7 @@ public class TablesClientTest {
   private final String testTableCreator = "test_table_creator";
   private final String testOrphanDirectoryName = "test_orphan_directory_name";
   private final String testTableNamePartitioned = "test_table_name_partitioned";
+  private final String testTableNameClustered = "test_table_name_clustered";
   private final String testPartitionColumnName = "test_partition_column_name";
   private final String testReplicaTableName = "test_replica_table_name";
   private final String testPatternColumnName = "test-pattern-columns";
@@ -320,6 +322,59 @@ public class TablesClientTest {
   }
 
   @Test
+  void testCanRunDataLayoutStrategyGeneration() {
+    GetTableResponseBody primaryPartitionedTableResponseBodyMock =
+        createPartitionedTableResponseBodyMock(
+            testDbName, testTableNamePartitioned, testPartitionColumnName, 1);
+    Mono<GetTableResponseBody> partitionedResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(partitionedResponseMock.block(any(Duration.class)))
+        .thenReturn(primaryPartitionedTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
+        .thenReturn(partitionedResponseMock);
+
+    GetTableResponseBody primaryTableResponseBodyMock =
+        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
+
+    GetTableResponseBody primaryClusteredTableResponseBodyMock =
+        createUnpartitionedTableResponseBodyMock(testDbName, testTableNameClustered, true);
+    Mono<GetTableResponseBody> clusteredResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(clusteredResponseMock.block(any(Duration.class)))
+        .thenReturn(primaryClusteredTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNameClustered))
+        .thenReturn(clusteredResponseMock);
+
+    GetTableResponseBody replicaTableResponseBodyMock =
+        createReplicaTableResponseBodyMock(testDbName, testReplicaTableName);
+    Mono<GetTableResponseBody> replicaResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(replicaResponseMock.block(any(Duration.class)))
+        .thenReturn(replicaTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testReplicaTableName))
+        .thenReturn(replicaResponseMock);
+
+    Assertions.assertTrue(
+        client.canRunDataLayoutStrategyGeneration(
+            TableMetadata.builder()
+                .dbName(testDbName)
+                .tableName(testTableNamePartitioned)
+                .build()));
+    Assertions.assertTrue(
+        client.canRunDataLayoutStrategyGeneration(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableNameClustered).build()));
+    Assertions.assertFalse(
+        client.canRunDataLayoutStrategyGeneration(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
+    Assertions.assertFalse(
+        client.canRunDataLayoutStrategyGeneration(
+            TableMetadata.builder().dbName(testDbName).tableName(testReplicaTableName).build()));
+  }
+
+  @Test
   void testCanRunDataCompaction() {
     GetTableResponseBody primaryTableResponseBodyMock =
         createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
@@ -498,14 +553,25 @@ public class TablesClientTest {
   }
 
   private GetTableResponseBody createUnpartitionedTableResponseBodyMock(
-      String dbName, String tableName) {
+      String dbName, String tableName, boolean hasClustering) {
     GetTableResponseBody responseBody = Mockito.mock(GetTableResponseBody.class);
     Mockito.when(responseBody.getTableId()).thenReturn(tableName);
     Mockito.when(responseBody.getDatabaseId()).thenReturn(dbName);
     Mockito.when(responseBody.getTimePartitioning()).thenReturn(null);
     Mockito.when(responseBody.getTableType())
         .thenReturn(GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE);
+    if (hasClustering) {
+      Mockito.when(responseBody.getClustering())
+          .thenReturn(Collections.singletonList(new ClusteringColumn().columnName("col")));
+    } else {
+      Mockito.when(responseBody.getClustering()).thenReturn(null);
+    }
     return responseBody;
+  }
+
+  private GetTableResponseBody createUnpartitionedTableResponseBodyMock(
+      String dbName, String tableName) {
+    return createUnpartitionedTableResponseBodyMock(dbName, tableName, false);
   }
 
   private GetTableResponseBody createTableWithLocationResponseBodyMock(
