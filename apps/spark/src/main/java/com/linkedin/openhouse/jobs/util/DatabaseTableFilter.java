@@ -33,6 +33,12 @@ public class DatabaseTableFilter {
     return tablePattern.matcher(tableDirectoryName).matches();
   }
 
+  /**
+   * returns true if table creation time is less than currentTime by cutoff hour
+   *
+   * @param metadata
+   * @return
+   */
   public boolean applyTimeFilter(TableMetadata metadata) {
     return metadata.getCreationTime()
         < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutoffHour);
