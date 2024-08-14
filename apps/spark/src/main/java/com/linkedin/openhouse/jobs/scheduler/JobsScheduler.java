@@ -281,7 +281,7 @@ public class JobsScheduler {
             .required(false)
             .hasArg()
             .longOpt("timeFilter")
-            .desc("Time in hour for filtering older tables, defaults to 1")
+            .desc("Time in hour for filtering older tables, defaults to 72")
             .build());
     options.addOption(
         Option.builder(null)
