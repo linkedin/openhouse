@@ -1,0 +1,96 @@
+version: "3.3"
+services:
+  openhouse-tables:
+    container_name: local.openhouse-tables
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-tables
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - openhouse-housetables
+      - prometheus
+      - opa
+    environment:
+      - AZURE_CLIENT_ID= # add your client id here
+      - AZURE_TENANT_ID= # add your tenant id here
+      - AZURE_CLIENT_SECRET= # add your client secret here
+
+  openhouse-jobs:
+    container_name: local.openhouse-jobs
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-jobs
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - openhouse-housetables
+      - prometheus
+
+  openhouse-jobs-scheduler:
+    container_name: local.openhouse-jobs-scheduler
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-jobs-scheduler
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - openhouse-tables
+      - openhouse-jobs
+      - prometheus
+
+    profiles:
+      - with_jobs_scheduler
+
+  openhouse-housetables:
+    container_name: local.openhouse-housetables
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-housetables
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - prometheus
+      - mysql
+    environment:
+      - HTS_DB_USER=oh_user
+      - HTS_DB_PASSWORD=oh_password
+
+  prometheus:
+    extends:
+      file: ../common/oh-services.yml
+      service: prometheus
+
+  spark-master:
+    container_name: local.spark-master
+    extends:
+      file: ../common/spark-services.yml
+      service: spark-master
+
+  spark-worker-a:
+    container_name: local.spark-worker-a
+    extends:
+      file: ../common/spark-services.yml
+      service: spark-worker-a
+    depends_on:
+      - spark-master
+
+  spark-livy:
+    container_name: local.spark-livy
+    extends:
+      file: ../common/spark-services.yml
+      service: spark-livy
+    depends_on:
+      - spark-master
+
+  mysql:
+    container_name: local.mysql
+    extends:
+      file: ../common/mysql-services.yml
+      service: mysql
+
+  opa:
+    container_name: local.opa
+    extends:
+      file: ../common/opa-services.yml
+      service: opa
