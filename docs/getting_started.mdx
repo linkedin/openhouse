@@ -6,6 +6,7 @@ tags:
   - Docker
   - OpenHouse
   - Iceberg
+  - Azure
 sidebar_position: 2
 ---
 
@@ -134,6 +135,68 @@ openhouse@0a9ed5853291:/opt/spark$  bin/spark-shell --packages org.apache.iceber
 the configuration `spark.sql.catalog.openhouse.uri=http://openhouse-tables:8080` points to the docker container
 running the [OpenHouse Catalog Service](./intro.md#catalog-service).
 :::
+    </TabItem>
+    <TabItem  value="azure" label="Azure">
+# OpenHouse with Spark & Azure
+
+In this guide, we will set up a running sandbox environment and experiment with some simple SQL commands. Our
+environment includes the both [Catalog Service](./intro.md#catalog-service) and [House Table Service](./intro.md#house-table-service).
+It also utilizes [a Spark 3.1 engine](https://spark.apache.org/releases/spark-release-3-1-1.html) and
+Azure services provisioned with [Terraform](https://developer.hashicorp.com/terraform?ajs_aid=a460286e-8e8f-4072-aa29-09a063308053&product_intent=terraform).
+In this walkthrough, we will spin up this sandbox environment and deploy the OpenHouse services in Azure. Then, we will
+create some tables, insert data in them, and query the data. For more information on the sandbox setup, checkout the 
+[README.md](https://github.com/linkedin/openhouse/blob/main/infra/recipes/terraform/azure/environments/sandbox/README.md) file.
+
+In the consecutive optional section, you can learn more about some simple GRANT REVOKE commands and how
+OpenHouse manages access control.
+
+### Prerequisites
+- [Docker CLI](https://docs.docker.com/get-docker/)
+- [Docker Compose CLI](https://github.com/docker/compose-cli/blob/main/INSTALL.md)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/)
+- [Terraform CLI](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
+
+## Deployment
+### Step 1
+Clone [OpenHouse github repository](https://github.com/linkedin/openhouse) and
+run `./gradlew build` command at the root directory. After the command succeeds you should see `BUILD SUCCESSFUL`
+message.
+
+```shell
+openhouse$main>  ./gradlew build
+```
+
+### Step 2
+Setup an Azure account and create/choose a subscription. Run `az login` to login to your Azure account and subscription from the terminal.
+
+### Step 3
+Navigate into the container environment, and initialize and apply the Terraform configuration:
+```shell
+cd infra/recipes/terraform/azure/environments/container
+terraform init
+terraform apply
+```
+
+### Step 4
+Navigate into the sandbox environment, and initialize and apply the Terraform configuration:
+```shell
+cd infra/recipes/terraform/azure/environments/sandbox
+terraform init
+terraform apply
+```
+
+### Step 5
+Start the docker containers for the Spark shell:
+```shell
+docker compose -f infra/recipes/docker-compose/spark-only/docker-compose.yml up -d --build
+```
+### Run SQL commands
+Start the Spark shell by running
+```shell
+./scripts/spark-shell.sh
+```
+When prompted, type "Y".
+
     </TabItem>
 </Tabs>
 
