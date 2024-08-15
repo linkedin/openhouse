@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class DatabaseTableFilterTest {
-
   @Test
   void testAcceptAll() {
     DatabaseTableFilter filter = DatabaseTableFilter.of(".*", ".*");
