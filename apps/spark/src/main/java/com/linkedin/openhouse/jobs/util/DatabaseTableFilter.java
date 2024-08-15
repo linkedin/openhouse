@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.util;
 
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import lombok.AllArgsConstructor;
 
@@ -8,17 +7,13 @@ import lombok.AllArgsConstructor;
 public class DatabaseTableFilter {
   private final Pattern databasePattern;
   private final Pattern tablePattern;
-  private final int cutoffHour;
 
-  public static DatabaseTableFilter of(String databaseRegex, String tableRegex, int cutoffHour) {
-    return new DatabaseTableFilter(
-        Pattern.compile(databaseRegex), Pattern.compile(tableRegex), cutoffHour);
+  public static DatabaseTableFilter of(String databaseRegex, String tableRegex) {
+    return new DatabaseTableFilter(Pattern.compile(databaseRegex), Pattern.compile(tableRegex));
   }
 
   public boolean apply(TableMetadata metadata) {
-    return applyDatabaseName(metadata.getDbName())
-        && applyTableName(metadata.getTableName())
-        && applyTimeFilter(metadata);
+    return applyDatabaseName(metadata.getDbName()) && applyTableName(metadata.getTableName());
   }
 
   public boolean applyDatabaseName(String databaseName) {
@@ -31,16 +26,5 @@ public class DatabaseTableFilter {
 
   public boolean applyTableDirectoryPath(String tableDirectoryName) {
     return tablePattern.matcher(tableDirectoryName).matches();
-  }
-
-  /**
-   * returns true if table creation time is less than currentTime by cutoff hour
-   *
-   * @param metadata
-   * @return
-   */
-  public boolean applyTimeFilter(TableMetadata metadata) {
-    return metadata.getCreationTime()
-        < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutoffHour);
   }
 }

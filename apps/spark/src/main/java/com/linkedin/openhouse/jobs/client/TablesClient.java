@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
@@ -42,6 +43,7 @@ public class TablesClient {
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseFilter;
+  private final int cutOffHour;
   @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
@@ -78,7 +80,7 @@ public class TablesClient {
             .build());
   }
 
-  protected GetTableResponseBody getTable(TableMetadata tableMetadata) {
+  private GetTableResponseBody getTable(TableMetadata tableMetadata) {
     return RetryUtil.executeWithRetry(
         retryTemplate,
         (RetryCallback<GetTableResponseBody, Exception>)
@@ -98,6 +100,7 @@ public class TablesClient {
   public boolean canRunDataLayoutStrategyGeneration(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
     return response != null
+        && isOlderTable(response)
         && isPrimaryTable(response)
         && (response.getTimePartitioning() != null || response.getClustering() != null);
   }
@@ -109,7 +112,8 @@ public class TablesClient {
    * @return true if the table can run data compaction, false otherwise
    */
   public boolean canRunDataCompaction(TableMetadata tableMetadata) {
-    return isPrimaryTable(tableMetadata);
+    GetTableResponseBody response = getTable(tableMetadata);
+    return response != null && isOlderTable(response) && isPrimaryTable(response);
   }
 
   /**
@@ -119,7 +123,8 @@ public class TablesClient {
    * @return true if the table can expire snapshots, false otherwise
    */
   public boolean canExpireSnapshots(TableMetadata tableMetadata) {
-    return isPrimaryTable(tableMetadata);
+    GetTableResponseBody response = getTable(tableMetadata);
+    return response != null && isOlderTable(response) && isPrimaryTable(response);
   }
 
   /**
@@ -131,20 +136,43 @@ public class TablesClient {
   public boolean canRunRetention(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
 
-    if (response == null || !isPrimaryTable(response)) {
+    if (response == null || !isOlderTable(response) || !isPrimaryTable(response)) {
       return false;
     }
-    Optional<RetentionConfig> config = getTableRetention(response);
+    Optional<RetentionConfig> config = getTableRetention(tableMetadata);
     return config.isPresent();
   }
 
-  private boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
-    return GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE == response.getTableType();
+  /**
+   * Checks if staged deletion task can be run on given table
+   *
+   * @param tableMetadata
+   * @return
+   */
+  public boolean canRunStagedDataDeletion(@NonNull TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return isOlderTable(response);
   }
 
-  private boolean isPrimaryTable(@NonNull TableMetadata tableMetadata) {
+  /**
+   * Checks if orphan files deletion task can be run on given table
+   *
+   * @param tableMetadata
+   * @return
+   */
+  public boolean canRunOrphanFileDeletion(@NonNull TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && isPrimaryTable(response);
+    return isOlderTable(response);
+  }
+
+  private boolean isOlderTable(@NonNull GetTableResponseBody response) {
+    return response.getCreationTime() != null
+        && response.getCreationTime()
+            < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutOffHour);
+  }
+
+  private static boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
+    return GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE == response.getTableType();
   }
 
   public List<TableMetadata> getTables() {
@@ -268,7 +296,10 @@ public class TablesClient {
         .creator(creator)
         .dbName(responseBody.getDatabaseId())
         .tableName(responseBody.getTableId())
-        .creationTime(responseBody.getCreationTime())
+        .creationTime(
+            responseBody.getCreationTime() == null
+                ? System.currentTimeMillis()
+                : responseBody.getCreationTime())
         .build();
   }
 

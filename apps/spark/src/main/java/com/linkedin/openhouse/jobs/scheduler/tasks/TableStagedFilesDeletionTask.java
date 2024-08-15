@@ -29,6 +29,6 @@ public class TableStagedFilesDeletionTask extends TableOperationTask {
 
   @Override
   protected boolean shouldRun() {
-    return true;
+    return tablesClient.canRunStagedDataDeletion(getMetadata());
   }
 }

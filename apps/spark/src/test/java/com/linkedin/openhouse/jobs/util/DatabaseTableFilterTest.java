@@ -10,7 +10,7 @@ public class DatabaseTableFilterTest {
 
   @Test
   void testAcceptAll() {
-    DatabaseTableFilter filter = DatabaseTableFilter.of(".*", ".*", 0);
+    DatabaseTableFilter filter = DatabaseTableFilter.of(".*", ".*");
     for (String testName : new String[] {"", "a", "test"}) {
       Assertions.assertTrue(filter.applyDatabaseName(testName));
       Assertions.assertTrue(filter.applyTableName(testName));
@@ -26,7 +26,7 @@ public class DatabaseTableFilterTest {
 
   @Test
   void testFilterByDatabaseName() {
-    DatabaseTableFilter filter = DatabaseTableFilter.of("prefix.*", ".*", 0);
+    DatabaseTableFilter filter = DatabaseTableFilter.of("prefix.*", ".*");
     Assertions.assertTrue(
         filter.apply(
             TableMetadata.builder()
@@ -45,7 +45,7 @@ public class DatabaseTableFilterTest {
 
   @Test
   void testFilterByTableName() {
-    DatabaseTableFilter filter = DatabaseTableFilter.of(".*", "prefix.*", 0);
+    DatabaseTableFilter filter = DatabaseTableFilter.of(".*", "prefix.*");
     Assertions.assertTrue(
         filter.apply(
             TableMetadata.builder()
@@ -64,7 +64,7 @@ public class DatabaseTableFilterTest {
 
   @Test
   void testFilterExact() {
-    DatabaseTableFilter filter = DatabaseTableFilter.of("db", "table", 0);
+    DatabaseTableFilter filter = DatabaseTableFilter.of("db", "table");
     Assertions.assertTrue(
         filter.apply(
             TableMetadata.builder()

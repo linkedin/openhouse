@@ -34,6 +34,6 @@ public class TableOrphanFilesDeletionTask extends TableOperationTask {
 
   @Override
   protected boolean shouldRun() {
-    return true;
+    return tablesClient.canRunOrphanFileDeletion(getMetadata());
   }
 }

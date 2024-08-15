@@ -357,18 +357,19 @@ public class JobsScheduler {
     DatabaseTableFilter filter =
         DatabaseTableFilter.of(
             cmdLine.getOptionValue("databaseFilter", ".*"),
-            cmdLine.getOptionValue("tableFilter", ".*"),
-            Integer.parseInt(
-                cmdLine.getOptionValue(
-                    "timeFilter", String.valueOf(DEFAULT_TABLE_CREATION_CUTOFF_HOUR))));
+            cmdLine.getOptionValue("tableFilter", ".*"));
     ParameterizedHdfsStorageProvider hdfsStorageProvider =
         ParameterizedHdfsStorageProvider.of(
             cmdLine.getOptionValue("storageType", null),
             cmdLine.getOptionValue("storageUri", null),
             cmdLine.getOptionValue("rootPath", null));
+    int cutOffTime =
+        Integer.parseInt(
+            cmdLine.getOptionValue(
+                "timeFilter", String.valueOf(DEFAULT_TABLE_CREATION_CUTOFF_HOUR)));
 
     return new TablesClientFactory(
-        cmdLine.getOptionValue("tablesURL"), filter, token, hdfsStorageProvider);
+        cmdLine.getOptionValue("tablesURL"), filter, cutOffTime, token, hdfsStorageProvider);
   }
 
   protected static JobsClientFactory getJobsClientFactory(CommandLine cmdLine) {
