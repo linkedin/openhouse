@@ -5,7 +5,7 @@ def commonDir = "${project(':client:common').projectDir}"
  * Change the service name to produce respective client
  */
 def serviceName = project.ext.get("codeGenForService")
-def openApiCliVersion = "6.6.0"
+def openApiCliVersion = "5.3.0"
 
 task setUp(type: Exec) {
   commandLine "sh", "$commonDir/jar_download.sh",
