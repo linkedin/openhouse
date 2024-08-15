@@ -134,16 +134,8 @@ public class TablesClientTest {
     List<TableMetadata> tableMetadataList = client.getTables();
     Assertions.assertEquals(
         Arrays.asList(
-            TableMetadata.builder()
-                .dbName(testDbName)
-                .tableName(testTableName)
-                .creationTime(0L)
-                .build(),
-            TableMetadata.builder()
-                .dbName(testDbName)
-                .tableName(testTableNamePartitioned)
-                .creationTime(0L)
-                .build()),
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build(),
+            TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build()),
         tableMetadataList);
     for (TableMetadata tableMetadata : tableMetadataList) {
       Assertions.assertFalse(tableMetadata.getTableName().contains(testTableNameOlder));

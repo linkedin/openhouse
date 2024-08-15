@@ -80,7 +80,7 @@ public class TablesClient {
             .build());
   }
 
-  private GetTableResponseBody getTable(TableMetadata tableMetadata) {
+  protected GetTableResponseBody getTable(TableMetadata tableMetadata) {
     return RetryUtil.executeWithRetry(
         retryTemplate,
         (RetryCallback<GetTableResponseBody, Exception>)
@@ -139,7 +139,7 @@ public class TablesClient {
     if (response == null || !isOlderTable(response) || !isPrimaryTable(response)) {
       return false;
     }
-    Optional<RetentionConfig> config = getTableRetention(tableMetadata);
+    Optional<RetentionConfig> config = getTableRetention(response);
     return config.isPresent();
   }
 
@@ -296,10 +296,6 @@ public class TablesClient {
         .creator(creator)
         .dbName(responseBody.getDatabaseId())
         .tableName(responseBody.getTableId())
-        .creationTime(
-            responseBody.getCreationTime() == null
-                ? System.currentTimeMillis()
-                : responseBody.getCreationTime())
         .build();
   }
 
