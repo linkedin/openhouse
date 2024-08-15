@@ -10,8 +10,8 @@ import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 
 /**
  * OpenHouseMetricsReporter receives audit events from Iceberg commit and scan operations. Plugged
- * to OpenHouseCatalog by passing as metrics-reporter-impl=
- * com.linkedin.openhouse.spark.OpenHouseMetricsReporter property
+ * to OpenHouseCatalog by passing a property with the key metrics-reporter-impl=
+ * com.linkedin.openhouse.javaclient.OpenHouseMetricsReporter property
  */
 @Slf4j
 public class OpenHouseMetricsReporter implements MetricsReporter {
