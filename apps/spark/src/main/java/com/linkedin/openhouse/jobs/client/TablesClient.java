@@ -43,7 +43,7 @@ public class TablesClient {
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseFilter;
-  private final int cutOffHour;
+  private final int cutOffHours;
   @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
@@ -168,7 +168,7 @@ public class TablesClient {
   private boolean isOlderTable(@NonNull GetTableResponseBody response) {
     return response.getCreationTime() != null
         && response.getCreationTime()
-            < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutOffHour);
+            < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutOffHours);
   }
 
   private static boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
