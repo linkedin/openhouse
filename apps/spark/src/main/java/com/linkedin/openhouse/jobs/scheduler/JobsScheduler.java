@@ -363,13 +363,13 @@ public class JobsScheduler {
             cmdLine.getOptionValue("storageType", null),
             cmdLine.getOptionValue("storageUri", null),
             cmdLine.getOptionValue("rootPath", null));
-    int cutOffHour =
+    int cutoffHours =
         Integer.parseInt(
             cmdLine.getOptionValue(
-                "timeFilter", String.valueOf(DEFAULT_TABLE_CREATION_CUTOFF_HOUR)));
+                "cutoffHours", String.valueOf(DEFAULT_TABLE_CREATION_CUTOFF_HOUR)));
 
     return new TablesClientFactory(
-        cmdLine.getOptionValue("tablesURL"), filter, cutOffHour, token, hdfsStorageProvider);
+        cmdLine.getOptionValue("tablesURL"), filter, cutoffHours, token, hdfsStorageProvider);
   }
 
   protected static JobsClientFactory getJobsClientFactory(CommandLine cmdLine) {

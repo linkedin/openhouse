@@ -151,7 +151,7 @@ public class TablesClient {
    */
   public boolean canRunStagedDataDeletion(@NonNull TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return isOlderTable(response);
+    return response != null && isOlderTable(response);
   }
 
   /**
@@ -162,7 +162,7 @@ public class TablesClient {
    */
   public boolean canRunOrphanFileDeletion(@NonNull TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return isOlderTable(response);
+    return response != null && isOlderTable(response);
   }
 
   private boolean isOlderTable(@NonNull GetTableResponseBody response) {
