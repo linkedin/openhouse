@@ -39,11 +39,11 @@ import org.springframework.retry.support.RetryTemplate;
 @AllArgsConstructor
 public class TablesClient {
   private static final int REQUEST_TIMEOUT_SECONDS = 60;
+  private final int cutOffHours;
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseFilter;
-  private final int cutOffHours;
   @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
@@ -100,7 +100,7 @@ public class TablesClient {
   public boolean canRunDataLayoutStrategyGeneration(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
     return response != null
-        && isOlderTable(response)
+        && checkCreationTimeEligibility(response)
         && isPrimaryTable(response)
         && (response.getTimePartitioning() != null || response.getClustering() != null);
   }
@@ -113,7 +113,7 @@ public class TablesClient {
    */
   public boolean canRunDataCompaction(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && isOlderTable(response) && isPrimaryTable(response);
+    return response != null && checkCreationTimeEligibility(response) && isPrimaryTable(response);
   }
 
   /**
@@ -124,7 +124,7 @@ public class TablesClient {
    */
   public boolean canExpireSnapshots(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && isOlderTable(response) && isPrimaryTable(response);
+    return response != null && checkCreationTimeEligibility(response) && isPrimaryTable(response);
   }
 
   /**
@@ -136,7 +136,7 @@ public class TablesClient {
   public boolean canRunRetention(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
 
-    if (response == null || !isOlderTable(response) || !isPrimaryTable(response)) {
+    if (response == null || !checkCreationTimeEligibility(response) || !isPrimaryTable(response)) {
       return false;
     }
     Optional<RetentionConfig> config = getTableRetention(response);
@@ -151,7 +151,7 @@ public class TablesClient {
    */
   public boolean canRunStagedDataDeletion(@NonNull TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && isOlderTable(response);
+    return response != null && checkCreationTimeEligibility(response);
   }
 
   /**
@@ -162,16 +162,19 @@ public class TablesClient {
    */
   public boolean canRunOrphanFileDeletion(@NonNull TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && isOlderTable(response);
+    return response != null && checkCreationTimeEligibility(response);
   }
 
-  private boolean isOlderTable(@NonNull GetTableResponseBody response) {
-    return response.getCreationTime() != null
-        && response.getCreationTime()
-            < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutOffHours);
+  private boolean checkCreationTimeEligibility(@NonNull GetTableResponseBody response) {
+    if (response.getCreationTime() == null) {
+      // no creationTime assigned to table, by default we pick these tables for maintenance
+      return true;
+    }
+    return response.getCreationTime()
+        < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutOffHours);
   }
 
-  private static boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
+  private boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
     return GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE == response.getTableType();
   }
 
