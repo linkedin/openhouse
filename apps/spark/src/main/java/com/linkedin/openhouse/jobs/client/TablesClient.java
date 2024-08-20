@@ -39,11 +39,11 @@ import org.springframework.retry.support.RetryTemplate;
 @AllArgsConstructor
 public class TablesClient {
   private static final int REQUEST_TIMEOUT_SECONDS = 60;
-  private final int cutOffHours;
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseFilter;
+  private final int cutOffHours;
   @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
