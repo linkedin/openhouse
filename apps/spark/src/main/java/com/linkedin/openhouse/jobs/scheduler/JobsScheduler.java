@@ -65,6 +65,7 @@ import org.reflections.Reflections;
 public class JobsScheduler {
   private static final int TASKS_WAIT_TIMEOUT_HOURS = 12;
   private static final int DEFAULT_MAX_NUM_CONCURRENT_JOBS = 40;
+  private static final int DEFAULT_TABLE_CREATION_CUTOFF_HOUR = 72;
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
   private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());
@@ -278,6 +279,13 @@ public class JobsScheduler {
     options.addOption(
         Option.builder(null)
             .required(false)
+            .hasArg()
+            .longOpt("cutoffHours")
+            .desc("Time in hour for filtering older tables, defaults to 72")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
             .hasArg(false)
             .longOpt("dryRun")
             .desc("Dry run without actual action")
@@ -355,9 +363,13 @@ public class JobsScheduler {
             cmdLine.getOptionValue("storageType", null),
             cmdLine.getOptionValue("storageUri", null),
             cmdLine.getOptionValue("rootPath", null));
+    int cutoffHours =
+        Integer.parseInt(
+            cmdLine.getOptionValue(
+                "cutoffHours", String.valueOf(DEFAULT_TABLE_CREATION_CUTOFF_HOUR)));
 
     return new TablesClientFactory(
-        cmdLine.getOptionValue("tablesURL"), filter, token, hdfsStorageProvider);
+        cmdLine.getOptionValue("tablesURL"), filter, cutoffHours, token, hdfsStorageProvider);
   }
 
   protected static JobsClientFactory getJobsClientFactory(CommandLine cmdLine) {
