@@ -41,10 +41,6 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    */
   @Override
   public List<DataLayoutStrategy> generate() {
-    // skip single partition and non-partitioned tables
-    if (tablePartitionStats.get().count() <= 1) {
-      return Collections.emptyList();
-    }
     return Collections.singletonList(generateCompactionStrategy());
   }
 

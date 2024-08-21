@@ -430,7 +430,7 @@ public class TablesClientTest {
     Assertions.assertTrue(
         client.canRunDataLayoutStrategyGeneration(
             TableMetadata.builder().dbName(testDbName).tableName(testTableNameClustered).build()));
-    Assertions.assertFalse(
+    Assertions.assertTrue(
         client.canRunDataLayoutStrategyGeneration(
             TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
     Assertions.assertFalse(
