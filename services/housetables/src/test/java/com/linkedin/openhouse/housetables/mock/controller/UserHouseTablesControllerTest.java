@@ -46,7 +46,9 @@ public class UserHouseTablesControllerTest {
         MockUserTableHtsApiHandler.class);
   }
 
-  /** @throws Exception */
+  /**
+   * @throws Exception
+   */
   @Test
   public void testGetTableRow() throws Exception {
     mvc.perform(

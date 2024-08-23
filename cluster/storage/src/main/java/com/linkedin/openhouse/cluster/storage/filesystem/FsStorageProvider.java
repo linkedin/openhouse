@@ -16,9 +16,13 @@ import org.apache.hadoop.fs.FileSystem;
  */
 public interface FsStorageProvider extends StorageProvider<FileSystem> {
 
-  /** @return The root path for OpenHouse's controlled space. */
+  /**
+   * @return The root path for OpenHouse's controlled space.
+   */
   String rootPath();
 
-  /** @return The list of storage properties set in configurations for Openhouse backed Storage . */
+  /**
+   * @return The list of storage properties set in configurations for Openhouse backed Storage .
+   */
   Map<String, String> storageProperties();
 }

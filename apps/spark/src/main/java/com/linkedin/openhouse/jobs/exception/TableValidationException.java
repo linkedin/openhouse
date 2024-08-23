@@ -8,5 +8,6 @@ public class TableValidationException extends RuntimeException {
 
   public TableValidationException(String message, Throwable cause) {
     super(message, cause);
-  };
+  }
+  ;
 }

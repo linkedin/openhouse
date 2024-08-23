@@ -7,7 +7,9 @@ import org.springframework.data.util.Pair;
 /** Service layer for loading Iceberg {@link org.apache.iceberg.Snapshot} provided by client. */
 public interface IcebergSnapshotsService {
 
-  /** @return pair of {@link TableDto} object and flag if the table was created. */
+  /**
+   * @return pair of {@link TableDto} object and flag if the table was created.
+   */
   Pair<TableDto, Boolean> putIcebergSnapshots(
       String databaseId,
       String tableId,

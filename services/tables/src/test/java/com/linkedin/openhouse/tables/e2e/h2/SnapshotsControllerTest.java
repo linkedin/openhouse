@@ -110,8 +110,7 @@ public class SnapshotsControllerTest {
     List<String> jsonSnapshots =
         ImmutableList.of(
             getValidSnapshot(
-                getTableResponseBody
-                    .toBuilder()
+                getTableResponseBody.toBuilder()
                     .tableVersion(INITIAL_TABLE_VERSION)
                     .tableProperties(tablePropsHelperForResponseBody(getTableResponseBody))
                     .tableUUID(beforeUUID)
@@ -123,8 +122,7 @@ public class SnapshotsControllerTest {
         IcebergSnapshotsRequestBody.builder()
             .baseTableVersion(INITIAL_TABLE_VERSION)
             .createUpdateTableRequestBody(
-                buildCreateUpdateTableRequestBody(getTableResponseBody)
-                    .toBuilder()
+                buildCreateUpdateTableRequestBody(getTableResponseBody).toBuilder()
                     .baseTableVersion(INITIAL_TABLE_VERSION)
                     .tableProperties(tablePropsHelperForResponseBody(getTableResponseBody))
                     .build())
@@ -243,8 +241,7 @@ public class SnapshotsControllerTest {
 
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            getTableResponseBody
-                .toBuilder()
+            getTableResponseBody.toBuilder()
                 .tableType(TableType.REPLICA_TABLE)
                 .tableProperties(propsMap)
                 .build(),
@@ -278,8 +275,7 @@ public class SnapshotsControllerTest {
                 RequestAndValidateHelper.getCurrentTableLocation(
                     mvc, getResponseBody.getDatabaseId(), getResponseBody.getTableId()))
             .createUpdateTableRequestBody(
-                requestBody
-                    .toBuilder()
+                requestBody.toBuilder()
                     .tableType(TableType.REPLICA_TABLE)
                     .tableProperties(propsMap)
                     .build())

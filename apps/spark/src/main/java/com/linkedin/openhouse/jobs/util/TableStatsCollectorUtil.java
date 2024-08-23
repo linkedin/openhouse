@@ -63,8 +63,7 @@ public final class TableStatsCollectorUtil {
         countOfDataFiles,
         sumOfFileSizeBytes);
 
-    return stats
-        .toBuilder()
+    return stats.toBuilder()
         .numReferencedDataFiles(countOfDataFiles)
         .totalReferencedDataFilesSizeInBytes(sumOfFileSizeBytes)
         .numReferencedManifestFiles(referencedManifestFilesCount)
@@ -114,8 +113,7 @@ public final class TableStatsCollectorUtil {
             .min(Long::compareTo)
             .orElse(null);
 
-    return stats
-        .toBuilder()
+    return stats.toBuilder()
         .currentSnapshotId(currentSnapshotId)
         .currentSnapshotTimestamp(currentSnapshotTimestamp)
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
@@ -155,8 +153,7 @@ public final class TableStatsCollectorUtil {
         fqtn,
         numOfObjectsInDirectory,
         sumOfTotalDirectorySizeInBytes);
-    return stats
-        .toBuilder()
+    return stats.toBuilder()
         .numObjectsInDirectory(numOfObjectsInDirectory)
         .totalDirectorySizeInBytes(sumOfTotalDirectorySizeInBytes)
         .build();

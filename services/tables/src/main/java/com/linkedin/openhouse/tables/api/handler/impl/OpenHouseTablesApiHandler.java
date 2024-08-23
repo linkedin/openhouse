@@ -134,7 +134,8 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
         .responseBody(
             GetAclPoliciesResponseBody.builder()
                 .results(
-                    tableService.getAclPolicies(databaseId, tableId, actingPrincipal, userPrincipal)
+                    tableService
+                        .getAclPolicies(databaseId, tableId, actingPrincipal, userPrincipal)
                         .stream()
                         .collect(Collectors.toList()))
                 .build())

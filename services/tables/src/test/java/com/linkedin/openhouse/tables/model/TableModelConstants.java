@@ -66,8 +66,7 @@ public class TableModelConstants {
             .build();
 
     RETENTION_POLICY_WITH_EMPTY_PATTERN =
-        RETENTION_POLICY_WITH_PATTERN
-            .toBuilder()
+        RETENTION_POLICY_WITH_PATTERN.toBuilder()
             .columnPattern(COL_PAT.toBuilder().pattern("").build())
             .build();
 

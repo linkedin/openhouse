@@ -31,8 +31,11 @@ public class PartitionTest extends OpenHouseSparkITest {
                 tableName, transform));
         // verify that partition spec is correct
         List<String> description =
-            spark.sql(String.format("DESCRIBE TABLE openhouse.d1.%s", tableName))
-                .select("data_type").collectAsList().stream()
+            spark
+                .sql(String.format("DESCRIBE TABLE openhouse.d1.%s", tableName))
+                .select("data_type")
+                .collectAsList()
+                .stream()
                 .map(row -> row.getString(0))
                 .collect(Collectors.toList());
         assertTrue(description.contains(expectedResult.get(i)));
