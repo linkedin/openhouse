@@ -298,6 +298,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
     } else if (e instanceof WebClientResponseException) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
+    } else if (e instanceof WebClientRequestException) {
+      return Mono.error(new WebClientRequestWithMessageException((WebClientRequestException) e));
     } else {
       /**
        * This serves as a catch-all for any unexpected exceptions that could occur during doCommit,

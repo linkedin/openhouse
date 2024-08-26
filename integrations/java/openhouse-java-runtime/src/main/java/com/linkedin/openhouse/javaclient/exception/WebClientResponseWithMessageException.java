@@ -20,7 +20,8 @@ public class WebClientResponseWithMessageException extends WebClientWithMessageE
    * WebClientResponseException} because the HttpRequest value is explicitly set to null in order to
    * have the message rewritten to not expose unnecessary data.
    */
-  public WebClientResponseException createWebClientResponseException(WebClientResponseException e) {
+  private WebClientResponseException createWebClientResponseException(
+      WebClientResponseException e) {
     return new WebClientResponseException(
         e.getRawStatusCode(),
         e.getStatusText(),
