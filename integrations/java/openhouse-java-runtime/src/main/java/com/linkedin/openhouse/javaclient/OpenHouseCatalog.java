@@ -211,14 +211,10 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
           .deleteTableV1(identifier.namespace().toString(), identifier.name())
           .onErrorResume(
               WebClientResponseException.NotFound.class,
-              e -> {
-                throw new NoSuchTableException("Table " + identifier + " does not exist");
-              })
+              e -> Mono.error(new NoSuchTableException("Table " + identifier + " does not exist")))
           .onErrorResume(
               WebClientResponseException.class,
-              e -> {
-                throw new WebClientResponseWithMessageException(e);
-              })
+              e -> Mono.error(new WebClientResponseWithMessageException(e)))
           .onErrorResume(
               WebClientRequestException.class,
               e -> Mono.error(new WebClientRequestWithMessageException(e)))
