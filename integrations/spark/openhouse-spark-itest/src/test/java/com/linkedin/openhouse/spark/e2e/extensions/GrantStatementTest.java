@@ -7,6 +7,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.gen.tables.client.model.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -177,6 +178,7 @@ public class GrantStatementTest {
         exception
             .getMessage()
             .contains("Operation on table db.tb1 failed as user sraikar is unauthorized"));
+    Assertions.assertEquals(exception.getStatusCode(), HttpStatus.FORBIDDEN.value());
 
     mockTableService.enqueue(
         mockResponse(
@@ -186,6 +188,7 @@ public class GrantStatementTest {
         Assertions.assertThrows(
             WebClientWithMessageException.class, () -> spark.sql(ddlWithSchema));
     Assertions.assertTrue(exception.getMessage().contains("Something went wrong on the server"));
+    Assertions.assertEquals(exception.getStatusCode(), HttpStatus.INTERNAL_SERVER_ERROR.value());
 
     // Test empty response
     mockTableService.enqueue(new MockResponse().setResponseCode(401));
@@ -193,6 +196,7 @@ public class GrantStatementTest {
         Assertions.assertThrows(
             WebClientWithMessageException.class, () -> spark.sql(ddlWithSchema));
     Assertions.assertTrue(exception.getMessage().equals("401 Unauthorized"));
+    Assertions.assertEquals(exception.getStatusCode(), HttpStatus.UNAUTHORIZED.value());
   }
 
   private Dispatcher assertDispatcher(UpdateAclPoliciesRequestBody expectedRequestBody) {

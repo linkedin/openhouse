@@ -41,4 +41,9 @@ public class WebClientResponseWithMessageException extends WebClientWithMessageE
         : String.format(
             "%s , %s", responseException.getMessage(), responseException.getResponseBodyAsString());
   }
+
+  @Override
+  public int getStatusCode() {
+    return responseException.getRawStatusCode();
+  }
 }

@@ -6,6 +6,7 @@ import static com.linkedin.openhouse.spark.SparkTestBase.mockTableService;
 import static com.linkedin.openhouse.spark.SparkTestBase.spark;
 
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException;
@@ -80,5 +81,6 @@ public class CreateTableTest {
         exception
             .getMessage()
             .contains("Operation on database dbCreate failed as user sraikar is unauthorized"));
+    Assertions.assertEquals(exception.getStatusCode(), HttpStatus.FORBIDDEN.value());
   }
 }

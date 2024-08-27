@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.google.common.collect.ImmutableList;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import java.sql.Timestamp;
 import java.util.List;
@@ -138,5 +139,6 @@ public class SelectFromTableTest {
             .getMessage()
             .contains(
                 "Operation on table dbSelect.errorTbl failed as user sraikar is unauthorized"));
+    Assertions.assertEquals(exception.getStatusCode(), HttpStatus.FORBIDDEN.value());
   }
 }
