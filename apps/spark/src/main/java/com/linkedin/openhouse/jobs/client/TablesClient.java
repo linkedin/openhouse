@@ -38,7 +38,7 @@ import org.springframework.retry.support.RetryTemplate;
 @Slf4j
 @AllArgsConstructor
 public class TablesClient {
-  private static final int REQUEST_TIMEOUT_SECONDS = 60;
+  private static final int REQUEST_TIMEOUT_SECONDS = 180;
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
@@ -303,7 +303,18 @@ public class TablesClient {
             .tableName(responseBody.getTableId())
             .build();
 
-    String creator = getTable(metadata).getTableCreator();
+    GetTableResponseBody tableResponseBody = getTable(metadata);
+
+    if (tableResponseBody == null) {
+      log.error("Error while fetching metadata for table: {}", metadata);
+      return TableMetadata.builder()
+          .creator(null)
+          .dbName(responseBody.getDatabaseId())
+          .tableName(responseBody.getTableId())
+          .build();
+    }
+
+    String creator = tableResponseBody.getTableCreator();
     return TableMetadata.builder()
         .creator(creator)
         .dbName(responseBody.getDatabaseId())
