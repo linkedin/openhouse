@@ -4,8 +4,9 @@ import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.linkedin.openhouse.javaclient.OpenHouseTableOperations;
-import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
+import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
 import com.linkedin.openhouse.spark.SparkTestBase;
+import java.io.IOException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopFileIO;
@@ -69,7 +70,13 @@ public class DoRefreshTest {
   public void testSurfaceEveryOtherError() {
     for (int status : ImmutableList.of(408, 500)) {
       mockTableService.enqueue(mockResponse(status, mockGetAllTableResponseBody()));
-      Assertions.assertThrows(WebClientResponseException.class, () -> ops.doRefresh());
+      Assertions.assertThrows(WebClientWithMessageException.class, () -> ops.doRefresh());
     }
+  }
+
+  @Test
+  public void testConnectionRefusedError() throws IOException {
+    mockTableService.shutdown();
+    Assertions.assertThrows(WebClientWithMessageException.class, () -> ops.doRefresh());
   }
 }

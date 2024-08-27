@@ -7,6 +7,7 @@ import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
+import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
 import com.linkedin.openhouse.javaclient.mapper.SparkMapper;
@@ -54,6 +55,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpHeaders;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -185,6 +187,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             .onErrorResume(
                 WebClientResponseException.class,
                 e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .block();
     log.debug("Calling listTables succeeded");
     return tables;
@@ -214,6 +219,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
               e -> {
                 throw new WebClientResponseWithMessageException(e);
               })
+          .onErrorResume(
+              WebClientRequestException.class,
+              e -> Mono.error(new WebClientRequestWithMessageException(e)))
           .block();
 
     } catch (NoSuchTableException e) {
@@ -379,6 +387,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
         .onErrorResume(
             WebClientResponseException.class,
             e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
         .block();
     log.debug("Calling updateTableAclPolicies succeeded");
   }
@@ -396,6 +407,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             .onErrorResume(
                 WebClientResponseException.class,
                 e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional().map(GetAclPoliciesResponseBody::getResults)
             .orElse(Collections.emptyList()).stream()
             .map(SparkMapper::toAclPolicyDto)
@@ -432,6 +446,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
         .onErrorResume(
             WebClientResponseException.class,
             e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
         .block();
     log.debug("Calling updateDatabaseAclPolicies succeeded");
   }
@@ -448,6 +465,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             .onErrorResume(
                 WebClientResponseException.class,
                 e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional().map(GetAclPoliciesResponseBody::getResults)
             .orElse(Collections.emptyList()).stream()
             .map(SparkMapper::toAclPolicyDto)

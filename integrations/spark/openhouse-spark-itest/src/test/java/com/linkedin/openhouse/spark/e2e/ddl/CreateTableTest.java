@@ -5,7 +5,7 @@ import static com.linkedin.openhouse.spark.SparkTestBase.baseSchema;
 import static com.linkedin.openhouse.spark.SparkTestBase.mockTableService;
 import static com.linkedin.openhouse.spark.SparkTestBase.spark;
 
-import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
+import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException;
@@ -72,9 +72,9 @@ public class CreateTableTest {
         mockResponse(
             403,
             "{\"status\":\"FORBIDDEN\",\"error\":\"forbidden\",\"message\":\"Operation on database dbCreate failed as user sraikar is unauthorized\"}"));
-    WebClientResponseException exception =
+    WebClientWithMessageException exception =
         Assertions.assertThrows(
-            WebClientResponseException.class,
+            WebClientWithMessageException.class,
             () -> spark.sql("CREATE TABLE openhouse.dbCreate.tbError (col1 string, col2 string)"));
     Assertions.assertTrue(
         exception
