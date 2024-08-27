@@ -6,6 +6,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
+import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
@@ -32,6 +33,7 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
@@ -86,6 +88,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
             .onErrorResume(
                 WebClientResponseException.class,
                 e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
@@ -293,6 +298,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
     } else if (e instanceof WebClientResponseException) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
+    } else if (e instanceof WebClientRequestException) {
+      return Mono.error(new WebClientRequestWithMessageException((WebClientRequestException) e));
     } else {
       /**
        * This serves as a catch-all for any unexpected exceptions that could occur during doCommit,
