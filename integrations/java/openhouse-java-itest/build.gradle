@@ -1,6 +1,7 @@
 plugins {
   id 'openhouse.java-minimal-conventions'
   id 'openhouse.maven-publish'
+  id 'openhouse.iceberg-conventions-1.2'
 }
 
 ext {

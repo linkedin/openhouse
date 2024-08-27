@@ -106,8 +106,9 @@ public class OpenHouseInternalTableOperationsTest {
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
-          4,
-          updatedProperties.size()); /*location, lastModifiedTime, version and appended_snapshots*/
+          5,
+          updatedProperties
+              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version and appended_snapshots*/
       Assertions.assertEquals(
           "INITIAL_VERSION", updatedProperties.get(getCanonicalFieldName("tableVersion")));
       Assertions.assertEquals(
@@ -147,8 +148,9 @@ public class OpenHouseInternalTableOperationsTest {
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
-          4,
-          updatedProperties.size()); /*location, lastModifiedTime, version and deleted_snapshots*/
+          5,
+          updatedProperties
+              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version and deleted_snapshots*/
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
@@ -197,8 +199,9 @@ public class OpenHouseInternalTableOperationsTest {
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
-          5,
-          updatedProperties.size()); /*location, lastModifiedTime, version and deleted_snapshots*/
+          6,
+          updatedProperties
+              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version, appended_snapshots and deleted_snapshots*/
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
@@ -251,8 +254,9 @@ public class OpenHouseInternalTableOperationsTest {
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
-          4,
-          updatedProperties.size()); /*location, lastModifiedTime, version and deleted_snapshots*/
+          5,
+          updatedProperties
+              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version and deleted_snapshots*/
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 

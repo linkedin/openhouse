@@ -2,6 +2,7 @@ plugins {
   id 'java'
   id 'com.github.johnrengelman.shadow' version '7.1.2'
   id 'openhouse.maven-publish'
+//  id 'openhouse.iceberg-conventions-1.2'
 }
 
 import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer

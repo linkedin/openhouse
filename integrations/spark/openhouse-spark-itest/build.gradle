@@ -1,12 +1,13 @@
 plugins {
   id 'openhouse.java-minimal-conventions'
   id 'openhouse.maven-publish'
+  id 'openhouse.iceberg-conventions-1.2'
 }
 
 dependencies {
 
   testImplementation 'com.google.code.gson:gson:2.8.9'
-  
+
   testImplementation(project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
     exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
