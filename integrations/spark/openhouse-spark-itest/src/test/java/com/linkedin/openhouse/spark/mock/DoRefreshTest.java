@@ -5,7 +5,6 @@ import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.linkedin.openhouse.javaclient.OpenHouseTableOperations;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
-import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import java.io.IOException;
 import org.apache.hadoop.conf.Configuration;
@@ -78,8 +77,6 @@ public class DoRefreshTest {
   @Test
   public void testConnectionRefusedError() throws IOException {
     mockTableService.shutdown();
-    WebClientWithMessageException exception =
-        Assertions.assertThrows(WebClientWithMessageException.class, () -> ops.doRefresh());
-    Assertions.assertEquals(exception.getStatusCode(), HttpStatus.BAD_REQUEST.value());
+    Assertions.assertThrows(WebClientWithMessageException.class, () -> ops.doRefresh());
   }
 }

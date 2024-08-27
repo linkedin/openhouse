@@ -6,7 +6,7 @@ import static com.linkedin.openhouse.spark.SparkTestBase.*;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.gen.tables.client.model.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import java.util.List;
@@ -171,9 +171,9 @@ public class GrantStatementTest {
             403,
             "{\"status\":\"FORBIDDEN\",\"error\":\"forbidden\",\"message\":\"Operation on table db.tb1 failed as user sraikar is unauthorized\"}"));
     String ddlWithSchema = "GRANT SELECT ON TABLE openhouse.dgrant.t1 TO sraikar";
-    WebClientWithMessageException exception =
+    WebClientResponseWithMessageException exception =
         Assertions.assertThrows(
-            WebClientWithMessageException.class, () -> spark.sql(ddlWithSchema));
+            WebClientResponseWithMessageException.class, () -> spark.sql(ddlWithSchema));
     Assertions.assertTrue(
         exception
             .getMessage()
@@ -186,7 +186,7 @@ public class GrantStatementTest {
             "{\"status\":\"INTERNAL_SERVER_ERROR\",\"error\":\"Internal Server Error\",\"message\":\"Something went wrong on the server\"}"));
     exception =
         Assertions.assertThrows(
-            WebClientWithMessageException.class, () -> spark.sql(ddlWithSchema));
+            WebClientResponseWithMessageException.class, () -> spark.sql(ddlWithSchema));
     Assertions.assertTrue(exception.getMessage().contains("Something went wrong on the server"));
     Assertions.assertEquals(exception.getStatusCode(), HttpStatus.INTERNAL_SERVER_ERROR.value());
 
@@ -194,7 +194,7 @@ public class GrantStatementTest {
     mockTableService.enqueue(new MockResponse().setResponseCode(401));
     exception =
         Assertions.assertThrows(
-            WebClientWithMessageException.class, () -> spark.sql(ddlWithSchema));
+            WebClientResponseWithMessageException.class, () -> spark.sql(ddlWithSchema));
     Assertions.assertTrue(exception.getMessage().equals("401 Unauthorized"));
     Assertions.assertEquals(exception.getStatusCode(), HttpStatus.UNAUTHORIZED.value());
   }

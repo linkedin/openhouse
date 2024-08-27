@@ -6,6 +6,4 @@ package com.linkedin.openhouse.javaclient.exception;
  */
 public abstract class WebClientWithMessageException extends RuntimeException {
   public abstract String getMessage();
-
-  public abstract int getStatusCode();
 }

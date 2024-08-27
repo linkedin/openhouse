@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.javaclient.exception;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 
 /**
@@ -17,10 +16,5 @@ public class WebClientRequestWithMessageException extends WebClientWithMessageEx
   @Override
   public String getMessage() {
     return requestException.getMessage();
-  }
-
-  @Override
-  public int getStatusCode() {
-    return HttpStatus.BAD_REQUEST.value();
   }
 }

@@ -4,7 +4,7 @@ import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.google.common.collect.ImmutableList;
-import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import java.sql.Timestamp;
@@ -130,9 +130,9 @@ public class SelectFromTableTest {
         mockResponse(
             403,
             "{\"status\":\"FORBIDDEN\",\"error\":\"forbidden\",\"message\":\"Operation on table dbSelect.errorTbl failed as user sraikar is unauthorized\"}"));
-    WebClientWithMessageException exception =
+    WebClientResponseWithMessageException exception =
         Assertions.assertThrows(
-            WebClientWithMessageException.class,
+            WebClientResponseWithMessageException.class,
             () -> spark.sql("SELECT * FROM openhouse.dbSelect.errorTbl"));
     Assertions.assertTrue(
         exception
