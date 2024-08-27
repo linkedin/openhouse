@@ -3,7 +3,8 @@ package com.linkedin.openhouse.spark.e2e.ddl;
 import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
-import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.spark.sql.AnalysisException;
@@ -95,11 +96,13 @@ public class DropTableTest {
         mockResponse(
             503,
             "{\"status\":\"SERVICE_UNAVAILABLE\",\"error\":\"Service Unavailable\",\"message\":\"Drop table failed as service is unavailable\"}"));
-    WebClientWithMessageException exception =
+    WebClientResponseWithMessageException exception =
         Assertions.assertThrows(
-            WebClientWithMessageException.class, () -> spark.sql("DROP TABLE openhouse.dbDrop.t2"));
+            WebClientResponseWithMessageException.class,
+            () -> spark.sql("DROP TABLE openhouse.dbDrop.t2"));
     Assertions.assertTrue(
         exception.getMessage().contains("\"Drop table failed as service is unavailable"));
+    Assertions.assertEquals(exception.getStatusCode(), HttpStatus.SERVICE_UNAVAILABLE.value());
   }
 
   @Test
