@@ -12,6 +12,7 @@ import lombok.Data;
 @Builder
 public class DataLayoutStrategy {
   private final double score;
+  private final double entropy;
   private final double cost;
   private final double gain;
   private final DataCompactionConfig config;

@@ -6,11 +6,13 @@ import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import lombok.Builder;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.ReduceFunction;
+import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import scala.Tuple2;
 
@@ -56,10 +58,12 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    * </ul>
    */
   private DataLayoutStrategy generateCompactionStrategy() {
+    // Retrieve file sizes of all data files.
+    Dataset<Long> fileSizes =
+        tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
+
     Tuple2<Long, Integer> fileStats =
-        tableFileStats
-            .get()
-            .map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG())
+        fileSizes
             .filter(
                 (FilterFunction<Long>)
                     size ->
@@ -111,6 +115,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
         .cost(computeGbHr)
         .gain(reducedFileCount)
         .score(reducedFileCountPerComputeGbHr)
+        .entropy(computeEntropy(fileSizes))
         .build();
   }
 
@@ -124,5 +129,21 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     double rewriteSeconds = rewriteBytes * 1.0 / REWRITE_BYTES_PER_SECOND;
     double rewriteHours = rewriteSeconds / 3600.0;
     return rewriteHours * EXECUTOR_MEMORY_GB + COMPUTE_STARTUP_COST_GB_HR;
+  }
+
+  /** Computes the file entropy as the difference of a set of file's target and actual file size. */
+  private double computeEntropy(Dataset<Long> fileSizes) {
+    // If no files available, MSE is 0.
+    if (fileSizes.count() == 0) {
+      return 0;
+    }
+    // Compute the mean-squared error.
+    double mse = 0.0;
+    Iterator<Long> itr = fileSizes.toLocalIterator();
+    while (itr.hasNext()) {
+      mse += Math.pow(TARGET_BYTES_SIZE - itr.next(), 2);
+    }
+    // Normalize.
+    return mse / fileSizes.count();
   }
 }
