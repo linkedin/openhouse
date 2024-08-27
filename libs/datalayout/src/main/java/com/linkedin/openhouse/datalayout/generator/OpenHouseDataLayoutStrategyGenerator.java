@@ -131,7 +131,13 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     return rewriteHours * EXECUTOR_MEMORY_GB + COMPUTE_STARTUP_COST_GB_HR;
   }
 
+  /** Computes the file entropy as the difference of a set of file's target and actual file size. */
   private double computeEntropy(Dataset<Long> fileSizes) {
+    // If no files available, MSE is 0.
+    if (fileSizes.count() == 0) {
+      return 0;
+    }
+    // Compute the mean-squared error.
     double mse = 0.0;
     Iterator<Long> itr = fileSizes.toLocalIterator();
     while (itr.hasNext()) {
