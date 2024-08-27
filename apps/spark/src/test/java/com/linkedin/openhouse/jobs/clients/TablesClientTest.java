@@ -464,6 +464,36 @@ public class TablesClientTest {
   }
 
   @Test
+  void testCanRunTableStatsCollection() {
+    GetTableResponseBody olderTableResponseBodyMock =
+        createTableResponseBodyMockWithCreationTime(
+            testDbName, testTableNameOlder, testPartitionColumnName, testRetentionTTLDays, 2);
+    Mono<GetTableResponseBody> olderTableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(olderTableResponseMock.block(any(Duration.class)))
+        .thenReturn(olderTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNameOlder))
+        .thenReturn(olderTableResponseMock);
+
+    GetTableResponseBody newerTableResponseBodyMock =
+        createTableResponseBodyMockWithCreationTime(
+            testDbName, testTableNameNewer, testPartitionColumnName, testRetentionTTLDays, 0);
+    Mono<GetTableResponseBody> newerTableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(newerTableResponseMock.block(any(Duration.class)))
+        .thenReturn(newerTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNameNewer))
+        .thenReturn(newerTableResponseMock);
+
+    Assertions.assertTrue(
+        client.canRunTableStatsCollection(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableNameOlder).build()));
+    Assertions.assertFalse(
+        client.canRunTableStatsCollection(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableNameNewer).build()));
+  }
+
+  @Test
   void testPartitionedTableNullPoliciesGetRetentionConfig() {
     GetTableResponseBody partitionedTableResponseBodyMock =
         createPartitionedTableNullPoliciesResponseBodyMock(
