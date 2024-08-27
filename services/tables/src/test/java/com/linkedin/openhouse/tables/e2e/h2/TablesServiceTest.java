@@ -520,7 +520,8 @@ public class TablesServiceTest {
         UnsupportedClientOperationException.class,
         () ->
             verifyPutTableRequest(
-                putResultCreate.toBuilder()
+                putResultCreate
+                    .toBuilder()
                     .tableType(TableType.REPLICA_TABLE)
                     .stageCreate(false)
                     .build(),
@@ -533,7 +534,8 @@ public class TablesServiceTest {
   public void testReplicaTableCreationWithUUIDFromProperties() {
     UUID expectedUUID = UUID.randomUUID();
     TableDto tableDtoCopy =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .tableProperties(
                 ImmutableMap.of(
                     CatalogConstants.OPENHOUSE_UUID_KEY,
@@ -562,7 +564,8 @@ public class TablesServiceTest {
   public void testReplicaTableUpdateAsNonSystemAdmin() {
     UUID expectedUUID = UUID.randomUUID();
     TableDto tableDtoCopy =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .tableProperties(
                 ImmutableMap.of(
                     CatalogConstants.OPENHOUSE_UUID_KEY,

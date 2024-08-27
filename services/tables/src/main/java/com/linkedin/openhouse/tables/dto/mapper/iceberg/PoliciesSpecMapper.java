@@ -75,9 +75,14 @@ public class PoliciesSpecMapper {
         defaultPattern = DefaultColumnPattern.DAY.getPattern();
       }
       Retention retentionPolicy =
-          policies.getRetention().toBuilder()
+          policies
+              .getRetention()
+              .toBuilder()
               .columnPattern(
-                  policies.getRetention().getColumnPattern().toBuilder()
+                  policies
+                      .getRetention()
+                      .getColumnPattern()
+                      .toBuilder()
                       .pattern(defaultPattern)
                       .build())
               .build();

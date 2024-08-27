@@ -38,7 +38,8 @@ public class UserTableVersionMapperTest {
         new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
     Assertions.assertEquals(
         versionMapper.toVersion(
-            TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder()
+            TestHouseTableModelConstants.TEST_USER_TABLE
+                .toBuilder()
                 .tableVersion(testUserTableRow.getMetadataLocation())
                 .build(),
             Optional.of(testUserTableRow)),

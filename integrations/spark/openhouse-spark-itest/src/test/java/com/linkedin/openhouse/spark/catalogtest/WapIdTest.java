@@ -132,8 +132,7 @@ public class WapIdTest extends OpenHouseSparkITest {
           spark
               .sql(
                   "SELECT snapshot_id FROM openhouse.d1.t1.snapshots WHERE summary['wap.id'] = 'wap1'")
-              .collectAsList()
-              .stream()
+              .collectAsList().stream()
               .map(Row::mkString)
               .collect(Collectors.toList());
       spark.sql(

@@ -376,7 +376,8 @@ public class TablesControllerTest {
             .granularity(TimePartitionSpec.Granularity.HOUR)
             .build();
     GetTableResponseBody getTableResponseBodyWithPartitioning =
-        GET_TABLE_RESPONSE_BODY.toBuilder()
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
             .schema(schemaJson)
             .timePartitioning(timePartitionSpec)
             .clustering(Arrays.asList(ClusteringColumn.builder().columnName("stringId").build()))
@@ -402,7 +403,8 @@ public class TablesControllerTest {
   @Test
   public void testPartitioningValidationNullColumnName() throws Exception {
     GetTableResponseBody getTableResponseBodyWithPartitioning =
-        GET_TABLE_RESPONSE_BODY.toBuilder()
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
             .timePartitioning(
                 TimePartitionSpec.builder()
                     // null columnName
@@ -430,7 +432,8 @@ public class TablesControllerTest {
   @Test
   public void testPartitioningValidationNullGranularity() throws Exception {
     GetTableResponseBody getTableResponseBodyWithPartitioning =
-        GET_TABLE_RESPONSE_BODY.toBuilder()
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
             .timePartitioning(TimePartitionSpec.builder().columnName("timestampCol").build())
             .build();
 
@@ -500,7 +503,8 @@ public class TablesControllerTest {
     GetTableResponseBody getTableResponseBodyWithNullPolicies =
         GET_TABLE_RESPONSE_BODY.toBuilder().policies(null).build();
     CreateUpdateTableRequestBody requestWithPoliciesNull =
-        buildCreateUpdateTableRequestBody(getTableResponseBodyWithNullPolicies).toBuilder()
+        buildCreateUpdateTableRequestBody(getTableResponseBodyWithNullPolicies)
+            .toBuilder()
             .baseTableVersion(INITIAL_TABLE_VERSION)
             .build();
     MvcResult result =
@@ -529,7 +533,8 @@ public class TablesControllerTest {
     // so that we can provide modification on retention column pattern.
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY.toBuilder()
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
                 .timePartitioning(null)
                 .policies(TABLE_POLICIES_COMPLEX)
                 .build(),
@@ -585,7 +590,8 @@ public class TablesControllerTest {
   @Test
   public void testCreateRequestSucceedsForNullRetentionObject() throws Exception {
     GetTableResponseBody responseBodyWithNullPolicies =
-        GET_TABLE_RESPONSE_BODY.toBuilder()
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
             .policies(Policies.builder().retention(null).build())
             .build();
 
@@ -599,7 +605,8 @@ public class TablesControllerTest {
                             responseBodyWithNullPolicies.getTableId()))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
-                        buildCreateUpdateTableRequestBody(responseBodyWithNullPolicies).toBuilder()
+                        buildCreateUpdateTableRequestBody(responseBodyWithNullPolicies)
+                            .toBuilder()
                             .baseTableVersion(INITIAL_TABLE_VERSION)
                             .build()
                             .toJson())
@@ -930,7 +937,8 @@ public class TablesControllerTest {
   @Test
   public void testCreateRequestSucceedsForNullColumnTags() throws Exception {
     GetTableResponseBody responseBodyWithNullPolicies =
-        GET_TABLE_RESPONSE_BODY.toBuilder()
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
             .policies(Policies.builder().columnTags(null).build())
             .build();
 
@@ -944,7 +952,8 @@ public class TablesControllerTest {
                             responseBodyWithNullPolicies.getTableId()))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
-                        buildCreateUpdateTableRequestBody(responseBodyWithNullPolicies).toBuilder()
+                        buildCreateUpdateTableRequestBody(responseBodyWithNullPolicies)
+                            .toBuilder()
                             .baseTableVersion(INITIAL_TABLE_VERSION)
                             .build()
                             .toJson())

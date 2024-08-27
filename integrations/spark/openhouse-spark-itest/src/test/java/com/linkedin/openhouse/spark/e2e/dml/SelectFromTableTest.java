@@ -4,7 +4,7 @@ import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.google.common.collect.ImmutableList;
-import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import java.sql.Timestamp;
 import java.util.List;
@@ -79,9 +79,7 @@ public class SelectFromTableTest {
     mockTableService.enqueue(mockResponse);
 
     List<String> returnedRowsQuery1 =
-        spark
-            .sql("SELECT * FROM openhouse.dbSelect.tbl.snapshot_id_" + snapshotId)
-            .collectAsList()
+        spark.sql("SELECT * FROM openhouse.dbSelect.tbl.snapshot_id_" + snapshotId).collectAsList()
             .stream()
             .map(row -> row.mkString("."))
             .collect(Collectors.toList());
@@ -97,10 +95,8 @@ public class SelectFromTableTest {
     mockTableService.enqueue(mockResponse);
 
     List<String> returnedRowsQuery2 =
-        spark
-            .sql("SELECT * FROM openhouse.dbSelect.tbl.at_timestamp_" + committedAt.getTime())
-            .collectAsList()
-            .stream()
+        spark.sql("SELECT * FROM openhouse.dbSelect.tbl.at_timestamp_" + committedAt.getTime())
+            .collectAsList().stream()
             .map(row -> row.mkString("."))
             .collect(Collectors.toList());
     Assertions.assertTrue(returnedRowsQuery2.containsAll(ImmutableList.of("1.a", "2.b")));
@@ -133,9 +129,9 @@ public class SelectFromTableTest {
         mockResponse(
             403,
             "{\"status\":\"FORBIDDEN\",\"error\":\"forbidden\",\"message\":\"Operation on table dbSelect.errorTbl failed as user sraikar is unauthorized\"}"));
-    WebClientWithMessageException exception =
+    WebClientResponseException exception =
         Assertions.assertThrows(
-            WebClientWithMessageException.class,
+            WebClientResponseException.class,
             () -> spark.sql("SELECT * FROM openhouse.dbSelect.errorTbl"));
     Assertions.assertTrue(
         exception

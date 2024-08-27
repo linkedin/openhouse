@@ -32,9 +32,7 @@ public class OpenHouseSparkITest {
         "openhouse", getOpenHouseLocalServerURI(), URI.create(LOCAL_FS));
   }
 
-  /**
-   * @return the {@link URI} of the standalone embedded OH server running locally.
-   */
+  /** @return the {@link URI} of the standalone embedded OH server running locally. */
   protected URI getOpenHouseLocalServerURI() {
     if (openHouseLocalServer == null) {
       throw new RuntimeException(

@@ -87,7 +87,8 @@ public class HtsControllerTest {
                                 .stream()
                                 .map(
                                     userTable ->
-                                        userTable.toBuilder()
+                                        userTable
+                                            .toBuilder()
                                             .tableVersion(userTable.getMetadataLocation())
                                             .build())
                                 .collect(Collectors.toList()))
@@ -120,7 +121,8 @@ public class HtsControllerTest {
                                 .stream()
                                 .map(
                                     userTable ->
-                                        userTable.toBuilder()
+                                        userTable
+                                            .toBuilder()
                                             .tableVersion(userTable.getMetadataLocation())
                                             .build())
                                 .collect(Collectors.toList()))
@@ -297,7 +299,9 @@ public class HtsControllerTest {
                 .content(
                     CreateUpdateEntityRequestBody.<UserTable>builder()
                         .entity(
-                            testTuple2_0.get_userTable().toBuilder()
+                            testTuple2_0
+                                .get_userTable()
+                                .toBuilder()
                                 .tableVersion("file:/older/version")
                                 .metadataLocation("file:/next/version")
                                 .build())
