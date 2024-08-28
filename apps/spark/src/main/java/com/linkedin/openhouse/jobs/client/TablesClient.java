@@ -141,6 +141,17 @@ public class TablesClient {
   }
 
   /**
+   * Checks if stats collection can be executed on the input table.
+   *
+   * @param tableMetadata table metadata
+   * @return true if the stats collection can happen, false otherwise
+   */
+  public boolean canRunTableStatsCollection(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return response != null && checkCreationTimeEligibility(response);
+  }
+
+  /**
    * Checks if staged deletion task can be run on given table
    *
    * @param tableMetadata
@@ -291,6 +302,7 @@ public class TablesClient {
             .dbName(responseBody.getDatabaseId())
             .tableName(responseBody.getTableId())
             .build();
+
     String creator = getTable(metadata).getTableCreator();
     return TableMetadata.builder()
         .creator(creator)

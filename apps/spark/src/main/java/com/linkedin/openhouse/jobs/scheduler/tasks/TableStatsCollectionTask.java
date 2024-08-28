@@ -34,6 +34,6 @@ public class TableStatsCollectionTask extends TableOperationTask {
 
   @Override
   protected boolean shouldRun() {
-    return true;
+    return tablesClient.canRunTableStatsCollection(getMetadata());
   }
 }
