@@ -202,8 +202,12 @@ public class TablesClient {
                       return Optional.ofNullable(response.getResults())
                           .map(Collection::stream)
                           .orElseGet(Stream::empty)
-                          .map(this::mapTableResponseToTableMetadata)
-                          .filter(databaseFilter::apply)
+                          .flatMap(
+                              result ->
+                                  Optional.ofNullable(mapTableResponseToTableMetadata(result))
+                                      .filter(databaseFilter::apply)
+                                      .map(Stream::of)
+                                      .orElseGet(Stream::empty))
                           .collect(Collectors.toList());
                     },
                 Collections.emptyList()));
@@ -307,11 +311,7 @@ public class TablesClient {
 
     if (tableResponseBody == null) {
       log.error("Error while fetching metadata for table: {}", metadata);
-      return TableMetadata.builder()
-          .creator(null)
-          .dbName(responseBody.getDatabaseId())
-          .tableName(responseBody.getTableId())
-          .build();
+      return null;
     }
 
     String creator = tableResponseBody.getTableCreator();
