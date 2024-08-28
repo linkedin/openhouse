@@ -34,5 +34,7 @@ dependencies {
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
   testImplementation 'org.springframework.security:spring-security-test:' + '5.7.3'
   testImplementation(testFixtures(project(':services:common')))
-  testImplementation project(':tables-test-fixtures_2.12')
+  testImplementation (project(':tables-test-fixtures_2.12')) {
+    exclude group: 'org.apache.iceberg'
+  }
 }

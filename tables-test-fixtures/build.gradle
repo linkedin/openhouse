@@ -2,7 +2,7 @@ plugins {
   id 'java'
   id 'com.github.johnrengelman.shadow' version '7.1.2'
   id 'openhouse.maven-publish'
-//  id 'openhouse.iceberg-conventions-1.2'
+  id 'openhouse.iceberg-conventions-1.2'
 }
 
 import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer
@@ -17,7 +17,9 @@ configurations {
 dependencies {
   implementation 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
   implementation 'org.springframework.boot:spring-boot-starter-test:' + spring_web_version
-  implementation(project(':services:tables'))
+  implementation ((project(':services:tables'))) {
+    exclude group: 'org.apache.iceberg'
+  }
   compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
   compileOnly('org.apache.spark:spark-sql_2.12:' + spark_version){
     // These classes are available from `client-codegen-convention.gradle`
