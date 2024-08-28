@@ -14,7 +14,7 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.RequestedFeatureToggledOffException;
+import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
@@ -169,7 +169,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   protected void creationEligibilityCheck(TableDto tableDto) {
     if (tableFeatureToggle.isFeatureActivated(
         tableDto.getDatabaseId(), tableDto.getTableId(), STOP_TABLE_CREATION_TOGGLE)) {
-      throw new RequestedFeatureToggledOffException(
+      throw new ResourceGatedByToggledOnFeatureException(
           STOP_TABLE_CREATION_TOGGLE, tableDto.getDatabaseId(), tableDto.getTableId());
     }
 
