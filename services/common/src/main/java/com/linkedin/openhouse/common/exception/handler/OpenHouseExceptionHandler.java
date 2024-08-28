@@ -12,6 +12,7 @@ import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.RequestedFeatureToggledOffException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -71,6 +72,22 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .stacktrace(getAbbreviatedStackTrace(noSuchElementException))
             .cause(getExceptionCause(noSuchElementException))
             .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  @Hidden
+  @ExceptionHandler(RequestedFeatureToggledOffException.class)
+  protected ResponseEntity<ErrorResponseBody> handleFeatureToggledOff(
+      RequestedFeatureToggledOffException re) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.FORBIDDEN)
+            .error(HttpStatus.FORBIDDEN.getReasonPhrase())
+            .message(re.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(re))
+            .cause(getExceptionCause(re))
+            .build();
+
     return buildResponseEntity(errorResponseBody);
   }
 

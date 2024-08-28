@@ -28,6 +28,8 @@ public final class InternalRepositoryUtils {
 
   protected static final String POLICIES_KEY = "policies";
 
+  static final String STOP_TABLE_CREATION_TOGGLE = "stop_create";
+
   private static final Set<String> EXCLUDE_PROPERTIES_LIST =
       new HashSet<>(Collections.singletonList(POLICIES_KEY));
 
