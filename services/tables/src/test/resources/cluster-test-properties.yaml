@@ -16,6 +16,11 @@ cluster:
         parameters:
           key2: value2
           token: xyz
+    storage-selector:
+      name: "DefaultStorageSelector"
+      parameters:
+        prop1: "value1"
+        prop2: "value2"
   housetables:
     base-uri: "http://localhost:8080"
   tables:

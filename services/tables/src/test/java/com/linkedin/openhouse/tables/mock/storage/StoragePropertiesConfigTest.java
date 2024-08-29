@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.mock.storage;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import com.linkedin.openhouse.cluster.storage.selector.DefaultStorageSelector;
 import com.linkedin.openhouse.tables.mock.properties.CustomClusterPropertiesInitializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -17,7 +18,6 @@ public class StoragePropertiesConfigTest {
   @Autowired private StorageProperties storageProperties;
 
   @MockBean private StorageManager storageManager;
-
   private static final String DEFAULT_TYPE = "hdfs";
 
   private static final String DEFAULT_ENDPOINT = "hdfs://localhost:9000";
@@ -53,6 +53,20 @@ public class StoragePropertiesConfigTest {
   @Test
   public void testUnsetPropertiesAreNull() {
     Assertions.assertNull(storageProperties.getTypes().get(NON_EXISTING_TYPE));
+  }
+
+  @Test
+  public void testStorageSelector() {
+    Assertions.assertNotNull(storageProperties.getStorageSelector());
+    Assertions.assertEquals(
+        storageProperties.getStorageSelector().getName(),
+        DefaultStorageSelector.class.getSimpleName());
+    Assertions.assertNotNull(storageProperties.getStorageSelector().getParameters());
+    Assertions.assertEquals(storageProperties.getStorageSelector().getParameters().size(), 2);
+    Assertions.assertEquals(
+        storageProperties.getStorageSelector().getParameters().get("prop1"), "value1");
+    Assertions.assertEquals(
+        storageProperties.getStorageSelector().getParameters().get("prop2"), "value2");
   }
 
   @AfterAll
