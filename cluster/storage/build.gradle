@@ -3,7 +3,7 @@ plugins {
   id 'openhouse.hadoop-conventions'
   id 'openhouse.iceberg-aws-conventions'
   id 'openhouse.iceberg-azure-conventions'
-  id 'openhouse.iceberg-conventions'
+  id 'openhouse.iceberg-conventions-1.5.2'
   id 'openhouse.maven-publish'
 }
 
