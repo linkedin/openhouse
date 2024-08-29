@@ -62,12 +62,27 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     Dataset<Long> fileSizes =
         tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
 
+    Dataset<Long> filteredSizes =
+        fileSizes.filter(
+            (FilterFunction<Long>)
+                size ->
+                    size < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+    // Check whether we have anything to map/reduce on for cost computation, this is only the case
+    // if we have small files that need to be compacted.
+    // Return default (empty) object.
+    if (filteredSizes.count() == 0) {
+      return DataLayoutStrategy.builder()
+          .config(configBuilder.build())
+          .cost(0)
+          .gain(0)
+          .score(0)
+          .entropy(0)
+          .build();
+    }
+
+    // Traits computation (cost, gain, and entropy).
     Tuple2<Long, Integer> fileStats =
-        fileSizes
-            .filter(
-                (FilterFunction<Long>)
-                    size ->
-                        size < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT)
+        filteredSizes
             .map(
                 (MapFunction<Long, Tuple2<Long, Integer>>) size -> new Tuple2<>(size, 1),
                 Encoders.tuple(Encoders.LONG(), Encoders.INT()))
