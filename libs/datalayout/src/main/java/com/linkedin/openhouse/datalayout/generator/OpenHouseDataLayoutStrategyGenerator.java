@@ -58,9 +58,6 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    * </ul>
    */
   private DataLayoutStrategy generateCompactionStrategy() {
-    DataCompactionConfig.DataCompactionConfigBuilder configBuilder = DataCompactionConfig.builder();
-    configBuilder.targetByteSize(TARGET_BYTES_SIZE);
-
     // Retrieve file sizes of all data files.
     Dataset<Long> fileSizes =
         tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
@@ -74,13 +71,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     // if we have small files that need to be compacted.
     // Return default (empty) object.
     if (filteredSizes.count() == 0) {
-      return DataLayoutStrategy.builder()
-          .config(configBuilder.build())
-          .cost(0)
-          .gain(0)
-          .score(0)
-          .entropy(0)
-          .build();
+      return DataLayoutStrategy.builder().config(null).cost(0).gain(0).score(0).entropy(0).build();
     }
 
     // Traits computation (cost, gain, and entropy).
@@ -94,6 +85,10 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
                     (a, b) -> new Tuple2<>(a._1 + b._1, a._2 + b._2));
     long rewriteFileBytes = fileStats._1;
     int rewriteFileCount = fileStats._2;
+
+    DataCompactionConfig.DataCompactionConfigBuilder configBuilder = DataCompactionConfig.builder();
+
+    configBuilder.targetByteSize(TARGET_BYTES_SIZE);
 
     long estimatedFileGroupsCount =
         Math.max(
