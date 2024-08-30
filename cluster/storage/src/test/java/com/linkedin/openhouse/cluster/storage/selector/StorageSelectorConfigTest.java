@@ -54,4 +54,15 @@ public class StorageSelectorConfigTest {
     assertThrows(
         IllegalArgumentException.class, () -> storageSelectorConfig.provideStorageSelector());
   }
+
+  @Test
+  public void testProvideStorageSelectorMissingConfig() {
+    when(selector1.getName()).thenReturn("selector1");
+    when(selector2.getName()).thenReturn("selector2");
+    storageSelectorConfig.storageSelectors = Arrays.asList(selector1, selector2);
+
+    assertEquals(
+        DefaultStorageSelector.class.getSimpleName(),
+        storageSelectorConfig.provideStorageSelector().getName());
+  }
 }

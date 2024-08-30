@@ -11,7 +11,8 @@ import com.linkedin.openhouse.cluster.storage.Storage;
  */
 public interface StorageSelector {
   /**
-   * Select the storage for given db and table
+   * Select the storage for given db and table. This call should be idempotent, same db and table
+   * should return same storage
    *
    * @param db
    * @param table
@@ -20,9 +21,10 @@ public interface StorageSelector {
   Storage selectStorage(String db, String table);
 
   /**
-   * Get the Simple class name of the implementing class
+   * Get the Simple class name of the implementing class. This name will be used to configure the
+   * Storage Selector from cluster.yaml
    *
-   * @return
+   * @return Simple name of implementing class
    */
   String getName();
 }

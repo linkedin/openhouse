@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 /**
  * Configures the StorageSelector bean for storage-selector configured in {@link StorageProperties}
@@ -22,13 +23,15 @@ public class StorageSelectorConfig {
 
   /**
    * Checks the name of storage-selector from {@link StorageProperties} against all implementations
-   * of {@link StorageSelector} and returns the implementation that matches the name. returns null
-   * if not configured
+   * of {@link StorageSelector} and returns the implementation that matches the name. Returns {@link
+   * DefaultStorageSelector}if not configured
    *
    * @return
    */
-  @Bean("StorageSelector")
+  @Bean
+  @Primary
   StorageSelector provideStorageSelector() {
+
     String selectorName;
     try {
       selectorName = storageProperties.getStorageSelector().getName();
@@ -37,11 +40,13 @@ public class StorageSelectorConfig {
           return selector;
         }
       }
-    } catch (Exception e) {
-      // if storage selector is not configured. Return null.
-      // Spring doesn't define the bean if the return value is null
-      log.error("Exception initializing Storage selector.");
-      return null;
+    } catch (NullPointerException e) {
+      // We get NPE if storage selector or its name is not configured. Return
+      // DefaultStorageSelector.
+      log.error(
+          "Missing storage selector config or name. Defaulting to {}.",
+          DefaultStorageSelector.class.getSimpleName());
+      return new DefaultStorageSelector();
     }
 
     throw new IllegalArgumentException("Could not find Storage selector with name=" + selectorName);
