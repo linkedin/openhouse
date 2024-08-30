@@ -8,6 +8,7 @@ import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 import lombok.Builder;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
@@ -43,7 +44,9 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    */
   @Override
   public List<DataLayoutStrategy> generate() {
-    return Collections.singletonList(generateCompactionStrategy());
+    return generateCompactionStrategy()
+        .map(Collections::singletonList)
+        .orElse(Collections.emptyList());
   }
 
   /**
@@ -57,7 +60,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    *       compute, the higher the score, the better the strategy
    * </ul>
    */
-  private DataLayoutStrategy generateCompactionStrategy() {
+  private Optional<DataLayoutStrategy> generateCompactionStrategy() {
     // Retrieve file sizes of all data files.
     Dataset<Long> fileSizes =
         tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
@@ -69,9 +72,8 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
                     size < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
     // Check whether we have anything to map/reduce on for cost computation, this is only the case
     // if we have small files that need to be compacted.
-    // Return default (empty) object.
     if (filteredSizes.count() == 0) {
-      return DataLayoutStrategy.builder().config(null).cost(0).gain(0).score(0).entropy(0).build();
+      return Optional.empty();
     }
 
     // Traits computation (cost, gain, and entropy).
