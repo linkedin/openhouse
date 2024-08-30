@@ -30,6 +30,7 @@ import org.springframework.context.annotation.PropertySource;
 public class StorageProperties {
   private String defaultType;
   private Map<String, StorageTypeProperties> types;
+  private StorageSelectorProperties storageSelector;
 
   @Getter
   @Setter
@@ -39,6 +40,16 @@ public class StorageProperties {
   public static class StorageTypeProperties {
     private String rootPath;
     private String endpoint;
+    @Builder.Default private Map<String, String> parameters = new HashMap<>();
+  }
+
+  @Getter
+  @Setter
+  @AllArgsConstructor
+  @NoArgsConstructor
+  @Builder(toBuilder = true)
+  public static class StorageSelectorProperties {
+    private String name;
     @Builder.Default private Map<String, String> parameters = new HashMap<>();
   }
 }
