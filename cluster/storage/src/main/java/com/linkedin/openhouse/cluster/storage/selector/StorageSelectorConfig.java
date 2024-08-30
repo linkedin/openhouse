@@ -34,21 +34,17 @@ public class StorageSelectorConfig {
   @Primary
   StorageSelector provideStorageSelector() {
 
-    String selectorName;
-    try {
-      selectorName = storageProperties.getStorageSelector().getName();
-      for (StorageSelector selector : storageSelectors) {
-        if (selectorName.equals(selector.getName())) {
-          return selector;
-        }
-      }
-    } catch (NullPointerException e) {
-      // We get NPE if storage selector or its name is not configured. Return
-      // DefaultStorageSelector.
-      log.error(
-          "Missing storage selector config or name. Defaulting to {}.",
-          DefaultStorageSelector.class.getSimpleName());
+    // If storage selector or its name is not configured. Return DefaultStorageSelector.
+    if (storageProperties.getStorageSelector() == null
+        || storageProperties.getStorageSelector().getName() == null) {
       return new DefaultStorageSelector();
+    }
+
+    String selectorName = storageProperties.getStorageSelector().getName();
+    for (StorageSelector selector : storageSelectors) {
+      if (selectorName.equals(selector.getName())) {
+        return selector;
+      }
     }
 
     throw new IllegalArgumentException("Could not find Storage selector with name=" + selectorName);
