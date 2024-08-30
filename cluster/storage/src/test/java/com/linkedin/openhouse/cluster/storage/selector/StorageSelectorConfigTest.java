@@ -24,6 +24,8 @@ public class StorageSelectorConfigTest {
 
   @Mock private StorageSelector selector2;
 
+  @Mock private DefaultStorageSelector defaultStorageSelector;
+
   @InjectMocks private StorageSelectorConfig storageSelectorConfig;
 
   @BeforeEach
@@ -60,6 +62,8 @@ public class StorageSelectorConfigTest {
   public void testProvideStorageSelectorMissingConfig() {
     when(selector1.getName()).thenReturn("selector1");
     when(selector2.getName()).thenReturn("selector2");
+    when(defaultStorageSelector.getName()).thenReturn(DefaultStorageSelector.class.getSimpleName());
+    storageSelectorConfig.defaultStorageSelector = defaultStorageSelector;
     storageSelectorConfig.storageSelectors = Arrays.asList(selector1, selector2);
 
     assertEquals(

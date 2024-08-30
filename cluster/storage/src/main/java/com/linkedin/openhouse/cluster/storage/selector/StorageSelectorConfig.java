@@ -23,6 +23,8 @@ public class StorageSelectorConfig {
 
   @Autowired List<StorageSelector> storageSelectors;
 
+  @Autowired DefaultStorageSelector defaultStorageSelector;
+
   /**
    * Checks the name of storage-selector from {@link StorageProperties} against all implementations
    * of {@link com.linkedin.openhouse.cluster.storage.selector.StorageSelector} and returns the
@@ -40,7 +42,7 @@ public class StorageSelectorConfig {
       log.info(
           "storage selector or its name is not configured. Defaulting to {}",
           DefaultStorageSelector.class.getSimpleName());
-      return new DefaultStorageSelector();
+      return defaultStorageSelector;
     }
 
     String selectorName = storageProperties.getStorageSelector().getName();
