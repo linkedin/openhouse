@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.mock.storage;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
-import com.linkedin.openhouse.cluster.storage.selector.DefaultStorageSelector;
+import com.linkedin.openhouse.cluster.storage.selector.impl.DefaultStorageSelector;
 import com.linkedin.openhouse.tables.mock.properties.CustomClusterPropertiesInitializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;

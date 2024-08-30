@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.cluster.storage.selector;
 
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import com.linkedin.openhouse.cluster.storage.selector.impl.DefaultStorageSelector;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,8 +11,9 @@ import org.springframework.context.annotation.Primary;
 
 /**
  * Configures the StorageSelector bean for storage-selector configured in {@link StorageProperties}
- * The return value of the bean is the {@link StorageSelector} implementation that matches the name
- * in storage-selector or is null if the storage selector is not configured.
+ * The return value of the bean is the {@link
+ * com.linkedin.openhouse.cluster.storage.selector.StorageSelector} implementation that matches the
+ * name in storage-selector or is null if the storage selector is not configured.
  */
 @Slf4j
 @Configuration
@@ -23,8 +25,8 @@ public class StorageSelectorConfig {
 
   /**
    * Checks the name of storage-selector from {@link StorageProperties} against all implementations
-   * of {@link StorageSelector} and returns the implementation that matches the name. Returns {@link
-   * DefaultStorageSelector}if not configured
+   * of {@link com.linkedin.openhouse.cluster.storage.selector.StorageSelector} and returns the
+   * implementation that matches the name. Returns {@link DefaultStorageSelector}if not configured
    *
    * @return
    */

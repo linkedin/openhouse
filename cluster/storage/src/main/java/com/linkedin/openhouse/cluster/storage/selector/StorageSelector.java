@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.cluster.storage.selector;
 
 import com.linkedin.openhouse.cluster.storage.Storage;
+import com.linkedin.openhouse.cluster.storage.selector.impl.DefaultStorageSelector;
 
 /**
  * The StorageSelector interface provides a way to select storage per table
