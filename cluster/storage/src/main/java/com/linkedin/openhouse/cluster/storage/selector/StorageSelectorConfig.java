@@ -37,12 +37,16 @@ public class StorageSelectorConfig {
     // If storage selector or its name is not configured. Return DefaultStorageSelector.
     if (storageProperties.getStorageSelector() == null
         || storageProperties.getStorageSelector().getName() == null) {
+      log.info(
+          "storage selector or its name is not configured. Defaulting to {}",
+          DefaultStorageSelector.class.getSimpleName());
       return new DefaultStorageSelector();
     }
 
     String selectorName = storageProperties.getStorageSelector().getName();
     for (StorageSelector selector : storageSelectors) {
       if (selectorName.equals(selector.getName())) {
+        log.info("Found Storage Selector {}", selectorName);
         return selector;
       }
     }
