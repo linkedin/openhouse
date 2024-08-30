@@ -121,13 +121,14 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
     // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
     double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
-    return DataLayoutStrategy.builder()
-        .config(configBuilder.build())
-        .cost(computeGbHr)
-        .gain(reducedFileCount)
-        .score(reducedFileCountPerComputeGbHr)
-        .entropy(computeEntropy(fileSizes))
-        .build();
+    return Optional.ofNullable(
+        DataLayoutStrategy.builder()
+            .config(configBuilder.build())
+            .cost(computeGbHr)
+            .gain(reducedFileCount)
+            .score(reducedFileCountPerComputeGbHr)
+            .entropy(computeEntropy(fileSizes))
+            .build());
   }
 
   private long estimateReducedFileCount(long rewriteFileBytes, int rewriteFileCount) {
