@@ -8,6 +8,7 @@ import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 import lombok.Builder;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
@@ -43,7 +44,9 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    */
   @Override
   public List<DataLayoutStrategy> generate() {
-    return Collections.singletonList(generateCompactionStrategy());
+    return generateCompactionStrategy()
+        .map(Collections::singletonList)
+        .orElse(Collections.emptyList());
   }
 
   /**
@@ -57,17 +60,25 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    *       compute, the higher the score, the better the strategy
    * </ul>
    */
-  private DataLayoutStrategy generateCompactionStrategy() {
+  private Optional<DataLayoutStrategy> generateCompactionStrategy() {
     // Retrieve file sizes of all data files.
     Dataset<Long> fileSizes =
         tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
 
+    Dataset<Long> filteredSizes =
+        fileSizes.filter(
+            (FilterFunction<Long>)
+                size ->
+                    size < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+    // Check whether we have anything to map/reduce on for cost computation, this is only the case
+    // if we have small files that need to be compacted.
+    if (filteredSizes.count() == 0) {
+      return Optional.empty();
+    }
+
+    // Traits computation (cost, gain, and entropy).
     Tuple2<Long, Integer> fileStats =
-        fileSizes
-            .filter(
-                (FilterFunction<Long>)
-                    size ->
-                        size < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT)
+        filteredSizes
             .map(
                 (MapFunction<Long, Tuple2<Long, Integer>>) size -> new Tuple2<>(size, 1),
                 Encoders.tuple(Encoders.LONG(), Encoders.INT()))
@@ -110,13 +121,14 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
     // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
     double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
-    return DataLayoutStrategy.builder()
-        .config(configBuilder.build())
-        .cost(computeGbHr)
-        .gain(reducedFileCount)
-        .score(reducedFileCountPerComputeGbHr)
-        .entropy(computeEntropy(fileSizes))
-        .build();
+    return Optional.of(
+        DataLayoutStrategy.builder()
+            .config(configBuilder.build())
+            .cost(computeGbHr)
+            .gain(reducedFileCount)
+            .score(reducedFileCountPerComputeGbHr)
+            .entropy(computeEntropy(fileSizes))
+            .build());
   }
 
   private long estimateReducedFileCount(long rewriteFileBytes, int rewriteFileCount) {
