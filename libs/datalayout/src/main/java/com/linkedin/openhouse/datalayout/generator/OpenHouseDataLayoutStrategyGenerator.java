@@ -112,6 +112,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
     return DataLayoutStrategy.builder()
         .config(configBuilder.build())
+        .computationTimestamp(System.currentTimeMillis())
         .cost(computeGbHr)
         .gain(reducedFileCount)
         .score(reducedFileCountPerComputeGbHr)

@@ -24,6 +24,7 @@ import org.apache.iceberg.actions.RewriteDataFiles;
 @Slf4j
 public class DataCompactionSparkApp extends BaseTableSparkApp {
   private final DataCompactionConfig config;
+  public static final String DATA_LAYOUT_COMPACTION_PROPERTY_KEY = "write.data-layout.compaction";
 
   protected DataCompactionSparkApp(
       String jobId, StateManager stateManager, String fqtn, DataCompactionConfig config) {
@@ -58,6 +59,14 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
           fileGroupRewriteResult.rewrittenDataFilesCount(),
           fileGroupRewriteResult.rewrittenBytesCount());
     }
+    // Add compaction timestamp to table properties.
+    ops.spark()
+        .sql(
+            String.format(
+                "ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')",
+                ops.getTable(fqtn),
+                DATA_LAYOUT_COMPACTION_PROPERTY_KEY,
+                System.currentTimeMillis()));
     METER
         .counterBuilder(AppConstants.ADDED_DATA_FILE_COUNT)
         .build()

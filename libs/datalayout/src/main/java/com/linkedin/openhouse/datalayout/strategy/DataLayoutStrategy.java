@@ -11,6 +11,7 @@ import lombok.Data;
 @Data
 @Builder
 public class DataLayoutStrategy {
+  private final long computationTimestamp;
   private final double score;
   private final double entropy;
   private final double cost;
