@@ -1,15 +1,21 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.CompactionEvent;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.actions.RewriteDataFiles;
 
@@ -60,13 +66,22 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
           fileGroupRewriteResult.rewrittenBytesCount());
     }
     // Add compaction timestamp to table properties.
+    CompactionEvent event =
+        CompactionEvent.builder()
+            .compactionTimestamp(System.currentTimeMillis())
+            .addedDataFilesCount(result.addedDataFilesCount())
+            .rewrittenDataFilesCount(result.rewrittenDataFilesCount())
+            .rewrittenBytesCount(result.rewrittenBytesCount())
+            .build();
+    Gson gson = new GsonBuilder().create();
+    Type type = new TypeToken<CompactionEvent>() {}.getType();
     ops.spark()
         .sql(
             String.format(
                 "ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')",
                 ops.getTable(fqtn),
                 DATA_LAYOUT_COMPACTION_PROPERTY_KEY,
-                System.currentTimeMillis()));
+                StringEscapeUtils.escapeJava(gson.toJson(event, type))));
     METER
         .counterBuilder(AppConstants.ADDED_DATA_FILE_COUNT)
         .build()
