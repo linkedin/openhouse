@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.toggle.model;
+package com.linkedin.openhouse.internal.catalog.toggle.model;
 
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import javax.persistence.Entity;

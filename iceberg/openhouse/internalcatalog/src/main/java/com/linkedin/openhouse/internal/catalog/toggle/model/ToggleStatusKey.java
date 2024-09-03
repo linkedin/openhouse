@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.toggle.model;
+package com.linkedin.openhouse.internal.catalog.toggle.model;
 
 import java.io.Serializable;
 import lombok.AccessLevel;

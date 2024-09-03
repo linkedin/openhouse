@@ -12,7 +12,6 @@ import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -75,21 +74,21 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
     return buildResponseEntity(errorResponseBody);
   }
 
-  @Hidden
-  @ExceptionHandler(ResourceGatedByToggledOnFeatureException.class)
-  protected ResponseEntity<ErrorResponseBody> handleFeatureToggledOff(
-      ResourceGatedByToggledOnFeatureException re) {
-    ErrorResponseBody errorResponseBody =
-        ErrorResponseBody.builder()
-            .status(HttpStatus.FORBIDDEN)
-            .error(HttpStatus.FORBIDDEN.getReasonPhrase())
-            .message(re.getMessage())
-            .stacktrace(getAbbreviatedStackTrace(re))
-            .cause(getExceptionCause(re))
-            .build();
-
-    return buildResponseEntity(errorResponseBody);
-  }
+  //  @Hidden
+  //  @ExceptionHandler(ResourceGatedByToggledOnFeatureException.class)
+  //  protected ResponseEntity<ErrorResponseBody> handleFeatureToggledOff(
+  //      ResourceGatedByToggledOnFeatureException re) {
+  //    ErrorResponseBody errorResponseBody =
+  //        ErrorResponseBody.builder()
+  //            .status(HttpStatus.FORBIDDEN)
+  //            .error(HttpStatus.FORBIDDEN.getReasonPhrase())
+  //            .message(re.getMessage())
+  //            .stacktrace(getAbbreviatedStackTrace(re))
+  //            .cause(getExceptionCause(re))
+  //            .build();
+  //
+  //    return buildResponseEntity(errorResponseBody);
+  //  }
 
   /**
    * To customize behavior of handling {@link NoHandlerFoundException} one cannot rely on {@link

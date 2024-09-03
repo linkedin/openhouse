@@ -14,12 +14,12 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.toggle.TableFeatureToggle;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -30,7 +30,6 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
-import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
@@ -167,12 +166,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * with.
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
-    if (tableFeatureToggle.isFeatureActivated(
-        tableDto.getDatabaseId(), tableDto.getTableId(), STOP_TABLE_CREATION_TOGGLE)) {
-      throw new ResourceGatedByToggledOnFeatureException(
-          STOP_TABLE_CREATION_TOGGLE, tableDto.getDatabaseId(), tableDto.getTableId());
-    }
-
     versionCheck(null, tableDto);
   }
 

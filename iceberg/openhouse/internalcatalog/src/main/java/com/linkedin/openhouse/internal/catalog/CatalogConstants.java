@@ -15,6 +15,8 @@ public final class CatalogConstants {
   /** Used to uniquely identify an update towards a table from user side. */
   public static final String COMMIT_KEY = "commitKey";
 
+  static final String STOP_TABLE_CREATION_TOGGLE = "stop_create";
+
   private CatalogConstants() {
     // Noop
   }

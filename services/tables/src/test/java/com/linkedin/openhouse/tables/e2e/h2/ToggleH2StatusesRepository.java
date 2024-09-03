@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
-import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
+import com.linkedin.openhouse.internal.catalog.toggle.repository.ToggleStatusesRepository;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
 
@@ -10,5 +10,5 @@ import org.springframework.stereotype.Repository;
  * {@link Primary} annotation, this repository will be the default injection.
  */
 @Repository
-@Primary
+// @Primary
 public interface ToggleH2StatusesRepository extends ToggleStatusesRepository {}
