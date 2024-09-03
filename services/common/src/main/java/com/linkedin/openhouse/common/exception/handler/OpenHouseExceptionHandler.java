@@ -74,22 +74,6 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
     return buildResponseEntity(errorResponseBody);
   }
 
-  //  @Hidden
-  //  @ExceptionHandler(ResourceGatedByToggledOnFeatureException.class)
-  //  protected ResponseEntity<ErrorResponseBody> handleFeatureToggledOff(
-  //      ResourceGatedByToggledOnFeatureException re) {
-  //    ErrorResponseBody errorResponseBody =
-  //        ErrorResponseBody.builder()
-  //            .status(HttpStatus.FORBIDDEN)
-  //            .error(HttpStatus.FORBIDDEN.getReasonPhrase())
-  //            .message(re.getMessage())
-  //            .stacktrace(getAbbreviatedStackTrace(re))
-  //            .cause(getExceptionCause(re))
-  //            .build();
-  //
-  //    return buildResponseEntity(errorResponseBody);
-  //  }
-
   /**
    * To customize behavior of handling {@link NoHandlerFoundException} one cannot rely on {@link
    * ExceptionHandler} as that causes ambiguity with {@link ResponseEntityExceptionHandler} and
