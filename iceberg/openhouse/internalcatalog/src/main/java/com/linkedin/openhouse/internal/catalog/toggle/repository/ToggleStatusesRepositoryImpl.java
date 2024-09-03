@@ -8,17 +8,15 @@ import com.linkedin.openhouse.internal.catalog.toggle.model.ToggleStatusMapper;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 
 /**
  * A base implementation for {@link ToggleStatusesRepository} that represents an interface for fetch
  * feature-toggle-status of a table entity.
  */
-@Component
-@Primary
+@Repository
 @Slf4j
-public class BaseTableToggleStatusesRepository implements ToggleStatusesRepository {
+public class ToggleStatusesRepositoryImpl implements ToggleStatusesRepository {
   @Autowired private ToggleStatusApi apiInstance;
 
   @Autowired private ToggleStatusMapper toggleStatusMapper;

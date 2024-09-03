@@ -125,7 +125,7 @@ public class RepositoryTestWithSettableComponents {
     doReturn(actualOps.current()).when(spyOperations).refresh();
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
 
-    Catalog spyCatalog = Mockito.spy(catalog);
+    Catalog spyCatalog = Mockito.spy(Catalog.class);
     Mockito.doReturn(spyOptsMockedTable).when(spyCatalog).loadTable(tableIdentifier);
     ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);
     // the following spy object avoid execution path enter table-creation branch that doesn't
@@ -211,7 +211,7 @@ public class RepositoryTestWithSettableComponents {
                       + "."
                       + TABLE_DTO.getTableId()));
 
-      Catalog spyCatalog = Mockito.spy(catalog);
+      Catalog spyCatalog = Mockito.spy(Catalog.class);
       Mockito.doReturn(spyOptsMockedTable).when(spyCatalog).loadTable(tableIdentifier);
 
       ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);

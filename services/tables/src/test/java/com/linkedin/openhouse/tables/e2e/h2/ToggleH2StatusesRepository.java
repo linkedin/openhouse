@@ -10,5 +10,5 @@ import org.springframework.stereotype.Repository;
  * {@link Primary} annotation, this repository will be the default injection.
  */
 @Repository
-// @Primary
+@Primary
 public interface ToggleH2StatusesRepository extends ToggleStatusesRepository {}

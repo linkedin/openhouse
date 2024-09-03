@@ -13,7 +13,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
     scanBasePackages = {
       "com.linkedin.openhouse.tables",
       "com.linkedin.openhouse.tables.utils",
-      "com.linkedin.openhouse.tables.toggle",
+      "com.linkedin.openhouse.internal.catalog.toggle",
       "com.linkedin.openhouse.cluster.configs",
       "com.linkedin.openhouse.cluster.storage",
       "com.linkedin.openhouse.common.audit",
@@ -24,14 +24,14 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
     basePackages = {
       "com.linkedin.openhouse.tables.model",
       "com.linkedin.openhouse.internal.catalog.model",
-      "com.linkedin.openhouse.tables.toggle.model"
+      "com.linkedin.openhouse.internal.catalog.toggle.model"
     })
 @EnableAutoConfiguration(
     exclude = {SecurityAutoConfiguration.class, ManagementWebSecurityAutoConfiguration.class})
 @EnableJpaRepositories(
     basePackages = {
       "com.linkedin.openhouse.internal.catalog.repository",
-      "com.linkedin.openhouse.tables.toggle.repository"
+      "com.linkedin.openhouse.internal.catalog.toggle.repository"
     })
 public class TablesSpringApplication {
 

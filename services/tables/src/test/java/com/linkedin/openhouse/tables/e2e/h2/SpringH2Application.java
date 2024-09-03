@@ -28,7 +28,7 @@ import org.springframework.context.annotation.Primary;
       "com.linkedin.openhouse.tables.controller",
       "com.linkedin.openhouse.tables.services",
       "com.linkedin.openhouse.tables.config",
-      "com.linkedin.openhouse.tables.toggle",
+      "com.linkedin.openhouse.internal.catalog.toggle",
       "com.linkedin.openhouse.internal.catalog",
       "com.linkedin.openhouse.cluster.configs",
       "com.linkedin.openhouse.cluster.storage",
@@ -42,7 +42,7 @@ import org.springframework.context.annotation.Primary;
     basePackages = {
       "com.linkedin.openhouse.tables.model",
       "com.linkedin.openhouse.internal.catalog.model",
-      "com.linkedin.openhouse.tables.toggle.model"
+      "com.linkedin.openhouse.internal.catalog.toggle.model"
     })
 @EnableAutoConfiguration(
     exclude = {SecurityAutoConfiguration.class, ManagementWebSecurityAutoConfiguration.class})
