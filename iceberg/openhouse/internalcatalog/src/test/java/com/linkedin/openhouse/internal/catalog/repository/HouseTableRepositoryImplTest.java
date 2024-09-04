@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.HouseTableModelConstants.*
 import static org.assertj.core.api.Assertions.*;
 
 import com.google.gson.Gson;
+import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyUserTable;
@@ -53,12 +54,21 @@ public class HouseTableRepositoryImplTest {
      */
     @Bean
     public UserTableApi provideMockHtsApiInstance() {
+      return new UserTableApi(getMockServerApiClient());
+    }
+
+    @Bean
+    public ToggleStatusApi provideMockHtsApiInstanceForToggle() {
+      return new ToggleStatusApi(getMockServerApiClient());
+    }
+
+    private ApiClient getMockServerApiClient() {
       // Routing the client to access port from Mock server so that Mock server can respond with
       // stub response.
       ApiClient apiClient = new ApiClient();
       String baseUrl = String.format("http://localhost:%s", mockHtsServer.getPort());
       apiClient.setBasePath(baseUrl);
-      return new UserTableApi(apiClient);
+      return apiClient;
     }
 
     /**

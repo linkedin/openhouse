@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.internal.catalog.mapper;
 
+import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -25,6 +26,14 @@ public class HouseTableMapperTest {
       // stub response.
       ApiClient apiClient = new ApiClient();
       return new UserTableApi(apiClient);
+    }
+
+    @Bean
+    public ToggleStatusApi provideMockHtsApiInstanceForToggle() {
+      // Routing the client to access port from Mock server so that Mock server can respond with
+      // stub response.
+      ApiClient apiClient = new ApiClient();
+      return new ToggleStatusApi(apiClient);
     }
 
     @Bean
