@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
-import com.linkedin.openhouse.internal.catalog.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.internal.catalog.toggle.repository.ToggleStatusesRepository;
 import com.linkedin.openhouse.tables.toggle.BaseTableFeatureToggle;
+import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
+import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

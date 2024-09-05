@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.internal.catalog.toggle.annotation;
+package com.linkedin.openhouse.internal.catalog.toggle;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

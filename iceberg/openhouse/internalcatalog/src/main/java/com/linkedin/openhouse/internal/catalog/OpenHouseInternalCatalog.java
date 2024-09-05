@@ -10,7 +10,7 @@ import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
-import com.linkedin.openhouse.internal.catalog.toggle.annotation.IcebergFeatureGate;
+import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;

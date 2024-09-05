@@ -1,7 +1,7 @@
-package com.linkedin.openhouse.internal.catalog.toggle.repository;
+package com.linkedin.openhouse.tables.toggle.repository;
 
-import com.linkedin.openhouse.internal.catalog.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.internal.catalog.toggle.model.ToggleStatusKey;
+import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
+import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 

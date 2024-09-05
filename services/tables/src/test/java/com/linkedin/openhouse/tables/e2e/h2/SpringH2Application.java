@@ -43,7 +43,7 @@ import org.springframework.context.annotation.Primary;
     basePackages = {
       "com.linkedin.openhouse.tables.model",
       "com.linkedin.openhouse.internal.catalog.model",
-      "com.linkedin.openhouse.internal.catalog.toggle.model"
+      "com.linkedin.openhouse.tables.toggle.model"
     })
 @EnableAutoConfiguration(
     exclude = {SecurityAutoConfiguration.class, ManagementWebSecurityAutoConfiguration.class})

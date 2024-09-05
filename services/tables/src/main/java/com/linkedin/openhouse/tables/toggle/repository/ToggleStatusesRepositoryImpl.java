@@ -1,10 +1,10 @@
-package com.linkedin.openhouse.internal.catalog.toggle.repository;
+package com.linkedin.openhouse.tables.toggle.repository;
 
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyToggleStatus;
-import com.linkedin.openhouse.internal.catalog.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.internal.catalog.toggle.model.ToggleStatusKey;
-import com.linkedin.openhouse.internal.catalog.toggle.model.ToggleStatusMapper;
+import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
+import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
+import com.linkedin.openhouse.tables.toggle.model.ToggleStatusMapper;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;

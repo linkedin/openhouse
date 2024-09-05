@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.internal.catalog.toggle.model;
+package com.linkedin.openhouse.tables.toggle.model;
 
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import org.mapstruct.Mapper;

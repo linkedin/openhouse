@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.tables.toggle;
 
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
-import com.linkedin.openhouse.internal.catalog.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.internal.catalog.toggle.model.ToggleStatusKey;
-import com.linkedin.openhouse.internal.catalog.toggle.repository.ToggleStatusesRepository;
+import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
+import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
+import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
