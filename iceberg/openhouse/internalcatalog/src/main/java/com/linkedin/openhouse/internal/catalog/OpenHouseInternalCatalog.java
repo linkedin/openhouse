@@ -65,7 +65,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   /** Overwritten for annotation purpose. */
   @Override
-  @IcebergFeatureGate(value = STOP_TABLE_CREATION_TOGGLE)
+  @IcebergFeatureGate(value = FEATURE_TOGGLE_STOP_CREATE)
   public Table createTable(
       TableIdentifier identifier,
       Schema schema,

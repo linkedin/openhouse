@@ -19,7 +19,6 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.toggle.TableFeatureToggle;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -84,8 +83,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Autowired ClusterProperties clusterProperties;
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
-
-  @Autowired TableFeatureToggle tableFeatureToggle;
 
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
