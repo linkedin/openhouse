@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.internal.catalog.toggle;
+package com.linkedin.openhouse.tables.toggle;
 
 /** Interface to check if a feature is toggled-on for a table */
 public interface TableFeatureToggle {

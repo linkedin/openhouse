@@ -36,7 +36,8 @@ import org.springframework.context.annotation.Primary;
       "com.linkedin.openhouse.tables.utils",
       "com.linkedin.openhouse.common.exception.handler",
       "com.linkedin.openhouse.common.audit",
-      "com.linkedin.openhouse.tables.audit"
+      "com.linkedin.openhouse.tables.audit",
+      "com.linkedin.openhouse.tables.toggle"
     })
 @EntityScan(
     basePackages = {

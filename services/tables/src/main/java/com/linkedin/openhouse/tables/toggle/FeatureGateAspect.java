@@ -1,7 +1,6 @@
-package com.linkedin.openhouse.internal.catalog.toggle.annotation;
+package com.linkedin.openhouse.tables.toggle;
 
-import com.linkedin.openhouse.internal.catalog.toggle.ResourceGatedByToggledOnFeatureException;
-import com.linkedin.openhouse.internal.catalog.toggle.TableFeatureToggle;
+import com.linkedin.openhouse.internal.catalog.toggle.annotation.IcebergFeatureGate;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.aspectj.lang.JoinPoint;

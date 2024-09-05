@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.internal.catalog.toggle;
+package com.linkedin.openhouse.tables.toggle;
 
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.toggle.model.TableToggleStatus;
