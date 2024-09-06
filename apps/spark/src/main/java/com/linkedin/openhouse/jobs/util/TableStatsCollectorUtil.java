@@ -4,7 +4,12 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -114,6 +119,9 @@ public final class TableStatsCollectorUtil {
             .min(Long::compareTo)
             .orElse(null);
 
+    Map<String, Long> snapshotCountByDay =
+        getSnapShotDistributionPerDay(table, spark, MetadataTableType.SNAPSHOTS);
+
     return stats
         .toBuilder()
         .currentSnapshotId(currentSnapshotId)
@@ -121,7 +129,30 @@ public final class TableStatsCollectorUtil {
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
         .numCurrentSnapshotReferencedDataFiles(countOfDataFiles)
         .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfFileSizeBytes)
+        .snapshotCountByDay(snapshotCountByDay)
         .build();
+  }
+
+  /** Get snapshot distribution for a given table by date. */
+  private static Map<String, Long> getSnapshotDistributionPerDay(
+      Table table, SparkSession spark, MetadataTableType metadataTableType) {
+    Dataset<Row> snapShotDistribution =
+        SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
+            .selectExpr(new String[] {"snapshot_id", "committed_at"})
+            .dropDuplicates("snapshot_id", "committed_at");
+
+    Map<String, Long> snapshotCountByDay =
+        snapShotDistribution.collectAsList().stream()
+            .collect(
+                Collectors.toMap(
+                    row -> {
+                      SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
+                      return formatter.format(new Date(row.getTimestamp(1).getTime()));
+                    },
+                    row -> 1L,
+                    Long::sum,
+                    LinkedHashMap::new));
+    return snapshotCountByDay;
   }
 
   /**
