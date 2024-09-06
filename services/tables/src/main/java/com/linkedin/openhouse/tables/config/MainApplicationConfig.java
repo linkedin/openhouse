@@ -11,6 +11,7 @@ import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import java.io.IOException;
@@ -58,6 +59,10 @@ public class MainApplicationConfig extends BaseApplicationConfig {
     return new UserTableApi(getHtsConfiguredApiClient());
   }
 
+  /**
+   * This bean is injected within {@link ToggleStatusesRepository} When HTS is used as the storage
+   * implementation for {@link com.linkedin.openhouse.tables.toggle.TableFeatureToggle}
+   */
   @Bean
   public ToggleStatusApi provideToggleApiInstance() {
     return new ToggleStatusApi(getHtsConfiguredApiClient());

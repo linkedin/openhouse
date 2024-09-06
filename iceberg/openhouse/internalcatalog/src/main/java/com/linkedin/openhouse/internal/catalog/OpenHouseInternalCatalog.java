@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.FEATURE_TOGGLE_STOP_CREATE;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.METRICS_PREFIX;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;

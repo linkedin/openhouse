@@ -47,17 +47,18 @@ public class ToggleStatusesRepositoryImpl implements ToggleStatusesRepository {
 
   @Override
   public boolean existsById(ToggleStatusKey toggleStatusKey) {
-    return false;
+    throw new UnsupportedOperationException(
+        "exists-by-id Operation into Toggle status API is not supported");
   }
 
   @Override
   public Iterable<TableToggleStatus> findAll() {
-    throw new UnsupportedOperationException("Not supported");
+    throw new UnsupportedOperationException("findAll into Toggle status API is not supported");
   }
 
   @Override
   public Iterable<TableToggleStatus> findAllById(Iterable<ToggleStatusKey> ruleKeys) {
-    throw new UnsupportedOperationException("Not supported");
+    throw new UnsupportedOperationException("findAllById into Toggle status API is not supported");
   }
 
   @Override
@@ -66,17 +67,28 @@ public class ToggleStatusesRepositoryImpl implements ToggleStatusesRepository {
   }
 
   @Override
-  public void deleteById(ToggleStatusKey toggleStatusKey) {}
+  public void deleteById(ToggleStatusKey toggleStatusKey) {
+    throw new UnsupportedOperationException("deleteById into Toggle status API is not supported");
+  }
 
   @Override
-  public void delete(TableToggleStatus entity) {}
+  public void delete(TableToggleStatus entity) {
+    throw new UnsupportedOperationException("delete into Toggle status API is not supported");
+  }
 
   @Override
-  public void deleteAllById(Iterable<? extends ToggleStatusKey> ruleKeys) {}
+  public void deleteAllById(Iterable<? extends ToggleStatusKey> ruleKeys) {
+    throw new UnsupportedOperationException(
+        "deleteAllById into Toggle status API is not supported");
+  }
 
   @Override
-  public void deleteAll(Iterable<? extends TableToggleStatus> entities) {}
+  public void deleteAll(Iterable<? extends TableToggleStatus> entities) {
+    throw new UnsupportedOperationException("deleteAll into Toggle status API is not supported");
+  }
 
   @Override
-  public void deleteAll() {}
+  public void deleteAll() {
+    throw new UnsupportedOperationException("deleteAll into Toggle status API is not supported");
+  }
 }
