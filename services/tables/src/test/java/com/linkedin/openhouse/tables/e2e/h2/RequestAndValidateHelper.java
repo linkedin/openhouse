@@ -217,6 +217,7 @@ public class RequestAndValidateHelper {
     ValidationUtilities.validateSchema(result, getTableResponseBody.getSchema());
     validateWritableTableProperties(result, getTableResponseBody.getTableProperties());
     ValidationUtilities.validatePolicies(result, getTableResponseBody.getPolicies());
+    ValidationUtilities.tableReplicationConfig(result, getTableResponseBody.getPolicies());
     ValidationUtilities.validateLocation(
         result, storageManager.getDefaultStorage().getClient().getRootPrefix());
     Assertions.assertTrue(
