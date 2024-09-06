@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.internal.catalog.model;
 
-import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import java.beans.BeanInfo;
 import java.beans.Introspector;
@@ -33,9 +32,7 @@ public class HouseTableTest {
             continue;
           }
 
-          if (fieldName.equals("storageType")) {
-            Assertions.assertEquals(StorageType.HDFS.getValue(), value);
-          } else if (fieldName.equals("creationTime")) {
+          if (fieldName.equals("creationTime")) {
             Assertions.assertEquals(0L, value);
           } else if (fieldName.equals("lastModifiedTime")) {
             Assertions.assertEquals(0L, value);

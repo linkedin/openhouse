@@ -11,6 +11,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -76,6 +77,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired StorageManager storageManager;
 
+  @Autowired StorageSelector storageSelector;
+
   @Autowired MeterRegistry meterRegistry;
 
   @Autowired SchemaValidator schemaValidator;
@@ -111,8 +114,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               tableIdentifier,
               writeSchema,
               partitionSpec,
-              storageManager
-                  .getDefaultStorage()
+              storageSelector
+                  .selectStorage(tableDto.getDatabaseId(), tableDto.getTableId())
                   .allocateTableLocation(
                       tableDto.getDatabaseId(),
                       tableDto.getTableId(),

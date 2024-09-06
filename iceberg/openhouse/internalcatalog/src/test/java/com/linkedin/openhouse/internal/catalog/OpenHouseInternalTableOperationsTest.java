@@ -4,6 +4,9 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
+import com.linkedin.openhouse.cluster.storage.StorageType;
+import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -63,6 +66,7 @@ public class OpenHouseInternalTableOperationsTest {
   @Mock private HouseTableMapper mockHouseTableMapper;
   @Mock private HouseTable mockHouseTable;
   @Captor private ArgumentCaptor<TableMetadata> tblMetadataCaptor;
+  @Mock private FileIOManager fileIOManager;
 
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
 
@@ -76,14 +80,20 @@ public class OpenHouseInternalTableOperationsTest {
     MockitoAnnotations.openMocks(this);
     Mockito.when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class)))
         .thenReturn(mockHouseTable);
+    HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
     openHouseInternalTableOperations =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
-            new HadoopFileIO(new Configuration()),
+            fileIO,
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
-            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()));
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager);
+    LocalStorage localStorage = mock(LocalStorage.class);
+    when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
+    when(localStorage.getType()).thenReturn(StorageType.LOCAL);
+    // when(localStorage.getType()).thenReturn(StorageType.LOCAL);
   }
 
   @Test

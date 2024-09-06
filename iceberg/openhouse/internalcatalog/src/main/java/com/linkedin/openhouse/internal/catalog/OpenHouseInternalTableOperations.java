@@ -7,6 +7,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -59,6 +60,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   TableIdentifier tableIdentifier;
 
   MetricsReporter metricsReporter;
+
+  FileIOManager fileIOManager;
 
   private static final Gson GSON = new Gson();
 
@@ -224,7 +227,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY);
 
       houseTable = houseTableMapper.toHouseTable(updatedMetadata);
-
+      // Set the storage type of table in house table before persisting in hts
+      houseTable.setStorageType(fileIOManager.getStorage(io()).getType().getValue());
       if (!isStageCreate) {
         houseTableRepository.save(houseTable);
       } else {
