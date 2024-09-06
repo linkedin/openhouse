@@ -9,8 +9,10 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Schedule;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -20,6 +22,7 @@ import com.linkedin.openhouse.tables.dto.mapper.attribute.PoliciesSpecConverter;
 import com.linkedin.openhouse.tables.dto.mapper.attribute.TimePartitionSpecConverter;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,8 +40,9 @@ public final class TableModelConstants {
   // this is evolved on top of HEALTH_SCHEMA_LITERAL.
   public static final String ADD_OPTIONAL_FIELD;
 
-  public static final RetentionColumnPattern COL_PAT;
-  public static final Retention RETENTION_POLICY;
+  public static RetentionColumnPattern COL_PAT;
+  public static Retention RETENTION_POLICY;
+  public static Replication REPLICATION_POLICY;
 
   public static final Retention RETENTION_POLICY_WITH_PATTERN;
   public static final Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
@@ -58,6 +62,12 @@ public final class TableModelConstants {
     RETENTION_POLICY =
         Retention.builder().count(3).granularity(TimePartitionSpec.Granularity.HOUR).build();
 
+    ArrayList<Schedule> schedules = new ArrayList<>();
+    Map<String, String> schedule = new HashMap<>();
+    schedule.put("cluster1", "1 1 * 1 * *");
+    Schedule sc = Schedule.builder().config(schedule).build();
+    schedules.add(sc);
+    REPLICATION_POLICY = Replication.builder().schedules(schedules).build();
     RETENTION_POLICY_WITH_PATTERN =
         Retention.builder()
             .count(3)
@@ -71,7 +81,8 @@ public final class TableModelConstants {
             .columnPattern(COL_PAT.toBuilder().pattern("").build())
             .build();
 
-    TABLE_POLICIES = Policies.builder().retention(RETENTION_POLICY).build();
+    TABLE_POLICIES =
+        Policies.builder().retention(RETENTION_POLICY).replication(REPLICATION_POLICY).build();
     TABLE_POLICIES_COMPLEX = Policies.builder().retention(RETENTION_POLICY_WITH_PATTERN).build();
     SHARED_TABLE_POLICIES =
         Policies.builder().retention(RETENTION_POLICY).sharingEnabled(true).build();
