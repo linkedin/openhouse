@@ -10,7 +10,7 @@ az aks get-credentials --resource-group ${RESOURCE_GROUP} --name ${CLUSTER_NAME}
 TABLES_ADDRESS=$(kubectl get service openhouse-tables-service -o jsonpath="{.status.loadBalancer.ingress[0].ip}")
 TABLES_PORT=$(kubectl get service openhouse-tables-service -o jsonpath="{.spec.ports[*].port}")
 
-COMMAND="bin/spark-shell --packages org.apache.iceberg:iceberg-azure:1.5.0,org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
+COMMAND="bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
   --jars openhouse-spark-apps_2.12-*-all.jar,openhouse-spark-runtime_2.12-latest-all.jar  \
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions   \
   --conf spark.sql.catalog.openhouse=org.apache.iceberg.spark.SparkCatalog   \
