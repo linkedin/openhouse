@@ -162,30 +162,12 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
                 .databaseId(tableIdentifier.namespace().toString())
                 .tableId(tableIdentifier.name())
                 .build());
-    StorageType.Type type;
-    if (houseTable.isPresent()) {
-      System.out.println(
-          String.format(
-              "Found house table %s.%s in hts with storage type %s",
-              houseTable.get().getDatabaseId(),
-              houseTable.get().getTableId(),
-              houseTable.get().getStorageType()));
-      type = storageType.fromString(houseTable.get().getStorageType());
-    } else {
-      System.out.println(
-          String.format(
-              "house table %s.%s not found in hts, selecting storage: %s",
-              tableIdentifier.namespace().toString(),
-              tableIdentifier.name(),
-              storageSelector
-                  .selectStorage(tableIdentifier.namespace().toString(), tableIdentifier.name())
-                  .getType()
-                  .toString()));
-      type =
-          storageSelector
-              .selectStorage(tableIdentifier.namespace().toString(), tableIdentifier.name())
-              .getType();
-    }
+    StorageType.Type type =
+        houseTable.isPresent()
+            ? storageType.fromString(houseTable.get().getStorageType())
+            : storageSelector
+                .selectStorage(tableIdentifier.namespace().toString(), tableIdentifier.name())
+                .getType();
 
     return fileIOManager.getFileIO(type);
   }
