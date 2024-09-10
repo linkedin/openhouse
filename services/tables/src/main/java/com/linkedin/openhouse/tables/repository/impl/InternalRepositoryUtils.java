@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateProperties;
@@ -83,12 +84,12 @@ public final class InternalRepositoryUtils {
   /**
    * Return only the user defined table properties by excluding preserved keys as well as policies.
    */
-  static Map<String, String> getUserDefinedTblProps(
-      Map<String, String> rawTableProps, PreservedKeyChecker checker) {
+  static Map<String, String> getUserTblProps(
+      Map<String, String> rawTableProps, PreservedKeyChecker checker, TableDto tableDto) {
     Map<String, String> result = new HashMap<>(rawTableProps);
     rawTableProps.forEach(
         (k, v) -> {
-          if (checker.isKeyPreserved(k)) {
+          if (checker.isKeyPreservedForTable(k, tableDto)) {
             result.remove(k);
           }
         });
@@ -185,5 +186,16 @@ public final class InternalRepositoryUtils {
    */
   static String getSchemeLessPath(String rawPath) {
     return URI.create(rawPath).getPath();
+  }
+
+  /** Provides definition on what is reserved properties and extract them from tblproperties map */
+  @VisibleForTesting
+  public static Map<String, String> extractPreservedProps(
+      Map<String, String> inputPropMaps,
+      TableDto tableDto,
+      PreservedKeyChecker preservedKeyChecker) {
+    return inputPropMaps.entrySet().stream()
+        .filter(e -> preservedKeyChecker.isKeyPreservedForTable(e.getKey(), tableDto))
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 }

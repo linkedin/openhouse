@@ -1,12 +1,19 @@
 package com.linkedin.openhouse.tables.toggle;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.linkedin.openhouse.cluster.configs.TblPropsToggleRegistry;
 import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
+import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.repository.impl.TblPropsEnabler;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -17,9 +24,35 @@ import org.springframework.stereotype.Component;
 @Aspect
 @Component
 @Slf4j
-public class FeatureGateAspect {
+public class FeatureToggleAspect {
 
   @Autowired private TableFeatureToggle tableFeatureToggle;
+
+  @Autowired private TblPropsToggleRegistry tblPropsToggleRegistry;
+
+  @Around("@annotation(tblPropsEnabler)")
+  public boolean checkTblPropEnabled(
+      ProceedingJoinPoint proceedingJoinPoint, TblPropsEnabler tblPropsEnabler) throws Throwable {
+    if (((MethodSignature) proceedingJoinPoint.getSignature()).getReturnType() == boolean.class
+        && proceedingJoinPoint.getArgs()[1] instanceof TableDto) {
+      TableDto tableDto = (TableDto) proceedingJoinPoint.getArgs()[1];
+
+      String key = (String) proceedingJoinPoint.getArgs()[0];
+      Optional<String> feature = tblPropsToggleRegistry.obtainFeatureByKey(key);
+      if (!feature.isPresent()) {
+        return (boolean) proceedingJoinPoint.proceed();
+      }
+
+      boolean tableFeatureEnabled =
+          tableFeatureToggle.isFeatureActivated(
+              tableDto.getDatabaseId(), tableDto.getTableId(), feature.get());
+
+      // feature activation overwriting the decision of annotated method
+      return ((boolean) proceedingJoinPoint.proceed()) || tableFeatureEnabled;
+    } else {
+      throw new RuntimeException("wrong signature");
+    }
+  }
 
   @Before("@annotation(featureGate)")
   public void checkIcebergFeatureFlag(JoinPoint joinPoint, IcebergFeatureGate featureGate) {

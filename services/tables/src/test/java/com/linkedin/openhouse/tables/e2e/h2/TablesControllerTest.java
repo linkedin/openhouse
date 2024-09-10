@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
+import static com.linkedin.openhouse.tables.e2e.h2.ToggleH2StatusesRepository.*;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.*;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.*;
@@ -16,7 +17,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.cluster.configs.TblPropsToggleRegistry;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
@@ -97,6 +100,8 @@ public class TablesControllerTest {
   @Autowired private SimpleMeterRegistry registry;
 
   @Autowired private ClusterProperties clusterProperties;
+
+  @Autowired private TblPropsToggleRegistry tblPropsToggleRegistry;
 
   @Test
   public void testSwaggerDocsWithoutAuth() throws Exception {
@@ -300,6 +305,39 @@ public class TablesControllerTest {
         mvc, dropOpenhouseProp, "openhouse.clusterId");
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testTblPropsThruFeatureToggle() throws Exception {
+    /**
+     * This is just to ensure the ToggleStatusesRepository#findById is activated to the correct
+     * path. See com.linkedin.openhouse.tables.e2e.h2.ToggleH2StatusesRepository
+     */
+    GetTableResponseBody trickFeatureToggleResponseBody =
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
+            .tableId(FEATURE_ACTIVATION_TABLE_NAME)
+            .tableUri(
+                TableUri.builder()
+                    .tableId(FEATURE_ACTIVATION_TABLE_NAME)
+                    .databaseId(GET_TABLE_RESPONSE_BODY.getDatabaseId())
+                    .clusterId(GET_TABLE_RESPONSE_BODY.getClusterId())
+                    .build()
+                    .toString())
+            .build();
+
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            trickFeatureToggleResponseBody, mvc, storageManager);
+
+    // alter a prop with feature-toggle allowed, otherwise rejected
+    GetTableResponseBody container = GetTableResponseBody.builder().tableProperties(null).build();
+    GetTableResponseBody toggledOnProp = buildGetTableResponseBody(mvcResult, container);
+    toggledOnProp.getTableProperties().put("openhouse.tableType", "replica");
+    RequestAndValidateHelper.updateTableWithReservedPropsAndValidateResponse(
+        mvc, toggledOnProp, null);
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, trickFeatureToggleResponseBody);
   }
 
   @Test
