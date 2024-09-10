@@ -34,10 +34,11 @@ public class FeatureToggleAspect {
   public boolean checkTblPropEnabled(
       ProceedingJoinPoint proceedingJoinPoint, TblPropsEnabler tblPropsEnabler) throws Throwable {
     if (((MethodSignature) proceedingJoinPoint.getSignature()).getReturnType() == boolean.class
-        && proceedingJoinPoint.getArgs()[1] instanceof TableDto) {
+        && proceedingJoinPoint.getArgs()[1] instanceof TableDto
+        && proceedingJoinPoint.getArgs()[0] instanceof String) {
       TableDto tableDto = (TableDto) proceedingJoinPoint.getArgs()[1];
-
       String key = (String) proceedingJoinPoint.getArgs()[0];
+
       Optional<String> feature = tblPropsToggleRegistry.obtainFeatureByKey(key);
       if (!feature.isPresent()) {
         return (boolean) proceedingJoinPoint.proceed();
@@ -50,7 +51,11 @@ public class FeatureToggleAspect {
       // feature activation overwriting the decision of annotated method
       return ((boolean) proceedingJoinPoint.proceed()) || tableFeatureEnabled;
     } else {
-      throw new RuntimeException("wrong signature");
+      throw new RuntimeException(
+          String.format(
+              "Signature of method that annotated with %s is problematic, "
+                  + "please check with OpenHouse server implementation for methods with this annotation",
+              tblPropsEnabler.getClass().getCanonicalName()));
     }
   }
 

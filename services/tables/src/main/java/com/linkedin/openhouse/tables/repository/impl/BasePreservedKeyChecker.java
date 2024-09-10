@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.repository.impl;
 
-import static com.linkedin.openhouse.cluster.configs.TblPropsToggleRegistry.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.IS_OH_PREFIXED;
 
 import com.linkedin.openhouse.tables.model.TableDto;
