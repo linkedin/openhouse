@@ -3,7 +3,7 @@ package com.linkedin.openhouse.tablestest;
 import java.util.Collections;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.util.SocketUtils;
+import org.springframework.test.util.TestSocketUtils;
 
 /**
  * Standalone embedded OH server that can be started and stopped from any Java code (to be used for
@@ -18,7 +18,7 @@ public class OpenHouseLocalServer {
   private ConfigurableApplicationContext appContext;
 
   public OpenHouseLocalServer() {
-    this.port = SocketUtils.findAvailableTcpPort();
+    this.port = TestSocketUtils.findAvailableTcpPort();
     this.appContext = null;
   }
 
