@@ -9,7 +9,6 @@ import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 /** Data Model for persisting Table Object in the HTS-Repository. */
 @Entity
@@ -47,7 +46,5 @@ public class HouseTable {
    * com.linkedin.openhouse.cluster.storage.StorageClient} implementation that is used to interact
    * with this table.
    */
-  // Fields that are not in table properties need to be set via setter explicitly
-  // see {@link com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper}
-  @Setter private String storageType;
+  private String storageType;
 }

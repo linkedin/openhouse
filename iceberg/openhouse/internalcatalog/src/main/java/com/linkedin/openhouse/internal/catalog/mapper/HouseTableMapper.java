@@ -4,22 +4,30 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.OPENHOUSE_NAMESPACE;
 
 import com.linkedin.openhouse.housetables.client.model.UserTable;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.io.FileIO;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.Mappings;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Mapper(componentModel = "spring")
 public abstract class HouseTableMapper {
+  @Autowired FileIOManager fileIOManager;
+
   @Mapping(target = "lastModifiedTime", ignore = true)
   @Mapping(target = "creationTime", ignore = true)
-  public abstract HouseTable toHouseTable(Map<String, String> properties);
+  @Mapping(
+      target = "storageType",
+      expression = "java(fileIOManager.getStorage(fileIO).getType().getValue())")
+  public abstract HouseTable toHouseTable(Map<String, String> properties, FileIO fileIO);
 
-  public HouseTable toHouseTable(TableMetadata tableMetadata) {
-    return toHouseTable(extractRawHTSFields(tableMetadata.properties()));
+  public HouseTable toHouseTable(TableMetadata tableMetadata, FileIO fileIO) {
+    return toHouseTable(extractRawHTSFields(tableMetadata.properties()), fileIO);
   }
 
   @Mappings({@Mapping(target = "tableLocation", source = "userTable.metadataLocation")})
