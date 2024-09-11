@@ -84,16 +84,15 @@ public class OpenHouseInternalTableOperationsTest {
     openHouseInternalTableOperations =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
+            fileIOManager,
             fileIO,
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
-            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
-            fileIOManager);
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()));
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
-    // when(localStorage.getType()).thenReturn(StorageType.LOCAL);
   }
 
   @Test

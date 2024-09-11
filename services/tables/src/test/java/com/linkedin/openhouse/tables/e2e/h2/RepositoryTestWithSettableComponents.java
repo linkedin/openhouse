@@ -100,12 +100,12 @@ public class RepositoryTestWithSettableComponents {
     OpenHouseInternalTableOperations actualOps =
         new OpenHouseInternalTableOperations(
             houseTablesRepository,
+            fileIOManager,
             fileIO,
             snapshotInspector,
             houseTableMapper,
             tableIdentifier,
-            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
-            fileIOManager);
+            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()));
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
     creationDTO = openHouseInternalRepository.save(creationDTO);
@@ -117,12 +117,12 @@ public class RepositoryTestWithSettableComponents {
     OpenHouseInternalTableOperations mockOps =
         new OpenHouseInternalTableOperations(
             htsRepo,
+            fileIOManager,
             fileIO,
             snapshotInspector,
             houseTableMapper,
             tableIdentifier,
-            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
-            fileIOManager);
+            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()));
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
     doReturn(actualOps.current()).when(spyOperations).refresh();
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
@@ -198,12 +198,12 @@ public class RepositoryTestWithSettableComponents {
       OpenHouseInternalTableOperations mockOps =
           new OpenHouseInternalTableOperations(
               htsRepo,
+              fileIOManager,
               fileIO,
               snapshotInspector,
               houseTableMapper,
               tableIdentifier,
-              new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
-              fileIOManager);
+              new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()));
       OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
       BaseTable spyOptsMockedTable =
           Mockito.spy(

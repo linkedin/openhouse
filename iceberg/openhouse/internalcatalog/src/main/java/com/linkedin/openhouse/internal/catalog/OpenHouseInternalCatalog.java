@@ -12,6 +12,7 @@ import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
 import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -64,12 +65,12 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     return new OpenHouseInternalTableOperations(
         houseTableRepository,
-        getFileIO(tableIdentifier),
+        fileIOManager,
+        resolveFileIO(tableIdentifier),
         snapshotInspector,
         houseTableMapper,
         tableIdentifier,
-        new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList()),
-        fileIOManager);
+        new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList()));
   }
 
   /** Overwritten for annotation purpose. */
@@ -155,13 +156,21 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
    * @param tableIdentifier
    * @return fileIO
    */
-  private FileIO getFileIO(TableIdentifier tableIdentifier) {
-    Optional<HouseTable> houseTable =
-        houseTableRepository.findById(
-            HouseTablePrimaryKey.builder()
-                .databaseId(tableIdentifier.namespace().toString())
-                .tableId(tableIdentifier.name())
-                .build());
+  private FileIO resolveFileIO(TableIdentifier tableIdentifier) {
+    Optional<HouseTable> houseTable = Optional.empty();
+    try {
+      houseTable =
+          houseTableRepository.findById(
+              HouseTablePrimaryKey.builder()
+                  .databaseId(tableIdentifier.namespace().toString())
+                  .tableId(tableIdentifier.name())
+                  .build());
+    } catch (HouseTableNotFoundException e) {
+      log.info(
+          "House table not found {}.{}",
+          tableIdentifier.namespace().toString(),
+          tableIdentifier.name());
+    }
     StorageType.Type type =
         houseTable.isPresent()
             ? storageType.fromString(houseTable.get().getStorageType())

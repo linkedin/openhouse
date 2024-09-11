@@ -51,6 +51,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   HouseTableRepository houseTableRepository;
 
+  FileIOManager fileIOManager;
+
   FileIO fileIO;
 
   SnapshotInspector snapshotInspector;
@@ -60,8 +62,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   TableIdentifier tableIdentifier;
 
   MetricsReporter metricsReporter;
-
-  FileIOManager fileIOManager;
 
   private static final Gson GSON = new Gson();
 
@@ -228,7 +228,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       houseTable = houseTableMapper.toHouseTable(updatedMetadata);
       // Set the storage type of table in house table before persisting in hts
-      houseTable.setStorageType(fileIOManager.getStorage(io()).getType().getValue());
+      houseTable.setStorageType(fileIOManager.getStorage(fileIO).getType().getValue());
       if (!isStageCreate) {
         houseTableRepository.save(houseTable);
       } else {

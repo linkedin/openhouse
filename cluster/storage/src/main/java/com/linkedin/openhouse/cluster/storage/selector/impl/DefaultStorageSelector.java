@@ -4,6 +4,7 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.BaseStorageSelector;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  * for the cluster in yaml configuration for all tables
  */
 @Component
+@Slf4j
 public class DefaultStorageSelector extends BaseStorageSelector {
 
   @Autowired private StorageManager storageManager;
@@ -25,6 +27,8 @@ public class DefaultStorageSelector extends BaseStorageSelector {
    */
   @Override
   public Storage selectStorage(String db, String table) {
-    return storageManager.getDefaultStorage();
+    Storage storage = storageManager.getDefaultStorage();
+    log.info("Selected storage type={} for {}.{}", storage.getType().getValue(), db, table);
+    return storage;
   }
 }
