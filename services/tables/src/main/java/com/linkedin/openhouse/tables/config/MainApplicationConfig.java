@@ -8,8 +8,10 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.common.config.BaseApplicationConfig;
 import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
+import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import java.io.IOException;
@@ -52,14 +54,27 @@ public class MainApplicationConfig extends BaseApplicationConfig {
 
   @Autowired StorageManager storageManager;
 
+  @Bean
+  public UserTableApi provideApiInstance() {
+    return new UserTableApi(getHtsConfiguredApiClient());
+  }
+
+  /**
+   * This bean is injected within {@link ToggleStatusesRepository} When HTS is used as the storage
+   * implementation for {@link com.linkedin.openhouse.tables.toggle.TableFeatureToggle}
+   */
+  @Bean
+  public ToggleStatusApi provideToggleApiInstance() {
+    return new ToggleStatusApi(getHtsConfiguredApiClient());
+  }
+
   /**
    * When cluster properties are available, obtain hts base URI and inject API client
    * implementation. This also puts availability of HTS as prerequisite for /table services.
    *
    * @return API instance for HTS client.
    */
-  @Bean
-  public UserTableApi provideApiInstance() {
+  private ApiClient getHtsConfiguredApiClient() {
     String htsBasePath = clusterProperties.getClusterHouseTablesBaseUri();
     // Not able to leverage HousetablesApiClientFactory due to cyclic dependency
     // The default DNS query timeout is 5 sec for NameResolverProvider. Increasing this to 10 sec to
@@ -78,7 +93,8 @@ public class MainApplicationConfig extends BaseApplicationConfig {
             .build();
     ApiClient apiClient = new ApiClient(webClient);
     apiClient.setBasePath(htsBasePath);
-    return new UserTableApi(apiClient);
+
+    return apiClient;
   }
 
   @Bean
