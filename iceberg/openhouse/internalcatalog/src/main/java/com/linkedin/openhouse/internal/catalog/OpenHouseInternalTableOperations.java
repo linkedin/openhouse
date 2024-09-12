@@ -223,8 +223,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               TableMetadataParser.write(updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
           InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY);
 
-      houseTable = houseTableMapper.toHouseTable(updatedMetadata);
-
+      houseTable = houseTableMapper.toHouseTable(updatedMetadata, fileIO);
       if (!isStageCreate) {
         houseTableRepository.save(houseTable);
       } else {

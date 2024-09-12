@@ -5,15 +5,20 @@ import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsCons
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
 import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +51,10 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired StorageManager storageManager;
 
+  @Autowired StorageSelector storageSelector;
+
+  @Autowired StorageType storageType;
+
   @Autowired SnapshotInspector snapshotInspector;
 
   @Autowired HouseTableMapper houseTableMapper;
@@ -56,7 +65,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     return new OpenHouseInternalTableOperations(
         houseTableRepository,
-        fileIOManager.getFileIO(storageManager.getDefaultStorage().getType()),
+        resolveFileIO(tableIdentifier),
         snapshotInspector,
         houseTableMapper,
         tableIdentifier,
@@ -137,5 +146,37 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
     throw new UnsupportedOperationException("Rename Tables not implemented yet");
+  }
+
+  /**
+   * Get the file IO for a table. if table exists, return the fileIO for the storageType in hts else
+   * return the fileio for storageType returned by storage selector
+   *
+   * @param tableIdentifier
+   * @return fileIO
+   */
+  private FileIO resolveFileIO(TableIdentifier tableIdentifier) {
+    Optional<HouseTable> houseTable = Optional.empty();
+    try {
+      houseTable =
+          houseTableRepository.findById(
+              HouseTablePrimaryKey.builder()
+                  .databaseId(tableIdentifier.namespace().toString())
+                  .tableId(tableIdentifier.name())
+                  .build());
+    } catch (HouseTableNotFoundException e) {
+      log.info(
+          "House table entry not found {}.{}",
+          tableIdentifier.namespace().toString(),
+          tableIdentifier.name());
+    }
+    StorageType.Type type =
+        houseTable.isPresent()
+            ? storageType.fromString(houseTable.get().getStorageType())
+            : storageSelector
+                .selectStorage(tableIdentifier.namespace().toString(), tableIdentifier.name())
+                .getType();
+
+    return fileIOManager.getFileIO(type);
   }
 }

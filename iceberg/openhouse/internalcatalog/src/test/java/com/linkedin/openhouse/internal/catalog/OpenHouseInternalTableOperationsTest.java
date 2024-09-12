@@ -4,6 +4,9 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
+import com.linkedin.openhouse.cluster.storage.StorageType;
+import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -63,6 +66,7 @@ public class OpenHouseInternalTableOperationsTest {
   @Mock private HouseTableMapper mockHouseTableMapper;
   @Mock private HouseTable mockHouseTable;
   @Captor private ArgumentCaptor<TableMetadata> tblMetadataCaptor;
+  @Mock private FileIOManager fileIOManager;
 
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
 
@@ -74,16 +78,20 @@ public class OpenHouseInternalTableOperationsTest {
   @BeforeEach
   void setup() {
     MockitoAnnotations.openMocks(this);
-    Mockito.when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class)))
+    Mockito.when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
         .thenReturn(mockHouseTable);
+    HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
     openHouseInternalTableOperations =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
-            new HadoopFileIO(new Configuration()),
+            fileIO,
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()));
+    LocalStorage localStorage = mock(LocalStorage.class);
+    when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
+    when(localStorage.getType()).thenReturn(StorageType.LOCAL);
   }
 
   @Test
@@ -102,7 +110,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
@@ -143,7 +151,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
@@ -193,7 +201,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
@@ -247,7 +255,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
       Assertions.assertEquals(
@@ -360,7 +368,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify snapshots are staged but not appended
@@ -405,7 +413,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify snapshots are staged but not appended
@@ -495,7 +503,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify the staged snapshot is cherry picked by use the existing one
@@ -536,7 +544,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify the staged snapshot is cherry picked by creating a new snapshot and append it
@@ -574,7 +582,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify the staged snapshot is cherry picked by using the existing one
@@ -605,7 +613,7 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture());
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify nothing happens

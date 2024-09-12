@@ -125,6 +125,7 @@ public class HouseTableRepositoryImplTest {
     Assertions.assertEquals(result.getDatabaseId(), HOUSE_TABLE.getDatabaseId());
     Assertions.assertEquals(result.getTableLocation(), HOUSE_TABLE.getTableLocation());
     Assertions.assertEquals(result.getTableVersion(), HOUSE_TABLE.getTableVersion());
+    Assertions.assertEquals(result.getStorageType(), HOUSE_TABLE.getStorageType());
   }
 
   @Test
