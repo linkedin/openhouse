@@ -84,7 +84,6 @@ public class OpenHouseInternalTableOperationsTest {
     openHouseInternalTableOperations =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
-            fileIOManager,
             fileIO,
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,

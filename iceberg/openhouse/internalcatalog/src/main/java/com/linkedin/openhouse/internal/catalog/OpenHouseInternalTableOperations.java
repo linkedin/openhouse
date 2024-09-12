@@ -7,7 +7,6 @@ import com.google.common.cache.CacheBuilder;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
-import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -50,8 +49,6 @@ import org.springframework.data.util.Pair;
 public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperations {
 
   HouseTableRepository houseTableRepository;
-
-  FileIOManager fileIOManager;
 
   FileIO fileIO;
 

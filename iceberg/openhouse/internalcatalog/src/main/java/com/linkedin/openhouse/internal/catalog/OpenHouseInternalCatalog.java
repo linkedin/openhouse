@@ -65,7 +65,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     return new OpenHouseInternalTableOperations(
         houseTableRepository,
-        fileIOManager,
         resolveFileIO(tableIdentifier),
         snapshotInspector,
         houseTableMapper,
@@ -167,7 +166,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
                   .build());
     } catch (HouseTableNotFoundException e) {
       log.info(
-          "House table not found {}.{}",
+          "House table entry not found {}.{}",
           tableIdentifier.namespace().toString(),
           tableIdentifier.name());
     }

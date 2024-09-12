@@ -100,7 +100,6 @@ public class RepositoryTestWithSettableComponents {
     OpenHouseInternalTableOperations actualOps =
         new OpenHouseInternalTableOperations(
             houseTablesRepository,
-            fileIOManager,
             fileIO,
             snapshotInspector,
             houseTableMapper,
@@ -117,7 +116,6 @@ public class RepositoryTestWithSettableComponents {
     OpenHouseInternalTableOperations mockOps =
         new OpenHouseInternalTableOperations(
             htsRepo,
-            fileIOManager,
             fileIO,
             snapshotInspector,
             houseTableMapper,
@@ -198,7 +196,6 @@ public class RepositoryTestWithSettableComponents {
       OpenHouseInternalTableOperations mockOps =
           new OpenHouseInternalTableOperations(
               htsRepo,
-              fileIOManager,
               fileIO,
               snapshotInspector,
               houseTableMapper,
