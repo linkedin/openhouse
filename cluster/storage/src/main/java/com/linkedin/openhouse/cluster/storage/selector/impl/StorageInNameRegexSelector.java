@@ -6,6 +6,7 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.selector.BaseStorageSelector;
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
@@ -13,6 +14,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+/**
+ * An implementation of {@link StorageSelector} that takes a regex and storage-type provided in the
+ * storage selector params in the yaml configuration and returns storage that's provided if the db
+ * and table name matches the regex, else returns the cluster storage default
+ */
 @Component
 @Slf4j
 public class StorageInNameRegexSelector extends BaseStorageSelector {
@@ -32,7 +38,8 @@ public class StorageInNameRegexSelector extends BaseStorageSelector {
   public void init() {
     log.info("Initializing {} ", this.getName());
     String regex = storageProperties.getStorageSelector().getParameters().get(REGEX_CONFIG);
-    Preconditions.checkNotNull(regex, "Regex pattern for db and table cannot be null");
+    Preconditions.checkNotNull(
+        regex, "{} pattern not defined in {} parameters", REGEX_CONFIG, this.getName());
     pattern = Pattern.compile(regex);
     providedStorage =
         storageProperties.getStorageSelector().getParameters().get(STORAGE_TYPE_CONFIG);
@@ -40,6 +47,14 @@ public class StorageInNameRegexSelector extends BaseStorageSelector {
         providedStorage, "{} not defined in {} parameters", STORAGE_TYPE_CONFIG, this.getName());
   }
 
+  /**
+   * Returns provided storage if db and table match regex pattern returns cluster storage default
+   * otherwise
+   *
+   * @param db
+   * @param table
+   * @return Storage
+   */
   @Override
   public Storage selectStorage(String db, String table) {
     Matcher matcher = pattern.matcher(db + "." + table);
