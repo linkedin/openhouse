@@ -12,13 +12,26 @@ import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 /**
  * An implementation of {@link StorageSelector} that takes a regex and storage-type provided in the
  * storage selector params in the yaml configuration and returns storage that's provided if the db
- * and table name matches the regex, else returns the cluster storage default
+ * and table name matches the regex with db.name matcher, else returns the cluster storage default
+ *
+ * <pre>
+ * Example:
+ * storages:
+ *     default-type: "local"
+ *     storage-selector:
+ *       name: "StorageInNameRegexSelector"
+ *       parameters:
+ *         regex: "regex_pattern"
+ *         storage-type: "hdfs"
+ * </pre>
  */
+@Lazy
 @Component
 @Slf4j
 public class StorageInNameRegexSelector extends BaseStorageSelector {
@@ -34,6 +47,7 @@ public class StorageInNameRegexSelector extends BaseStorageSelector {
   private Pattern pattern;
   private String providedStorage;
 
+  @Lazy
   @PostConstruct
   public void init() {
     log.info("Initializing {} ", this.getName());

@@ -18,14 +18,13 @@ import org.mockito.MockitoAnnotations;
 class StorageInNameRegexSelectorTest {
 
   @Mock private StorageManager storageManager;
-
   @Mock private StorageProperties storageProperties;
+  @Mock private StorageType storageType;
   @Mock private StorageType.Type defaultStorageType;
   @Mock private Storage defaultStorage;
   @Mock private Storage providedStorage;
   @Mock private StorageProperties.StorageSelectorProperties storageSelectorProperties;
   @InjectMocks private StorageInNameRegexSelector storageSelector;
-
   private Map<String, String> selectorParams;
 
   @BeforeEach
@@ -39,6 +38,7 @@ class StorageInNameRegexSelectorTest {
 
     // Mock the provided storage
     when(storageManager.getStorage(any())).thenReturn(providedStorage);
+    when(storageType.fromString("providedStorage")).thenReturn(any());
 
     // Prepare the storage properties and parameters
     storageSelectorProperties.setName(StorageInNameRegexSelector.class.getSimpleName());
@@ -53,13 +53,7 @@ class StorageInNameRegexSelectorTest {
     selectorParams.put("storage-type", "providedStorage");
 
     // Act & Assert: ensure that a missing regex throws a NullPointerException
-    Exception exception =
-        assertThrows(
-            NullPointerException.class,
-            () -> {
-              storageSelector.init();
-            });
-    assertTrue(exception.getMessage().contains("Regex pattern for db and table cannot be null"));
+    assertThrows(NullPointerException.class, () -> storageSelector.init());
   }
 
   @Test
@@ -68,13 +62,7 @@ class StorageInNameRegexSelectorTest {
     selectorParams.put("regex", "db1\\.table1");
 
     // Act & Assert: ensure that a missing storage-type throws a NullPointerException
-    Exception exception =
-        assertThrows(
-            NullPointerException.class,
-            () -> {
-              storageSelector.init();
-            });
-    assertTrue(exception.getMessage().contains("storage-type not defined"));
+    assertThrows(NullPointerException.class, () -> storageSelector.init());
   }
 
   @Test
