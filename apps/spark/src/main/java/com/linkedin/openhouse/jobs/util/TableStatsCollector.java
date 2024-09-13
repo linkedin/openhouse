@@ -16,7 +16,6 @@ public class TableStatsCollector {
   private SparkSession spark;
   String fqtn;
   Table table;
-  Boolean skipStorageStatsCollection;
 
   /** Collect table stats. */
   public IcebergTableStats collectTableStats() {
@@ -30,10 +29,6 @@ public class TableStatsCollector {
     IcebergTableStats statsWithCurrentSnapshot =
         TableStatsCollectorUtil.populateStatsForSnapshots(
             fqtn, table, spark, statsWithReferenceFiles);
-
-    if (skipStorageStatsCollection) {
-      return statsWithCurrentSnapshot;
-    }
 
     IcebergTableStats tableStats =
         TableStatsCollectorUtil.populateStorageStats(fqtn, table, fs, statsWithCurrentSnapshot);
