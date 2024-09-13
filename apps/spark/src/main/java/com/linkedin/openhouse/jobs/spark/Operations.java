@@ -430,15 +430,13 @@ public final class Operations implements AutoCloseable {
    * Collect and publish table stats for a given fully-qualified table name.
    *
    * @param fqtn fully-qualified table name
-   * @param skipStorageStatsCollection whether to skip storage stats collection
    */
-  public IcebergTableStats collectTableStats(String fqtn, Boolean skipStorageStatsCollection) {
+  public IcebergTableStats collectTableStats(String fqtn) {
     Table table = getTable(fqtn);
 
     TableStatsCollector tableStatsCollector;
     try {
-      tableStatsCollector =
-          new TableStatsCollector(fs(), spark, fqtn, table, skipStorageStatsCollection);
+      tableStatsCollector = new TableStatsCollector(fs(), spark, fqtn, table);
     } catch (IOException e) {
       log.error("Unable to initialize file system for table stats collection", e);
       return null;

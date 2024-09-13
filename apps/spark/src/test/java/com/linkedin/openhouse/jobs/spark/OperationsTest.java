@@ -533,7 +533,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int numInserts = 3;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
-      IcebergTableStats stats = ops.collectTableStats(tableName, true);
+      IcebergTableStats stats = ops.collectTableStats(tableName);
 
       // Validate empty data files case
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), 0);
@@ -541,7 +541,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       long modifiedTimeStamp = System.currentTimeMillis();
 
       populateTable(ops, tableName, 1);
-      stats = ops.collectTableStats(tableName, true);
+      stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), 1);
       Assertions.assertTrue(stats.getTableLastUpdatedTimestamp() >= modifiedTimeStamp);
 
@@ -553,15 +553,13 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
       table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      stats = ops.collectTableStats(tableName, true);
+      stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getCurrentSnapshotId(), table.currentSnapshot().snapshotId());
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), numInserts + 1);
       Assertions.assertEquals(stats.getNumExistingMetadataJsonFiles(), numInserts + 2);
       Assertions.assertEquals(
           stats.getCurrentSnapshotTimestamp(), table.currentSnapshot().timestampMillis());
       Assertions.assertEquals(stats.getOldestSnapshotTimestamp(), oldestSnapshot);
-      Assertions.assertEquals(stats.getNumObjectsInDirectory(), null);
-      stats = ops.collectTableStats(tableName, false);
       Assertions.assertEquals(
           stats.getNumObjectsInDirectory(),
           stats.getNumReferencedDataFiles()

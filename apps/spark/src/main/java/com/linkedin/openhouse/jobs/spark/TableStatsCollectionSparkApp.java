@@ -13,24 +13,20 @@ import org.apache.commons.cli.Option;
  * Class with main entry point to collect Iceberg stats for a table.
  *
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.TableStatsCollectionSparkApp
- * --tableName db.testTable --skipStorageStats true
+ * --tableName db.testTable
  */
 @Slf4j
 public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
 
-  private final Boolean skipStorageStatsCollection;
-
-  public TableStatsCollectionSparkApp(
-      String jobId, StateManager stateManager, String fqtn, Boolean skipStorageStatsCollection) {
+  public TableStatsCollectionSparkApp(String jobId, StateManager stateManager, String fqtn) {
     super(jobId, stateManager, fqtn);
-    this.skipStorageStatsCollection = skipStorageStatsCollection;
   }
 
   @Override
   protected void runInner(Operations ops) {
     log.info("Running TableStatsCollectorApp for table {}", fqtn);
 
-    IcebergTableStats icebergTableStats = ops.collectTableStats(fqtn, skipStorageStatsCollection);
+    IcebergTableStats icebergTableStats = ops.collectTableStats(fqtn);
     publishStats(icebergTableStats);
   }
 
@@ -47,16 +43,10 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   public static void main(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
-    extraOptions.add(
-        new Option("s", "skipStorageStats", false, "Whether to skip storage stats collection"));
-
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     TableStatsCollectionSparkApp app =
         new TableStatsCollectionSparkApp(
-            getJobId(cmdLine),
-            createStateManager(cmdLine),
-            cmdLine.getOptionValue("tableName"),
-            cmdLine.hasOption("skipStorageStats"));
+            getJobId(cmdLine), createStateManager(cmdLine), cmdLine.getOptionValue("tableName"));
     app.run();
   }
 }
