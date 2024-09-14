@@ -8,7 +8,7 @@ import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorage;
 import com.linkedin.openhouse.cluster.storage.s3.S3Storage;
 import com.linkedin.openhouse.cluster.storage.selector.impl.DefaultStorageSelector;
-import com.linkedin.openhouse.cluster.storage.selector.impl.StorageInNameRegexSelector;
+import com.linkedin.openhouse.cluster.storage.selector.impl.RegexStorageSelector;
 import java.util.Arrays;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +29,7 @@ public class StorageSelectorConfigTest {
 
   @Mock private DefaultStorageSelector defaultStorageSelector;
 
-  @Mock private StorageInNameRegexSelector storageInNameRegexSelector;
+  @Mock private RegexStorageSelector regexStorageSelector;
 
   @InjectMocks private StorageSelectorConfig storageSelectorConfig;
 
@@ -77,19 +77,18 @@ public class StorageSelectorConfigTest {
   }
 
   @Test
-  public void testProvideStorageInNameRegexSelector() {
+  public void testProvideRegexStorageSelector() {
 
     when(storageSelectorProperties.getName())
-        .thenReturn(StorageInNameRegexSelector.class.getSimpleName());
+        .thenReturn(RegexStorageSelector.class.getSimpleName());
     when(storageSelectorProperties.getParameters())
         .thenReturn(ImmutableMap.of("regex", "db.*\\.table.*", "storage-type", "custom"));
     when(storageProperties.getStorageSelector()).thenReturn(storageSelectorProperties);
 
     // Regex selector returns s3 storage
-    when(storageInNameRegexSelector.getName())
-        .thenReturn(StorageInNameRegexSelector.class.getSimpleName());
+    when(regexStorageSelector.getName()).thenReturn(RegexStorageSelector.class.getSimpleName());
     Storage s3Storage = mock(S3Storage.class);
-    when(storageInNameRegexSelector.selectStorage(anyString(), anyString())).thenReturn(s3Storage);
+    when(regexStorageSelector.selectStorage(anyString(), anyString())).thenReturn(s3Storage);
 
     // Default selector returns hdfs storage
     when(defaultStorageSelector.getName()).thenReturn(DefaultStorageSelector.class.getSimpleName());
@@ -98,10 +97,10 @@ public class StorageSelectorConfigTest {
 
     storageSelectorConfig.defaultStorageSelector = defaultStorageSelector;
     storageSelectorConfig.storageSelectors =
-        Arrays.asList(defaultStorageSelector, storageInNameRegexSelector);
+        Arrays.asList(defaultStorageSelector, regexStorageSelector);
 
     assertEquals(
-        StorageInNameRegexSelector.class.getSimpleName(),
+        RegexStorageSelector.class.getSimpleName(),
         storageSelectorConfig.provideStorageSelector().getName());
 
     StorageSelector selector = storageSelectorConfig.provideStorageSelector();

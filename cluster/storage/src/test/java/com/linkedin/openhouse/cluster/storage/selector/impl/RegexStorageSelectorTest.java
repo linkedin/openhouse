@@ -15,7 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-class StorageInNameRegexSelectorTest {
+class RegexStorageSelectorTest {
 
   @Mock private StorageManager storageManager;
   @Mock private StorageProperties storageProperties;
@@ -24,7 +24,7 @@ class StorageInNameRegexSelectorTest {
   @Mock private Storage defaultStorage;
   @Mock private Storage providedStorage;
   @Mock private StorageProperties.StorageSelectorProperties storageSelectorProperties;
-  @InjectMocks private StorageInNameRegexSelector storageSelector;
+  @InjectMocks private RegexStorageSelector storageSelector;
   private Map<String, String> selectorParams;
 
   @BeforeEach
@@ -38,13 +38,21 @@ class StorageInNameRegexSelectorTest {
 
     // Mock the provided storage
     when(storageManager.getStorage(any())).thenReturn(providedStorage);
-    when(storageType.fromString("providedStorage")).thenReturn(any());
+    StorageType.Type type = mock(StorageType.Type.class);
+    when(storageType.fromString(eq("providedStorage"))).thenReturn(type);
 
     // Prepare the storage properties and parameters
-    storageSelectorProperties.setName(StorageInNameRegexSelector.class.getSimpleName());
     when(storageProperties.getStorageSelector()).thenReturn(storageSelectorProperties);
+    // Properly set the name of the selector in the mock
+    when(storageSelectorProperties.getName())
+        .thenReturn(RegexStorageSelector.class.getSimpleName());
+
     selectorParams = new HashMap<>();
     when(storageSelectorProperties.getParameters()).thenReturn(selectorParams);
+
+    storageSelector.storageProperties = storageProperties;
+    storageSelector.storageType = storageType;
+    storageSelector.storageManager = storageManager;
   }
 
   @Test

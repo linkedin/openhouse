@@ -12,8 +12,6 @@ import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,40 +24,43 @@ import org.springframework.stereotype.Component;
  * storages:
  *     default-type: "local"
  *     storage-selector:
- *       name: "StorageInNameRegexSelector"
+ *       name: "RegexStorageSelector"
  *       parameters:
  *         regex: "regex_pattern"
  *         storage-type: "hdfs"
  * </pre>
  */
-@Lazy
 @Component
 @Slf4j
-@ConditionalOnProperty(name = "storage-selector.name", havingValue = "StorageInNameRegexSelector")
-public class StorageInNameRegexSelector extends BaseStorageSelector {
+public class RegexStorageSelector extends BaseStorageSelector {
 
   private static final String REGEX_CONFIG = "regex";
   private static final String STORAGE_TYPE_CONFIG = "storage-type";
 
-  @Autowired private StorageManager storageManager;
+  @Autowired StorageManager storageManager;
 
-  @Autowired private StorageProperties storageProperties;
+  @Autowired StorageProperties storageProperties;
 
-  @Autowired private StorageType storageType;
+  @Autowired StorageType storageType;
   private Pattern pattern;
   private String providedStorage;
 
   @PostConstruct
   public void init() {
-    log.info("Initializing {} ", this.getName());
-    String regex = storageProperties.getStorageSelector().getParameters().get(REGEX_CONFIG);
-    Preconditions.checkNotNull(
-        regex, "{} pattern not defined in {} parameters", REGEX_CONFIG, this.getName());
-    pattern = Pattern.compile(regex);
-    providedStorage =
-        storageProperties.getStorageSelector().getParameters().get(STORAGE_TYPE_CONFIG);
-    Preconditions.checkNotNull(
-        providedStorage, "{} not defined in {} parameters", STORAGE_TYPE_CONFIG, this.getName());
+    if (storageProperties.getStorageSelector() != null
+        && RegexStorageSelector.class
+            .getSimpleName()
+            .equals(storageProperties.getStorageSelector().getName())) {
+      log.info("Initializing {} ", this.getName());
+      String regex = storageProperties.getStorageSelector().getParameters().get(REGEX_CONFIG);
+      Preconditions.checkNotNull(
+          regex, "{} pattern not defined in {} parameters", REGEX_CONFIG, this.getName());
+      pattern = Pattern.compile(regex);
+      providedStorage =
+          storageProperties.getStorageSelector().getParameters().get(STORAGE_TYPE_CONFIG);
+      Preconditions.checkNotNull(
+          providedStorage, "{} not defined in {} parameters", STORAGE_TYPE_CONFIG, this.getName());
+    }
   }
 
   /**
