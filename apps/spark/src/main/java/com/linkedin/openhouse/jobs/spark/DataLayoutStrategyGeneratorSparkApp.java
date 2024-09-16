@@ -3,7 +3,6 @@ package com.linkedin.openhouse.jobs.spark;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
-import com.linkedin.openhouse.datalayout.persistence.SerDeUtil;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
@@ -52,13 +51,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
       for (DataLayoutStrategy strategy : strategies) {
         rows.add(
             String.format(
-                "('%s', current_timestamp(), %f, %f, %f, %f, '%s')",
-                fqtn,
-                strategy.getCost(),
-                strategy.getGain(),
-                strategy.getEntropy(),
-                strategy.getScore(),
-                SerDeUtil.toJsonString(strategy)));
+                "('%s', current_timestamp(), %f, %f, %f)",
+                fqtn, strategy.getCost(), strategy.getGain(), strategy.getEntropy()));
       }
       String strategiesInsertStmt =
           String.format("INSERT INTO %s VALUES %s", outputFqtn, String.join(", ", rows));
@@ -73,11 +67,9 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             "CREATE TABLE IF NOT EXISTS %s ("
                 + "fqtn STRING, "
                 + "timestamp TIMESTAMP, "
-                + "cost DOUBLE, "
-                + "gain DOUBLE, "
-                + "entropy DOUBLE, "
-                + "score DOUBLE, "
-                + "strategy STRING"
+                + "estimated_compute_cost DOUBLE, "
+                + "estimated_file_count_reduction DOUBLE, "
+                + "file_size_entropy DOUBLE "
                 + ") "
                 + "PARTITIONED BY (days(timestamp))",
             outputFqtn));
