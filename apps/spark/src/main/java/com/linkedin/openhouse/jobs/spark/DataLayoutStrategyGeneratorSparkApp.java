@@ -3,6 +3,7 @@ package com.linkedin.openhouse.jobs.spark;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
+import com.linkedin.openhouse.datalayout.persistence.SerDeUtil;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
@@ -45,20 +46,23 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         strategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
-    if (outputFqtn != null) {
+    if (outputFqtn != null && !strategies.isEmpty()) {
       List<String> rows = new ArrayList<>();
       for (DataLayoutStrategy strategy : strategies) {
         rows.add(
             String.format(
-                "(%s, current_timestamp(), %f, %f, %f, %f, %s)",
+                "('%s', current_timestamp(), %f, %f, %f, %f, '%s')",
                 fqtn,
                 strategy.getCost(),
                 strategy.getGain(),
                 strategy.getEntropy(),
                 strategy.getScore(),
-                strategy));
+                SerDeUtil.toJsonString(strategy)));
       }
-      spark.sql(String.format("INSERT INTO %s VALUES %s", outputFqtn, String.join(", ", rows)));
+      String strategiesInsertStmt =
+          String.format("INSERT INTO %s VALUES %s", outputFqtn, String.join(", ", rows));
+      log.info("Running {}", strategiesInsertStmt);
+      spark.sql(strategiesInsertStmt);
     }
   }
 

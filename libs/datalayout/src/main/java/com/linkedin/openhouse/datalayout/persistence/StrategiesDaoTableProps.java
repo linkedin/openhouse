@@ -1,15 +1,9 @@
 package com.linkedin.openhouse.datalayout.persistence;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
-import java.lang.reflect.Type;
-import java.util.ArrayList;
 import java.util.List;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.spark.sql.SparkSession;
 
 /**
@@ -24,9 +18,7 @@ public class StrategiesDaoTableProps implements StrategiesDao {
 
   @Override
   public void save(String fqtn, List<DataLayoutStrategy> strategies) {
-    Gson gson = new GsonBuilder().create();
-    Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
-    String propValue = StringEscapeUtils.escapeJava(gson.toJson(strategies, type));
+    String propValue = SerDeUtil.toJsonString(strategies);
     log.info("Saving strategies {} for table {}", propValue, fqtn);
     spark.sql(
         String.format(
@@ -36,8 +28,6 @@ public class StrategiesDaoTableProps implements StrategiesDao {
 
   @Override
   public List<DataLayoutStrategy> load(String fqtn) {
-    Gson gson = new GsonBuilder().create();
-    Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
     String propValue =
         spark
             .sql(
@@ -46,6 +36,6 @@ public class StrategiesDaoTableProps implements StrategiesDao {
             .collectAsList()
             .get(0)
             .getString(1);
-    return gson.fromJson(StringEscapeUtils.unescapeJava(propValue), type);
+    return SerDeUtil.fromJsonStringList(propValue);
   }
 }
