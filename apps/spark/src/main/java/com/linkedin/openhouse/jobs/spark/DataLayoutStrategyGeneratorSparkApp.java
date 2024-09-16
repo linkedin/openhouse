@@ -78,7 +78,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                 + "entropy DOUBLE, "
                 + "score DOUBLE, "
                 + "strategy STRING"
-                + ")",
+                + ") "
+                + "PARTITIONED BY (days(timestamp))",
             outputFqtn));
   }
 
