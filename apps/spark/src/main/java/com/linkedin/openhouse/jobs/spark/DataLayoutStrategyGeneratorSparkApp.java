@@ -47,6 +47,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
     if (outputFqtn != null && !strategies.isEmpty()) {
+      createTableIfNotExists(spark, outputFqtn);
       List<String> rows = new ArrayList<>();
       for (DataLayoutStrategy strategy : strategies) {
         rows.add(
@@ -64,6 +65,21 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
       log.info("Running {}", strategiesInsertStmt);
       spark.sql(strategiesInsertStmt);
     }
+  }
+
+  private void createTableIfNotExists(SparkSession spark, String outputFqtn) {
+    spark.sql(
+        String.format(
+            "CREATE TABLE IF NOT EXISTS %s ("
+                + "fqtn STRING, "
+                + "timestamp TIMESTAMP, "
+                + "cost DOUBLE, "
+                + "gain DOUBLE, "
+                + "entropy DOUBLE, "
+                + "score DOUBLE, "
+                + "strategy STRING"
+                + ")",
+            outputFqtn));
   }
 
   public static void main(String[] args) {
