@@ -131,12 +131,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     } else {
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
-      if (!skipEligibilityCheck(table.properties(), tableDto.getTableProperties())) {
-        // eligibility check is relaxed for request from replication flow since preserved properties
-        // & tableType
-        // will differ in tableDto and existing table.
-        updateEligibilityCheck(table, tableDto);
-      }
+      updateEligibilityCheck(table, tableDto);
 
       boolean schemaUpdated =
           doUpdateSchemaIfNeeded(transaction, writeSchema, table.schema(), tableDto);
@@ -193,11 +188,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal with
    */
   protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
-    PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
-    versionCheck(existingTable, tableDto);
-    checkIfPreservedTblPropsModified(tableDto, existingTable);
-    checkIfTableTypeModified(tableDto, existingTable);
-    checkPartitionSpecEvolution(partitionSpec, existingTable.spec());
+    if (!skipEligibilityCheck(existingTable.properties(), tableDto.getTableProperties())) {
+      // eligibility check is relaxed for request from replication flow since preserved properties
+      // & tableType will differ in tableDto and existing table.
+      PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
+      versionCheck(existingTable, tableDto);
+      checkIfPreservedTblPropsModified(tableDto, existingTable);
+      checkIfTableTypeModified(tableDto, existingTable);
+      checkPartitionSpecEvolution(partitionSpec, existingTable.spec());
+    }
   }
 
   /**
