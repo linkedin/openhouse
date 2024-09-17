@@ -601,6 +601,57 @@ public class RepositoryTest {
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
   }
 
+  @Test
+  void testReplicationFlowForPutSnapshots() {
+    /* The openhouse. properties are ignored and are not validate if request is coming from replication flow */
+    final String tblName = "replicaTable";
+    final String replicaClusterId = "srcCluster";
+    final String primaryClusterId = "destCluster";
+    // existing table is of type replica_table
+    Map<String, String> existingTblMap = new HashMap<>();
+    existingTblMap.put("openhouse.tableType", TableType.REPLICA_TABLE.toString());
+    existingTblMap.put("openhouse.clusterId", replicaClusterId);
+    existingTblMap.put("openhouse.tableUri", "replicaClusterURI");
+
+    TableDto tableDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId(tblName)
+            .clusterId(replicaClusterId)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableType(TableType.REPLICA_TABLE)
+            .tableProperties(existingTblMap)
+            .build();
+
+    TableDto savedTblDto = openHouseInternalRepository.save(tableDto);
+
+    Map<String, String> destTblMap = new HashMap<>();
+    destTblMap.put("openhouse.tableType", TableType.PRIMARY_TABLE.toString());
+    destTblMap.put("openhouse.clusterId", primaryClusterId);
+    destTblMap.put("openhouse.tableUri", "primaryClusterURI");
+
+    TableDto newRequestTblDto =
+        savedTblDto
+            .toBuilder()
+            .tableId(tblName)
+            .clusterId(primaryClusterId)
+            .tableType(TableType.PRIMARY_TABLE)
+            .tableVersion(savedTblDto.getTableLocation())
+            .tableProperties(destTblMap)
+            .build();
+    // Demonstrated that the replica table updates are not blocked with table properties from
+    // primary table
+    TableDto newTblDTO = openHouseInternalRepository.save(newRequestTblDto);
+    Assertions.assertEquals(newTblDTO.getTableId(), tblName);
+    Assertions.assertEquals(newTblDTO.getTableType(), TableType.REPLICA_TABLE);
+    Assertions.assertEquals(newTblDTO.getClusterId(), replicaClusterId);
+
+    TableDtoPrimaryKey primaryKey =
+        TableDtoPrimaryKey.builder().tableId(tblName).databaseId(TABLE_DTO.getDatabaseId()).build();
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {
     return TableDtoPrimaryKey.builder()
         .databaseId(tableDto.getDatabaseId())

@@ -64,6 +64,7 @@ public final class InternalRepositoryUtils {
     // Due to the SerDe process, null-map is possible.
     if (providedTableProps != null) {
       for (Map.Entry<String, String> entry : providedTableProps.entrySet()) {
+        String key = entry.getKey();
         unsetKeys.remove(entry.getKey());
         if (!existingTableProps.containsKey(entry.getKey())
             || !existingTableProps.get(entry.getKey()).equals(entry.getValue())) {

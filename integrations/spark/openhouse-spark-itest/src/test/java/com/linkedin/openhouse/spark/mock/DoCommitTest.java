@@ -39,6 +39,10 @@ public class DoCommitTest {
 
   private TableMetadata base;
 
+  private TableMetadata baseWithReplicaTable;
+
+  private TableMetadata baseWithPrimaryTable;
+
   private TableMetadata baseWithSchemaChange;
 
   private TableMetadata baseWithPropsChange;
@@ -66,6 +70,36 @@ public class DoCommitTest {
             PartitionSpec.unpartitioned(),
             UUID.randomUUID().toString(),
             ImmutableMap.of());
+
+    baseWithReplicaTable =
+        TableMetadata.newTableMetadata(
+            new Schema(
+                Types.NestedField.required(1, "stringId", Types.StringType.get()),
+                Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone())),
+            PartitionSpec.unpartitioned(),
+            UUID.randomUUID().toString(),
+            ImmutableMap.of(
+                "openhouse.tableType",
+                "REPLICA_TABLE",
+                "openhouse.tableId",
+                "testTable",
+                "openhouse.clusterId",
+                "replica_cluster"));
+
+    baseWithPrimaryTable =
+        TableMetadata.newTableMetadata(
+            new Schema(
+                Types.NestedField.required(1, "stringId", Types.StringType.get()),
+                Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone())),
+            PartitionSpec.unpartitioned(),
+            UUID.randomUUID().toString(),
+            ImmutableMap.of(
+                "openhouse.tableType",
+                "PRIMARY_TABLE",
+                "openhouse.tableId",
+                "testTable",
+                "openhouse.clusterId",
+                "primary_cluster"));
 
     baseWithSchemaChange =
         TableMetadata.newTableMetadata(
@@ -220,5 +254,31 @@ public class DoCommitTest {
     mockTableService.enqueue(mockResponse(200, mockGetAllTableResponseBody()));
 
     Assertions.assertDoesNotThrow(() -> ops.doCommit(base, dataPlusMetaDataChangeOffBase));
+  }
+
+  /** Assumption of this test: Whenever metadata change is detected will a request to made. */
+  @Test
+  public void testReplicationRequestWithTblPropertiesDiff() throws Exception {
+
+    // A random response should be good enough as the payload is not used.
+    MockResponse validResponse =
+        mockResponse(
+            200,
+            mockGetTableResponseBody(
+                "db_mc",
+                "tbl_mc",
+                "replica_cluster",
+                "",
+                "",
+                mockTableLocationDefaultSchema(TableIdentifier.of("db_mc", "tbl_mc")),
+                "",
+                baseSchema,
+                null,
+                null));
+    mockTableService.enqueue(validResponse);
+
+    ops.doCommit(baseWithReplicaTable, baseWithPrimaryTable);
+    // If tableType property differs, request is considered originating from replication flow
+    Assertions.assertTimeout(Duration.ofSeconds(1), () -> mockTableService.takeRequest());
   }
 }
