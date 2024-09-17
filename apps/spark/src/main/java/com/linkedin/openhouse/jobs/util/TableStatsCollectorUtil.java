@@ -2,8 +2,14 @@ package com.linkedin.openhouse.jobs.util;
 
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
@@ -187,6 +193,24 @@ public final class TableStatsCollectorUtil {
                 : 0)
         .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
         .tableLocation(table.location())
+        .tableUri(table.properties().get(getCanonicalFieldName("tableUri")))
+        .tableVersion(table.properties().get(getCanonicalFieldName("tableVersion")))
+        .previousVersionsMax(
+            table.properties().containsKey("write.metadata.previous-versions-max")
+                ? Long.parseLong(table.properties().get("write.metadata.previous-versions-max"))
+                : 0)
+        .deleteAfterCommitEnabled(
+            table.properties().containsKey("write.metadata.delete-after-commit.enabled")
+                ? Boolean.valueOf(
+                    table.properties().get("write.metadata.delete-after-commit.enabled"))
+                : false)
+        .metaDataPath(table.properties().get("write.metadata.path"))
+        .dataPath(table.properties().get("write.data.path"))
+        .folderStoragePath(table.properties().get("write.folder-storage.path"))
+        .tableFormat(table.properties().get("format"))
+        .defaultTableFormat(table.properties().get("write.format.default"))
+        .sharingEnabled(getTablePoliciesSharingEnabled(table))
+        .retentionPolicies(getTablePolicyRetention(table))
         .build();
   }
 
@@ -235,5 +259,59 @@ public final class TableStatsCollectorUtil {
         .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
         .first()
         .getLong(0);
+  }
+
+  /**
+   * Get sharingEnabled from table policies.
+   *
+   * @param table
+   * @return
+   */
+  private static Boolean getTablePoliciesSharingEnabled(Table table) {
+    String policies = table.properties().get("policies");
+    if (policies.isEmpty()) {
+      return false;
+    }
+
+    Boolean sharingEnabled =
+        Boolean.valueOf(
+            new Gson().fromJson(policies, JsonObject.class).get("sharingEnabled").getAsString());
+
+    return sharingEnabled;
+  }
+
+  /**
+   * Get retention policy from table policies.
+   *
+   * @param table
+   * @return
+   */
+  private static RetentionStatsSchema getTablePolicyRetention(Table table) {
+    String policies = table.properties().get("policies");
+    Map<String, String> retentionPolicies = new HashMap<>();
+    JsonObject retentionObject = new Gson().fromJson(policies, JsonObject.class);
+
+    if (policies.isEmpty() || !retentionObject.has("retention")) {
+      return RetentionStatsSchema.builder().build();
+    }
+
+    addEntriesToMap(retentionObject.getAsJsonObject("retention"), retentionPolicies);
+
+    return RetentionStatsSchema.builder()
+        .count(Integer.valueOf(retentionPolicies.get("count")))
+        .granularity(retentionPolicies.get("granularity"))
+        .columnPattern(retentionPolicies.getOrDefault("pattern", null))
+        .columnName(retentionPolicies.getOrDefault("columnName", null))
+        .build();
+  }
+
+  private static void addEntriesToMap(JsonObject jsonObject, Map<String, String> map) {
+    for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
+      if (entry.getValue().isJsonObject()) {
+        map.putAll(new Gson().fromJson(entry.getValue().getAsJsonObject(), Map.class));
+      } else {
+        map.put(entry.getKey(), entry.getValue().getAsString());
+      }
+    }
   }
 }
