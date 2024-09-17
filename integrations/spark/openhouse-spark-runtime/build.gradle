@@ -28,6 +28,7 @@ configurations {
     exclude(group: 'org.mapstruct')
   }
   shadow.extendsFrom implementation
+  runtime.exclude group: 'org.antlr', module: 'antlr4'
 }
 
 
