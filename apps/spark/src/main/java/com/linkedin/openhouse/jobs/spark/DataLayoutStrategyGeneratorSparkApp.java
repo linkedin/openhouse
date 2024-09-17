@@ -10,6 +10,7 @@ import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -17,9 +18,12 @@ import org.apache.spark.sql.SparkSession;
 
 @Slf4j
 public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
+  private @Nullable String outputFqtn;
+
   protected DataLayoutStrategyGeneratorSparkApp(
-      String jobId, StateManager stateManager, String fqtn) {
+      String jobId, StateManager stateManager, String fqtn, @Nullable String outputFqtn) {
     super(jobId, stateManager, fqtn);
+    this.outputFqtn = outputFqtn;
   }
 
   @Override
@@ -41,15 +45,49 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         strategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
+    if (outputFqtn != null && !strategies.isEmpty()) {
+      createTableIfNotExists(spark, outputFqtn);
+      List<String> rows = new ArrayList<>();
+      for (DataLayoutStrategy strategy : strategies) {
+        rows.add(
+            String.format(
+                "('%s', current_timestamp(), %f, %f, %f)",
+                fqtn, strategy.getCost(), strategy.getGain(), strategy.getEntropy()));
+      }
+      String strategiesInsertStmt =
+          String.format("INSERT INTO %s VALUES %s", outputFqtn, String.join(", ", rows));
+      log.info("Running {}", strategiesInsertStmt);
+      spark.sql(strategiesInsertStmt);
+    }
+  }
+
+  private void createTableIfNotExists(SparkSession spark, String outputFqtn) {
+    spark.sql(
+        String.format(
+            "CREATE TABLE IF NOT EXISTS %s ("
+                + "fqtn STRING, "
+                + "timestamp TIMESTAMP, "
+                + "estimated_compute_cost DOUBLE, "
+                + "estimated_file_count_reduction DOUBLE, "
+                + "file_size_entropy DOUBLE "
+                + ") "
+                + "PARTITIONED BY (days(timestamp))",
+            outputFqtn));
   }
 
   public static void main(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
+    extraOptions.add(
+        new Option(
+            "o", "outputTableName", true, "Fully-qualified table name used to store strategies"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     DataLayoutStrategyGeneratorSparkApp app =
         new DataLayoutStrategyGeneratorSparkApp(
-            getJobId(cmdLine), createStateManager(cmdLine), cmdLine.getOptionValue("tableName"));
+            getJobId(cmdLine),
+            createStateManager(cmdLine),
+            cmdLine.getOptionValue("tableName"),
+            cmdLine.getOptionValue("outputTableName"));
     app.run();
   }
 }
