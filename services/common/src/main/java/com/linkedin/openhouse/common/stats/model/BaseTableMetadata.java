@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.common.stats.model;
 
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -12,23 +13,5 @@ import lombok.experimental.SuperBuilder;
 @SuperBuilder(toBuilder = true)
 public class BaseTableMetadata {
 
-  private Long recordTimestamp;
-
-  private String clusterName;
-
-  private String databaseName;
-
-  private String tableName;
-
-  private String tableUUID;
-
-  private String tableLocation;
-
-  private String tableCreator;
-
-  private Long tableCreationTimestamp;
-
-  private Long tableLastUpdatedTimestamp;
-
-  private String tableType;
+  private Map<String, Object> tableProperties;
 }

@@ -543,7 +543,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, 1);
       stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), 1);
-      Assertions.assertTrue(stats.getTableLastUpdatedTimestamp() >= modifiedTimeStamp);
+      Assertions.assertTrue(
+          (Long) stats.getTableProperties().get("tableLastUpdatedTimestamp") >= modifiedTimeStamp);
 
       // Capture first snapshot timestamp
       Table table = ops.getTable(tableName);

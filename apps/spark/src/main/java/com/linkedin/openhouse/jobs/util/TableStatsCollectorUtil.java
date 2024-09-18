@@ -4,6 +4,8 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
@@ -169,25 +171,7 @@ public final class TableStatsCollectorUtil {
    * @param stats
    */
   protected static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
-    return stats
-        .builder()
-        .recordTimestamp(System.currentTimeMillis())
-        .clusterName(table.properties().get(getCanonicalFieldName("clusterId")))
-        .databaseName(table.properties().get(getCanonicalFieldName("databaseId")))
-        .tableName(table.properties().get(getCanonicalFieldName("tableId")))
-        .tableType(table.properties().get(getCanonicalFieldName("tableType")))
-        .tableCreator((table.properties().get(getCanonicalFieldName("tableCreator"))))
-        .tableCreationTimestamp(
-            table.properties().containsKey(getCanonicalFieldName("creationTime"))
-                ? Long.parseLong(table.properties().get(getCanonicalFieldName("creationTime")))
-                : 0)
-        .tableLastUpdatedTimestamp(
-            table.properties().containsKey(getCanonicalFieldName("lastModifiedTime"))
-                ? Long.parseLong(table.properties().get(getCanonicalFieldName("lastModifiedTime")))
-                : 0)
-        .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
-        .tableLocation(table.location())
-        .build();
+    return stats.builder().tableProperties(buildTableProperties(table)).build();
   }
 
   /**
@@ -235,5 +219,38 @@ public final class TableStatsCollectorUtil {
         .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
         .first()
         .getLong(0);
+  }
+
+  private static Map<String, Object> buildTableProperties(Table table) {
+    Map<String, Object> tablePropertiesMap = new HashMap<>();
+    tablePropertiesMap.put("recordTimestamp", System.currentTimeMillis());
+    tablePropertiesMap.put(
+        "clusterName", table.properties().get(getCanonicalFieldName("clusterId")));
+    tablePropertiesMap.put(
+        "databaseName", table.properties().get(getCanonicalFieldName("databaseId")));
+    tablePropertiesMap.put("tableName", table.properties().get(getCanonicalFieldName("tableId")));
+    tablePropertiesMap.put("tableType", table.properties().get(getCanonicalFieldName("tableType")));
+    tablePropertiesMap.put(
+        "tableCreator", table.properties().get(getCanonicalFieldName("tableCreator")));
+    tablePropertiesMap.put(
+        "tableCreationTimestamp",
+        table.properties().containsKey(getCanonicalFieldName("creationTime"))
+            ? Long.parseLong(table.properties().get(getCanonicalFieldName("creationTime")))
+            : 0);
+    tablePropertiesMap.put(
+        "tableLastUpdatedTimestamp",
+        table.properties().containsKey(getCanonicalFieldName("lastModifiedTime"))
+            ? Long.parseLong(table.properties().get(getCanonicalFieldName("lastModifiedTime")))
+            : 0);
+    tablePropertiesMap.put("tableUUID", table.properties().get(getCanonicalFieldName("tableUUID")));
+    tablePropertiesMap.put("tableLocation", table.location());
+    tablePropertiesMap.put("metaDataPath", table.properties().get("write.metadata.path"));
+    tablePropertiesMap.put("dataPath", table.properties().get("write.data.path"));
+    tablePropertiesMap.put(
+        "folderStoragePath", table.properties().get("write.folder-storage.path"));
+    tablePropertiesMap.put("tableFormat", table.properties().get("format"));
+    tablePropertiesMap.put("defaultTableFormat", table.properties().get("write.format.default"));
+
+    return tablePropertiesMap;
   }
 }
