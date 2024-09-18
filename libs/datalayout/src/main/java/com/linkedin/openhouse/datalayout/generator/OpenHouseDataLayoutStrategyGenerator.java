@@ -124,6 +124,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     return Optional.of(
         DataLayoutStrategy.builder()
             .config(configBuilder.build())
+            .computationTimestamp(System.currentTimeMillis())
             .cost(computeGbHr)
             .gain(reducedFileCount)
             .score(reducedFileCountPerComputeGbHr)
