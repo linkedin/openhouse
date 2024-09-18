@@ -32,24 +32,6 @@ public class BaseTableMetadata {
 
   private String tableType;
 
-  private String tableUri;
-
-  private String tableVersion;
-
-  private Long previousVersionsMax;
-
-  private Boolean deleteAfterCommitEnabled;
-
-  private String metaDataPath;
-
-  private String dataPath;
-
-  private String folderStoragePath;
-
-  private String tableFormat;
-
-  private String defaultTableFormat;
-
   private Boolean sharingEnabled;
 
   private RetentionStatsSchema retentionPolicies;

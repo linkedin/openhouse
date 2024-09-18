@@ -193,22 +193,6 @@ public final class TableStatsCollectorUtil {
                 : 0)
         .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
         .tableLocation(table.location())
-        .tableUri(table.properties().get(getCanonicalFieldName("tableUri")))
-        .tableVersion(table.properties().get(getCanonicalFieldName("tableVersion")))
-        .previousVersionsMax(
-            table.properties().containsKey("write.metadata.previous-versions-max")
-                ? Long.parseLong(table.properties().get("write.metadata.previous-versions-max"))
-                : 0)
-        .deleteAfterCommitEnabled(
-            table.properties().containsKey("write.metadata.delete-after-commit.enabled")
-                ? Boolean.valueOf(
-                    table.properties().get("write.metadata.delete-after-commit.enabled"))
-                : false)
-        .metaDataPath(table.properties().get("write.metadata.path"))
-        .dataPath(table.properties().get("write.data.path"))
-        .folderStoragePath(table.properties().get("write.folder-storage.path"))
-        .tableFormat(table.properties().get("format"))
-        .defaultTableFormat(table.properties().get("write.format.default"))
         .sharingEnabled(getTablePoliciesSharingEnabled(table))
         .retentionPolicies(getTablePolicyRetention(table))
         .build();
