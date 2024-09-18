@@ -1,5 +1,5 @@
 plugins {
-    id 'java'
+    id 'openhouse.java-minimal-conventions'
     id 'openhouse.client-codegen-convention'
     id 'openhouse.maven-publish'
 }

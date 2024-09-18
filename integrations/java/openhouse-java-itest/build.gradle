@@ -6,10 +6,11 @@ plugins {
 ext {
   icebergVersion = '1.2.0'
 }
+
 dependencies {
   testImplementation(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
 
-  testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
-  testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"
+  testImplementation "com.squareup.okhttp3:okhttp:" + ok_http3_version
+  testImplementation "com.squareup.okhttp3:mockwebserver:" + ok_http3_version
   testImplementation "org.apache.iceberg:iceberg-bundled-guava:" + icebergVersion
 }
