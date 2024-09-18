@@ -175,6 +175,7 @@ public final class TableStatsCollectorUtil {
    * @param stats
    */
   protected static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
+    Map<String, Object> policyMap = getTablePolicies(table);
     return stats
         .builder()
         .recordTimestamp(System.currentTimeMillis())
@@ -193,8 +194,9 @@ public final class TableStatsCollectorUtil {
                 : 0)
         .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
         .tableLocation(table.location())
-        .sharingEnabled(getTablePoliciesSharingEnabled(table))
-        .retentionPolicies(getTablePolicyRetention(table))
+        .sharingEnabled(
+            policyMap.containsKey("sharingEnabled") && (Boolean) policyMap.get("sharingEnabled"))
+        .retentionPolicies(buildRetentionStats(policyMap))
         .build();
   }
 
@@ -246,50 +248,40 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Get sharingEnabled from table policies.
+   * Get table policies.
    *
    * @param table
    * @return
    */
-  private static Boolean getTablePoliciesSharingEnabled(Table table) {
+  private static Map<String, Object> getTablePolicies(Table table) {
     String policies = table.properties().get("policies");
+    JsonObject policiesObject = new Gson().fromJson(policies, JsonObject.class);
+    Map<String, Object> policyMap = new HashMap<>();
+
     if (policies.isEmpty()) {
-      return false;
+      return policyMap;
     }
 
-    Boolean sharingEnabled =
-        Boolean.valueOf(
-            new Gson().fromJson(policies, JsonObject.class).get("sharingEnabled").getAsString());
+    addEntriesToMap(policiesObject.getAsJsonObject("retention"), policyMap);
+    policyMap.put(
+        "sharingEnabled", Boolean.valueOf(policiesObject.get("sharingEnabled").getAsString()));
 
-    return sharingEnabled;
+    return policyMap;
   }
 
-  /**
-   * Get retention policy from table policies.
-   *
-   * @param table
-   * @return
-   */
-  private static RetentionStatsSchema getTablePolicyRetention(Table table) {
-    String policies = table.properties().get("policies");
-    Map<String, String> retentionPolicies = new HashMap<>();
-    JsonObject retentionObject = new Gson().fromJson(policies, JsonObject.class);
-
-    if (policies.isEmpty() || !retentionObject.has("retention")) {
-      return RetentionStatsSchema.builder().build();
-    }
-
-    addEntriesToMap(retentionObject.getAsJsonObject("retention"), retentionPolicies);
-
+  private static RetentionStatsSchema buildRetentionStats(Map<String, Object> retentionPolicy) {
     return RetentionStatsSchema.builder()
-        .count(Integer.valueOf(retentionPolicies.get("count")))
-        .granularity(retentionPolicies.get("granularity"))
-        .columnPattern(retentionPolicies.getOrDefault("pattern", null))
-        .columnName(retentionPolicies.getOrDefault("columnName", null))
+        .count(
+            retentionPolicy.containsKey("count")
+                ? Integer.valueOf((String) retentionPolicy.get("count"))
+                : 0)
+        .granularity((String) retentionPolicy.get("granularity"))
+        .columnPattern((String) retentionPolicy.getOrDefault("pattern", null))
+        .columnName((String) retentionPolicy.getOrDefault("columnName", null))
         .build();
   }
 
-  private static void addEntriesToMap(JsonObject jsonObject, Map<String, String> map) {
+  private static void addEntriesToMap(JsonObject jsonObject, Map<String, Object> map) {
     for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
       if (entry.getValue().isJsonObject()) {
         map.putAll(new Gson().fromJson(entry.getValue().getAsJsonObject(), Map.class));

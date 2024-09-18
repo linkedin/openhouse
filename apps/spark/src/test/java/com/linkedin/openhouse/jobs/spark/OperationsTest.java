@@ -528,7 +528,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testCollectMetadataTableStats() throws Exception {
+  public void testCollectTablePolicyStats() throws Exception {
     final String tableName = "db.test_collect_table_stats_with_policy";
     List<String> rowValue = new ArrayList<>();
 
