@@ -1,8 +1,7 @@
 package com.linkedin.openhouse.tables.repository.impl;
 
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
-import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.HTS_FIELD_NAMES;
-import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
 import static com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils.*;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -63,6 +62,8 @@ import org.springframework.stereotype.Component;
 public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalRepository {
 
   private static final String TABLE_TYPE_KEY = "tableType";
+  private static final String CLUSTER_ID = "clusterId";
+
   @Autowired Catalog catalog;
 
   @Autowired TablesMapper mapper;
@@ -160,6 +161,19 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
   }
 
+  private boolean skipEligibilityCheck(
+      Map<String, String> existingTableProps, Map<String, String> newTableprops) {
+    TableType existingTableType =
+        TableType.valueOf(existingTableProps.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
+    TableType newTableType =
+        TableType.valueOf(newTableprops.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
+    return existingTableType == TableType.REPLICA_TABLE
+        && newTableType == TableType.PRIMARY_TABLE
+        && !existingTableProps
+            .get(getCanonicalFieldName(CLUSTER_ID))
+            .equals(newTableprops.get(getCanonicalFieldName(CLUSTER_ID)));
+  }
+
   /**
    * Check the eligibility of table creation. Throw exceptions when invalidate behaviors detected
    * for {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal
@@ -174,11 +188,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal with
    */
   protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
-    PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
-    versionCheck(existingTable, tableDto);
-    checkIfPreservedTblPropsModified(tableDto, existingTable);
-    checkIfTableTypeModified(tableDto, existingTable);
-    checkPartitionSpecEvolution(partitionSpec, existingTable.spec());
+    if (!skipEligibilityCheck(existingTable.properties(), tableDto.getTableProperties())) {
+      // eligibility check is relaxed for request from replication flow since preserved properties
+      // & tableType will differ in tableDto and existing table.
+      PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
+      versionCheck(existingTable, tableDto);
+      checkIfPreservedTblPropsModified(tableDto, existingTable);
+      checkIfTableTypeModified(tableDto, existingTable);
+      checkPartitionSpecEvolution(partitionSpec, existingTable.spec());
+    }
   }
 
   /**
