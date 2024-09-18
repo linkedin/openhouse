@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import static com.linkedin.openhouse.internal.catalog.CatalogConstants.FEATURE_TOGGLE_STOP_CREATE;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.METRICS_PREFIX;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
@@ -14,18 +13,13 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
-import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseMetastoreCatalog;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -70,18 +64,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         houseTableMapper,
         tableIdentifier,
         new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList()));
-  }
-
-  /** Overwritten for annotation purpose. */
-  @Override
-  @IcebergFeatureGate(value = FEATURE_TOGGLE_STOP_CREATE)
-  public Table createTable(
-      TableIdentifier identifier,
-      Schema schema,
-      PartitionSpec spec,
-      String location,
-      Map<String, String> properties) {
-    return super.createTable(identifier, schema, spec, location, properties);
   }
 
   @Override
