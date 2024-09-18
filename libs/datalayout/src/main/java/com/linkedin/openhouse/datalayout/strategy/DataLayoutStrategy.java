@@ -13,8 +13,11 @@ import lombok.Data;
 public class DataLayoutStrategy {
   private final double score;
   private final double entropy;
+  // TODO: refactor cost -> estimated_compute_cost, gain -> estimated_file_count_reduction
   private final double cost;
   private final double gain;
   private final DataCompactionConfig config;
+  private final double normalizedComputeCost;
+  private final double normalizedFileCountReduction;
   // TODO: support sorting config
 }
