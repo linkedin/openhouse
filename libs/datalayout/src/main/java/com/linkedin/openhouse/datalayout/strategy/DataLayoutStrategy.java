@@ -4,15 +4,14 @@ import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import lombok.Builder;
 import lombok.Data;
 
-/**
- * Configuration for data layout optimization. Supports compaction and optionally sorting. The score
- * is used to rank the layout configurations.
- */
+/** Raw traits for table to feed into data layout optimization strategy generator. */
 @Data
 @Builder
 public class DataLayoutStrategy {
+  // TODO: remove score from here.
   private final double score;
   private final double entropy;
+  // TODO: refactor cost -> estimated_compute_cost, gain -> estimated_file_count_reduction
   private final double cost;
   private final double gain;
   private final DataCompactionConfig config;
