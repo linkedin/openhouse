@@ -23,6 +23,7 @@ public class ToggleStatusControllerTest {
 
   @Autowired ToggleStatusHtsJdbcRepository htsRepository;
 
+  /** See data.sql for insertion of data being validated for the testing spring application. */
   @Test
   public void testGetTableToggleStatus() throws Exception {
     mvc.perform(
