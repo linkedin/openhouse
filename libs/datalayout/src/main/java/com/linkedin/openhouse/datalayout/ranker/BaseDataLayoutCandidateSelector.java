@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.datalayout.ranker;
 
-import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.datalayout.strategy.ScoredDataLayoutStrategy;
 import java.util.Comparator;
 import java.util.List;
 import java.util.PriorityQueue;
@@ -19,10 +19,10 @@ public abstract class BaseDataLayoutCandidateSelector implements DataLayoutCandi
    * @return index of the selected data layout strategies ordered by scores.
    */
   @Override
-  public List<Integer> select(List<DataLayoutStrategy> dataLayoutStrategies) {
-    PriorityQueue<Pair<DataLayoutStrategy, Integer>> maxHeap =
+  public List<Integer> select(List<ScoredDataLayoutStrategy> dataLayoutStrategies) {
+    PriorityQueue<Pair<ScoredDataLayoutStrategy, Integer>> maxHeap =
         new PriorityQueue<>(
-            new Comparator<Pair<DataLayoutStrategy, Integer>>() {
+            new Comparator<Pair<ScoredDataLayoutStrategy, Integer>>() {
 
               /**
                * Compares its two arguments for order. Returns a negative integer, zero, or a
@@ -42,7 +42,8 @@ public abstract class BaseDataLayoutCandidateSelector implements DataLayoutCandi
                */
               @Override
               public int compare(
-                  Pair<DataLayoutStrategy, Integer> o1, Pair<DataLayoutStrategy, Integer> o2) {
+                  Pair<ScoredDataLayoutStrategy, Integer> o1,
+                  Pair<ScoredDataLayoutStrategy, Integer> o2) {
                 return Double.compare(o2.getLeft().getScore(), o1.getLeft().getScore());
               }
             });
@@ -54,5 +55,6 @@ public abstract class BaseDataLayoutCandidateSelector implements DataLayoutCandi
     return filter(maxHeap);
   }
 
-  protected abstract List<Integer> filter(PriorityQueue<Pair<DataLayoutStrategy, Integer>> maxHeap);
+  protected abstract List<Integer> filter(
+      PriorityQueue<Pair<ScoredDataLayoutStrategy, Integer>> maxHeap);
 }

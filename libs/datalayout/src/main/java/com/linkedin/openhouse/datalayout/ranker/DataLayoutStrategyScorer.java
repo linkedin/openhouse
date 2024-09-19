@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.datalayout.ranker;
 
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.datalayout.strategy.ScoredDataLayoutStrategy;
 import java.util.List;
 
 /** Interface for scoring data layout strategies. */
@@ -11,5 +12,6 @@ public interface DataLayoutStrategyScorer {
    * @param dataLayoutStrategies the data layout strategies to score
    * @return the data layout strategies w/ computed scores
    */
-  List<DataLayoutStrategy> scoreDataLayoutStrategies(List<DataLayoutStrategy> dataLayoutStrategies);
+  List<ScoredDataLayoutStrategy> scoreDataLayoutStrategies(
+      List<DataLayoutStrategy> dataLayoutStrategies);
 }

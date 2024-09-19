@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.datalayout.ranker;
 
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.datalayout.strategy.ScoredDataLayoutStrategy;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,10 +29,10 @@ public class SimpleWeightedSumDataLayoutStrategyScorer implements DataLayoutStra
    * @return the data layout strategies w/ scores
    */
   @Override
-  public List<DataLayoutStrategy> scoreDataLayoutStrategies(
+  public List<ScoredDataLayoutStrategy> scoreDataLayoutStrategies(
       List<DataLayoutStrategy> dataLayoutStrategies) {
 
-    List<DataLayoutStrategy> normalizedDataLayoutStrategies = new ArrayList<>();
+    List<ScoredDataLayoutStrategy> normalizedDataLayoutStrategies = new ArrayList<>();
     double minCost = minCost(dataLayoutStrategies);
     double maxCost = maxCost(dataLayoutStrategies);
     double minGain = minGain(dataLayoutStrategies);
@@ -40,12 +41,15 @@ public class SimpleWeightedSumDataLayoutStrategyScorer implements DataLayoutStra
     for (DataLayoutStrategy dataLayoutStrategy : dataLayoutStrategies) {
       double normalizedCost = minMaxNormalize(dataLayoutStrategy.getCost(), minCost, maxCost);
       double normalizedGain = minMaxNormalize(dataLayoutStrategy.getGain(), minGain, maxGain);
-      DataLayoutStrategy normalizedDataLayoutStrategy =
-          DataLayoutStrategy.builder()
-              .config(dataLayoutStrategy.getConfig())
-              .entropy(dataLayoutStrategy.getEntropy())
-              .cost(dataLayoutStrategy.getCost())
-              .gain(dataLayoutStrategy.getGain())
+      ScoredDataLayoutStrategy normalizedDataLayoutStrategy =
+          ScoredDataLayoutStrategy.builder()
+              .dataLayoutStrategy(
+                  DataLayoutStrategy.builder()
+                      .config(dataLayoutStrategy.getConfig())
+                      .entropy(dataLayoutStrategy.getEntropy())
+                      .cost(dataLayoutStrategy.getCost())
+                      .gain(dataLayoutStrategy.getGain())
+                      .build())
               .normalizedComputeCost(normalizedCost)
               .normalizedFileCountReduction(normalizedGain)
               .score(

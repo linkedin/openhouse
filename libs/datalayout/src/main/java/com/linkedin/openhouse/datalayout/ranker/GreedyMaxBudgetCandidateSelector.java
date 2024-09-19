@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.datalayout.ranker;
 
-import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.datalayout.strategy.ScoredDataLayoutStrategy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.PriorityQueue;
@@ -22,16 +22,17 @@ public class GreedyMaxBudgetCandidateSelector extends BaseDataLayoutCandidateSel
   }
 
   @Override
-  protected List<Integer> filter(PriorityQueue<Pair<DataLayoutStrategy, Integer>> maxHeap) {
+  protected List<Integer> filter(PriorityQueue<Pair<ScoredDataLayoutStrategy, Integer>> maxHeap) {
     List<Integer> result = new ArrayList<>();
     double totalEstimatedComputeCost = 0;
     int totalTables = 0;
     while (!maxHeap.isEmpty()
         && totalEstimatedComputeCost < this.maxEstimatedComputeCost
         && totalTables < this.maxTables) {
-      Pair<DataLayoutStrategy, Integer> dataLayoutStrategyIntegerPair = maxHeap.poll();
+      Pair<ScoredDataLayoutStrategy, Integer> dataLayoutStrategyIntegerPair = maxHeap.poll();
       result.add(dataLayoutStrategyIntegerPair.getRight());
-      totalEstimatedComputeCost += dataLayoutStrategyIntegerPair.getLeft().getCost();
+      totalEstimatedComputeCost +=
+          dataLayoutStrategyIntegerPair.getLeft().getDataLayoutStrategy().getCost();
       totalTables += 1;
     }
     return result;

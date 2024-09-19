@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.datalayout.ranker;
 
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.datalayout.strategy.ScoredDataLayoutStrategy;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Assertions;
@@ -28,7 +29,7 @@ public class WeightedSumDataLayoutStrategyScorerTest {
   public void testWeightedSumDataLayoutStrategyScorer() {
     DataLayoutStrategyScorer dataLayoutStrategyScorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(0.7, 0.3);
-    List<DataLayoutStrategy> normalizedStrategies =
+    List<ScoredDataLayoutStrategy> normalizedStrategies =
         dataLayoutStrategyScorer.scoreDataLayoutStrategies(testSampleDataLayoutStrategies);
     Assertions.assertEquals(normalizedStrategies.size(), 3);
 
@@ -54,12 +55,12 @@ public class WeightedSumDataLayoutStrategyScorerTest {
   public void testWeightSumScorerTopKCandidateSelector() {
     DataLayoutStrategyScorer dataLayoutStrategyScorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(0.7, 0.3);
-    List<DataLayoutStrategy> normalizedStrategies =
+    List<ScoredDataLayoutStrategy> normalizedStrategies =
         dataLayoutStrategyScorer.scoreDataLayoutStrategies(testSampleDataLayoutStrategies);
     Assertions.assertEquals(normalizedStrategies.size(), 3);
     for (int k = 1; k <= 3; k++) {
       DataLayoutCandidateSelector dataLayoutCandidateSelector =
-          new TopKDataLayoutCandidateSelector(k);
+          new GreedyMaxBudgetCandidateSelector(Double.MAX_VALUE, k);
       List<Integer> topK = dataLayoutCandidateSelector.select(normalizedStrategies);
       Assertions.assertEquals(k, topK.size());
       for (int j = 1; j <= k; j++) {
@@ -72,7 +73,7 @@ public class WeightedSumDataLayoutStrategyScorerTest {
   public void testWeightSumScorerMaxBudgetCandidateSelector() {
     DataLayoutStrategyScorer dataLayoutStrategyScorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(0.7, 0.3);
-    List<DataLayoutStrategy> normalizedStrategies =
+    List<ScoredDataLayoutStrategy> normalizedStrategies =
         dataLayoutStrategyScorer.scoreDataLayoutStrategies(testSampleDataLayoutStrategies);
     Assertions.assertEquals(3, normalizedStrategies.size());
 
