@@ -10,14 +10,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class ToggleStatusesServiceImpl implements ToggleStatusesService {
   @Autowired ToggleStatusHtsJdbcRepository htsRepository;
+  @Autowired TableToggleRuleMatcher ruleMatcher;
 
   @Override
   public ToggleStatus getTableToggleStatus(String featureId, String databaseId, String tableId) {
     for (TableToggleRule tableToggleRule : htsRepository.findAllByFeature(featureId)) {
 
-      // TODO: Evolve this rule engine to support wildcards
-      if (tableToggleRule.getTablePattern().equals(tableId)
-          && tableToggleRule.getDatabasePattern().equals(databaseId)) {
+      if (ruleMatcher.matches(tableToggleRule, tableId, databaseId)) {
         return ToggleStatus.builder().status(ToggleStatusEnum.ACTIVE).build();
       }
     }

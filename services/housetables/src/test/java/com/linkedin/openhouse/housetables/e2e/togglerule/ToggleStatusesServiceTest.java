@@ -34,4 +34,16 @@ public class ToggleStatusesServiceTest {
         toggleStatusesService.getTableToggleStatus("dummy2", "db", "testtbl1").getStatus(),
         ToggleStatusEnum.INACTIVE);
   }
+
+  @Test
+  public void testDBNoCreateWildcardMatch() {
+    Assertions.assertEquals(
+        toggleStatusesService
+            .getTableToggleStatus("stop_create", "db_no_create", "random")
+            .getStatus(),
+        ToggleStatusEnum.ACTIVE);
+    Assertions.assertEquals(
+        toggleStatusesService.getTableToggleStatus("stop_create", "db", "random").getStatus(),
+        ToggleStatusEnum.INACTIVE);
+  }
 }
