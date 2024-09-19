@@ -63,7 +63,7 @@ import org.reflections.Reflections;
  */
 @Slf4j
 public class JobsScheduler {
-  private static final int TASKS_WAIT_TIMEOUT_HOURS = 12;
+  private static final int DEFAULT_TASKS_WAIT_TIMEOUT_HOURS = 12;
   private static final int DEFAULT_MAX_NUM_CONCURRENT_JOBS = 40;
   private static final int DEFAULT_TABLE_CREATION_CUTOFF_HOUR = 72;
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
@@ -119,10 +119,11 @@ public class JobsScheduler {
             Executors.newFixedThreadPool(getNumParallelJobs(cmdLine)),
             tasksFactory,
             tablesClientFactory.create());
-    app.run(operationType, operationTaskCls.toString(), isDryRun(cmdLine));
+    app.run(operationType, operationTaskCls.toString(), isDryRun(cmdLine), getTaskTimeOut(cmdLine));
   }
 
-  protected void run(JobConf.JobTypeEnum jobType, String taskType, boolean isDryRun) {
+  protected void run(
+      JobConf.JobTypeEnum jobType, String taskType, boolean isDryRun, int taskTimeOutInHours) {
     long startTimeMillis = System.currentTimeMillis();
     METER.counterBuilder("scheduler_start_count").build().add(1);
     Map<JobState, Integer> jobStateCountMap = new HashMap<>();
@@ -151,8 +152,7 @@ public class JobsScheduler {
       Future<Optional<JobState>> taskFuture = taskFutures.get(taskIndex);
       try {
         long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        long remainingTimeMillis =
-            TimeUnit.HOURS.toMillis(TASKS_WAIT_TIMEOUT_HOURS) - passedTimeMillis;
+        long remainingTimeMillis = TimeUnit.HOURS.toMillis(taskTimeOutInHours) - passedTimeMillis;
         if (remainingTimeMillis <= 0) {
           // treat as a global timeout case similar to future.get timeout
           throw new TimeoutException();
@@ -168,7 +168,7 @@ public class JobsScheduler {
           log.warn(
               "Cancelling job for {} because of timeout of {} hours",
               task.getMetadata(),
-              TASKS_WAIT_TIMEOUT_HOURS);
+              taskTimeOutInHours);
           taskFuture.cancel(true);
           jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
         }
@@ -290,6 +290,13 @@ public class JobsScheduler {
             .longOpt("dryRun")
             .desc("Dry run without actual action")
             .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg(false)
+            .longOpt("taskTimeOutInHours")
+            .desc("Timeout in hours for scheduler")
+            .build());
     // TODO: move these to ODD specific config
     options.addOption(
         Option.builder(null)
@@ -381,6 +388,14 @@ public class JobsScheduler {
     int ret = DEFAULT_MAX_NUM_CONCURRENT_JOBS;
     if (cmdLine.hasOption("numParallelJobs")) {
       ret = Integer.parseInt(cmdLine.getOptionValue("numParallelJobs"));
+    }
+    return ret;
+  }
+
+  protected static int getTaskTimeOut(CommandLine cmdLine) {
+    int ret = DEFAULT_TASKS_WAIT_TIMEOUT_HOURS;
+    if (cmdLine.hasOption("taskTimeOutInHours")) {
+      ret = Integer.parseInt(cmdLine.getOptionValue("taskTimeOutInHours"));
     }
     return ret;
   }
