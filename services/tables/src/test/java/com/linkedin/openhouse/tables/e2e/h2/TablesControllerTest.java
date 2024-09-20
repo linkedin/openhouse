@@ -333,9 +333,9 @@ public class TablesControllerTest {
     // alter a prop with feature-toggle allowed, otherwise rejected
     GetTableResponseBody container = GetTableResponseBody.builder().tableProperties(null).build();
     GetTableResponseBody toggledOnProp = buildGetTableResponseBody(mvcResult, container);
-    toggledOnProp.getTableProperties().put("openhouse.tableType", "replica");
-    RequestAndValidateHelper.updateTableWithReservedPropsAndValidateResponse(
-        mvc, toggledOnProp, null);
+    toggledOnProp.getTableProperties().put("openhouse.tableType", "REPLICA_TABLE");
+    // This update will otherwise fail if feature-toggle for enable-tableType is not turned on.
+    RequestAndValidateHelper.updateTablePropsAndValidateResponse(mvc, toggledOnProp);
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, trickFeatureToggleResponseBody);
   }
