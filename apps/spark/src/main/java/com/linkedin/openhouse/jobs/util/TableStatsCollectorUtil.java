@@ -275,7 +275,7 @@ public final class TableStatsCollectorUtil {
             retentionPolicy.containsKey("count")
                 ? Integer.valueOf((String) retentionPolicy.get("count"))
                 : 0)
-        .granularity((String) retentionPolicy.get("granularity"))
+        .granularity((String) retentionPolicy.getOrDefault("granularity", null))
         .columnPattern((String) retentionPolicy.getOrDefault("pattern", null))
         .columnName((String) retentionPolicy.getOrDefault("columnName", null))
         .build();
