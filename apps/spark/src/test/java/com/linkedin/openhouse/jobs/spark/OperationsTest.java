@@ -9,6 +9,8 @@ import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import io.opentelemetry.api.metrics.Meter;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -528,6 +530,40 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testCollectEarliestPartitionDateStat() throws Exception {
+    final String tableName = "db.test_collect_earliest_partition_date";
+    List<String> rowValue = new ArrayList<>();
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // Test table with no partition
+      prepareTable(ops, tableName);
+      IcebergTableStats stats = ops.collectTableStats(tableName);
+      Assertions.assertNull(stats.getEarliestPartitionDate());
+
+      // Test yyyy-mm-dd format on table with multiple partitioned columns
+      prepareTableWithPoliciesWithMultipleStringPartition(ops, tableName, "30d", false);
+      rowValue.add("202%s-07-16");
+      rowValue.add("202%s-07-17");
+      rowValue.add("202%s-08-16");
+      rowValue.add("202%s-09-16");
+      populateTableWithMultipleStringColumn(ops, tableName, 1, rowValue);
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getEarliestPartitionDate(), "202%s-07-16");
+      rowValue.clear();
+
+      // Test timestamp format
+      prepareTableWithPolicies(ops, tableName, "30d", false);
+      populateTable(ops, tableName, 1, 2);
+      populateTable(ops, tableName, 1, 1);
+      populateTable(ops, tableName, 1, 0);
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(
+          stats.getEarliestPartitionDate(),
+          LocalDate.now().minusDays(2).format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
+    }
+  }
+
+  @Test
   public void testCollectTablePolicyStats() throws Exception {
     final String tableName = "db.test_collect_table_stats_with_policy";
     List<String> rowValue = new ArrayList<>();
@@ -662,6 +698,20 @@ public class OperationsTest extends OpenHouseSparkITest {
     }
   }
 
+  private static void populateTableWithMultipleStringColumn(
+      Operations ops, String tableName, int numRows, List<String> dataFormats) {
+    for (String dataFormat : dataFormats) {
+      for (int row = 0; row < numRows; ++row) {
+        ops.spark()
+            .sql(
+                String.format(
+                    "INSERT INTO %s VALUES ('%s', '%s', %d)",
+                    tableName, dataFormat, String.format(dataFormat, row), row))
+            .show();
+      }
+    }
+  }
+
   private static void prepareTable(Operations ops, String tableName) {
     prepareTable(ops, tableName, false);
   }
@@ -728,6 +778,24 @@ public class OperationsTest extends OpenHouseSparkITest {
         .sql(
             String.format(
                 "CREATE TABLE %s (data string, datepartition string) PARTITIONED BY (datepartition)",
+                tableName))
+        .show();
+    ops.spark()
+        .sql(
+            String.format(
+                "ALTER TABLE %s SET POLICY (RETENTION=%s ON COLUMN datepartition)",
+                tableName, retention));
+    ops.spark().sql(String.format("ALTER TABLE %s SET POLICY (SHARING=%s)", tableName, sharing));
+    ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
+  }
+
+  private static void prepareTableWithPoliciesWithMultipleStringPartition(
+      Operations ops, String tableName, String retention, boolean sharing) {
+    ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+    ops.spark()
+        .sql(
+            String.format(
+                "CREATE TABLE %s (datepartition string, data string, num int) PARTITIONED BY (datepartition, num)",
                 tableName))
         .show();
     ops.spark()

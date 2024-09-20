@@ -21,9 +21,11 @@ import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.spark.SparkTableUtil;
+import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
 
 /** Utility class to collect stats for a given table. */
 @Slf4j
@@ -174,7 +176,8 @@ public final class TableStatsCollectorUtil {
    * @param table
    * @param stats
    */
-  protected static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
+  protected static IcebergTableStats populateTableMetadata(
+      Table table, IcebergTableStats stats, SparkSession spark) {
     Map<String, Object> policyMap = getTablePolicies(table);
     return stats
         .builder()
@@ -197,6 +200,13 @@ public final class TableStatsCollectorUtil {
         .sharingEnabled(
             policyMap.containsKey("sharingEnabled") && (Boolean) policyMap.get("sharingEnabled"))
         .retentionPolicies(buildRetentionStats(policyMap))
+        .earliestPartitionDate(
+            getEarliestPartitionDate(
+                table,
+                spark,
+                policyMap.containsKey("columnName")
+                    ? (String) policyMap.get("columnName")
+                    : getPartitionColumnName(table)))
         .build();
   }
 
@@ -245,6 +255,43 @@ public final class TableStatsCollectorUtil {
         .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
         .first()
         .getLong(0);
+  }
+
+  /**
+   * Get the earliest partition date on a table.
+   *
+   * @param table
+   * @param spark
+   * @param partitionColumnName
+   * @return
+   */
+  private static String getEarliestPartitionDate(
+      Table table, SparkSession spark, String partitionColumnName) {
+    if (partitionColumnName == null) {
+      return null;
+    }
+
+    Dataset<Row> partitionData =
+        SparkTableUtil.loadMetadataTable(spark, table, MetadataTableType.PARTITIONS);
+    String partitionColumn = String.format("partition.%s", partitionColumnName);
+
+    String earliestPartitionDate =
+        partitionData
+            .select(partitionColumn)
+            .orderBy(functions.asc(partitionColumn))
+            .first()
+            .get(0)
+            .toString();
+
+    return earliestPartitionDate;
+  }
+
+  private static String getPartitionColumnName(Table table) {
+    return StreamSupport.stream(table.spec().partitionType().fields().spliterator(), false)
+        .filter(field -> field.type() instanceof Types.DateType)
+        .map(Types.NestedField::name)
+        .findFirst()
+        .orElse(null);
   }
 
   /**
