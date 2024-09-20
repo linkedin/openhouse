@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
-import com.linkedin.openhouse.cluster.configs.TblPropsToggleRegistry;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
+import com.linkedin.openhouse.tables.config.TblPropsToggleRegistry;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;

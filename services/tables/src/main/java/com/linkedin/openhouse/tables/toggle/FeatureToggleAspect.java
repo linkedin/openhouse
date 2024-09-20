@@ -1,11 +1,10 @@
 package com.linkedin.openhouse.tables.toggle;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.linkedin.openhouse.cluster.configs.TblPropsToggleRegistry;
 import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
+import com.linkedin.openhouse.tables.config.TblPropsToggleRegistry;
 import com.linkedin.openhouse.tables.model.TableDto;
-import com.linkedin.openhouse.tables.repository.impl.TblPropsEnabler;
-import java.util.Optional;
+import com.linkedin.openhouse.tables.repository.impl.PreservedPropsToggleEnabler;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.aspectj.lang.JoinPoint;
@@ -30,32 +29,39 @@ public class FeatureToggleAspect {
 
   @Autowired private TblPropsToggleRegistry tblPropsToggleRegistry;
 
-  @Around("@annotation(tblPropsEnabler)")
+  @Around("@annotation(preservedPropsToggleEnabler)")
   public boolean checkTblPropEnabled(
-      ProceedingJoinPoint proceedingJoinPoint, TblPropsEnabler tblPropsEnabler) throws Throwable {
+      ProceedingJoinPoint proceedingJoinPoint,
+      PreservedPropsToggleEnabler preservedPropsToggleEnabler) {
     if (((MethodSignature) proceedingJoinPoint.getSignature()).getReturnType() == boolean.class
         && proceedingJoinPoint.getArgs()[1] instanceof TableDto
         && proceedingJoinPoint.getArgs()[0] instanceof String) {
       TableDto tableDto = (TableDto) proceedingJoinPoint.getArgs()[1];
       String key = (String) proceedingJoinPoint.getArgs()[0];
 
-      Optional<String> feature = tblPropsToggleRegistry.obtainFeatureByKey(key);
-      if (!feature.isPresent()) {
-        return (boolean) proceedingJoinPoint.proceed();
-      }
-
-      boolean tableFeatureEnabled =
-          tableFeatureToggle.isFeatureActivated(
-              tableDto.getDatabaseId(), tableDto.getTableId(), feature.get());
-
-      // feature activation overwriting the decision of annotated method
-      return ((boolean) proceedingJoinPoint.proceed()) || tableFeatureEnabled;
+      return tblPropsToggleRegistry
+          .obtainFeatureByKey(key)
+          .map(
+              feature ->
+                  evalProceeding(proceedingJoinPoint)
+                      && !tableFeatureToggle.isFeatureActivated(
+                          tableDto.getDatabaseId(), tableDto.getTableId(), feature))
+          .orElseGet(() -> evalProceeding(proceedingJoinPoint));
     } else {
       throw new RuntimeException(
           String.format(
               "Signature of method that annotated with %s is problematic, "
                   + "please check with OpenHouse server implementation for methods with this annotation",
-              tblPropsEnabler.getClass().getCanonicalName()));
+              preservedPropsToggleEnabler.getClass().getCanonicalName()));
+    }
+  }
+
+  private boolean evalProceeding(ProceedingJoinPoint proceedingJoinPoint) {
+    try {
+      return (boolean) proceedingJoinPoint.proceed();
+    } catch (Throwable t) {
+      throw new RuntimeException(
+          "Error proceeding join point: " + proceedingJoinPoint.getSignature().toShortString(), t);
     }
   }
 

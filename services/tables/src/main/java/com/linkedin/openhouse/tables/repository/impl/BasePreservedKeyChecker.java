@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
+import com.linkedin.openhouse.tables.toggle.FeatureToggleAspect;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,10 +24,11 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
 
   /**
    * Details of determining if a key is preserved for the given {@link TableDto} is hidden in the
-   * implementation of aspect that associates with the annotation {@link TblPropsEnabler}
+   * implementation of aspect {@link FeatureToggleAspect} that associates with the annotation {@link
+   * PreservedPropsToggleEnabler}
    */
   @Override
-  @TblPropsEnabler
+  @PreservedPropsToggleEnabler
   public boolean isKeyPreservedForTable(String key, TableDto tableDto) {
     return isKeyPreserved(key);
   }

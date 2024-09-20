@@ -17,7 +17,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.cluster.configs.TblPropsToggleRegistry;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.audit.AuditHandler;
@@ -35,6 +34,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.TblPropsToggleRegistry;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ServiceAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableAuditModelConstants;

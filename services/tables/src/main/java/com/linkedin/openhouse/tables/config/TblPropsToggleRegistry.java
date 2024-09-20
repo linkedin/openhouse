@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.cluster.configs;
+package com.linkedin.openhouse.tables.config;
 
 import java.util.HashMap;
 import java.util.Map;

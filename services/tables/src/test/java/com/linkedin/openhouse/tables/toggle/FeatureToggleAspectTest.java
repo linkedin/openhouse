@@ -3,10 +3,10 @@ package com.linkedin.openhouse.tables.toggle;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.cluster.configs.TblPropsToggleRegistry;
 import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
+import com.linkedin.openhouse.tables.config.TblPropsToggleRegistry;
 import com.linkedin.openhouse.tables.model.TableDto;
-import com.linkedin.openhouse.tables.repository.impl.TblPropsEnabler;
+import com.linkedin.openhouse.tables.repository.impl.PreservedPropsToggleEnabler;
 import java.util.Optional;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.aspectj.lang.JoinPoint;
@@ -34,7 +34,7 @@ class FeatureToggleAspectTest {
 
   @Mock private IcebergFeatureGate featureGate;
 
-  @Mock private TblPropsEnabler tblPropsEnabler;
+  @Mock private PreservedPropsToggleEnabler preservedPropsToggleEnabler;
 
   @InjectMocks private FeatureToggleAspect featureToggleAspect;
 
@@ -51,15 +51,16 @@ class FeatureToggleAspectTest {
     when(proceedingJoinPoint.getSignature()).thenReturn(methodSignature);
     when(methodSignature.getReturnType()).thenReturn(boolean.class);
     when(proceedingJoinPoint.getArgs()).thenReturn(args);
-    when(proceedingJoinPoint.proceed()).thenReturn(false);
+    when(proceedingJoinPoint.proceed()).thenReturn(true);
     when(tableFeatureToggle.isFeatureActivated("testDb", "testTable", "TEST_FEATURE"))
         .thenReturn(true);
     when(tblPropsToggleRegistry.obtainFeatureByKey("testKey"))
         .thenReturn(Optional.of("TEST_FEATURE"));
 
-    boolean result = featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, tblPropsEnabler);
+    boolean result =
+        featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, preservedPropsToggleEnabler);
 
-    assertTrue(result);
+    assertFalse(result);
     verify(proceedingJoinPoint, times(1)).proceed();
   }
 
@@ -71,15 +72,16 @@ class FeatureToggleAspectTest {
     when(proceedingJoinPoint.getSignature()).thenReturn(methodSignature);
     when(methodSignature.getReturnType()).thenReturn(boolean.class);
     when(proceedingJoinPoint.getArgs()).thenReturn(args);
-    when(proceedingJoinPoint.proceed()).thenReturn(false);
+    when(proceedingJoinPoint.proceed()).thenReturn(true);
     when(tableFeatureToggle.isFeatureActivated("testDb", "testTable", "TEST_FEATURE"))
         .thenReturn(false);
     when(tblPropsToggleRegistry.obtainFeatureByKey("testKey"))
         .thenReturn(Optional.of("TEST_FEATURE"));
 
-    boolean result = featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, tblPropsEnabler);
+    boolean result =
+        featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, preservedPropsToggleEnabler);
 
-    assertFalse(result);
+    assertTrue(result);
     verify(proceedingJoinPoint, times(1)).proceed();
   }
 
@@ -92,15 +94,16 @@ class FeatureToggleAspectTest {
     when(methodSignature.getReturnType()).thenReturn(boolean.class);
     when(proceedingJoinPoint.getArgs()).thenReturn(args);
     when(proceedingJoinPoint.proceed())
-        .thenReturn(false); /* original decision without feature toggle is false */
+        .thenReturn(true); /* original decision without feature toggle is true: preserved key */
     when(tableFeatureToggle.isFeatureActivated("testDb", "testTable", "TEST_FEATURE"))
         .thenReturn(true);
     when(tblPropsToggleRegistry.obtainFeatureByKey("testKey"))
         .thenReturn(Optional.of("TEST_FEATURE"));
 
-    boolean result = featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, tblPropsEnabler);
+    boolean result =
+        featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, preservedPropsToggleEnabler);
 
-    assertTrue(result); /* evidence of overturning the original decision from feature toggle*/
+    assertFalse(result); /* evidence of overturning the original decision from feature toggle*/
     verify(proceedingJoinPoint, times(1)).proceed();
   }
 
@@ -111,7 +114,9 @@ class FeatureToggleAspectTest {
 
     assertThrows(
         RuntimeException.class,
-        () -> featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, tblPropsEnabler));
+        () ->
+            featureToggleAspect.checkTblPropEnabled(
+                proceedingJoinPoint, preservedPropsToggleEnabler));
   }
 
   @Test
@@ -124,7 +129,9 @@ class FeatureToggleAspectTest {
 
     assertThrows(
         RuntimeException.class,
-        () -> featureToggleAspect.checkTblPropEnabled(proceedingJoinPoint, tblPropsEnabler));
+        () ->
+            featureToggleAspect.checkTblPropEnabled(
+                proceedingJoinPoint, preservedPropsToggleEnabler));
   }
 
   // Following test cases are for checkIcebergFeatureFlag
