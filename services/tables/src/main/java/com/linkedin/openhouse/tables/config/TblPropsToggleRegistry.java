@@ -6,7 +6,7 @@ import java.util.Optional;
 import javax.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
-/** A central registry for all table properties that are managed through Feature Toggle. */
+/** A central registry for all table properties that are managed through Feature Toggle */
 @Component
 public class TblPropsToggleRegistry {
 
