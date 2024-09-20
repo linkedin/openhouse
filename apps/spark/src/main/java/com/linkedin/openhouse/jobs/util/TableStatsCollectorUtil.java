@@ -201,13 +201,7 @@ public final class TableStatsCollectorUtil {
         .sharingEnabled(
             policyMap.containsKey("sharingEnabled") && (Boolean) policyMap.get("sharingEnabled"))
         .retentionPolicies(buildRetentionStats(policyMap))
-        .earliestPartitionDate(
-            getEarliestPartitionDate(
-                table,
-                spark,
-                policyMap.containsKey("columnName")
-                    ? (String) policyMap.get("columnName")
-                    : getPartitionColumnName(table)))
+        .earliestPartitionDate(getEarliestPartitionDate(table, spark, policyMap))
         .build();
   }
 
@@ -263,11 +257,15 @@ public final class TableStatsCollectorUtil {
    *
    * @param table
    * @param spark
-   * @param partitionColumnName
+   * @param policyMap
    * @return
    */
   private static String getEarliestPartitionDate(
-      Table table, SparkSession spark, String partitionColumnName) {
+      Table table, SparkSession spark, Map<String, Object> policyMap) {
+    String partitionColumnName =
+        policyMap.containsKey("columnName")
+            ? (String) policyMap.get("columnName")
+            : getPartitionColumnName(table);
     if (partitionColumnName == null) {
       return null;
     }
