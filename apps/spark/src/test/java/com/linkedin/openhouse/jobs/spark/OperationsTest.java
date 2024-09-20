@@ -528,6 +528,42 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testCollectTablePolicyStats() throws Exception {
+    final String tableName = "db.test_collect_table_stats_with_policy";
+    List<String> rowValue = new ArrayList<>();
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTableWithPolicies(ops, tableName, "30d", true);
+      populateTable(ops, tableName, 2, 2);
+
+      IcebergTableStats stats = ops.collectTableStats(tableName);
+
+      Assertions.assertEquals(stats.getSharingEnabled(), true);
+      Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 30);
+      Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "DAY");
+
+      prepareTableWithPoliciesWithStringPartition(ops, tableName, "16h", false);
+      rowValue.add("202%s-07-16");
+      populateTableWithStringColumn(ops, tableName, 1, rowValue);
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getSharingEnabled(), false);
+      Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 16);
+      Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "HOUR");
+      Assertions.assertEquals(stats.getRetentionPolicies().getColumnName(), "datepartition");
+      Assertions.assertEquals(stats.getRetentionPolicies().getColumnPattern(), "yyyy-MM-dd-HH");
+      rowValue.clear();
+
+      prepareTableWithPoliciesWithCustomStringPartition(ops, tableName, "2y", "yyyy-MM-dd-HH");
+      rowValue.add("202%s-07-16-12");
+      populateTableWithStringColumn(ops, tableName, 1, rowValue);
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 2);
+      Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "YEAR");
+      Assertions.assertEquals(stats.getRetentionPolicies().getColumnPattern(), "'yyyy-MM-dd-HH'");
+    }
+  }
+
+  @Test
   public void testCollectTableStats() throws Exception {
     final String tableName = "db.test_collect_table_stats";
     final int numInserts = 3;
@@ -683,6 +719,41 @@ public class OperationsTest extends OpenHouseSparkITest {
     log.info("Checking snapshots");
     List<Long> foundSnapshotIds = getSnapshotIds(ops, tableName);
     Assertions.assertEquals(expectedSnapshotIds, foundSnapshotIds, "Incorrect list of snapshots");
+  }
+
+  private static void prepareTableWithPoliciesWithStringPartition(
+      Operations ops, String tableName, String retention, boolean sharing) {
+    ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+    ops.spark()
+        .sql(
+            String.format(
+                "CREATE TABLE %s (data string, datepartition string) PARTITIONED BY (datepartition)",
+                tableName))
+        .show();
+    ops.spark()
+        .sql(
+            String.format(
+                "ALTER TABLE %s SET POLICY (RETENTION=%s ON COLUMN datepartition)",
+                tableName, retention));
+    ops.spark().sql(String.format("ALTER TABLE %s SET POLICY (SHARING=%s)", tableName, sharing));
+    ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
+  }
+
+  private static void prepareTableWithPoliciesWithCustomStringPartition(
+      Operations ops, String tableName, String retention, String pattern) {
+    ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+    ops.spark()
+        .sql(
+            String.format(
+                "CREATE TABLE %s (data string, datepartition string) PARTITIONED BY (datepartition)",
+                tableName))
+        .show();
+    ops.spark()
+        .sql(
+            String.format(
+                "ALTER TABLE %s SET POLICY (RETENTION=%s ON COLUMN datepartition WHERE PATTERN = '%s')",
+                tableName, retention, pattern));
+    ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
   }
 
   private static void checkSnapshots(Table table, List<Long> expectedSnapshotIds) {

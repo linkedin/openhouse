@@ -2,8 +2,14 @@ package com.linkedin.openhouse.jobs.util;
 
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
@@ -169,6 +175,7 @@ public final class TableStatsCollectorUtil {
    * @param stats
    */
   protected static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
+    Map<String, Object> policyMap = getTablePolicies(table);
     return stats
         .builder()
         .recordTimestamp(System.currentTimeMillis())
@@ -187,6 +194,9 @@ public final class TableStatsCollectorUtil {
                 : 0)
         .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
         .tableLocation(table.location())
+        .sharingEnabled(
+            policyMap.containsKey("sharingEnabled") && (Boolean) policyMap.get("sharingEnabled"))
+        .retentionPolicies(buildRetentionStats(policyMap))
         .build();
   }
 
@@ -235,5 +245,49 @@ public final class TableStatsCollectorUtil {
         .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
         .first()
         .getLong(0);
+  }
+
+  /**
+   * Get table policies.
+   *
+   * @param table
+   * @return
+   */
+  private static Map<String, Object> getTablePolicies(Table table) {
+    String policies = table.properties().get("policies");
+    JsonObject policiesObject = new Gson().fromJson(policies, JsonObject.class);
+    Map<String, Object> policyMap = new HashMap<>();
+
+    if (policies.isEmpty()) {
+      return policyMap;
+    }
+
+    addEntriesToMap(policiesObject.getAsJsonObject("retention"), policyMap);
+    policyMap.put(
+        "sharingEnabled", Boolean.valueOf(policiesObject.get("sharingEnabled").getAsString()));
+
+    return policyMap;
+  }
+
+  private static RetentionStatsSchema buildRetentionStats(Map<String, Object> retentionPolicy) {
+    return RetentionStatsSchema.builder()
+        .count(
+            retentionPolicy.containsKey("count")
+                ? Integer.valueOf((String) retentionPolicy.get("count"))
+                : 0)
+        .granularity((String) retentionPolicy.getOrDefault("granularity", null))
+        .columnPattern((String) retentionPolicy.getOrDefault("pattern", null))
+        .columnName((String) retentionPolicy.getOrDefault("columnName", null))
+        .build();
+  }
+
+  private static void addEntriesToMap(JsonObject jsonObject, Map<String, Object> map) {
+    for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
+      if (entry.getValue().isJsonObject()) {
+        map.putAll(new Gson().fromJson(entry.getValue().getAsJsonObject(), Map.class));
+      } else {
+        map.put(entry.getKey(), entry.getValue().getAsString());
+      }
+    }
   }
 }

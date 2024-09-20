@@ -31,4 +31,8 @@ public class BaseTableMetadata {
   private Long tableLastUpdatedTimestamp;
 
   private String tableType;
+
+  private Boolean sharingEnabled;
+
+  private RetentionStatsSchema retentionPolicies;
 }
