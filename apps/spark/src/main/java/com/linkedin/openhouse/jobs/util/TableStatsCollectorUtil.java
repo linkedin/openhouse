@@ -174,10 +174,11 @@ public final class TableStatsCollectorUtil {
    * Collect table metadata for a given table.
    *
    * @param table
+   * @param spark
    * @param stats
    */
   protected static IcebergTableStats populateTableMetadata(
-      Table table, IcebergTableStats stats, SparkSession spark) {
+      Table table, SparkSession spark, IcebergTableStats stats) {
     Map<String, Object> policyMap = getTablePolicies(table);
     return stats
         .builder()
