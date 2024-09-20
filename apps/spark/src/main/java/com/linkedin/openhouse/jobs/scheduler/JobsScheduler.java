@@ -394,7 +394,6 @@ public class JobsScheduler {
   }
 
   protected static int getTaskTimeOut(CommandLine cmdLine) {
-    return NumberUtils.toInt(
-        cmdLine.getOptionValue("taskTimeOutInHours"), DEFAULT_TASKS_WAIT_HOURS);
+    return NumberUtils.toInt(cmdLine.getOptionValue("tasksWaitHours"), DEFAULT_TASKS_WAIT_HOURS);
   }
 }
