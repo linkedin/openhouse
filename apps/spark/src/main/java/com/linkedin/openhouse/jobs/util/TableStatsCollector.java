@@ -22,7 +22,7 @@ public class TableStatsCollector {
     IcebergTableStats stats = IcebergTableStats.builder().build();
 
     IcebergTableStats statsWithMetadataData =
-        TableStatsCollectorUtil.populateTableMetadata(table, spark, stats);
+        TableStatsCollectorUtil.populateTableMetadata(table, stats);
     IcebergTableStats statsWithReferenceFiles =
         TableStatsCollectorUtil.populateStatsOfAllReferencedFiles(
             fqtn, table, spark, statsWithMetadataData);

@@ -108,12 +108,15 @@ public final class TableStatsCollectorUtil {
             .map(snapshot -> snapshot.timestampMillis())
             .orElse(null);
 
+    String earliestPartitionDate = getEarliestPartitionDate(table, spark, getTablePolicies(table));
+
     log.info(
-        "Table: {}, Count of total Data files: {}, Sum of file sizes in bytes: {} for snaphot: {}",
+        "Table: {}, Count of total Data files: {}, Sum of file sizes in bytes: {}, Earliest partition date: {}, for snapshot: {}",
         fqtn,
         countOfDataFiles,
         sumOfFileSizeBytes,
-        currentSnapshotId);
+        currentSnapshotId,
+        earliestPartitionDate);
 
     // Find minimum timestamp of all snapshots where snapshots is iterator
     Long oldestSnapshotTimestamp =
@@ -129,6 +132,7 @@ public final class TableStatsCollectorUtil {
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
         .numCurrentSnapshotReferencedDataFiles(countOfDataFiles)
         .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfFileSizeBytes)
+        .earliestPartitionDate(earliestPartitionDate)
         .build();
   }
 
@@ -174,11 +178,9 @@ public final class TableStatsCollectorUtil {
    * Collect table metadata for a given table.
    *
    * @param table
-   * @param spark
    * @param stats
    */
-  protected static IcebergTableStats populateTableMetadata(
-      Table table, SparkSession spark, IcebergTableStats stats) {
+  protected static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
     Map<String, Object> policyMap = getTablePolicies(table);
     return stats
         .builder()
@@ -201,7 +203,6 @@ public final class TableStatsCollectorUtil {
         .sharingEnabled(
             policyMap.containsKey("sharingEnabled") && (Boolean) policyMap.get("sharingEnabled"))
         .retentionPolicies(buildRetentionStats(policyMap))
-        .earliestPartitionDate(getEarliestPartitionDate(table, spark, policyMap))
         .build();
   }
 

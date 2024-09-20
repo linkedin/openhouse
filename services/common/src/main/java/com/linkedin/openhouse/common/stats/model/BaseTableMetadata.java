@@ -35,6 +35,4 @@ public class BaseTableMetadata {
   private Boolean sharingEnabled;
 
   private RetentionStatsSchema retentionPolicies;
-
-  private String earliestPartitionDate;
 }
