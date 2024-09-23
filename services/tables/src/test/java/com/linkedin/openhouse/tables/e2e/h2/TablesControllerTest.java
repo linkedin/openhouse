@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
+import static com.linkedin.openhouse.tables.config.TblPropsToggleRegistry.*;
 import static com.linkedin.openhouse.tables.e2e.h2.ToggleH2StatusesRepository.*;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.*;
@@ -22,6 +23,7 @@ import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
@@ -34,12 +36,13 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.common.TableType;
-import com.linkedin.openhouse.tables.config.TblPropsToggleRegistry;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ServiceAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
+import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.search.MeterNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
@@ -101,7 +104,7 @@ public class TablesControllerTest {
 
   @Autowired private ClusterProperties clusterProperties;
 
-  @Autowired private TblPropsToggleRegistry tblPropsToggleRegistry;
+  @Autowired private ToggleStatusesRepository inMemToggleStatusRepo;
 
   @Test
   public void testSwaggerDocsWithoutAuth() throws Exception {
@@ -311,15 +314,23 @@ public class TablesControllerTest {
   public void testTblPropsThruFeatureToggle() throws Exception {
     /**
      * This is just to ensure the ToggleStatusesRepository#findById is activated to the correct
-     * path. See com.linkedin.openhouse.tables.e2e.h2.ToggleH2StatusesRepository
+     * path.
      */
+    inMemToggleStatusRepo.save(
+        TableToggleStatus.builder()
+            .featureId(ENABLE_TBLTYPE)
+            .tableId(GET_TABLE_RESPONSE_BODY.getTableId())
+            .databaseId(GET_TABLE_RESPONSE_BODY.getDatabaseId())
+            .toggleStatusEnum(ToggleStatus.StatusEnum.ACTIVE)
+            .build());
+
     GetTableResponseBody trickFeatureToggleResponseBody =
         GET_TABLE_RESPONSE_BODY
             .toBuilder()
-            .tableId(FEATURE_ACTIVATION_TABLE_NAME)
+            .tableId(GET_TABLE_RESPONSE_BODY.getTableId())
             .tableUri(
                 TableUri.builder()
-                    .tableId(FEATURE_ACTIVATION_TABLE_NAME)
+                    .tableId(GET_TABLE_RESPONSE_BODY.getTableId())
                     .databaseId(GET_TABLE_RESPONSE_BODY.getDatabaseId())
                     .clusterId(GET_TABLE_RESPONSE_BODY.getClusterId())
                     .build()
