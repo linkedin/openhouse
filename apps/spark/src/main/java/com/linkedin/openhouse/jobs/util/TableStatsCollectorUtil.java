@@ -21,9 +21,11 @@ import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.spark.SparkTableUtil;
+import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
 
 /** Utility class to collect stats for a given table. */
 @Slf4j
@@ -106,12 +108,15 @@ public final class TableStatsCollectorUtil {
             .map(snapshot -> snapshot.timestampMillis())
             .orElse(null);
 
+    String earliestPartitionDate = getEarliestPartitionDate(table, spark, getTablePolicies(table));
+
     log.info(
-        "Table: {}, Count of total Data files: {}, Sum of file sizes in bytes: {} for snaphot: {}",
+        "Table: {}, Count of total Data files: {}, Sum of file sizes in bytes: {}, Earliest partition date: {}, for snapshot: {}",
         fqtn,
         countOfDataFiles,
         sumOfFileSizeBytes,
-        currentSnapshotId);
+        currentSnapshotId,
+        earliestPartitionDate);
 
     // Find minimum timestamp of all snapshots where snapshots is iterator
     Long oldestSnapshotTimestamp =
@@ -127,6 +132,7 @@ public final class TableStatsCollectorUtil {
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
         .numCurrentSnapshotReferencedDataFiles(countOfDataFiles)
         .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfFileSizeBytes)
+        .earliestPartitionDate(earliestPartitionDate)
         .build();
   }
 
@@ -245,6 +251,47 @@ public final class TableStatsCollectorUtil {
         .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
         .first()
         .getLong(0);
+  }
+
+  /**
+   * Get the earliest partition date on a table.
+   *
+   * @param table
+   * @param spark
+   * @param policyMap
+   * @return
+   */
+  private static String getEarliestPartitionDate(
+      Table table, SparkSession spark, Map<String, Object> policyMap) {
+    String partitionColumnName =
+        policyMap.containsKey("columnName")
+            ? (String) policyMap.get("columnName")
+            : getPartitionColumnName(table);
+    if (partitionColumnName == null) {
+      return null;
+    }
+
+    Dataset<Row> partitionData =
+        SparkTableUtil.loadMetadataTable(spark, table, MetadataTableType.PARTITIONS);
+    String partitionColumn = String.format("partition.%s", partitionColumnName);
+
+    String earliestPartitionDate =
+        partitionData
+            .select(partitionColumn)
+            .orderBy(functions.asc(partitionColumn))
+            .first()
+            .get(0)
+            .toString();
+
+    return earliestPartitionDate;
+  }
+
+  private static String getPartitionColumnName(Table table) {
+    return StreamSupport.stream(table.spec().partitionType().fields().spliterator(), false)
+        .filter(field -> field.type() instanceof Types.DateType)
+        .map(Types.NestedField::name)
+        .findFirst()
+        .orElse(null);
   }
 
   /**

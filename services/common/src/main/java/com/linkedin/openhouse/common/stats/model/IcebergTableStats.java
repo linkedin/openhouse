@@ -35,4 +35,6 @@ public class IcebergTableStats extends BaseTableMetadata {
   private Long numReferencedManifestFiles;
 
   private Long numReferencedManifestLists;
+
+  private String earliestPartitionDate;
 }
