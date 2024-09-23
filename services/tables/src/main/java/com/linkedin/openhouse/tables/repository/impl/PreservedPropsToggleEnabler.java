@@ -11,8 +11,11 @@ import java.lang.annotation.Target;
  * considered preserved (read-only for users).
  *
  * <p>Usage of this annotation should be very specific to allow default-preserved keys to be
- * non-preserved. (This annotation is used as syntactical sugar to avoid contaminating main body of
- * service implementation)
+ * non-preserved. Do not use this annotation, e.g., on a denyList-like semantic like
+ * "disablePoliciesForTable".
+ *
+ * <p>This annotation should be considered as syntactical sugar to avoid contaminating main body of
+ * service implementation.
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
