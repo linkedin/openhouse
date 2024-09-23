@@ -29,13 +29,13 @@ public class TableSnapshotsExpirationTask extends TableOperationTask {
   @Override
   protected List<String> getArgs() {
     return Arrays.asList(
-        "--tableName", getMetadata().fqtn(),
+        "--tableName", metadata.fqtn(),
         "--granularity", "days",
         "--count", "3");
   }
 
   @Override
   protected boolean shouldRun() {
-    return tablesClient.canExpireSnapshots(getMetadata());
+    return metadata.isPrimary();
   }
 }

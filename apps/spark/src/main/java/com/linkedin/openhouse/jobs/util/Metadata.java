@@ -1,15 +1,15 @@
 package com.linkedin.openhouse.jobs.util;
 
-import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.experimental.SuperBuilder;
 
 /** Metadata, table or table directory can extend from it. */
 @Getter
-@AllArgsConstructor
+@SuperBuilder
 @EqualsAndHashCode
 public abstract class Metadata {
-  String creator;
+  protected String creator;
 
-  public abstract String getValue();
+  public abstract String getEntityName();
 }

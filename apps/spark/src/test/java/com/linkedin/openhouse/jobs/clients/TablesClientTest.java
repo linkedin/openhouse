@@ -52,7 +52,6 @@ public class TablesClientTest {
   private final String testOrphanDirectoryName = "test_orphan_directory_name";
   private final String testTableNamePartitioned = "test_table_name_partitioned";
   private final String testTableNameOlder = "test_table_name_older";
-  private final String testTableNameNewer = "test_table_name_newer";
   private final String testTableNameClustered = "test_table_name_clustered";
   private final String testPartitionColumnName = "test_partition_column_name";
   private final String testReplicaTableName = "test_replica_table_name";
@@ -63,8 +62,7 @@ public class TablesClientTest {
   private final TablesClientFactory clientFactory =
       new TablesClientFactory(
           "base_path",
-          DatabaseTableFilter.of(".*", ".*"),
-          1,
+          DatabaseTableFilter.of(".*", ".*", 0),
           null,
           ParameterizedHdfsStorageProvider.of("hadoop", "hdfs://localhost/", "/jobs/openhouse/"));
   private TableApi apiMock;
@@ -88,7 +86,7 @@ public class TablesClientTest {
   }
 
   @Test
-  void testGetTables() {
+  void testGetTableMedadataList() {
     GetAllTablesResponseBody allTablesResponseBodyMock =
         Mockito.mock(GetAllTablesResponseBody.class);
     GetAllDatabasesResponseBody allDatabasesResponseBodyMock =
@@ -105,7 +103,7 @@ public class TablesClientTest {
         createTableResponseBodyMock(testDbName, testTableNamePartitioned);
 
     Mockito.when(allDatabasesResponseBodyMock.getResults())
-        .thenReturn(Arrays.asList(databaseResponseMock));
+        .thenReturn(Collections.singletonList(databaseResponseMock));
     Mockito.when(allTablesResponseBodyMock.getResults())
         .thenReturn(
             Arrays.asList(unPartitionedTableIdentifierMock, partitionedTableIdentifierMock));
@@ -128,14 +126,30 @@ public class TablesClientTest {
     Mockito.when(dbApiMock.getAllDatabasesV1()).thenReturn(dbResponseMock);
     Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(responseMock);
     Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
-        .thenReturn(unPartitionedTableResponseMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableName))
         .thenReturn(partitionedTableResponseMock);
-    List<TableMetadata> tableMetadataList = client.getTables();
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName))
+        .thenReturn(unPartitionedTableResponseMock);
+    List<TableMetadata> tableMetadataList = client.getTableMetadataList();
     Assertions.assertEquals(
         Arrays.asList(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build(),
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build()),
+            TableMetadata.builder()
+                .dbName(testDbName)
+                .tableName(testTableName)
+                .isPrimary(true)
+                .build(),
+            TableMetadata.builder()
+                .dbName(testDbName)
+                .tableName(testTableNamePartitioned)
+                .isTimePartitioned(true)
+                .isPrimary(true)
+                .retentionConfig(
+                    RetentionConfig.builder()
+                        .columnName(testPartitionColumnName)
+                        .columnPattern("")
+                        .granularity(Retention.GranularityEnum.DAY)
+                        .count(testRetentionTTLDays)
+                        .build())
+                .build()),
         tableMetadataList);
     for (TableMetadata tableMetadata : tableMetadataList) {
       Assertions.assertFalse(tableMetadata.getTableName().contains(testTableNameOlder));
@@ -158,7 +172,7 @@ public class TablesClientTest {
     GetTableResponseBody tableIdentifierMock =
         createTableResponseBodyMock(testDbName, testTableName);
     Mockito.when(allTablesResponseBodyMock.getResults())
-        .thenReturn(Arrays.asList(tableIdentifierMock));
+        .thenReturn(Collections.singletonList(tableIdentifierMock));
     Mono<GetAllTablesResponseBody> responseMock =
         (Mono<GetAllTablesResponseBody>) Mockito.mock(Mono.class);
     Mono<GetTableResponseBody> tableResponseMock =
@@ -184,7 +198,7 @@ public class TablesClientTest {
     GetTableResponseBody tableIdentifierMock =
         createTableResponseBodyMock(testDbName, testTableName);
     Mockito.when(allTablesResponseBodyMock.getResults())
-        .thenReturn(Arrays.asList(tableIdentifierMock));
+        .thenReturn(Collections.singletonList(tableIdentifierMock));
     Mono<GetAllTablesResponseBody> responseMock =
         (Mono<GetAllTablesResponseBody>) Mockito.mock(Mono.class);
     Mono<GetTableResponseBody> tableResponseMock =
@@ -205,10 +219,11 @@ public class TablesClientTest {
             });
 
     Assertions.assertEquals(
-        Arrays.asList(
-            DirectoryMetadata.of(
-                new Path(testDbName + "/" + testOrphanDirectoryName + "-" + testTableUUID),
-                testTableCreator)),
+        Collections.singletonList(
+            DirectoryMetadata.builder()
+                .path(new Path(testDbName + "/" + testOrphanDirectoryName + "-" + testTableUUID))
+                .creator(testTableCreator)
+                .build()),
         client.getOrphanTableDirectories(new Path(testDbName)));
   }
 
@@ -253,244 +268,6 @@ public class TablesClientTest {
     Assertions.assertFalse(result.isPresent());
     Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(apiMock, Mockito.times(1)).getTableV1(testDbName, testTableNamePartitioned);
-  }
-
-  @Test
-  void testCanExpireSnapshots() {
-    GetTableResponseBody primaryTableResponseBodyMock =
-        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
-    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
-
-    GetTableResponseBody replicaTableResponseBodyMock =
-        createReplicaTableResponseBodyMock(testDbName, testReplicaTableName);
-    Mono<GetTableResponseBody> replicaResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(replicaResponseMock.block(any(Duration.class)))
-        .thenReturn(replicaTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testReplicaTableName))
-        .thenReturn(replicaResponseMock);
-
-    Assertions.assertTrue(
-        client.canExpireSnapshots(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
-    Assertions.assertFalse(
-        client.canExpireSnapshots(
-            TableMetadata.builder().dbName(testDbName).tableName(testReplicaTableName).build()));
-  }
-
-  @Test
-  void testCanRunOrphanFilesDeletion() {
-    GetTableResponseBody olderTableResponseBodyMock =
-        createTableResponseBodyMockWithCreationTime(
-            testDbName, testTableNameOlder, testPartitionColumnName, testRetentionTTLDays, 2);
-    Mono<GetTableResponseBody> olderTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(olderTableResponseMock.block(any(Duration.class)))
-        .thenReturn(olderTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNameOlder))
-        .thenReturn(olderTableResponseMock);
-
-    GetTableResponseBody newerTableResponseBodyMock =
-        createTableResponseBodyMockWithCreationTime(
-            testDbName, testTableNameNewer, testPartitionColumnName, testRetentionTTLDays, 0);
-    Mono<GetTableResponseBody> newerTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(newerTableResponseMock.block(any(Duration.class)))
-        .thenReturn(newerTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNameNewer))
-        .thenReturn(newerTableResponseMock);
-
-    Assertions.assertTrue(
-        client.canRunOrphanFileDeletion(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNameOlder).build()));
-    Assertions.assertFalse(
-        client.canRunOrphanFileDeletion(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNameNewer).build()));
-  }
-
-  @Test
-  void testCanRunRetention() {
-    GetTableResponseBody partitionedTableResponseBodyMock =
-        createPartitionedTableResponseBodyMock(
-            testDbName, testTableNamePartitioned, testPartitionColumnName, testRetentionTTLDays);
-    Mono<GetTableResponseBody> partitionedTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(partitionedTableResponseMock.block(any(Duration.class)))
-        .thenReturn(partitionedTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
-        .thenReturn(partitionedTableResponseMock);
-    // Retention should be executed for a primary  table that has retention config
-    Assertions.assertTrue(
-        client.canRunRetention(
-            TableMetadata.builder()
-                .dbName(testDbName)
-                .tableName(testTableNamePartitioned)
-                .build()));
-
-    GetTableResponseBody olderTableResponseBodyMock =
-        createTableResponseBodyMockWithCreationTime(
-            testDbName, testTableNameOlder, testPartitionColumnName, testRetentionTTLDays, 2);
-    Mono<GetTableResponseBody> olderTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(olderTableResponseMock.block(any(Duration.class)))
-        .thenReturn(olderTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNameOlder))
-        .thenReturn(olderTableResponseMock);
-    // Retention skipped for a table recently created despite retention config being set.
-    Assertions.assertTrue(
-        client.canRunRetention(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNameOlder).build()));
-
-    GetTableResponseBody primaryTableResponseBodyMock =
-        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
-    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
-    // Retention skipped for a replica table that is un-partitioned.
-    Assertions.assertFalse(
-        client.canRunRetention(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
-
-    GetTableResponseBody partitionedReplicaTableResponseBodyMock =
-        createPartitionedReplicaTableResponseBodyMock(
-            testDbName, testTableNamePartitioned, testPartitionColumnName, testRetentionTTLDays);
-    Mono<GetTableResponseBody> partitionedReplicaTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(responseMock.block(any(Duration.class)))
-        .thenReturn(partitionedReplicaTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
-        .thenReturn(partitionedReplicaTableResponseMock);
-    // Retention skipped for a replica table despite retention config being set.
-    Assertions.assertFalse(
-        client.canRunRetention(
-            TableMetadata.builder()
-                .dbName(testDbName)
-                .tableName(testTableNamePartitioned)
-                .build()));
-
-    GetTableResponseBody newerTableResponseBodyMock =
-        createTableResponseBodyMockWithCreationTime(
-            testDbName, testTableNameOlder, testPartitionColumnName, testRetentionTTLDays, 0);
-    Mono<GetTableResponseBody> newerTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(newerTableResponseMock.block(any(Duration.class)))
-        .thenReturn(newerTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNameOlder))
-        .thenReturn(newerTableResponseMock);
-    // Retention skipped for a table recently created despite retention config being set.
-    Assertions.assertFalse(
-        client.canRunRetention(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNameOlder).build()));
-  }
-
-  @Test
-  void testCanRunDataLayoutStrategyGeneration() {
-    GetTableResponseBody primaryPartitionedTableResponseBodyMock =
-        createPartitionedTableResponseBodyMock(
-            testDbName, testTableNamePartitioned, testPartitionColumnName, 1);
-    Mono<GetTableResponseBody> partitionedResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(partitionedResponseMock.block(any(Duration.class)))
-        .thenReturn(primaryPartitionedTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
-        .thenReturn(partitionedResponseMock);
-
-    GetTableResponseBody primaryTableResponseBodyMock =
-        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
-    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
-
-    GetTableResponseBody primaryClusteredTableResponseBodyMock =
-        createUnpartitionedTableResponseBodyMock(testDbName, testTableNameClustered, true);
-    Mono<GetTableResponseBody> clusteredResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(clusteredResponseMock.block(any(Duration.class)))
-        .thenReturn(primaryClusteredTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNameClustered))
-        .thenReturn(clusteredResponseMock);
-
-    GetTableResponseBody replicaTableResponseBodyMock =
-        createReplicaTableResponseBodyMock(testDbName, testReplicaTableName);
-    Mono<GetTableResponseBody> replicaResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(replicaResponseMock.block(any(Duration.class)))
-        .thenReturn(replicaTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testReplicaTableName))
-        .thenReturn(replicaResponseMock);
-
-    Assertions.assertTrue(
-        client.canRunDataLayoutStrategyGeneration(
-            TableMetadata.builder()
-                .dbName(testDbName)
-                .tableName(testTableNamePartitioned)
-                .build()));
-    Assertions.assertTrue(
-        client.canRunDataLayoutStrategyGeneration(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNameClustered).build()));
-    Assertions.assertTrue(
-        client.canRunDataLayoutStrategyGeneration(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
-    Assertions.assertFalse(
-        client.canRunDataLayoutStrategyGeneration(
-            TableMetadata.builder().dbName(testDbName).tableName(testReplicaTableName).build()));
-  }
-
-  @Test
-  void testCanRunDataCompaction() {
-    GetTableResponseBody primaryTableResponseBodyMock =
-        createUnpartitionedTableResponseBodyMock(testDbName, testTableName);
-    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(primaryTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
-
-    GetTableResponseBody replicaTableResponseBodyMock =
-        createReplicaTableResponseBodyMock(testDbName, testReplicaTableName);
-    Mono<GetTableResponseBody> replicaResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(replicaResponseMock.block(any(Duration.class)))
-        .thenReturn(replicaTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testReplicaTableName))
-        .thenReturn(replicaResponseMock);
-
-    Assertions.assertTrue(
-        client.canRunDataCompaction(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
-    Assertions.assertFalse(
-        client.canRunDataCompaction(
-            TableMetadata.builder().dbName(testDbName).tableName(testReplicaTableName).build()));
-  }
-
-  @Test
-  void testCanRunTableStatsCollection() {
-    GetTableResponseBody olderTableResponseBodyMock =
-        createTableResponseBodyMockWithCreationTime(
-            testDbName, testTableNameOlder, testPartitionColumnName, testRetentionTTLDays, 2);
-    Mono<GetTableResponseBody> olderTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(olderTableResponseMock.block(any(Duration.class)))
-        .thenReturn(olderTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNameOlder))
-        .thenReturn(olderTableResponseMock);
-
-    GetTableResponseBody newerTableResponseBodyMock =
-        createTableResponseBodyMockWithCreationTime(
-            testDbName, testTableNameNewer, testPartitionColumnName, testRetentionTTLDays, 0);
-    Mono<GetTableResponseBody> newerTableResponseMock =
-        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
-    Mockito.when(newerTableResponseMock.block(any(Duration.class)))
-        .thenReturn(newerTableResponseBodyMock);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableNameNewer))
-        .thenReturn(newerTableResponseMock);
-
-    Assertions.assertTrue(
-        client.canRunTableStatsCollection(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNameOlder).build()));
-    Assertions.assertFalse(
-        client.canRunTableStatsCollection(
-            TableMetadata.builder().dbName(testDbName).tableName(testTableNameNewer).build()));
   }
 
   @Test
@@ -621,7 +398,7 @@ public class TablesClientTest {
     Mockito.when(dbResponseMock.block(any(Duration.class)))
         .thenReturn(allDatabasesResponseBodyMock);
     Mockito.when(dbApiMock.getAllDatabasesV1()).thenReturn(dbResponseMock);
-    Assertions.assertEquals(Arrays.asList("db"), client.getDatabases());
+    Assertions.assertEquals(Collections.singletonList("db"), client.getDatabases());
     Mockito.verify(dbResponseMock, Mockito.times(1)).block(any(Duration.class));
   }
 
@@ -684,9 +461,10 @@ public class TablesClientTest {
     List<DirectoryMetadata> ret = new ArrayList<>();
     for (int index = 0; index < tableNames.size(); ++index) {
       ret.add(
-          DirectoryMetadata.of(
-              new Path(dbName + "/" + tableNames.get(index) + "-" + testTableUUID),
-              testTableCreator));
+          DirectoryMetadata.builder()
+              .path(new Path(dbName + "/" + tableNames.get(index) + "-" + testTableUUID))
+              .creator(testTableCreator)
+              .build());
     }
     return ret;
   }

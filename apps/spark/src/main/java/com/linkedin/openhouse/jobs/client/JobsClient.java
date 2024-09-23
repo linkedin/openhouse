@@ -68,11 +68,7 @@ public class JobsClient {
         RetryUtil.executeWithRetry(
             retryTemplate,
             (RetryCallback<JobResponseBody, Exception>)
-                context -> {
-                  JobResponseBody response =
-                      api.getJob(jobId).block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                  return response;
-                },
+                context -> api.getJob(jobId).block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
             null));
   }
 

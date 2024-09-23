@@ -64,9 +64,9 @@ import org.reflections.Reflections;
  */
 @Slf4j
 public class JobsScheduler {
-  private static final int DEFAULT_TASKS_WAIT_HOURS = 12;
-  private static final int DEFAULT_MAX_NUM_CONCURRENT_JOBS = 40;
-  private static final int DEFAULT_TABLE_CREATION_CUTOFF_HOUR = 72;
+  private static final int TASKS_WAIT_HOURS_DEFAULT = 12;
+  private static final int MAX_NUM_CONCURRENT_JOBS_DEFAULT = 40;
+  private static final int TABLE_MIN_AGE_THRESHOLD_HOURS_DEFAULT = 72;
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
   private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());
@@ -120,7 +120,8 @@ public class JobsScheduler {
             Executors.newFixedThreadPool(getNumParallelJobs(cmdLine)),
             tasksFactory,
             tablesClientFactory.create());
-    app.run(operationType, operationTaskCls.toString(), isDryRun(cmdLine), getTaskTimeOut(cmdLine));
+    app.run(
+        operationType, operationTaskCls.toString(), isDryRun(cmdLine), getTasksWaitHours(cmdLine));
   }
 
   protected void run(
@@ -135,8 +136,8 @@ public class JobsScheduler {
         new OperationTasksBuilder(taskFactory, tablesClient).buildOperationTaskList(jobType);
     if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
       log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
-      for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
-        log.info("metadata {}", taskList.get(taskIndex).getMetadata());
+      for (OperationTask operationTask : taskList) {
+        log.info("Task {}", operationTask);
       }
       return;
     }
@@ -160,7 +161,7 @@ public class JobsScheduler {
         }
         jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
       } catch (ExecutionException e) {
-        log.error(String.format("Operation for %s failed with exception", task.getMetadata()), e);
+        log.error(String.format("Operation for %s failed with exception", task), e);
         jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
       } catch (InterruptedException e) {
         throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
@@ -367,22 +368,23 @@ public class JobsScheduler {
 
   protected static TablesClientFactory getTablesClientFactory(CommandLine cmdLine) {
     String token = getToken(cmdLine);
+    int tableMinAgeThresholdHours =
+        NumberUtils.toInt(
+            cmdLine.getOptionValue("tableMinAgeThresholdHours"),
+            TABLE_MIN_AGE_THRESHOLD_HOURS_DEFAULT);
     DatabaseTableFilter filter =
         DatabaseTableFilter.of(
             cmdLine.getOptionValue("databaseFilter", ".*"),
-            cmdLine.getOptionValue("tableFilter", ".*"));
+            cmdLine.getOptionValue("tableFilter", ".*"),
+            tableMinAgeThresholdHours);
     ParameterizedHdfsStorageProvider hdfsStorageProvider =
         ParameterizedHdfsStorageProvider.of(
             cmdLine.getOptionValue("storageType", null),
             cmdLine.getOptionValue("storageUri", null),
             cmdLine.getOptionValue("rootPath", null));
-    int cutoffHours =
-        Integer.parseInt(
-            cmdLine.getOptionValue(
-                "cutoffHours", String.valueOf(DEFAULT_TABLE_CREATION_CUTOFF_HOUR)));
 
     return new TablesClientFactory(
-        cmdLine.getOptionValue("tablesURL"), filter, cutoffHours, token, hdfsStorageProvider);
+        cmdLine.getOptionValue("tablesURL"), filter, token, hdfsStorageProvider);
   }
 
   protected static JobsClientFactory getJobsClientFactory(CommandLine cmdLine) {
@@ -391,14 +393,14 @@ public class JobsScheduler {
   }
 
   protected static int getNumParallelJobs(CommandLine cmdLine) {
-    int ret = DEFAULT_MAX_NUM_CONCURRENT_JOBS;
+    int ret = MAX_NUM_CONCURRENT_JOBS_DEFAULT;
     if (cmdLine.hasOption("numParallelJobs")) {
       ret = Integer.parseInt(cmdLine.getOptionValue("numParallelJobs"));
     }
     return ret;
   }
 
-  protected static int getTaskTimeOut(CommandLine cmdLine) {
-    return NumberUtils.toInt(cmdLine.getOptionValue("tasksWaitHours"), DEFAULT_TASKS_WAIT_HOURS);
+  protected static int getTasksWaitHours(CommandLine cmdLine) {
+    return NumberUtils.toInt(cmdLine.getOptionValue("tasksWaitHours"), TASKS_WAIT_HOURS_DEFAULT);
   }
 }

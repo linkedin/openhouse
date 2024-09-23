@@ -29,12 +29,11 @@ public class TableDataCompactionTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
-    TableMetadata tableMetadata = getMetadata();
-    return Stream.of("--tableName", tableMetadata.fqtn()).collect(Collectors.toList());
+    return Stream.of("--tableName", metadata.fqtn()).collect(Collectors.toList());
   }
 
   @Override
   protected boolean shouldRun() {
-    return tablesClient.canRunDataCompaction(getMetadata());
+    return metadata.isPrimary() && metadata.isTimePartitioned();
   }
 }

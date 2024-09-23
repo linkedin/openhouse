@@ -6,7 +6,6 @@ import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Assertions;
@@ -23,7 +22,8 @@ public class TableRetentionTaskTest {
   void setup() {
     tablesClient = Mockito.mock(TablesClient.class);
     jobsClient = Mockito.mock(JobsClient.class);
-    tableMetadata = TableMetadata.builder().tableName("table").dbName("db").build();
+    tableMetadata = Mockito.mock(TableMetadata.class);
+    Mockito.when(tableMetadata.fqtn()).thenReturn("db.table");
   }
 
   @Test
@@ -39,8 +39,8 @@ public class TableRetentionTaskTest {
     Mockito.when(retentionConfigMock.getColumnName()).thenReturn(columnName);
     Mockito.when(retentionConfigMock.getGranularity()).thenReturn(retentionGranularity);
     Mockito.when(retentionConfigMock.getCount()).thenReturn(count);
-    Mockito.when(tablesClient.getTableRetention(tableMetadata))
-        .thenReturn(Optional.of(retentionConfigMock));
+
+    Mockito.when(tableMetadata.getRetentionConfig()).thenReturn(retentionConfigMock);
     List<String> expectedArgs =
         Stream.of(
                 "--tableName",
@@ -70,8 +70,7 @@ public class TableRetentionTaskTest {
     Mockito.when(retentionConfigMock.getColumnName()).thenReturn(columnName);
     Mockito.when(retentionConfigMock.getGranularity()).thenReturn(retentionGranularity);
     Mockito.when(retentionConfigMock.getCount()).thenReturn(count);
-    Mockito.when(tablesClient.getTableRetention(tableMetadata))
-        .thenReturn(Optional.of(retentionConfigMock));
+    Mockito.when(tableMetadata.getRetentionConfig()).thenReturn(retentionConfigMock);
     List<String> expectedArgs =
         Stream.of(
                 "--tableName",

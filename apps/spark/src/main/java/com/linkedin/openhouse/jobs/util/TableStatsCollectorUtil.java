@@ -5,9 +5,11 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.reflect.TypeToken;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -19,6 +21,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.spark.SparkTableUtil;
 import org.apache.iceberg.types.Types;
@@ -32,23 +35,14 @@ import org.apache.spark.sql.functions;
 public final class TableStatsCollectorUtil {
 
   private TableStatsCollectorUtil() {}
-  /**
-   * Collect stats about referenced files in a given table.
-   *
-   * @param fqtn
-   * @param table
-   * @param spark
-   * @param stats
-   * @return
-   */
-  protected static IcebergTableStats populateStatsOfAllReferencedFiles(
+  /** Collect stats about referenced files in a given table. */
+  public static IcebergTableStats populateStatsOfAllReferencedFiles(
       String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
     long referencedManifestFilesCount =
         getManifestFilesCount(table, spark, MetadataTableType.ALL_MANIFESTS);
 
-    long referencedManifestListFilesCount =
-        ReachableFileUtil.manifestListLocations(table).stream().count();
-    long metadataFilesCount = ReachableFileUtil.metadataFileLocations(table, true).stream().count();
+    long referencedManifestListFilesCount = ReachableFileUtil.manifestListLocations(table).size();
+    long metadataFilesCount = ReachableFileUtil.metadataFileLocations(table, true).size();
 
     long totalMetadataFilesCount =
         referencedManifestFilesCount + referencedManifestListFilesCount + metadataFilesCount;
@@ -81,15 +75,8 @@ public final class TableStatsCollectorUtil {
         .build();
   }
 
-  /**
-   * Collect stats for snapshots of a given table.
-   *
-   * @param fqtn
-   * @param table
-   * @param spark
-   * @param stats
-   */
-  protected static IcebergTableStats populateStatsForSnapshots(
+  /** Collect stats for snapshots of a given table. */
+  public static IcebergTableStats populateStatsForSnapshots(
       String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
 
     Dataset<Row> dataFiles = getAllDataFilesCount(table, spark, MetadataTableType.FILES);
@@ -99,14 +86,10 @@ public final class TableStatsCollectorUtil {
     long sumOfFileSizeBytes = getSumOfFileSizeBytes(dataFiles);
 
     Long currentSnapshotId =
-        Optional.ofNullable(table.currentSnapshot())
-            .map(snapshot -> snapshot.snapshotId())
-            .orElse(null);
+        Optional.ofNullable(table.currentSnapshot()).map(Snapshot::snapshotId).orElse(null);
 
     Long currentSnapshotTimestamp =
-        Optional.ofNullable(table.currentSnapshot())
-            .map(snapshot -> snapshot.timestampMillis())
-            .orElse(null);
+        Optional.ofNullable(table.currentSnapshot()).map(Snapshot::timestampMillis).orElse(null);
 
     String earliestPartitionDate = getEarliestPartitionDate(table, spark, getTablePolicies(table));
 
@@ -121,7 +104,7 @@ public final class TableStatsCollectorUtil {
     // Find minimum timestamp of all snapshots where snapshots is iterator
     Long oldestSnapshotTimestamp =
         StreamSupport.stream(table.snapshots().spliterator(), false)
-            .map(snapshot -> snapshot.timestampMillis())
+            .map(Snapshot::timestampMillis)
             .min(Long::compareTo)
             .orElse(null);
 
@@ -136,15 +119,8 @@ public final class TableStatsCollectorUtil {
         .build();
   }
 
-  /**
-   * Collect storage stats for a given fully-qualified table name.
-   *
-   * @param fqtn
-   * @param table
-   * @param stats
-   * @param fs
-   */
-  protected static IcebergTableStats populateStorageStats(
+  /** Collect storage stats for a given fully-qualified table name. */
+  public static IcebergTableStats populateStorageStats(
       String fqtn, Table table, FileSystem fs, IcebergTableStats stats) {
     // Find the sum of file size in bytes on HDFS by listing recursively all files in the table
     // location using filesystem call. This just replicates hdfs dfs -count and hdfs dfs -du -s.
@@ -174,16 +150,11 @@ public final class TableStatsCollectorUtil {
         .build();
   }
 
-  /**
-   * Collect table metadata for a given table.
-   *
-   * @param table
-   * @param stats
-   */
-  protected static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
+  /** Collect table metadata for a given table. */
+  public static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
     Map<String, Object> policyMap = getTablePolicies(table);
     return stats
-        .builder()
+        .toBuilder()
         .recordTimestamp(System.currentTimeMillis())
         .clusterName(table.properties().get(getCanonicalFieldName("clusterId")))
         .databaseName(table.properties().get(getCanonicalFieldName("databaseId")))
@@ -209,37 +180,21 @@ public final class TableStatsCollectorUtil {
   /**
    * Get all manifest files (currently referenced or part of older snapshot) count depending on
    * metadata type to query.
-   *
-   * @param table
-   * @param spark
-   * @param metadataTableType
-   * @return
    */
   private static long getManifestFilesCount(
       Table table, SparkSession spark, MetadataTableType metadataTableType) {
-    long manifestFilesCount =
-        SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
-            .selectExpr(new String[] {"path", "length"})
-            .dropDuplicates("path", "length")
-            .count();
-    return manifestFilesCount;
+    return SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
+        .selectExpr(new String[] {"path", "length"})
+        .dropDuplicates("path", "length")
+        .count();
   }
 
-  /**
-   * Get all data files count depending on metadata type to query.
-   *
-   * @param table
-   * @param spark
-   * @param metadataTableType
-   * @return
-   */
+  /** Get all data files count depending on metadata type to query. */
   private static Dataset<Row> getAllDataFilesCount(
       Table table, SparkSession spark, MetadataTableType metadataTableType) {
-    Dataset<Row> allDataFiles =
-        SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
-            .selectExpr(new String[] {"file_path", "file_size_in_bytes"})
-            .dropDuplicates("file_path", "file_size_in_bytes");
-    return allDataFiles;
+    return SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
+        .selectExpr(new String[] {"file_path", "file_size_in_bytes"})
+        .dropDuplicates("file_path", "file_size_in_bytes");
   }
 
   private static long getSumOfFileSizeBytes(Dataset<Row> allDataFiles) {
@@ -253,14 +208,6 @@ public final class TableStatsCollectorUtil {
         .getLong(0);
   }
 
-  /**
-   * Get the earliest partition date on a table.
-   *
-   * @param table
-   * @param spark
-   * @param policyMap
-   * @return
-   */
   private static String getEarliestPartitionDate(
       Table table, SparkSession spark, Map<String, Object> policyMap) {
     String partitionColumnName =
@@ -275,31 +222,22 @@ public final class TableStatsCollectorUtil {
         SparkTableUtil.loadMetadataTable(spark, table, MetadataTableType.PARTITIONS);
     String partitionColumn = String.format("partition.%s", partitionColumnName);
 
-    String earliestPartitionDate =
-        partitionData
-            .select(partitionColumn)
-            .orderBy(functions.asc(partitionColumn))
-            .first()
-            .get(0)
-            .toString();
-
-    return earliestPartitionDate;
+    return partitionData
+        .select(partitionColumn)
+        .orderBy(functions.asc(partitionColumn))
+        .first()
+        .get(0)
+        .toString();
   }
 
   private static String getPartitionColumnName(Table table) {
-    return StreamSupport.stream(table.spec().partitionType().fields().spliterator(), false)
+    return table.spec().partitionType().fields().stream()
         .filter(field -> field.type() instanceof Types.DateType)
         .map(Types.NestedField::name)
         .findFirst()
         .orElse(null);
   }
 
-  /**
-   * Get table policies.
-   *
-   * @param table
-   * @return
-   */
   private static Map<String, Object> getTablePolicies(Table table) {
     String policies = table.properties().get("policies");
     JsonObject policiesObject = new Gson().fromJson(policies, JsonObject.class);
@@ -320,7 +258,7 @@ public final class TableStatsCollectorUtil {
     return RetentionStatsSchema.builder()
         .count(
             retentionPolicy.containsKey("count")
-                ? Integer.valueOf((String) retentionPolicy.get("count"))
+                ? Integer.parseInt((String) retentionPolicy.get("count"))
                 : 0)
         .granularity((String) retentionPolicy.getOrDefault("granularity", null))
         .columnPattern((String) retentionPolicy.getOrDefault("pattern", null))
@@ -329,9 +267,10 @@ public final class TableStatsCollectorUtil {
   }
 
   private static void addEntriesToMap(JsonObject jsonObject, Map<String, Object> map) {
+    Type type = new TypeToken<Map<String, Object>>() {}.getType();
     for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
       if (entry.getValue().isJsonObject()) {
-        map.putAll(new Gson().fromJson(entry.getValue().getAsJsonObject(), Map.class));
+        map.putAll(new Gson().fromJson(entry.getValue().getAsJsonObject(), type));
       } else {
         map.put(entry.getKey(), entry.getValue().getAsString());
       }

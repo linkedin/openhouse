@@ -24,11 +24,11 @@ public class TableDataLayoutStrategyGenerationTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
-    return Arrays.asList("--tableName", getMetadata().fqtn());
+    return Arrays.asList("--tableName", metadata.fqtn());
   }
 
   @Override
   protected boolean shouldRun() {
-    return tablesClient.canRunDataLayoutStrategyGeneration(getMetadata());
+    return metadata.isPrimary();
   }
 }

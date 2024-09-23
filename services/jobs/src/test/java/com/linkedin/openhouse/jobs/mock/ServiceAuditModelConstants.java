@@ -5,13 +5,15 @@ import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceName;
 import org.springframework.http.HttpMethod;
 
-public class ServiceAuditModelConstants {
+public final class ServiceAuditModelConstants {
   private static final String CLUSTER_NAME = "local-cluster";
   private static final String USER = "undefined";
   private static final String ERROR_MESSAGE = "Job %s cannot be found";
 
   public static final String[] EXCLUDE_FIELDS =
       new String[] {"startTimestamp", "endTimestamp", "stacktrace", "cause"};
+
+  private ServiceAuditModelConstants() {}
 
   public static final ServiceAuditEvent SERVICE_AUDIT_EVENT_GET_JOB_SUCCESS =
       ServiceAuditEvent.builder()

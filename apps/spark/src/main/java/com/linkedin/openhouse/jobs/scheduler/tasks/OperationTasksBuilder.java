@@ -25,7 +25,7 @@ public class OperationTasksBuilder {
 
   private List<OperationTask> prepareTableOperationTaskList(JobConf.JobTypeEnum jobType) {
     List<OperationTask> taskList = new ArrayList<>();
-    for (TableMetadata metadata : tablesClient.getTables()) {
+    for (TableMetadata metadata : tablesClient.getTableMetadataList()) {
       log.info("metadata: {}", metadata);
       try {
         taskList.add(taskFactory.create(metadata));

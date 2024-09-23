@@ -24,7 +24,7 @@ public class OrphanTableDirectoryDeletionTask extends TableDirectoryOperationTas
 
   @Override
   protected List<String> getArgs() {
-    return Arrays.asList("--tableDirectoryPath", getMetadata().getValue());
+    return Arrays.asList("--tableDirectoryPath", metadata.getPath().toString());
   }
 
   @Override

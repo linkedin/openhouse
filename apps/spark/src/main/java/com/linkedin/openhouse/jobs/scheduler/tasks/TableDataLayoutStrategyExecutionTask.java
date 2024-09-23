@@ -4,16 +4,16 @@ import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import org.apache.commons.lang.NotImplementedException;
 
-/** A task to collect iceberg stats on a table. */
-public class TableStatsCollectionTask extends TableOperationTask {
+public class TableDataLayoutStrategyExecutionTask extends TableOperationTask {
+  // FIXME
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
-      JobConf.JobTypeEnum.TABLE_STATS_COLLECTION;
+      JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION;
 
-  protected TableStatsCollectionTask(
+  protected TableDataLayoutStrategyExecutionTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
     super(jobsClient, tablesClient, tableMetadata);
   }
@@ -25,11 +25,11 @@ public class TableStatsCollectionTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
-    return Stream.of("--tableName", metadata.fqtn()).collect(Collectors.toList());
+    return Arrays.asList("--tableName", metadata.fqtn());
   }
 
   @Override
   protected boolean shouldRun() {
-    return true;
+    throw new NotImplementedException("Not implemented");
   }
 }

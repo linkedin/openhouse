@@ -19,9 +19,8 @@ public abstract class TableDirectoryOperationTask extends OperationTask<Director
   }
 
   protected boolean launchJob() {
-    String jobName = String.format("%s_%s", getType(), getMetadata().getValue());
-    jobId =
-        jobsClient.launch(jobName, getType(), getMetadata().getCreator(), getArgs()).orElse(null);
+    String jobName = String.format("%s_%s", getType(), metadata.getPath());
+    jobId = jobsClient.launch(jobName, getType(), metadata.getCreator(), getArgs()).orElse(null);
     return jobId != null;
   }
 }
