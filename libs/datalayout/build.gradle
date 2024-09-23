@@ -41,3 +41,13 @@ dependencies {
     testImplementation(project(':tables-test-fixtures_2.12'))
     testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
 }
+
+test {
+    if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+        jvmArgs \
+            '--add-opens=java.base/java.nio=ALL-UNNAMED',
+            '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+            '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+            '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED'
+    }
+}

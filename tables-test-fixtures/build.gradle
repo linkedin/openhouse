@@ -14,7 +14,7 @@ configurations {
 }
 
 dependencies {
-  implementation 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+  implementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   implementation 'org.springframework.boot:spring-boot-starter-test:' + spring_web_version
   implementation(project(':services:tables'))
   compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
@@ -71,6 +71,7 @@ shadowJar {
       // e.g. java.lang.NoClassDefFoundError: openhouse/relocated/com/google/protobuf/GeneratedMessageV3
       // when users use fixtures library in their tests
       exclude 'com.google.protobuf.**'
+      exclude 'com.google.gson.**'
     }
   }
 }

@@ -9,6 +9,7 @@ dependencies {
     exclude group: 'com.zaxxer', module: 'HikariCP-java7'
     exclude group: 'org.apache.commons', module: 'commons-lang3'
     exclude group: 'com.codahale.metrics', module: 'metrics-core'
+    exclude group: 'com.squareup.okhttp', module: 'okhttp'
   }
   implementation 'org.apache.commons:commons-lang3:3.12.0'
 }

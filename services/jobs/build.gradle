@@ -34,6 +34,12 @@ dependencies {
   implementation 'org.apache.livy:livy-client-common:0.7.0-incubating'
   implementation 'org.apache.livy:livy-client-http:0.7.0-incubating'
   testImplementation(testFixtures(project(':services:common')))
-  testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
-  testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"
+  testImplementation "com.squareup.okhttp3:okhttp:" + ok_http3_version
+  testImplementation "com.squareup.okhttp3:mockwebserver:" + ok_http3_version
+}
+
+test {
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    jvmArgs '--add-opens=java.base/java.util=ALL-UNNAMED'
+  }
 }
