@@ -113,7 +113,7 @@ public class TablesClient {
     return response != null
         && checkCreationTimeEligibility(response)
         && isPrimaryTable(response)
-        && (response.getTimePartitioning() != null || response.getClustering() != null);
+        && response.getTimePartitioning() != null;
   }
 
   /**
