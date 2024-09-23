@@ -14,7 +14,7 @@ import java.util.stream.Stream;
  * @see <a href="https://iceberg.apache.org/docs/latest/maintenance/#compact-data-files">Compact
  *     data files</a>
  */
-public class TableDataCompactionTask extends TableOperationTask {
+public class TableDataCompactionTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE = JobConf.JobTypeEnum.DATA_COMPACTION;
 
   protected TableDataCompactionTask(

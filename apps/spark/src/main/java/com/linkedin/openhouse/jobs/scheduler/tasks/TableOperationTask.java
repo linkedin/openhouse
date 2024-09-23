@@ -15,11 +15,10 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Getter
-public abstract class TableOperationTask extends OperationTask<TableMetadata> {
+public abstract class TableOperationTask<T extends TableMetadata> extends OperationTask<T> {
   private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
 
-  protected TableOperationTask(
-      JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
+  protected TableOperationTask(JobsClient jobsClient, TablesClient tablesClient, T tableMetadata) {
     super(jobsClient, tablesClient, tableMetadata);
   }
 

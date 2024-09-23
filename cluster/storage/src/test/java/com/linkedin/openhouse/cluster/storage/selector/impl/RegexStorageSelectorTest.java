@@ -16,7 +16,6 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 class RegexStorageSelectorTest {
-
   @Mock private StorageManager storageManager;
   @Mock private StorageProperties storageProperties;
   @Mock private StorageType storageType;
