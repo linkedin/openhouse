@@ -110,7 +110,10 @@ public class TablesClient {
    */
   public boolean canRunDataCompaction(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && checkCreationTimeEligibility(response) && isPrimaryTable(response);
+    return response != null
+        && checkCreationTimeEligibility(response)
+        && isPrimaryTable(response)
+        && (response.getTimePartitioning() != null || response.getClustering() != null);
   }
 
   /**

@@ -455,7 +455,23 @@ public class TablesClientTest {
     Mockito.when(apiMock.getTableV1(testDbName, testReplicaTableName))
         .thenReturn(replicaResponseMock);
 
+    GetTableResponseBody primaryPartitionedTableResponseBodyMock =
+        createPartitionedTableResponseBodyMock(
+            testDbName, testTableNamePartitioned, testPartitionColumnName, 1);
+    Mono<GetTableResponseBody> partitionedResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(partitionedResponseMock.block(any(Duration.class)))
+        .thenReturn(primaryPartitionedTableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned))
+        .thenReturn(partitionedResponseMock);
+
     Assertions.assertTrue(
+        client.canRunDataCompaction(
+            TableMetadata.builder()
+                .dbName(testDbName)
+                .tableName(testTableNamePartitioned)
+                .build()));
+    Assertions.assertFalse(
         client.canRunDataCompaction(
             TableMetadata.builder().dbName(testDbName).tableName(testTableName).build()));
     Assertions.assertFalse(
