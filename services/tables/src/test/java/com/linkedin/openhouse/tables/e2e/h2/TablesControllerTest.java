@@ -3,8 +3,6 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
-import static com.linkedin.openhouse.tables.config.TblPropsToggleRegistry.*;
-import static com.linkedin.openhouse.tables.e2e.h2.ToggleH2StatusesRepository.*;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.*;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.*;
@@ -36,6 +34,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.TblPropsToggleRegistryBaseImpl;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ServiceAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableAuditModelConstants;
@@ -318,7 +317,7 @@ public class TablesControllerTest {
      */
     inMemToggleStatusRepo.save(
         TableToggleStatus.builder()
-            .featureId(ENABLE_TBLTYPE)
+            .featureId(TblPropsToggleRegistryBaseImpl.ENABLE_TBLTYPE)
             .tableId(GET_TABLE_RESPONSE_BODY.getTableId())
             .databaseId(GET_TABLE_RESPONSE_BODY.getDatabaseId())
             .toggleStatusEnum(ToggleStatus.StatusEnum.ACTIVE)
