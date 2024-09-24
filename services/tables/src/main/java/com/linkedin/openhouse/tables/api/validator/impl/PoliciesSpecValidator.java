@@ -4,12 +4,16 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Schedule;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
 
 /**
@@ -84,6 +88,30 @@ public class PoliciesSpecValidator {
                 "For non timestamp-partitioned table %s, column pattern in retention policy is mandatory",
                 tableUri);
         return false;
+      }
+      if (!validateReplicationPolicy(policies.getReplication())) {
+        failureMessage =
+            String.format(
+                "For table with non-null replication policy, a valid replication schedule %s is mandatory",
+                policies.getReplication());
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean validateReplicationPolicy(Replication replication) {
+    // implement replication config validation
+    if (replication != null) {
+      for (Schedule schedule : replication.getSchedules()) {
+        Map<String, String> config = schedule.getConfig();
+        for (String key : config.keySet()) {
+          try {
+            CronExpression.parse(config.get(key));
+          } catch (IllegalArgumentException e) {
+            return false;
+          }
+        }
       }
     }
     return true;

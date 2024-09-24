@@ -41,4 +41,11 @@ public class Policies {
       example = "{'colName': [PII, HC]}")
   @Valid
   Map<String, PolicyTag> columnTags;
+
+  @Schema(
+      description =
+          "Replication as required in /tables API request. This column holds the replication Policy.",
+      example = "{\"cluster\":\"a\", \"schedule\":\"b\"}")
+  @Valid
+  Replication replication;
 }
