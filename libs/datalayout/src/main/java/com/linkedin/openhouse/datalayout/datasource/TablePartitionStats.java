@@ -2,6 +2,7 @@ package com.linkedin.openhouse.datalayout.datasource;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import lombok.Builder;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.Dataset;
@@ -39,7 +40,7 @@ public class TablePartitionStats implements DataSource<PartitionStat> {
       Row partition = row.getStruct(0);
       if (partition != null) {
         for (int i = 0; i < partition.size(); i++) {
-          values.add(partition.get(i).toString());
+          values.add(Objects.toString(partition.get(i)));
         }
       }
       return PartitionStat.builder().values(values).fileCount(row.getInt(1)).build();
