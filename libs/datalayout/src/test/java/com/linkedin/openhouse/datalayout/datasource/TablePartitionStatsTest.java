@@ -34,6 +34,21 @@ public class TablePartitionStatsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testPartitionedTableNulls() throws Exception {
+    final String testTable = "db.test_table_partition_stats_partitioned_null";
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("USE openhouse");
+      spark.sql(
+          String.format("CREATE TABLE %s (id INT, data STRING) PARTITIONED BY (id)", testTable));
+      spark.sql(String.format("INSERT INTO %s VALUES (null, '0')", testTable));
+      TablePartitionStats tablePartitionStats =
+          TablePartitionStats.builder().spark(spark).tableName(testTable).build();
+      List<PartitionStat> stats = tablePartitionStats.get().collectAsList();
+      Assertions.assertEquals(1, stats.size());
+    }
+  }
+
+  @Test
   public void testNonPartitionedTablePartitionStats() throws Exception {
     final String testTable = "db.test_table_partition_stats_non_partitioned";
     try (SparkSession spark = getSparkSession()) {
