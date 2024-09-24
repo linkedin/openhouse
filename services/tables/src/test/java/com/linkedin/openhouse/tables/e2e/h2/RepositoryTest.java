@@ -19,8 +19,9 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
-import com.linkedin.openhouse.tables.repository.impl.OpenHouseInternalRepositoryImpl;
+import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -65,6 +66,8 @@ public class RepositoryTest {
 
   @Autowired SchemaValidator validator;
 
+  @Autowired PreservedKeyChecker preservedKeyChecker;
+
   @Test
   void extractReservedProps() {
     // create an input map with some key-value pairs
@@ -72,12 +75,12 @@ public class RepositoryTest {
     inputMap.put("openhouse.key1", "value1");
     inputMap.put("otherKey1", "value2");
     inputMap.put("openhouse.key2", "value3");
+    TableDto mockTableDto = Mockito.mock(TableDto.class);
 
     // call the method to extract the reserved props
     // Casting towards a specific implementation here.
     Map<String, String> result =
-        ((OpenHouseInternalRepositoryImpl) openHouseInternalRepository)
-            .extractPreservedProps(inputMap);
+        InternalRepositoryUtils.extractPreservedProps(inputMap, mockTableDto, preservedKeyChecker);
 
     // assert that the result map has the expected size and contents
     Assertions.assertEquals(2, result.size());
@@ -87,8 +90,7 @@ public class RepositoryTest {
     // Test empty map make sure no exception
     inputMap.clear();
     result =
-        ((OpenHouseInternalRepositoryImpl) openHouseInternalRepository)
-            .extractPreservedProps(inputMap);
+        InternalRepositoryUtils.extractPreservedProps(inputMap, mockTableDto, preservedKeyChecker);
     Assertions.assertEquals(0, result.size());
   }
 

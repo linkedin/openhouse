@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
 import static com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils.*;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
 import com.google.gson.GsonBuilder;
@@ -137,7 +136,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           doUpdateSchemaIfNeeded(transaction, writeSchema, table.schema(), tableDto);
       UpdateProperties updateProperties = transaction.updateProperties();
 
-      boolean propsUpdated = doUpdatePropsIfNeeded(updateProperties, tableDto, table);
+      boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
           doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
@@ -241,8 +240,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Map<String, String> providedTableProps =
         tableDto.getTableProperties() == null ? Maps.newHashMap() : tableDto.getTableProperties();
 
-    Map<String, String> extractedExistingProps = extractPreservedProps(existingTableProps);
-    Map<String, String> extractedProvidedProps = extractPreservedProps(providedTableProps);
+    Map<String, String> extractedExistingProps =
+        extractPreservedProps(existingTableProps, tableDto, preservedKeyChecker);
+    Map<String, String> extractedProvidedProps =
+        extractPreservedProps(providedTableProps, tableDto, preservedKeyChecker);
     if (!extractedExistingProps.equals(extractedProvidedProps)) {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
@@ -271,14 +272,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
   }
 
-  /** Provides definition on what is reserved properties and extract them from tblproperties map */
-  @VisibleForTesting
-  public Map<String, String> extractPreservedProps(Map<String, String> inputPropMaps) {
-    return inputPropMaps.entrySet().stream()
-        .filter(e -> preservedKeyChecker.isKeyPreserved(e.getKey()))
-        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-  }
-
   /**
    * computePropForNewTbl takes a tableDTO and returns a Map<String, String> representing {@link
    * Table} properties. policies from tableDTO is massaged into the properties map so that it can be
@@ -291,7 +284,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     // Populate non-preserved keys, mainly user defined properties.
     Map<String, String> propertiesMap =
         tableDto.getTableProperties().entrySet().stream()
-            .filter(entry -> !preservedKeyChecker.isKeyPreserved(entry.getKey()))
+            .filter(entry -> !preservedKeyChecker.isKeyPreservedForTable(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
     // Populate server reserved properties
@@ -302,6 +295,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       }
     }
 
+    // Populate policies
     String policiesString = policiesMapper.toPoliciesJsonString(tableDto);
     propertiesMap.put(InternalRepositoryUtils.POLICIES_KEY, policiesString);
 
@@ -390,15 +384,16 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * @param providedTableDto
    * @return Whether there are any properties-updates actually materialized.
    */
-  private boolean doUpdatePropsIfNeeded(
+  private boolean doUpdateUserPropsIfNeeded(
       UpdateProperties updateProperties, TableDto providedTableDto, Table existingTable) {
     // Only check user-defined props.
     Map<String, String> existingTableProps =
-        getUserDefinedTblProps(existingTable.properties(), preservedKeyChecker);
+        getUserTblProps(existingTable.properties(), preservedKeyChecker, providedTableDto);
     Map<String, String> providedTableProps =
         providedTableDto.getTableProperties() == null
             ? null
-            : getUserDefinedTblProps(providedTableDto.getTableProperties(), preservedKeyChecker);
+            : getUserTblProps(
+                providedTableDto.getTableProperties(), preservedKeyChecker, providedTableDto);
 
     return InternalRepositoryUtils.alterPropIfNeeded(
         updateProperties, existingTableProps, providedTableProps);
@@ -430,10 +425,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Map<String, String> existingTableProps) {
     boolean policiesUpdated;
     String tableDtoPolicyString = policiesMapper.toPoliciesJsonString(tableDto);
-    /*
-    This means if tableDto has null values set as policies and tableProperties,
-    then the policies will be updated to null
-     */
+
     if (!existingTableProps.containsKey(InternalRepositoryUtils.POLICIES_KEY)) {
       updateProperties.set(InternalRepositoryUtils.POLICIES_KEY, tableDtoPolicyString);
       policiesUpdated = true;
