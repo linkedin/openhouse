@@ -12,7 +12,7 @@ public class TblPropsToggleRegistryBaseImpl implements TblPropsToggleRegistry {
 
   public static final String ENABLE_TBLTYPE = "enable_tabletype";
   // TODO: Using these vocabularies as MySQL validation
-  private final Map<String, String> featureKeys = new HashMap<>();
+  protected final Map<String, String> featureKeys = new HashMap<>();
 
   @PostConstruct
   public void initializeKeys() {
