@@ -21,7 +21,7 @@ Run OpenHouse Services Only | oh-only                  | Stores data on local fi
 Run OpenHouse Services on HDFS | oh-hadoop                | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database.
 Run OpenHouse Services on HDFS. Also, available Spark | oh-hadoop-spark          | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Spark container might need more memory at time. Starts Livy server.
 
-Before building docker images, you would need to build the openhouse project (only java8 is supported) by running the following command.
+Before building docker images, you would need to build the openhouse project by running the following command.
 ```
 ./gradlew clean build
 ```
