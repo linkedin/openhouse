@@ -12,6 +12,7 @@ import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -70,6 +71,28 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(noSuchElementException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(noSuchElementException))
             .cause(getExceptionCause(noSuchElementException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /**
+   * Customize the behavior of handling {@link ResourceGatedByToggledOnFeatureException}, so that it
+   * doesn't result in the default {@link OpenHouseCommitStateUnknownException} which leads to 5xx
+   * error. This exception tells clients that the resource they are requesting to manipulate are
+   * protected by feature-toggle for the time being, thus the request manipulation cannot be
+   * fulfilled by the server.
+   */
+  @Hidden
+  @ExceptionHandler({ResourceGatedByToggledOnFeatureException.class})
+  protected ResponseEntity<ErrorResponseBody> handleToggleException(
+      ResourceGatedByToggledOnFeatureException resourceGatedByToggledOnFeatureException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.METHOD_NOT_ALLOWED)
+            .error(HttpStatus.METHOD_NOT_ALLOWED.getReasonPhrase())
+            .message(resourceGatedByToggledOnFeatureException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(resourceGatedByToggledOnFeatureException))
+            .cause(getExceptionCause(resourceGatedByToggledOnFeatureException))
             .build();
     return buildResponseEntity(errorResponseBody);
   }

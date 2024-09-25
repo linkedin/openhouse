@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.toggle;
+package com.linkedin.openhouse.common.exception;
 
 /**
  * The exception thrown when the request feature of a resource is toggled on thus being gated access

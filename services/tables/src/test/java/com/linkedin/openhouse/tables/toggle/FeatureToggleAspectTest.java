@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.toggle;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
 import com.linkedin.openhouse.internal.catalog.toggle.IcebergFeatureGate;
 import com.linkedin.openhouse.tables.config.TblPropsToggleRegistry;
 import com.linkedin.openhouse.tables.model.TableDto;
