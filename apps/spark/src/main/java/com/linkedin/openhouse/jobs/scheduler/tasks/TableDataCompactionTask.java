@@ -34,6 +34,6 @@ public class TableDataCompactionTask extends TableOperationTask {
 
   @Override
   protected boolean shouldRun() {
-    return metadata.isPrimary() && metadata.isTimePartitioned();
+    return metadata.isPrimary() && (metadata.isTimePartitioned() || metadata.isClustered());
   }
 }

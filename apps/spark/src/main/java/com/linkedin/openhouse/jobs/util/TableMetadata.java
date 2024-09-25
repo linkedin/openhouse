@@ -21,6 +21,7 @@ public class TableMetadata extends Metadata {
   protected long creationTimeMs;
   protected boolean isPrimary;
   protected boolean isTimePartitioned;
+  protected boolean isClustered;
   protected @Nullable RetentionConfig retentionConfig;
   @Builder.Default protected List<DataLayoutStrategy> dataLayoutStrategies = new ArrayList<>();
 

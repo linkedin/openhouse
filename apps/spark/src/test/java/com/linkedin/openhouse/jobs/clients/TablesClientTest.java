@@ -163,6 +163,7 @@ public class TablesClientTest {
                 .tableName(testTableNamePartitioned)
                 .isTimePartitioned(true)
                 .isPrimary(true)
+                .isClustered(true)
                 .retentionConfig(
                     RetentionConfig.builder()
                         .columnName(testPartitionColumnName)
@@ -176,6 +177,7 @@ public class TablesClientTest {
                 .tableName(testTableNameClustered)
                 .isTimePartitioned(false)
                 .isPrimary(true)
+                .isClustered(true)
                 .build()),
         tableMetadataList);
     for (TableMetadata tableMetadata : tableMetadataList) {

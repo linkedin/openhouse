@@ -237,6 +237,7 @@ public class TablesClient {
                 tableResponseBody.getTableType()
                     == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
+            .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
             .dataLayoutStrategies(getDataLayoutStrategies(tableResponseBody));
     if (tableResponseBody.getCreationTime() != null) {
