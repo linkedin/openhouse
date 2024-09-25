@@ -3,7 +3,6 @@ plugins {
   id 'openhouse.maven-publish'
   id 'com.github.johnrengelman.shadow' version '7.1.2'
   id 'scala'
-  id 'antlr'
 }
 
 ext {
@@ -12,22 +11,15 @@ ext {
 }
 
 configurations {
-  /*
-     The Gradle Antlr plugin erroneously adds both antlr-build and runtime dependencies to the runtime path. This
-     bug https://github.com/gradle/gradle/issues/820 exists because older versions of Antlr do not have separate
-     runtime and implementation dependencies and they do not want to break backwards compatibility. So to only end up with
-     the runtime dependency on the runtime classpath we remove the dependencies added by the plugin here. Then add
-     the runtime dependency back to only the runtime configuration manually.
-    */
-  implementation {
-    extendsFrom = extendsFrom.findAll { it != configurations.antlr }
-  }
 
   fatJarPackagedDependencies {
     exclude(group: 'org.antlr') // included in spark
     exclude(group: 'org.mapstruct')
   }
+  
   shadow.extendsFrom implementation
+  
+  antlr
 }
 
 
@@ -61,19 +53,45 @@ dependencies {
     transitive = false
   }
   implementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
+}
 
-  generateGrammarSource {
-    maxHeapSize = "64m"
-    arguments += ['-visitor', '-package', 'com.linkedin.openhouse.spark.sql.catalyst.parser.extensions']
+// Define antlr directories for source generation
+ext {
+  antlrPackageDirPrefix="com/linkedin/openhouse/spark/sql/catalyst/parser/extensions/"
+  antlrMainDir="${projectDir}/src/main/antlr/${antlrPackageDirPrefix}"
+  antlrMainGeneratedSrcDir="${project.buildDir}/generated-src/antlr/main/"
+}
+
+// Set source for antlr generated directory
+sourceSets {
+  main {
+    java {
+      srcDirs antlrMainGeneratedSrcDir
+    }
   }
 }
 
+// Task to generate java sources using Antlr tool
+task runAntlr(type:JavaExec) {
+  inputs.dir antlrMainDir
+  outputs.dir antlrMainGeneratedSrcDir
+
+  main = "org.antlr.v4.Tool"
+  args = ["${antlrMainDir}/OpenhouseSqlExtensions.g4", 
+          "-visitor", 
+          "-o", "${antlrMainGeneratedSrcDir}/${antlrPackageDirPrefix}", 
+          "-package", "com.linkedin.openhouse.spark.sql.catalyst.parser.extensions"]
+  maxHeapSize = "64m"
+  classpath = configurations.antlr
+}
+
+compileJava.dependsOn runAntlr
 
 shadowJar {
   dependencies {
     exclude("javax/**")
   }
-
+  
   configurations = [project.configurations.fatJarPackagedDependencies]
   mergeServiceFiles()
   archiveClassifier.set('uber')
@@ -81,3 +99,4 @@ shadowJar {
 }
 
 jar.enabled=true
+
