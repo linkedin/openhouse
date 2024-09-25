@@ -98,12 +98,5 @@ shadowJar {
   zip64 true
 }
 
-jar {
-  enabled=true
-  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}
-
-sourcesJar {
-  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}
+jar.enabled=true
 
