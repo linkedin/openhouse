@@ -1,7 +1,7 @@
 version: "3.3"
 services:
   namenode:
-    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    image: bde2020/hadoop-namenode:1.2.0-hadoop2.8-java8
     restart: always
     ports:
       - 9870:9870
@@ -12,7 +12,7 @@ services:
       - hadoop/hadoop.env
 
   datanode:
-    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    image: bde2020/hadoop-datanode:1.2.0-hadoop2.8-java8
     restart: always
     environment:
       SERVICE_PRECONDITION: "namenode:9870"
