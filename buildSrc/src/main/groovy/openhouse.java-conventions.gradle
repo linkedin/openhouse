@@ -2,9 +2,6 @@ plugins {
   id 'openhouse.java-minimal-conventions'
 }
 
-sourceCompatibility = JavaVersion.VERSION_1_8
-targetCompatibility = JavaVersion.VERSION_1_8
-
 ext {
   gsonVersion = '2.8.9'
   micrometerVersion = '1.9.13'

@@ -91,7 +91,7 @@ allprojects {
         trimTrailingWhitespace()
 
         endWithNewline()
-        googleJavaFormat()
+        googleJavaFormat('1.7')
       }
     }
 
