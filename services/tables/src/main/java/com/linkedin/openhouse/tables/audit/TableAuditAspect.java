@@ -425,8 +425,7 @@ public class TableAuditAspect {
   private void buildAndSendEvent(
       TableAuditEvent event, OperationStatus status, String currentTableRoot) {
     TableAuditEvent completeEvent =
-        event
-            .toBuilder()
+        event.toBuilder()
             .clusterName(clusterProperties.getClusterName())
             .user(extractAuthenticatedUserPrincipal())
             .operationStatus(status)

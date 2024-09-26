@@ -405,8 +405,7 @@ public class TablesControllerTest {
                           responseBodyForException.getTableId()))
                   .contentType(MediaType.APPLICATION_JSON)
                   .content(
-                      buildCreateUpdateTableRequestBody(responseBodyForException)
-                          .toBuilder()
+                      buildCreateUpdateTableRequestBody(responseBodyForException).toBuilder()
                           .baseTableVersion(INITIAL_TABLE_VERSION)
                           .build()
                           .toJson())

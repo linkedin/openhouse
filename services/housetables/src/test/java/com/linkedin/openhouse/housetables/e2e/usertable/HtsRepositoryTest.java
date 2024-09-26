@@ -98,8 +98,7 @@ public class HtsRepositoryTest {
     Assertions.assertNotEquals(
         htsRepository
             .save(
-                testUserTableRow
-                    .toBuilder()
+                testUserTableRow.toBuilder()
                     .version(currentVersion)
                     .metadataLocation("file:/ml2")
                     .build())

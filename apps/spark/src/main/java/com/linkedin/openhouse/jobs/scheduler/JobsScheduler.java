@@ -169,13 +169,10 @@ public class JobsScheduler {
         if (!taskFuture.isDone()) {
           log.warn(
               "Attempting to cancel job for {} because of timeout of {} hours",
-              task.getMetadata(),
+              task,
               tasksWaitHours);
           if (taskFuture.cancel(true)) {
-            log.warn(
-                "Cancelled job for {} because of timeout of {} hours",
-                task.getMetadata(),
-                tasksWaitHours);
+            log.warn("Cancelled job for {} because of timeout of {} hours", task, tasksWaitHours);
             jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
           }
         }

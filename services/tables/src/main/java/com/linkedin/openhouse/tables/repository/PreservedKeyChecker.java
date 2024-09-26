@@ -8,7 +8,9 @@ import com.linkedin.openhouse.tables.model.TableDto;
  */
 public interface PreservedKeyChecker {
 
-  /** @deprecated Please consider using {@link #isKeyPreservedForTable(String, TableDto) instead} */
+  /**
+   * @deprecated Please consider using {@link #isKeyPreservedForTable(String, TableDto) instead}
+   */
   @Deprecated
   boolean isKeyPreserved(String key);
 

@@ -8,6 +8,8 @@ public interface HouseJobHandle {
   /** Issues cancel request to the engine API to terminate the job. */
   void cancel();
 
-  /** @return job info {@link com.linkedin.openhouse.jobs.services.JobInfo} */
+  /**
+   * @return job info {@link com.linkedin.openhouse.jobs.services.JobInfo}
+   */
   JobInfo getInfo();
 }

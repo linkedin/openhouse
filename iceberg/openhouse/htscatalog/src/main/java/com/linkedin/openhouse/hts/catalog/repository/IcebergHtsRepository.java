@@ -82,7 +82,9 @@ public class IcebergHtsRepository<IR extends IcebergRow, IRPK extends IcebergRow
     return findById(icebergRowPrimaryKey).isPresent();
   }
 
-  /** @throws NotFoundException when the row doesn't exist */
+  /**
+   * @throws NotFoundException when the row doesn't exist
+   */
   @Override
   public void deleteById(IRPK icebergRowPrimaryKey) {
     if (!catalog.tableExists(htsTableIdentifier)) {
@@ -92,7 +94,9 @@ public class IcebergHtsRepository<IR extends IcebergRow, IRPK extends IcebergRow
     genericIcebergRowReadersWriters.delete(table, icebergRowPrimaryKey);
   }
 
-  /** @throws NotFoundException when the row doesn't exist */
+  /**
+   * @throws NotFoundException when the row doesn't exist
+   */
   @Override
   public void delete(IR icebergRow) {
     if (!catalog.tableExists(htsTableIdentifier)) {

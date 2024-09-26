@@ -26,8 +26,7 @@ public class PoliciesSpecMapperTest {
   public void testToPoliciesSpecJson() {
     TableDto tableDto =
         TableModelConstants.buildTableDto(
-            GET_TABLE_RESPONSE_BODY
-                .toBuilder()
+            GET_TABLE_RESPONSE_BODY.toBuilder()
                 .policies(TableModelConstants.TABLE_POLICIES)
                 .build());
     String policiesSpec = policiesMapper.toPoliciesJsonString(tableDto);
@@ -49,8 +48,7 @@ public class PoliciesSpecMapperTest {
   public void testToPoliciesJsonFromObject() {
     TableDto tableDto =
         TableModelConstants.buildTableDto(
-            GET_TABLE_RESPONSE_BODY
-                .toBuilder()
+            GET_TABLE_RESPONSE_BODY.toBuilder()
                 .policies(TableModelConstants.TABLE_POLICIES)
                 .build());
     String jsonPolicies = policiesMapper.toPoliciesJsonString(tableDto);

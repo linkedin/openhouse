@@ -146,8 +146,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         jobResponse.getState());
     JobResponseBody.StateEnum state = jobResponse.getState();
     Attributes attributes =
-        tableAttributes
-            .toBuilder()
+        tableAttributes.toBuilder()
             .put(AppConstants.STATUS, state.name())
             .put(AppConstants.JOB_ID, jobResponse.getJobId())
             .build();

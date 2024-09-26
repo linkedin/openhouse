@@ -143,8 +143,7 @@ public class RepositoryTestWithSettableComponents {
     Map<String, String> props = new HashMap<>(creationDTO.getTableProperties());
     props.put("test", "test");
     creationDTO =
-        creationDTO
-            .toBuilder()
+        creationDTO.toBuilder()
             .tableVersion(creationDTO.getTableLocation()) /*for sake of versionCheck*/
             .tableProperties(props)
             .build();

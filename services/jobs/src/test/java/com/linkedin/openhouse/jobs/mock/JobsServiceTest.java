@@ -58,8 +58,7 @@ public class JobsServiceTest {
     Map<String, String> executionConf = new HashMap<>();
     executionConf.put("memory", "4G");
     JobDto job =
-        JobModelConstants.JOB_DTO
-            .toBuilder()
+        JobModelConstants.JOB_DTO.toBuilder()
             .jobConf(
                 JobConf.builder()
                     .executionConf(executionConf)

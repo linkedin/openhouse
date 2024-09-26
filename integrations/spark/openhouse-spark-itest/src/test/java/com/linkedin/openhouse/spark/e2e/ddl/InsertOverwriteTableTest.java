@@ -79,8 +79,10 @@ public class InsertOverwriteTableTest {
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
 
     List<String> actualRows =
-        spark.sql("SELECT id, name, CAST(timestampCol AS DATE) FROM openhouse.dbInsertOverwrite.t1")
-            .collectAsList().stream()
+        spark
+            .sql("SELECT id, name, CAST(timestampCol AS DATE) FROM openhouse.dbInsertOverwrite.t1")
+            .collectAsList()
+            .stream()
             .map(row -> row.mkString("."))
             .collect(Collectors.toList());
     Assertions.assertTrue(
@@ -149,8 +151,10 @@ public class InsertOverwriteTableTest {
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
 
     List<String> actualRows =
-        spark.sql("SELECT id, name, CAST(timestampCol AS DATE) FROM openhouse.dbInsertOverwrite.t2")
-            .collectAsList().stream()
+        spark
+            .sql("SELECT id, name, CAST(timestampCol AS DATE) FROM openhouse.dbInsertOverwrite.t2")
+            .collectAsList()
+            .stream()
             .map(row -> row.mkString("."))
             .collect(Collectors.toList());
     Assertions.assertTrue(

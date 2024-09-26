@@ -46,16 +46,12 @@ public class UserTablesServiceTest {
 
     // delete candidate
     htsRepository.save(
-        testTuple1_0
-            .get_userTableRow()
-            .toBuilder()
+        testTuple1_0.get_userTableRow().toBuilder()
             .tableId(CASE_TBL_1)
             .databaseId(CASE_DB_1)
             .build());
     htsRepository.save(
-        testTuple1_0
-            .get_userTableRow()
-            .toBuilder()
+        testTuple1_0.get_userTableRow().toBuilder()
             .tableId(CASE_TBL_2)
             .databaseId(CASE_DB_2)
             .build());
@@ -111,20 +107,15 @@ public class UserTablesServiceTest {
   public void testUserTableQuery() {
     List<UserTableDto> results = new ArrayList<>();
     results.add(
-        testTuple1_0
-            .get_userTableDto()
-            .toBuilder()
+        testTuple1_0.get_userTableDto().toBuilder()
             .tableVersion(testTuple1_0.get_userTableDto().getMetadataLocation())
             .build());
     results.add(
-        testTuple2_0
-            .get_userTableDto()
-            .toBuilder()
+        testTuple2_0.get_userTableDto().toBuilder()
             .tableVersion(testTuple2_0.get_userTableDto().getMetadataLocation())
             .build());
     results.add(
-        TEST_USER_TABLE_DTO
-            .toBuilder()
+        TEST_USER_TABLE_DTO.toBuilder()
             .tableVersion(TEST_USER_TABLE_DTO.getMetadataLocation())
             .build());
 
@@ -180,8 +171,7 @@ public class UserTablesServiceTest {
   }
 
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {
-    return expected
-        .toBuilder()
+    return expected.toBuilder()
         .tableVersion("")
         .build()
         .equals(actual.toBuilder().tableVersion("").build());
