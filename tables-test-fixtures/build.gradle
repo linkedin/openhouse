@@ -1,5 +1,5 @@
 plugins {
-  id 'java'
+  id 'openhouse.java-minimal-conventions'
   id 'com.github.johnrengelman.shadow' version '7.1.2'
   id 'openhouse.maven-publish'
 }
