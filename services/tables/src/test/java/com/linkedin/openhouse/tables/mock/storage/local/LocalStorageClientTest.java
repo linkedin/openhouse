@@ -10,6 +10,8 @@ import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import java.util.Collections;
 import java.util.HashMap;
 import javax.annotation.PostConstruct;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FilterFileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,6 +81,17 @@ public class LocalStorageClientTest {
   }
 
   @Test
+  public void testLocalStorageClientEndpointWithWrappedFileSystemClass() {
+    Configuration hadoopConfig = new Configuration();
+    // Configure FileSystem to bypass the cache and load the custom FS wrapper as the implementation
+    // of file:// URIs
+    hadoopConfig.setBoolean("fs.file.impl.disable.cache", true);
+    hadoopConfig.set("fs.file.impl", TestLocalFileSystemWrapper.class.getName());
+    when(storageProperties.getTypes()).thenReturn(new HashMap<>());
+    assertDoesNotThrow(() -> localStorageClient.init(hadoopConfig));
+  }
+
+  @Test
   public void testLocalStorageClientInitialized() throws Exception {
     when(storageProperties.getTypes()).thenReturn(null);
     localStorageClient.init();
@@ -106,5 +119,11 @@ public class LocalStorageClientTest {
     assert localStorageClient
         .getNativeClient()
         .delete(new org.apache.hadoop.fs.Path(tempFile), false);
+  }
+
+  private static class TestLocalFileSystemWrapper extends FilterFileSystem {
+    public TestLocalFileSystemWrapper() {
+      super(new LocalFileSystem());
+    }
   }
 }

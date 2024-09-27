@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.cluster.storage.local;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
@@ -41,7 +42,13 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
 
   /** Initialize the LocalStorageClient when the bean is accessed for the first time. */
   @PostConstruct
-  public synchronized void init() throws URISyntaxException, IOException {
+  public void init() throws IOException {
+    init(new org.apache.hadoop.conf.Configuration());
+  }
+
+  @VisibleForTesting
+  public synchronized void init(org.apache.hadoop.conf.Configuration hadoopConfig)
+      throws IOException {
     log.info("Initializing storage client for type: " + LOCAL_TYPE);
 
     URI uri;
@@ -76,7 +83,7 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
               + LOCAL_TYPE.getValue(),
           e);
     }
-    this.fs = FileSystem.get(uri, new org.apache.hadoop.conf.Configuration());
+    this.fs = FileSystem.get(uri, hadoopConfig);
     assertLocalFileSystem(fs);
   }
 
