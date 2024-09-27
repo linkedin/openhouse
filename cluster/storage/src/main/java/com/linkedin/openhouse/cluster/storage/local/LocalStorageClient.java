@@ -87,18 +87,28 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
     assertLocalFileSystem(fs);
   }
 
+  /**
+   * Assert that the file system is a local file system, _or_ a wrapper around a local file system.
+   * This is used to prevent against misconfigurations where a remote FS may be used.
+   *
+   * <p>This allows for wrappers around {@link LocalFileSystem} to be used (specifically {@link
+   * FilterFileSystem} subclasses) in case calling environments have configured to set up custom
+   * behavior around base file system implementations. This applies to, for example, Trino, which
+   * wraps all file system implementations inside a {@code FileSystemWrapper} class. See <a
+   * href="https://github.com/trinodb/trino/blob/master/lib/trino-hdfs/src/main/java/io/trino/hdfs/TrinoFileSystemCache.java">TrinoFileSystemCache</a>
+   * for more on this example.
+   *
+   * @param fs The filesystem to check.
+   */
   private static void assertLocalFileSystem(FileSystem fs) {
-    if (!(fs instanceof FilterFileSystem)) {
-      // LocalFileSystem is a FilterFileSystem, so if it's not a FilterFileSystem, it's definitely
-      // not local
+    if (fs instanceof LocalFileSystem) {
+      // do nothing, this is the happy path
+    } else if (fs instanceof FilterFileSystem) {
+      assertLocalFileSystem(((FilterFileSystem) fs).getRawFileSystem());
+    } else {
       throw new IllegalArgumentException(
           "Instantiation failed for LocalStorageClient, fileSystem is not a LocalFileSystem");
-    } else if (!(fs instanceof LocalFileSystem)) {
-      // if it's a FilterFileSystem but not a local FS, check the raw file system to see if it
-      // _wraps_ a local FS
-      assertLocalFileSystem(((FilterFileSystem) fs).getRawFileSystem());
     }
-    // this branch is only reached if fs is a LocalFileSystem
   }
 
   @Override
