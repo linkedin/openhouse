@@ -148,7 +148,8 @@ public class RepositoryTest {
         TableProperties.DEFAULT_FILE_FORMAT, "avro"); /* make sure such key will be overwritten */
     userProps.put(TableProperties.FORMAT_VERSION, "1"); /* make sure such key will be overwritten */
     TableDto createDto =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .tableVersion(INITIAL_TABLE_VERSION)
             .tableProperties(userProps)
             .build();
@@ -179,7 +180,8 @@ public class RepositoryTest {
             TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build());
 
     TableDto changeClusteringColDto =
-        tableDto.toBuilder()
+        tableDto
+            .toBuilder()
             .clustering(Arrays.asList(ClusteringColumn.builder().columnName("name").build()))
             .tableVersion(tableDto.getTableLocation())
             .build();
@@ -204,7 +206,8 @@ public class RepositoryTest {
         unsupportedClientOperationException.getMessage());
 
     TableDto addClusteringDto =
-        tableDto.toBuilder()
+        tableDto
+            .toBuilder()
             .tableVersion(tableDto.getTableLocation())
             .clustering(
                 Streams.concat(
@@ -232,7 +235,8 @@ public class RepositoryTest {
     TableDto tableDto = openHouseInternalRepository.save(createTableDto);
 
     TableDto removeTimePartitionCol =
-        tableDto.toBuilder()
+        tableDto
+            .toBuilder()
             .timePartitioning(null)
             .tableVersion(tableDto.getTableLocation())
             .build();
@@ -246,7 +250,8 @@ public class RepositoryTest {
         unsupportedClientOperationException.getMessage());
 
     TableDto differentGranularityTimePartitionCol =
-        tableDto.toBuilder()
+        tableDto
+            .toBuilder()
             .timePartitioning(
                 TimePartitionSpec.builder()
                     .columnName("timestampCol")
@@ -307,7 +312,8 @@ public class RepositoryTest {
     offensiveMap.put("openhouse.tableVersion", "random");
     offensiveMap.put("openhouse.tableLocation", "random");
     TableDto offensiveDto =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .tableId("offensiveMap")
             .tableProperties(offensiveMap)
             .tableVersion(INITIAL_TABLE_VERSION)
@@ -351,7 +357,8 @@ public class RepositoryTest {
     Map<String, String> baseProps = new HashMap<>(returnDTO.getTableProperties());
     baseProps.put("action", "update");
     TableDto updateDto =
-        returnDTO.toBuilder()
+        returnDTO
+            .toBuilder()
             .tableVersion(returnDTO.getTableLocation())
             .tableProperties(baseProps)
             .build();
@@ -370,7 +377,8 @@ public class RepositoryTest {
   public void testMetadataConcurrentUpdate() {
     /* create the base table */
     TableDto creationDTO =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .tableVersion(INITIAL_TABLE_VERSION)
             .tableType(TableType.PRIMARY_TABLE)
             .build();
@@ -380,7 +388,8 @@ public class RepositoryTest {
     Map<String, String> baseProps = new HashMap<>(returnDTO.getTableProperties());
     baseProps.put("action", "update");
     TableDto updateDtoSuccess =
-        returnDTO.toBuilder()
+        returnDTO
+            .toBuilder()
             .tableVersion(returnDTO.getTableLocation())
             .tableProperties(baseProps)
             .build();
@@ -388,7 +397,8 @@ public class RepositoryTest {
     Map<String, String> basePropsFail = new HashMap<>(returnDTO.getTableProperties());
     basePropsFail.put("action", "fail");
     TableDto updateDtoFail =
-        returnDTO.toBuilder()
+        returnDTO
+            .toBuilder()
             .tableVersion(returnDTO.getTableLocation())
             .tableProperties(basePropsFail)
             .build();
@@ -411,7 +421,8 @@ public class RepositoryTest {
     for (TableType tableType : TableType.values()) {
       final String tblName = String.format("%s_%s", "tableWithType", tableType);
       TableDto tableTypeDTO =
-          TABLE_DTO.toBuilder()
+          TABLE_DTO
+              .toBuilder()
               .tableId(tblName)
               .tableType(tableType)
               .tableVersion(INITIAL_TABLE_VERSION)
@@ -440,7 +451,8 @@ public class RepositoryTest {
     Schema newSchema = new Schema(required(1, "name", Types.StringType.get()));
 
     TableDto createDto =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .schema(SchemaParser.toJson(oldSchema, false))
             .timePartitioning(null)
             .clustering(null)
@@ -478,7 +490,8 @@ public class RepositoryTest {
     Schema newSchema = new Schema(required(4, "nestedStructCol", nestedStructType2));
 
     TableDto createDto =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .schema(SchemaParser.toJson(oldSchema, false))
             .timePartitioning(null)
             .clustering(null)
@@ -515,7 +528,8 @@ public class RepositoryTest {
     Schema newSchema = new Schema(required(4, "nestedListCol", nestedListType2));
 
     TableDto createDto =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .schema(SchemaParser.toJson(oldSchema, false))
             .timePartitioning(null)
             .clustering(null)
@@ -566,7 +580,8 @@ public class RepositoryTest {
     Schema newSchema = new Schema(required(8, "nested2MapCol", nested2MapType2));
 
     TableDto createDto =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .schema(SchemaParser.toJson(oldSchema, false))
             .timePartitioning(null)
             .clustering(null)
@@ -601,7 +616,8 @@ public class RepositoryTest {
     existingTblMap.put("openhouse.tableUri", "replicaClusterURI");
 
     TableDto tableDto =
-        TABLE_DTO.toBuilder()
+        TABLE_DTO
+            .toBuilder()
             .tableId(tblName)
             .clusterId(replicaClusterId)
             .tableVersion(INITIAL_TABLE_VERSION)
@@ -617,7 +633,8 @@ public class RepositoryTest {
     destTblMap.put("openhouse.tableUri", "primaryClusterURI");
 
     TableDto newRequestTblDto =
-        savedTblDto.toBuilder()
+        savedTblDto
+            .toBuilder()
             .tableId(tblName)
             .clusterId(primaryClusterId)
             .tableType(TableType.PRIMARY_TABLE)

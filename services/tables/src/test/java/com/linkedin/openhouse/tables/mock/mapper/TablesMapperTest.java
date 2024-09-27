@@ -100,7 +100,8 @@ public class TablesMapperTest {
     TableDto tableDto1 =
         tablesMapper.toTableDto(
             TABLE_DTO,
-            TableModelConstants.CREATE_TABLE_REQUEST_BODY.toBuilder()
+            TableModelConstants.CREATE_TABLE_REQUEST_BODY
+                .toBuilder()
                 .policies(TABLE_POLICIES_WITH_EMPTY_PATTERN)
                 .build());
     Assertions.assertEquals(tableDto1.getDatabaseId(), CREATE_TABLE_REQUEST_BODY.getDatabaseId());
@@ -116,11 +117,14 @@ public class TablesMapperTest {
     TableDto tableDto2 =
         tablesMapper.toTableDto(
             TABLE_DTO,
-            TableModelConstants.CREATE_TABLE_REQUEST_BODY.toBuilder()
+            TableModelConstants.CREATE_TABLE_REQUEST_BODY
+                .toBuilder()
                 .policies(
-                    TABLE_POLICIES_WITH_EMPTY_PATTERN.toBuilder()
+                    TABLE_POLICIES_WITH_EMPTY_PATTERN
+                        .toBuilder()
                         .retention(
-                            RETENTION_POLICY_WITH_EMPTY_PATTERN.toBuilder()
+                            RETENTION_POLICY_WITH_EMPTY_PATTERN
+                                .toBuilder()
                                 .granularity(TimePartitionSpec.Granularity.DAY)
                                 .build())
                         .build())
@@ -141,7 +145,8 @@ public class TablesMapperTest {
         IcebergSnapshotsRequestBody.builder()
             .baseTableVersion("v1")
             .createUpdateTableRequestBody(
-                CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.toBuilder()
+                CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST
+                    .toBuilder()
                     .policies(TABLE_POLICIES_WITH_EMPTY_PATTERN)
                     .build())
             .jsonSnapshots(Collections.singletonList("dummy"))

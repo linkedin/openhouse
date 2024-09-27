@@ -11,14 +11,10 @@ import com.linkedin.openhouse.cluster.configs.ClusterProperties;
  */
 public interface StorageProvider<T> {
 
-  /**
-   * @return recognizable name of this storage object.
-   */
+  /** @return recognizable name of this storage object. */
   String name();
 
-  /**
-   * @return The storage cluster's base URI.
-   */
+  /** @return The storage cluster's base URI. */
   String baseUri();
 
   /**

@@ -47,7 +47,8 @@ public class IcebergSnapshotsApiValidatorTest {
                 VALID_METADATA_BODY.getTableId(),
                 IcebergSnapshotsRequestBody.builder()
                     .createUpdateTableRequestBody(
-                        VALID_METADATA_BODY.toBuilder()
+                        VALID_METADATA_BODY
+                            .toBuilder()
                             .baseTableVersion(INITIAL_TABLE_VERSION)
                             .build())
                     .baseTableVersion(INITIAL_TABLE_VERSION)

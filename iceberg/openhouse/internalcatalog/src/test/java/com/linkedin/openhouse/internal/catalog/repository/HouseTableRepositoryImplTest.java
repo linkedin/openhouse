@@ -13,11 +13,15 @@ import com.linkedin.openhouse.housetables.client.model.UserTable;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
-import com.linkedin.openhouse.internal.catalog.repository.exception.*;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnkownException;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import okhttp3.mockwebserver.MockResponse;
@@ -280,7 +284,6 @@ public class HouseTableRepositoryImplTest {
     tables.add(houseTableMapper.toUserTable(HOUSE_TABLE));
     tables.add(houseTableMapper.toUserTable(HOUSE_TABLE_SAME_DB));
     GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
-
     /**
      * Need to use the reflection trick to help initializing the object with generated class {@link
      * GetAllUserTablesResponseBody}, which somehow doesn't provided proper setter in the generated
@@ -386,13 +389,11 @@ public class HouseTableRepositoryImplTest {
     Assertions.assertThrows(
         HouseTableConcurrentUpdateException.class, () -> htsRepo.findById(testKey));
     int actualRetryCount = retryListener.getRetryCount();
-
     Assertions.assertEquals(actualRetryCount, HtsRetryUtils.MAX_RETRY_ATTEMPT);
   }
 
   @Test
   public void testNoRetryForStateUnkown() {
-
     for (int i : Arrays.asList(500, 501, 502, 503, 504)) {
       mockHtsServer.enqueue(
           new MockResponse()
@@ -401,7 +402,7 @@ public class HouseTableRepositoryImplTest {
               .addHeader("Content-Type", "application/json"));
       CustomRetryListener retryListener = new CustomRetryListener();
       ((HouseTableRepositoryImpl) htsRepo)
-          .getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+          .getHtsRetryTemplate(Collections.singletonList(IllegalStateException.class))
           .registerListener(retryListener);
       Assertions.assertThrows(
           HouseTableRepositoryStateUnkownException.class, () -> htsRepo.save(HOUSE_TABLE));

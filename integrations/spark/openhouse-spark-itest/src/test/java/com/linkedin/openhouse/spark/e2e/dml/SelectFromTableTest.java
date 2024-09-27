@@ -80,9 +80,7 @@ public class SelectFromTableTest {
     mockTableService.enqueue(mockResponse);
 
     List<String> returnedRowsQuery1 =
-        spark
-            .sql("SELECT * FROM openhouse.dbSelect.tbl.snapshot_id_" + snapshotId)
-            .collectAsList()
+        spark.sql("SELECT * FROM openhouse.dbSelect.tbl.snapshot_id_" + snapshotId).collectAsList()
             .stream()
             .map(row -> row.mkString("."))
             .collect(Collectors.toList());
@@ -98,10 +96,8 @@ public class SelectFromTableTest {
     mockTableService.enqueue(mockResponse);
 
     List<String> returnedRowsQuery2 =
-        spark
-            .sql("SELECT * FROM openhouse.dbSelect.tbl.at_timestamp_" + committedAt.getTime())
-            .collectAsList()
-            .stream()
+        spark.sql("SELECT * FROM openhouse.dbSelect.tbl.at_timestamp_" + committedAt.getTime())
+            .collectAsList().stream()
             .map(row -> row.mkString("."))
             .collect(Collectors.toList());
     Assertions.assertTrue(returnedRowsQuery2.containsAll(ImmutableList.of("1.a", "2.b")));

@@ -399,18 +399,15 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
               + String.join(".", tableIdentifier.namespace().levels()));
     }
     List<AclPolicyDto> aclPolicies =
-        tableApi
-            .getAclPoliciesV1(tableIdentifier.namespace().toString(), tableIdentifier.name())
+        tableApi.getAclPoliciesV1(tableIdentifier.namespace().toString(), tableIdentifier.name())
             .onErrorResume(
                 WebClientResponseException.class,
                 e -> Mono.error(new WebClientResponseWithMessageException(e)))
             .onErrorResume(
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
-            .blockOptional()
-            .map(GetAclPoliciesResponseBody::getResults)
-            .orElse(Collections.emptyList())
-            .stream()
+            .blockOptional().map(GetAclPoliciesResponseBody::getResults)
+            .orElse(Collections.emptyList()).stream()
             .map(SparkMapper::toAclPolicyDto)
             .collect(Collectors.toList());
 
@@ -460,18 +457,15 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
           "Input namespace has more than one levels " + String.join(".", namespace.levels()));
     }
     List<AclPolicyDto> aclPolicies =
-        databaseApi
-            .getDatabaseAclPoliciesV1(namespace.toString())
+        databaseApi.getDatabaseAclPoliciesV1(namespace.toString())
             .onErrorResume(
                 WebClientResponseException.class,
                 e -> Mono.error(new WebClientResponseWithMessageException(e)))
             .onErrorResume(
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
-            .blockOptional()
-            .map(GetAclPoliciesResponseBody::getResults)
-            .orElse(Collections.emptyList())
-            .stream()
+            .blockOptional().map(GetAclPoliciesResponseBody::getResults)
+            .orElse(Collections.emptyList()).stream()
             .map(SparkMapper::toAclPolicyDto)
             .collect(Collectors.toList());
 

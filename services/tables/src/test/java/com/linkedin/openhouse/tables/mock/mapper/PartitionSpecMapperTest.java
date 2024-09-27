@@ -139,7 +139,8 @@ public class PartitionSpecMapperTest {
             .collect(Collectors.toList());
     TableDto tableDto =
         TableModelConstants.buildTableDto(
-            GET_TABLE_RESPONSE_BODY.toBuilder()
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
                 .clustering(
                     tmpClustering.stream()
                         .map(x -> ClusteringColumn.builder().columnName(x).build())
@@ -155,7 +156,8 @@ public class PartitionSpecMapperTest {
   public void testToPartitionSpecClusteringColNotInSchema() {
     TableDto tableDto =
         TableModelConstants.buildTableDto(
-            GET_TABLE_RESPONSE_BODY.toBuilder()
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
                 .clustering(
                     Arrays.asList(ClusteringColumn.builder().columnName("notInSchema").build()))
                 .build());
@@ -169,7 +171,8 @@ public class PartitionSpecMapperTest {
   public void testToPartitionSpecClusteringColNotAllowedType() {
     TableDto tableDto =
         TableModelConstants.buildTableDto(
-            GET_TABLE_RESPONSE_BODY.toBuilder()
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
                 .clustering(Arrays.asList(ClusteringColumn.builder().columnName("stats").build()))
                 .build());
     Assertions.assertThrows(
@@ -182,7 +185,8 @@ public class PartitionSpecMapperTest {
   public void testToPartitionSpecClusteringOnly() {
     TableDto tableDto =
         TableModelConstants.buildTableDto(
-            GET_TABLE_RESPONSE_BODY.toBuilder()
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
                 .clustering(
                     clusteringColumns.stream()
                         .map(x -> ClusteringColumn.builder().columnName(x).build())
@@ -223,7 +227,8 @@ public class PartitionSpecMapperTest {
     for (TimePartitionSpec.Granularity granularity : ImmutableList.of(DAY, MONTH, YEAR, HOUR)) {
       TableDto tableDto =
           TableModelConstants.buildTableDto(
-              GET_TABLE_RESPONSE_BODY.toBuilder()
+              GET_TABLE_RESPONSE_BODY
+                  .toBuilder()
                   .timePartitioning(
                       TimePartitionSpec.builder()
                           .columnName(timePartitioningColumn)
@@ -271,7 +276,8 @@ public class PartitionSpecMapperTest {
     PartitionSpec partitionSpec =
         tablesMapper.toPartitionSpec(
             TableModelConstants.buildTableDto(
-                GET_TABLE_RESPONSE_BODY.toBuilder()
+                GET_TABLE_RESPONSE_BODY
+                    .toBuilder()
                     .timePartitioning(null)
                     .clustering(null)
                     .build()));
@@ -283,7 +289,8 @@ public class PartitionSpecMapperTest {
   public void testToPartitionSpecTransform() {
     TableDto tableDto =
         TableModelConstants.buildTableDto(
-            GET_TABLE_RESPONSE_BODY.toBuilder()
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
                 .clustering(
                     clusteringColumns.stream()
                         .map(
