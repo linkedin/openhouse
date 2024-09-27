@@ -140,9 +140,9 @@ public final class ValidationUtilities {
       String value = entry.getValue();
 
       // Skip the two keys to be excluded
-      if (key.equals("openhouse.lastModifiedTime")
-          || key.equals("openhouse.tableLocation")
-          || key.equals("openhouse.tableVersion")) {
+      if ("openhouse.lastModifiedTime".equals(key)
+          || "openhouse.tableLocation".equals(key)
+          || "openhouse.tableVersion".equals(key)) {
         continue;
       }
 

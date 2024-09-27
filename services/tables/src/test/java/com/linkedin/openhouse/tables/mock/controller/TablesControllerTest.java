@@ -2,7 +2,10 @@ package com.linkedin.openhouse.tables.mock.controller;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
-import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.*;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.EXCLUDE_FIELDS;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_CREATE_TABLE_SUCCESS;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_RUNTIME_EXCEPTION;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
 import static org.junit.jupiter.api.Assertions.*;
@@ -234,7 +237,7 @@ public class TablesControllerTest {
    */
   @Test
   public void testNullableSerialize() {
-    Map<String, String> valueNullMap = new HashMap();
+    Map<String, String> valueNullMap = new HashMap<>();
     valueNullMap.put("key", null);
 
     CreateUpdateTableRequestBody createUpdateTableRequestBody =

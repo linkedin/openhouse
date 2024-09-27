@@ -4,7 +4,7 @@ import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 
-public class TableAuditModelConstants {
+public final class TableAuditModelConstants {
   private static final String CLUSTER_NAME = "local-cluster";
   private static final String USER = "testUser";
   private static final String MOCK_USER = "DUMMY_ANONYMOUS_USER";
@@ -243,4 +243,6 @@ public class TableAuditModelConstants {
           .grantee(MOCK_USER)
           .role("AclEditor")
           .build();
+
+  private TableAuditModelConstants() {}
 }

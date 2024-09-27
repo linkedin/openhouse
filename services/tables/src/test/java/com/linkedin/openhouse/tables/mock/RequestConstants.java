@@ -13,7 +13,7 @@ import java.util.Collections;
 import java.util.Random;
 import java.util.UUID;
 
-public class RequestConstants {
+public final class RequestConstants {
   public static final GetTableResponseBody TEST_GET_TABLE_RESPONSE_BODY =
       GetTableResponseBody.builder()
           .databaseId("db1")

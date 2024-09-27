@@ -95,6 +95,7 @@ public class CreateUpdateTableRequestBody {
       defaultValue = "false",
       description = "Boolean that determines creating a staged table",
       example = "false")
+  @Builder.Default
   private boolean stageCreate = false;
 
   @Schema(description = "The version of table that the current update is based upon")
@@ -103,6 +104,7 @@ public class CreateUpdateTableRequestBody {
 
   @Schema(description = "The type of a table")
   @Valid
+  @Builder.Default
   private TableType tableType = TableType.PRIMARY_TABLE;
 
   public String toJson() {

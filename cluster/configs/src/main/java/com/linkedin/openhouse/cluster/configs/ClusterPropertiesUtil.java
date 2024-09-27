@@ -6,7 +6,7 @@ import java.util.Optional;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-public class ClusterPropertiesUtil {
+public final class ClusterPropertiesUtil {
   public static Optional<HandlerInterceptor> getClusterSecurityTokenInterceptor(
       ClusterProperties clusterProperties) {
     Optional<Constructor<?>> optionalCons = Optional.empty();

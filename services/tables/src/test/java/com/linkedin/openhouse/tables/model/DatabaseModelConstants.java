@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.model;
 
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 
-public class DatabaseModelConstants {
+public final class DatabaseModelConstants {
   private static final String CLUSTER_NAME = "local-cluster";
 
   public static final GetDatabaseResponseBody GET_DATABASE_RESPONSE_BODY =
@@ -20,4 +20,6 @@ public class DatabaseModelConstants {
         .clusterId(getDatabaseResponseBody.getClusterId())
         .build();
   }
+
+  private DatabaseModelConstants() {}
 }

@@ -49,6 +49,8 @@ import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 
 public final class MockHelpers {
 
+  private MockHelpers() {}
+
   private static final ObjectMapper MAPPER =
       ApiClient.createDefaultObjectMapper(ApiClient.createDefaultDateFormat());
 
