@@ -1,10 +1,6 @@
 package com.linkedin.openhouse.jobs.util;
 
-import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
-import java.util.ArrayList;
-import java.util.List;
 import javax.annotation.Nullable;
-import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
@@ -23,7 +19,6 @@ public class TableMetadata extends Metadata {
   protected boolean isTimePartitioned;
   protected boolean isClustered;
   protected @Nullable RetentionConfig retentionConfig;
-  @Builder.Default protected List<DataLayoutStrategy> dataLayoutStrategies = new ArrayList<>();
 
   public String fqtn() {
     return String.format("%s.%s", dbName, tableName);

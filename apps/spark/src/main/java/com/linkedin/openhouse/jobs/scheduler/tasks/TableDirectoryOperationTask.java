@@ -23,4 +23,9 @@ public abstract class TableDirectoryOperationTask extends OperationTask<Director
     jobId = jobsClient.launch(jobName, getType(), metadata.getCreator(), getArgs()).orElse(null);
     return jobId != null;
   }
+
+  @Override
+  protected boolean shouldRun() {
+    return true;
+  }
 }

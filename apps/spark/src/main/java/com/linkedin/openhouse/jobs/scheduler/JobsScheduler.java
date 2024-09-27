@@ -132,11 +132,11 @@ public class JobsScheduler {
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
 
     log.info("Fetching task list based on the job type: {}", jobType);
-    List<OperationTask> taskList =
+    List<OperationTask<?>> taskList =
         new OperationTasksBuilder(taskFactory, tablesClient).buildOperationTaskList(jobType);
     if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
       log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
-      for (OperationTask operationTask : taskList) {
+      for (OperationTask<?> operationTask : taskList) {
         log.info("Task {}", operationTask);
       }
       return;

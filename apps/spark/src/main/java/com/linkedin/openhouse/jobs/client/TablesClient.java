@@ -6,6 +6,7 @@ import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
+import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
@@ -128,6 +129,38 @@ public class TablesClient {
     return tableMetadataList;
   }
 
+  public List<TableDataLayoutMetadata> getTableDataLayoutMetadataList() {
+    List<TableDataLayoutMetadata> tableDataLayoutMetadataList = new ArrayList<>();
+    for (String dbName : getDatabases()) {
+      if (databaseFilter.applyDatabaseName(dbName)) {
+        tableDataLayoutMetadataList.addAll(
+            RetryUtil.executeWithRetry(
+                retryTemplate,
+                (RetryCallback<List<TableDataLayoutMetadata>, Exception>)
+                    context -> {
+                      GetAllTablesResponseBody response =
+                          tableApi
+                              .searchTablesV1(dbName)
+                              .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+                      if (response == null) {
+                        return Collections.emptyList();
+                      }
+                      return Optional.ofNullable(response.getResults())
+                          .map(Collection::stream)
+                          .orElseGet(Stream::empty)
+                          .flatMap(
+                              shallowResponseBody ->
+                                  mapTableResponseToTableDataLayoutMetadataList(shallowResponseBody)
+                                      .stream()
+                                      .filter(databaseFilter::apply))
+                          .collect(Collectors.toList());
+                    },
+                Collections.emptyList()));
+      }
+    }
+    return tableDataLayoutMetadataList;
+  }
+
   /**
    * For the given database name, get all registered tables
    *
@@ -238,12 +271,45 @@ public class TablesClient {
                     == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
-            .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
-            .dataLayoutStrategies(getDataLayoutStrategies(tableResponseBody));
+            .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
     if (tableResponseBody.getCreationTime() != null) {
       builder.creationTimeMs(tableResponseBody.getCreationTime());
     }
     return Optional.of(builder.build());
+  }
+
+  protected List<TableDataLayoutMetadata> mapTableResponseToTableDataLayoutMetadataList(
+      GetTableResponseBody shallowResponseBody) {
+    GetTableResponseBody tableResponseBody =
+        getTable(shallowResponseBody.getDatabaseId(), shallowResponseBody.getTableId());
+
+    if (tableResponseBody == null) {
+      log.error(
+          "Error while fetching metadata for table: {}.{}",
+          shallowResponseBody.getDatabaseId(),
+          shallowResponseBody.getTableCreator());
+      return Collections.emptyList();
+    }
+
+    TableDataLayoutMetadata.TableDataLayoutMetadataBuilder<?, ?> builder =
+        TableDataLayoutMetadata.builder()
+            .creator(tableResponseBody.getTableCreator())
+            .dbName(tableResponseBody.getDatabaseId())
+            .tableName(tableResponseBody.getTableId())
+            .isPrimary(
+                tableResponseBody.getTableType()
+                    == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
+            .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
+            .isClustered(tableResponseBody.getClustering() != null)
+            .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
+    if (tableResponseBody.getCreationTime() != null) {
+      builder.creationTimeMs(tableResponseBody.getCreationTime());
+    }
+    List<TableDataLayoutMetadata> result = new ArrayList<>();
+    for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody)) {
+      result.add(builder.dataLayoutStrategy(strategy).build());
+    }
+    return result;
   }
 
   private List<DataLayoutStrategy> getDataLayoutStrategies(GetTableResponseBody tableResponseBody) {

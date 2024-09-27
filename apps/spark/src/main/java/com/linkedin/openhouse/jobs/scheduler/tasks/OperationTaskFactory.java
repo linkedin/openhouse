@@ -10,7 +10,7 @@ import lombok.AllArgsConstructor;
 
 /** Factory class for creating tasks of the given type per table. */
 @AllArgsConstructor
-public class OperationTaskFactory<T extends OperationTask> {
+public class OperationTaskFactory<T extends OperationTask<?>> {
   private Class<T> cls;
   private JobsClientFactory jobsClientFactory;
   private TablesClientFactory tablesClientFactory;
