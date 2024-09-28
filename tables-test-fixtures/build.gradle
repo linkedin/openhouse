@@ -40,8 +40,6 @@ dependencies {
     exclude group: "io.netty"
   }
   testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
-
-
 }
 
 shadowJar {
@@ -53,7 +51,7 @@ shadowJar {
   append 'META-INF/spring.schemas'
   append 'META-INF/spring.tooling'
   transform(PropertiesFileTransformer) {
-    paths = ['META-INF/spring.factories' ]
+    paths = ['META-INF/spring.factories']
     mergeStrategy = "append"
   }
 
@@ -66,16 +64,16 @@ shadowJar {
     exclude(dependency('com.fasterxml.jackson.module::'))
     exclude(dependency('com.fasterxml.jackson.core::'))
     exclude(dependency('org.apache.hadoop::'))
-    relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
-    relocate ('com.jayway.jsonpath', 'openhouse.relocated.com.jayway.jsonpath')
-    relocate ('org.json', 'openhouse.relocated.org.json')
-    relocate ('com.google', 'openhouse.relocated.com.google') {
-      // dynamically loaded classes
-      // e.g. java.lang.NoClassDefFoundError: openhouse/relocated/com/google/protobuf/GeneratedMessageV3
-      // when users use fixtures library in their tests
+    // Exclude Spark dependencies
+    exclude(dependency('org.apache.spark::'))
+
+    relocate('com', 'openhouse.relocated.com') {
+      exclude 'com.linkedin.openhouse.**'
       exclude 'com.google.protobuf.**'
       exclude 'com.google.gson.**'
     }
+
+    relocate('org', 'openhouse.relocated.org') {}
   }
 }
 
