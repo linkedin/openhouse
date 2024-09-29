@@ -51,19 +51,19 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
 
   // inner class to validate jobConf fields.
   private static class JobConfValidator {
-    private static boolean validateExecutionConfig(Map<String, String> conf) {
-      String memory = conf.getOrDefault(JOB_MEMORY_CONFIG, "");
-      return memory.matches(SPARK_MEMORY_REGEX_ALLOW);
+    private static boolean validateSparkKeys(Map<String, String> conf) {
+      for (Map.Entry<String, String> entry : conf.entrySet()) {
+        if (!entry.getKey().startsWith("spark.")) {
+          return false;
+        }
+      }
+      return true;
     }
 
     private static void validate(@NonNull JobConf conf, List<String> validationFailures) {
       final Map<String, String> executionConfig = conf.getExecutionConf();
-      if (MapUtils.isNotEmpty(executionConfig)
-          && !JobConfValidator.validateExecutionConfig(executionConfig)) {
-        validationFailures.add(
-            String.format(
-                "jobConf.executionConf.memory : provided %s, %s",
-                executionConfig.get(JOB_MEMORY_CONFIG), SPARK_MEMORY_ERROR_MSG_ALLOW));
+      if (MapUtils.isNotEmpty(executionConfig) && !validateSparkKeys(executionConfig)) {
+        validationFailures.add("jobConf.executionConf should contain keys starting with 'spark.'");
       }
     }
   }

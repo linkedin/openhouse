@@ -3,6 +3,9 @@ package com.linkedin.openhouse.jobs.scheduler.tasks;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import java.util.AbstractMap;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -13,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public abstract class TableOperationTask extends OperationTask<TableMetadata> {
+  private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
 
   protected TableOperationTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
@@ -21,8 +25,23 @@ public abstract class TableOperationTask extends OperationTask<TableMetadata> {
 
   protected boolean launchJob() {
     String jobName =
-        String.format("%s_%s_%s", getType(), metadata.getDbName(), metadata.getTableName());
-    jobId = jobsClient.launch(jobName, getType(), metadata.getCreator(), getArgs()).orElse(null);
+        String.format(
+            "%s_%s_%s", getType(), getMetadata().getDbName(), getMetadata().getTableName());
+    jobId =
+        jobsClient
+            .launch(
+                jobName, getType(), getMetadata().getCreator(), getExecutionProperties(), getArgs())
+            .orElse(null);
     return jobId != null;
+  }
+
+  protected Map<String, String> getExecutionProperties() {
+    return tablesClient.getTableProperties(getMetadata()).entrySet().stream()
+        .filter(e -> e.getKey().startsWith(MAINTENANCE_PROPERTY_PREFIX))
+        .map(
+            e ->
+                new AbstractMap.SimpleEntry<>(
+                    e.getKey().substring(MAINTENANCE_PROPERTY_PREFIX.length()), e.getValue()))
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 }

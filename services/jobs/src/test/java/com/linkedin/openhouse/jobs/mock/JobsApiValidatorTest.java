@@ -31,9 +31,9 @@ class JobsApiValidatorTest {
         .build();
   }
 
-  private CreateJobRequestBody makeJobRequestBodyFromJobNameJobConf(String jobName, String memory) {
+  private CreateJobRequestBody makeJobRequestBodyFromJobNameJobConf(String jobName, String prefix) {
     Map<String, String> executionConf = new HashMap<>();
-    executionConf.put("memory", memory);
+    executionConf.put(prefix + "driver.memory", "10G");
     return CreateJobRequestBody.builder()
         .jobName(jobName)
         .clusterId("clusterId")
@@ -61,59 +61,15 @@ class JobsApiValidatorTest {
   }
 
   @Test
-  public void testValidMemoryFormatInJobRequestBody() {
-    assertDoesNotThrow(
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "4G")));
-
-    assertDoesNotThrow(
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "10G")));
-
-    assertDoesNotThrow(
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "256M")));
-  }
-
-  @Test
-  public void testInValidMemoryFormatInJobRequestBody() {
+  public void testValidExecutionConfInJobRequestBody() {
     assertThrows(
         RequestValidationFailureException.class,
         () ->
             jobsApiValidator.validateCreateJob(
                 makeJobRequestBodyFromJobNameJobConf("job-name", "")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
+    assertDoesNotThrow(
         () ->
             jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "10MG")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "-10G")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "10P")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "0G")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "G")));
+                makeJobRequestBodyFromJobNameJobConf("job-name", "spark.")));
   }
 }

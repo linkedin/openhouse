@@ -30,13 +30,14 @@ public class JobsRegistryTest {
   void testShouldCreateLaunchConf() {
     Map<String, String> propertyMap = fsStorageProvider.storageProperties();
     propertyMap.put("fs.defaultFS", "default");
-    JobsRegistry jr = JobsRegistry.from(properties, propertyMap);
+    JobsRegistry jobsRegistry = JobsRegistry.from(properties, propertyMap);
     Mockito.when(jobConf.getJobType()).thenReturn(JobConf.JobType.RETENTION);
     Mockito.when(jobConf.getArgs()).thenReturn(new ArrayList<>());
     Map<String, String> executionConf = new HashMap<>();
-    executionConf.put("memory", "5G");
+    executionConf.put("spark.driver.memory", "5G");
+    executionConf.put("spark.driver.maxResultSize", "0");
     Mockito.when(jobConf.getExecutionConf()).thenReturn(executionConf);
-    JobLaunchConf launchConf = jr.createLaunchConf("jobId", jobConf);
+    JobLaunchConf launchConf = jobsRegistry.createLaunchConf("jobId", jobConf);
     Assertions.assertEquals(launchConf.getJarPath(), "default-jar-path");
     Assertions.assertTrue(launchConf.getExecutionTags().keySet().contains("pool"));
     Assertions.assertFalse(launchConf.getArgs().contains("--trashDir"));
@@ -47,9 +48,33 @@ public class JobsRegistryTest {
             .contains("spark.sql.catalog.openhouse.auth-token"));
     Assertions.assertTrue(launchConf.getSparkProperties().keySet().contains("spark.driver.memory"));
     Assertions.assertTrue(
-        launchConf.getSparkProperties().keySet().contains("spark.executor.memory"));
+        launchConf.getSparkProperties().keySet().contains("spark.driver.maxResultSize"));
     Assertions.assertTrue(launchConf.getSparkProperties().containsKey("fs.defaultFS"));
     Assertions.assertEquals(launchConf.getArgs().size(), 4);
+  }
+
+  @Test
+  void testDefaultLaunchConfUnmodified() {
+    Map<String, String> propertyMap = fsStorageProvider.storageProperties();
+    propertyMap.put("fs.defaultFS", "default");
+    JobsRegistry jobsRegistry = JobsRegistry.from(properties, propertyMap);
+    Mockito.when(jobConf.getJobType()).thenReturn(JobConf.JobType.RETENTION);
+    Mockito.when(jobConf.getArgs()).thenReturn(new ArrayList<>());
+    Map<String, String> executionConf = new HashMap<>();
+    executionConf.put("spark.driver.memory", "5G");
+    executionConf.put("spark.driver.maxResultSize", "0");
+    Mockito.when(jobConf.getExecutionConf()).thenReturn(executionConf);
+    JobLaunchConf launchConf = jobsRegistry.createLaunchConf("jobId", jobConf);
+    Assertions.assertTrue(launchConf.getSparkProperties().keySet().contains("spark.driver.memory"));
+    Assertions.assertTrue(
+        launchConf.getSparkProperties().keySet().contains("spark.driver.maxResultSize"));
+    Map<String, String> emptyExecutionConf = new HashMap<>();
+    Mockito.when(jobConf.getExecutionConf()).thenReturn(emptyExecutionConf);
+    launchConf = jobsRegistry.createLaunchConf("jobId", jobConf);
+    Assertions.assertFalse(
+        launchConf.getSparkProperties().keySet().contains("spark.driver.memory"));
+    Assertions.assertFalse(
+        launchConf.getSparkProperties().keySet().contains("spark.driver.maxResultSize"));
   }
 
   @Test
