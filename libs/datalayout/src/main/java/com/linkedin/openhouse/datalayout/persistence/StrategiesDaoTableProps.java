@@ -24,9 +24,7 @@ public class StrategiesDaoTableProps implements StrategiesDao {
 
   @Override
   public void save(String fqtn, List<DataLayoutStrategy> strategies) {
-    Gson gson = new GsonBuilder().create();
-    Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
-    String propValue = StringEscapeUtils.escapeJava(gson.toJson(strategies, type));
+    String propValue = serialize(strategies);
     log.info("Saving strategies {} for table {}", propValue, fqtn);
     spark.sql(
         String.format(
@@ -36,8 +34,6 @@ public class StrategiesDaoTableProps implements StrategiesDao {
 
   @Override
   public List<DataLayoutStrategy> load(String fqtn) {
-    Gson gson = new GsonBuilder().create();
-    Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
     String propValue =
         spark
             .sql(
@@ -46,6 +42,18 @@ public class StrategiesDaoTableProps implements StrategiesDao {
             .collectAsList()
             .get(0)
             .getString(1);
-    return gson.fromJson(StringEscapeUtils.unescapeJava(propValue), type);
+    return deserialize(propValue);
+  }
+
+  public static String serialize(List<DataLayoutStrategy> strategies) {
+    Gson gson = new GsonBuilder().create();
+    Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
+    return StringEscapeUtils.escapeJava(gson.toJson(strategies, type));
+  }
+
+  public static List<DataLayoutStrategy> deserialize(String data) {
+    Gson gson = new GsonBuilder().create();
+    Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
+    return gson.fromJson(StringEscapeUtils.unescapeJava(data), type);
   }
 }

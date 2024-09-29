@@ -21,10 +21,8 @@ public abstract class TableOperationTask extends OperationTask<TableMetadata> {
 
   protected boolean launchJob() {
     String jobName =
-        String.format(
-            "%s_%s_%s", getType(), getMetadata().getDbName(), getMetadata().getTableName());
-    jobId =
-        jobsClient.launch(jobName, getType(), getMetadata().getCreator(), getArgs()).orElse(null);
+        String.format("%s_%s_%s", getType(), metadata.getDbName(), metadata.getTableName());
+    jobId = jobsClient.launch(jobName, getType(), metadata.getCreator(), getArgs()).orElse(null);
     return jobId != null;
   }
 }

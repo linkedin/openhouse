@@ -24,11 +24,11 @@ public class TableStagedFilesDeletionTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
-    return Arrays.asList("--tableName", getMetadata().fqtn());
+    return Arrays.asList("--tableName", metadata.fqtn());
   }
 
   @Override
   protected boolean shouldRun() {
-    return tablesClient.canRunStagedDataDeletion(getMetadata());
+    return true;
   }
 }
