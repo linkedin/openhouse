@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.cluster.storage.local;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
@@ -10,6 +11,7 @@ import java.net.URISyntaxException;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FilterFileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -40,7 +42,13 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
 
   /** Initialize the LocalStorageClient when the bean is accessed for the first time. */
   @PostConstruct
-  public synchronized void init() throws URISyntaxException, IOException {
+  public void init() throws IOException {
+    init(new org.apache.hadoop.conf.Configuration());
+  }
+
+  @VisibleForTesting
+  public synchronized void init(org.apache.hadoop.conf.Configuration hadoopConfig)
+      throws IOException {
     log.info("Initializing storage client for type: " + LOCAL_TYPE);
 
     URI uri;
@@ -75,10 +83,32 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
               + LOCAL_TYPE.getValue(),
           e);
     }
-    this.fs = FileSystem.get(uri, new org.apache.hadoop.conf.Configuration());
-    Preconditions.checkArgument(
-        fs instanceof LocalFileSystem,
-        "Instantiation failed for LocalStorageClient, fileSystem is not a LocalFileSystem");
+    this.fs = FileSystem.get(uri, hadoopConfig);
+    assertLocalFileSystem(fs);
+  }
+
+  /**
+   * Assert that the file system is a local file system, _or_ a wrapper around a local file system.
+   * This is used to prevent against misconfigurations where a remote FS may be used.
+   *
+   * <p>This allows for wrappers around {@link LocalFileSystem} to be used (specifically {@link
+   * FilterFileSystem} subclasses) in case calling environments have configured to set up custom
+   * behavior around base file system implementations. This applies to, for example, Trino, which
+   * wraps all file system implementations inside a {@code FileSystemWrapper} class. See <a
+   * href="https://github.com/trinodb/trino/blob/master/lib/trino-hdfs/src/main/java/io/trino/hdfs/TrinoFileSystemCache.java">TrinoFileSystemCache</a>
+   * for more on this example.
+   *
+   * @param fs The filesystem to check.
+   */
+  private static void assertLocalFileSystem(FileSystem fs) {
+    if (fs instanceof LocalFileSystem) {
+      // do nothing, this is the happy path
+    } else if (fs instanceof FilterFileSystem) {
+      assertLocalFileSystem(((FilterFileSystem) fs).getRawFileSystem());
+    } else {
+      throw new IllegalArgumentException(
+          "Instantiation failed for LocalStorageClient, fileSystem is not a LocalFileSystem");
+    }
   }
 
   @Override
