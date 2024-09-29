@@ -6,7 +6,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 
-public class TestHtsApiConstants {
+public final class TestHtsApiConstants {
   private TestHtsApiConstants() {
     // Do nothing in utilities class's constructor
   }

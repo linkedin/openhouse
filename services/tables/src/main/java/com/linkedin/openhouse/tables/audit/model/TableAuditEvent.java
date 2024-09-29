@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 /** Data Model for auditing each table operation. */
 @Builder(toBuilder = true)
 @Getter
-@EqualsAndHashCode
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class TableAuditEvent extends BaseAuditEvent {

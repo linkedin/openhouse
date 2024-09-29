@@ -34,7 +34,9 @@ import org.springframework.test.web.servlet.result.MockMvcResultHandlers;
  * fashion, meaning that validation taking previous responseBody and use it towards subsequent
  * request is a common pattern.
  */
-public class RequestAndValidateHelper {
+public final class RequestAndValidateHelper {
+
+  private RequestAndValidateHelper() {}
 
   static String getCurrentTableLocation(MockMvc mvc, String databaseId, String tableId)
       throws Exception {

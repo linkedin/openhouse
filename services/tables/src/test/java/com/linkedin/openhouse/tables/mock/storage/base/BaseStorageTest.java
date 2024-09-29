@@ -49,17 +49,17 @@ public class BaseStorageTest {
     baseStorage.setHdfsStorageClient(hdfsStorageClient);
   }
 
-  private static final String databaseId = "db1";
-  private static final String tableId = "table1";
-  private static final String tableUUID = "uuid1";
-  private static final String tableCreator = "creator1";
+  private static final String DATABASE_ID = "db1";
+  private static final String TABLE_ID = "table1";
+  private static final String TABLE_UUID = "uuid1";
+  private static final String TABLE_CREATOR = "creator1";
 
   @Test
   public void testAllocateTableLocationPattern1() {
     mockStorageProperties("hdfs://localhost:9000", "/data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
   }
 
   @Test
@@ -67,7 +67,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "/data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
   }
 
   @Test
@@ -75,7 +75,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
   }
 
   @Test
@@ -83,7 +83,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "data");
     assertEquals(
         "hdfs://localhost:9000/data/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
   }
 
   @Test
@@ -91,7 +91,7 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs:///", "data/openhouse");
     assertEquals(
         "hdfs:///data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
   }
 
   void mockStorageProperties(String endpoint, String rootPrefix) {

@@ -23,7 +23,8 @@ public class TableRetentionTaskTest {
   void setup() {
     tablesClient = Mockito.mock(TablesClient.class);
     jobsClient = Mockito.mock(JobsClient.class);
-    tableMetadata = TableMetadata.builder().tableName("table").dbName("db").build();
+    tableMetadata = Mockito.mock(TableMetadata.class);
+    Mockito.when(tableMetadata.fqtn()).thenReturn("db.table");
   }
 
   @Test

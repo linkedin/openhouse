@@ -2,11 +2,12 @@ package com.linkedin.openhouse.tables.mock.controller;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
-import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.*;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.EXCLUDE_FIELDS;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_CREATE_TABLE_SUCCESS;
+import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_RUNTIME_EXCEPTION;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -234,7 +235,7 @@ public class TablesControllerTest {
    */
   @Test
   public void testNullableSerialize() {
-    Map<String, String> valueNullMap = new HashMap();
+    Map<String, String> valueNullMap = new HashMap<>();
     valueNullMap.put("key", null);
 
     CreateUpdateTableRequestBody createUpdateTableRequestBody =
@@ -327,9 +328,9 @@ public class TablesControllerTest {
             .content(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY.toJson())
             .accept(MediaType.APPLICATION_JSON)
             .header("Authorization", "Bearer " + jwtAccessToken));
-    Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
-    assertTrue(
+    Assertions.assertTrue(
         new ReflectionEquals(SERVICE_AUDIT_EVENT_CREATE_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
@@ -343,9 +344,9 @@ public class TablesControllerTest {
             .content(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY.toJson())
             .accept(MediaType.APPLICATION_JSON)
             .header("Authorization", "Bearer " + jwtAccessToken));
-    Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
-    assertTrue(
+    Assertions.assertTrue(
         new ReflectionEquals(SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
@@ -357,9 +358,9 @@ public class TablesControllerTest {
                 String.format(CURRENT_MAJOR_VERSION_PREFIX + "/databases/dnullpointer/tables/t1"))
             .accept(MediaType.APPLICATION_JSON)
             .header("Authorization", "Bearer " + jwtAccessToken));
-    Mockito.verify(serviceAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
     ServiceAuditEvent actualEvent = argCaptor.getValue();
-    assertTrue(
+    Assertions.assertTrue(
         new ReflectionEquals(SERVICE_AUDIT_EVENT_RUNTIME_EXCEPTION, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }

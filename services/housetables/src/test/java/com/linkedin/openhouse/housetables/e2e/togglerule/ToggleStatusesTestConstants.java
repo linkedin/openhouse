@@ -2,7 +2,7 @@ package com.linkedin.openhouse.housetables.e2e.togglerule;
 
 import com.linkedin.openhouse.housetables.model.TableToggleRule;
 
-public class ToggleStatusesTestConstants {
+public final class ToggleStatusesTestConstants {
   private ToggleStatusesTestConstants() {
     // Util class ctor noop
   }

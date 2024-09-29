@@ -144,7 +144,8 @@ public final class InternalRepositoryUtils {
             .tableUUID(megaProps.get(getCanonicalFieldName("tableUUID")))
             .tableLocation(
                 URI.create(
-                        StringUtils.prependIfMissing( // remove after resolving
+                        StringUtils.prependIfMissing(
+                            // remove after resolving
                             // https://github.com/linkedin/openhouse/issues/121
                             megaProps.get(getCanonicalFieldName("tableLocation")),
                             storage.getClient().getEndpoint()))

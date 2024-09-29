@@ -29,28 +29,28 @@ import java.util.UUID;
 import org.apache.iceberg.TableProperties;
 import org.springframework.test.web.servlet.MvcResult;
 
-public class TableModelConstants {
-  public static String HEALTH_SCHEMA_LITERAL;
-  public static String UNHEALTHY_CLUSTER_SCHEMA_LITERAL;
+public final class TableModelConstants {
+  public static final String HEALTH_SCHEMA_LITERAL;
+  public static final String UNHEALTHY_CLUSTER_SCHEMA_LITERAL;
 
   // Evolution I: Adding a new field with default value,
   // this is evolved on top of HEALTH_SCHEMA_LITERAL.
-  public static String ADD_OPTIONAL_FIELD;
+  public static final String ADD_OPTIONAL_FIELD;
 
-  public static RetentionColumnPattern COL_PAT;
-  public static Retention RETENTION_POLICY;
+  public static final RetentionColumnPattern COL_PAT;
+  public static final Retention RETENTION_POLICY;
 
-  public static Retention RETENTION_POLICY_WITH_PATTERN;
-  public static Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
-  public static Policies TABLE_POLICIES_WITH_EMPTY_PATTERN;
-  public static Policies TABLE_POLICIES;
+  public static final Retention RETENTION_POLICY_WITH_PATTERN;
+  public static final Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
+  public static final Policies TABLE_POLICIES_WITH_EMPTY_PATTERN;
+  public static final Policies TABLE_POLICIES;
 
-  public static Policies TABLE_POLICIES_COMPLEX;
-  public static Policies SHARED_TABLE_POLICIES;
-  public static String TEST_USER;
+  public static final Policies TABLE_POLICIES_COMPLEX;
+  public static final Policies SHARED_TABLE_POLICIES;
+  public static final String TEST_USER;
 
-  public static String TEST_USER_PRINCIPAL;
-  public static String CLUSTER_NAME;
+  public static final String TEST_USER_PRINCIPAL;
+  public static final String CLUSTER_NAME;
 
   static {
     COL_PAT = RetentionColumnPattern.builder().columnName("name").pattern("yyyy").build();
@@ -107,6 +107,8 @@ public class TableModelConstants {
           put("openhouse.random", "random");
         }
       };
+
+  private TableModelConstants() {}
 
   // Essentially a clone of TableDto with schema field being decorated.
   public static TableDto decorateSchemaEvolution(TableDto base, String evolvedSchema) {
@@ -184,7 +186,7 @@ public class TableModelConstants {
                       .transform(
                           Transform.builder()
                               .transformType(Transform.TransformType.TRUNCATE)
-                              .transformParams(Arrays.asList("10"))
+                              .transformParams(Collections.singletonList("10"))
                               .build())
                       .build()))
           .build();

@@ -56,7 +56,7 @@ class RegexStorageSelectorTest {
   }
 
   @Test
-  void testInit_MissingRegex_ThrowsException() {
+  void testInitMissingRegexThrowsException() {
     // Arrange: only storage-type is present
     selectorParams.put("storage-type", "providedStorage");
 
@@ -65,7 +65,7 @@ class RegexStorageSelectorTest {
   }
 
   @Test
-  void testInit_MissingStorageType_ThrowsException() {
+  void testInitMissingStorageTypeThrowsException() {
     // Arrange: only regex is present
     selectorParams.put("regex", "db1\\.table1");
 
@@ -74,7 +74,7 @@ class RegexStorageSelectorTest {
   }
 
   @Test
-  void testSelectStorage_RegexMatches_ReturnsProvidedStorage() {
+  void testSelectStorageRegexMatchesReturnsProvidedStorage() {
     // Arrange: setup regex and storage type
     selectorParams.put("regex", ".*prod.*\\.table.*");
     selectorParams.put("storage-type", "providedStorage");
@@ -92,7 +92,7 @@ class RegexStorageSelectorTest {
   }
 
   @Test
-  void testSelectStorage_RegexDoesNotMatch_ReturnsDefaultStorage() {
+  void testSelectStorageRegexDoesNotMatchReturnsDefaultStorage() {
     // Arrange: setup regex and storage type
     selectorParams.put("regex", "db1\\.table1");
     selectorParams.put("storage-type", "providedStorage");
@@ -108,7 +108,7 @@ class RegexStorageSelectorTest {
   }
 
   @Test
-  void testSelectStorage_ReturnsProvidedAndDefaultStorage() {
+  void testSelectStorageReturnsProvidedAndDefaultStorage() {
     // Arrange: setup regex and storage type
     selectorParams.put("regex", "db1\\.table1");
     selectorParams.put("storage-type", "providedStorage");

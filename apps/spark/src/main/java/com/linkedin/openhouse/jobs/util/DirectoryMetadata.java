@@ -5,7 +5,7 @@ import lombok.EqualsAndHashCode;
 import org.apache.hadoop.fs.Path;
 
 /** Directory metadata, including path and creator. */
-@EqualsAndHashCode
+@EqualsAndHashCode(callSuper = true)
 public class DirectoryMetadata extends Metadata {
   Path path;
 

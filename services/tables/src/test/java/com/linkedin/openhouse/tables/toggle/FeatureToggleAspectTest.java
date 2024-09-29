@@ -45,7 +45,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckTblPropEnabled_HappyPath() throws Throwable {
+  void testCheckTblPropEnabledHappyPath() throws Throwable {
     TableDto tableDto = TableDto.builder().tableId("testTable").databaseId("testDb").build();
     Object[] args = new Object[] {"testKey", tableDto};
 
@@ -66,7 +66,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckTblPropEnabled_FeatureNotEnabled() throws Throwable {
+  void testCheckTblPropEnabledFeatureNotEnabled() throws Throwable {
     TableDto tableDto = TableDto.builder().tableId("testTable").databaseId("testDb").build();
     Object[] args = new Object[] {"testKey", tableDto};
 
@@ -87,7 +87,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckTblPropEnabled_FeatureOverturningDecision() throws Throwable {
+  void testCheckTblPropEnabledFeatureOverturningDecision() throws Throwable {
     TableDto tableDto = TableDto.builder().tableId("testTable").databaseId("testDb").build();
     Object[] args = new Object[] {"testKey", tableDto};
 
@@ -109,7 +109,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckTblPropEnabled_WrongSignature() {
+  void testCheckTblPropEnabledWrongSignature() {
     when(proceedingJoinPoint.getSignature()).thenReturn(methodSignature);
     when(methodSignature.getReturnType()).thenReturn(String.class);
 
@@ -121,7 +121,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckTblPropEnabled_WrongArgType() {
+  void testCheckTblPropEnabledWrongArgType() {
     Object[] args = new Object[] {"testKey", "notTableDto"};
 
     when(proceedingJoinPoint.getSignature()).thenReturn(methodSignature);
@@ -138,7 +138,7 @@ class FeatureToggleAspectTest {
   // Following test cases are for checkIcebergFeatureFlag
 
   @Test
-  void testCheckIcebergFeatureFlag_FeatureActivated() {
+  void testCheckIcebergFeatureFlagFeatureActivated() {
     TableIdentifier tableIdentifier = TableIdentifier.of("namespace", "tableName");
     Object[] args = new Object[] {tableIdentifier, "otherArg"};
     when(joinPoint.getArgs()).thenReturn(args);
@@ -152,7 +152,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckIcebergFeatureFlag_FeatureNotActivated() {
+  void testCheckIcebergFeatureFlagFeatureNotActivated() {
     TableIdentifier tableIdentifier = TableIdentifier.of("namespace", "tableName");
     Object[] args = new Object[] {tableIdentifier, "otherArg"};
     when(joinPoint.getArgs()).thenReturn(args);
@@ -164,7 +164,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckIcebergFeatureFlag_NoTableIdentifier() {
+  void testCheckIcebergFeatureFlagNoTableIdentifier() {
     Object[] args = new Object[] {"notTableIdentifier", "otherArg"};
     when(joinPoint.getArgs()).thenReturn(args);
 
@@ -174,7 +174,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testCheckIcebergFeatureFlag_TableIdentifierNotFirst() {
+  void testCheckIcebergFeatureFlagTableIdentifierNotFirst() {
     TableIdentifier tableIdentifier = TableIdentifier.of("namespace", "tableName");
     Object[] args = new Object[] {"firstArg", tableIdentifier, "otherArg"};
     when(joinPoint.getArgs()).thenReturn(args);
@@ -208,7 +208,7 @@ class FeatureToggleAspectTest {
   }
 
   @Test
-  void testObtainIdFromAnnotationArgs_NoTableIdentifier() {
+  void testObtainIdFromAnnotationArgsNoTableIdentifier() {
     Object[] args = new Object[] {"notTableIdentifier", "otherArg"};
     when(joinPoint.getArgs()).thenReturn(args);
 

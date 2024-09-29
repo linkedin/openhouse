@@ -6,7 +6,7 @@ import lombok.Getter;
 
 /** Table metadata, including database name, table name and owner. */
 @Getter
-@EqualsAndHashCode
+@EqualsAndHashCode(callSuper = true)
 public class TableMetadata extends Metadata {
   String dbName;
   String tableName;

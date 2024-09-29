@@ -387,10 +387,10 @@ public class PartitionSpecMapperTest {
     if (widthMatcher.matches()) {
       String name = widthMatcher.group(1);
       int parsedWidth = Integer.parseInt(widthMatcher.group(2));
-      if (name.equals("truncate")) {
+      if ("truncate".equals(name)) {
         partitionSpecBuilder.truncate(columnName, parsedWidth);
         return;
-      } else if (name.equals("bucket")) {
+      } else if ("bucket".equals(name)) {
         partitionSpecBuilder.bucket(columnName, parsedWidth);
         return;
       }

@@ -164,10 +164,10 @@ public class SmokeTest {
     properties.put(CatalogProperties.URI, url);
     properties.put("auth-token", "token");
     openHouseCatalog.initialize("openhouse", properties);
-    String initial_auth_token = openHouseCatalog.properties().get("auth-token");
+    String initialAuthToken = openHouseCatalog.properties().get("auth-token");
     openHouseCatalog.updateAuthToken("newToken");
-    String updated_auth_token = openHouseCatalog.properties().get("auth-token");
-    Assertions.assertNotEquals(initial_auth_token, updated_auth_token);
+    String updatedAuthToken = openHouseCatalog.properties().get("auth-token");
+    Assertions.assertNotEquals(initialAuthToken, updatedAuthToken);
     Assertions.assertThrows(
         NoSuchTableException.class,
         () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));

@@ -10,6 +10,5 @@ import org.mapstruct.Mapping;
 public interface ToggleStatusMapper {
 
   @Mapping(source = "toggleStatus.status", target = "toggleStatusEnum")
-  public abstract TableToggleStatus toTableToggleStatus(
-      ToggleStatusKey key, ToggleStatus toggleStatus);
+  TableToggleStatus toTableToggleStatus(ToggleStatusKey key, ToggleStatus toggleStatus);
 }

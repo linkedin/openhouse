@@ -47,7 +47,7 @@ class SnapshotInspectorTest {
 
   @TempDir static Path tempDir;
 
-  private static final TableMetadata noSnapshotsMetadata =
+  private static final TableMetadata NO_SNAPSHOTS_METADATA =
       TableMetadata.newTableMetadata(
           new Schema(
               Types.NestedField.required(1, "data", Types.StringType.get()),
@@ -65,15 +65,15 @@ class SnapshotInspectorTest {
     Assertions.assertDoesNotThrow(
         () ->
             snapshotInspector.validateSnapshotsUpdate(
-                noSnapshotsMetadata, testSnapshots.subList(0, 1), testSnapshots.subList(1, 4)));
+                NO_SNAPSHOTS_METADATA, testSnapshots.subList(0, 1), testSnapshots.subList(1, 4)));
     Assertions.assertDoesNotThrow(
         () ->
             snapshotInspector.validateSnapshotsUpdate(
-                noSnapshotsMetadata, testSnapshots, Collections.emptyList()));
+                NO_SNAPSHOTS_METADATA, testSnapshots, Collections.emptyList()));
     Assertions.assertDoesNotThrow(
         () ->
             snapshotInspector.validateSnapshotsUpdate(
-                noSnapshotsMetadata, Collections.emptyList(), testSnapshots));
+                NO_SNAPSHOTS_METADATA, Collections.emptyList(), testSnapshots));
   }
 
   @Test
@@ -81,7 +81,7 @@ class SnapshotInspectorTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
     List<Snapshot> extraTestSnapshots = IcebergTestUtil.getExtraSnapshots();
     TableMetadata metadataWithSnapshots =
-        TableMetadata.buildFrom(noSnapshotsMetadata)
+        TableMetadata.buildFrom(NO_SNAPSHOTS_METADATA)
             .setBranchSnapshot(testSnapshots.get(testSnapshots.size() - 1), SnapshotRef.MAIN_BRANCH)
             .build();
     Assertions.assertDoesNotThrow(
@@ -147,17 +147,17 @@ class SnapshotInspectorTest {
         fileSystem
             .getFileStatus(new org.apache.hadoop.fs.Path(tempFile1.toString()))
             .getPermission(),
-        MockApplication.perm);
+        MockApplication.FS_PERMISSION);
     Assertions.assertEquals(
         fileSystem
             .getFileStatus(new org.apache.hadoop.fs.Path(tempFile2.toString()))
             .getPermission(),
-        MockApplication.perm);
+        MockApplication.FS_PERMISSION);
     Assertions.assertEquals(
         fileSystem
             .getFileStatus(new org.apache.hadoop.fs.Path(tempFile3.toString()))
             .getPermission(),
-        MockApplication.perm);
+        MockApplication.FS_PERMISSION);
   }
 
   public static DataFile createDataFile(String dataPath) throws IOException {

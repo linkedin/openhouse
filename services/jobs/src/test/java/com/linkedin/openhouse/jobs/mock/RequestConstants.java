@@ -5,7 +5,9 @@ import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.spec.response.JobResponseBody;
 import com.linkedin.openhouse.jobs.model.JobConf;
 
-public class RequestConstants {
+public final class RequestConstants {
+  private RequestConstants() {}
+
   public static final JobResponseBody.JobResponseBodyBuilder TEST_GET_JOB_RESPONSE_BODY_BUILDER =
       JobResponseBody.builder()
           .jobName("my_job")

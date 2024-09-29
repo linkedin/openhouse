@@ -9,7 +9,7 @@ import com.linkedin.openhouse.common.audit.model.ServiceName;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
 import org.springframework.http.HttpMethod;
 
-public class ServiceAuditModelConstants {
+public final class ServiceAuditModelConstants {
   private static final String CLUSTER_NAME = "local-cluster";
   private static final String MOCK_USER = "DUMMY_ANONYMOUS_USER";
   private static final String END_TO_END_USER = "testUser";
@@ -65,4 +65,6 @@ public class ServiceAuditModelConstants {
           .method(HttpMethod.GET)
           .requestPayload(JsonNull.INSTANCE)
           .build();
+
+  private ServiceAuditModelConstants() {}
 }

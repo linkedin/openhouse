@@ -188,7 +188,8 @@ public class CreateTablePartitionedTest {
             IllegalArgumentException.class,
             () ->
                 spark.sql(
-                    "CREATE TABLE openhouse.dbCreate.tb_bad_partitioned (timestampCol1 timestamp, timestampCol2 timestamp) PARTITIONED BY (days(timestampCol1), months(timestampCol2))"));
+                    "CREATE TABLE openhouse.dbCreate.tb_bad_partitioned (timestampCol1 timestamp, timestampCol2 timestamp) "
+                        + "PARTITIONED BY (days(timestampCol1), months(timestampCol2))"));
     Assertions.assertTrue(
         exception
             .getMessage()

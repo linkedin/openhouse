@@ -6,7 +6,9 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
-public class HouseTableModelConstants {
+public final class HouseTableModelConstants {
+
+  private HouseTableModelConstants() {}
 
   private static final Map<String, String> TABLE_PROPS =
       new HashMap<String, String>() {

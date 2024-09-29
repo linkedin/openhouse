@@ -35,7 +35,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.test.web.servlet.MvcResult;
 
 /** Utilities methods to help constructing model objects in testing iceberg-snapshot API. */
-public class IcebergSnapshotsModelTestUtilities {
+public final class IcebergSnapshotsModelTestUtilities {
   private IcebergSnapshotsModelTestUtilities() {
     // Utility class noop constructor.
   }

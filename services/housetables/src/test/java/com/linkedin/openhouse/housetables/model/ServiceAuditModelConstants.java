@@ -7,7 +7,7 @@ import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceName;
 import org.springframework.http.HttpMethod;
 
-public class ServiceAuditModelConstants {
+public final class ServiceAuditModelConstants {
   private static final String CLUSTER_NAME = "local-cluster";
   private static final String USER = "undefined";
 
@@ -23,4 +23,6 @@ public class ServiceAuditModelConstants {
           .method(HttpMethod.PUT)
           .requestPayload(JsonParser.parseString(PUT_USER_TABLE_REQUEST_BODY.toJson()))
           .build();
+
+  private ServiceAuditModelConstants() {}
 }
