@@ -32,7 +32,8 @@ public class MockApplication {
 
   @MockBean FileIOConfig fileIOConfig;
 
-  static final FsPermission perm = new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE);
+  static final FsPermission FS_PERMISSION =
+      new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE);
 
   /**
    * Provide a mock FileSecurer
@@ -44,7 +45,7 @@ public class MockApplication {
     return pathSupplier -> {
       try {
         FileSystem fs = FileSystem.get(new Configuration());
-        fs.setPermission(pathSupplier.get(), perm);
+        fs.setPermission(pathSupplier.get(), FS_PERMISSION);
       } catch (IOException ioe) {
         throw new UncheckedIOException(ioe);
       }

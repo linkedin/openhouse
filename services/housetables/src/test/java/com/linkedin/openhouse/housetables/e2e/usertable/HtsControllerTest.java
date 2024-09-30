@@ -61,9 +61,9 @@ public class HtsControllerTest {
   /** Using LIST endpoint to test a partially filled user table object as request body */
   public void testFindAllFromDb() throws Exception {
     // TODO: Use rest API to create the table
-    htsRepository.save(testTuple1_0.get_userTableRow());
-    htsRepository.save(testTuple2_0.get_userTableRow());
-    htsRepository.save(testTuple1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
 
     // Inserted two tables in db0, combining the one in the setup method there should be 3
     Map<String, List<String>> paramsInternal = new HashMap<>();
@@ -82,8 +82,8 @@ public class HtsControllerTest {
                         .results(
                             Arrays.asList(
                                     TEST_USER_TABLE,
-                                    testTuple1_0.get_userTable(),
-                                    testTuple2_0.get_userTable())
+                                    TEST_TUPLE_1_0.get_userTable(),
+                                    TEST_TUPLE_2_0.get_userTable())
                                 .stream()
                                 .map(
                                     userTable ->
@@ -100,9 +100,9 @@ public class HtsControllerTest {
   @Test
   public void testFindAllTables() throws Exception {
     // TODO: Use rest API to create the table
-    htsRepository.save(testTuple1_0.get_userTableRow());
-    htsRepository.save(testTuple2_0.get_userTableRow());
-    htsRepository.save(testTuple1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
 
     // Inserted three tables, combining the one in the setup method there should be 4
     mvc.perform(MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
@@ -115,9 +115,9 @@ public class HtsControllerTest {
                         .results(
                             Arrays.asList(
                                     TEST_USER_TABLE,
-                                    testTuple1_0.get_userTable(),
-                                    testTuple2_0.get_userTable(),
-                                    testTuple1_1.get_userTable())
+                                    TEST_TUPLE_1_0.get_userTable(),
+                                    TEST_TUPLE_2_0.get_userTable(),
+                                    TEST_TUPLE_1_1.get_userTable())
                                 .stream()
                                 .map(
                                     userTable ->
@@ -229,8 +229,8 @@ public class HtsControllerTest {
     // Ensure the target table to be created, testTuple2_0, not existed yet.
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/tables")
-                .param("tableId", testTuple2_0.getTableId())
-                .param("databaseId", testTuple2_0.getDatabaseId())
+                .param("tableId", TEST_TUPLE_2_0.getTableId())
+                .param("databaseId", TEST_TUPLE_2_0.getDatabaseId())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
 
@@ -240,25 +240,25 @@ public class HtsControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     CreateUpdateEntityRequestBody.<UserTable>builder()
-                        .entity(testTuple2_0.get_userTable())
+                        .entity(TEST_TUPLE_2_0.get_userTable())
                         .build()
                         .toJson())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isCreated())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.entity.tableId", is(equalTo(testTuple2_0.getTableId()))))
-        .andExpect(jsonPath("$.entity.databaseId", is(equalTo(testTuple2_0.getDatabaseId()))))
-        .andExpect(jsonPath("$.entity.metadataLocation", is(equalTo(testTuple2_0.getTableLoc()))))
-        .andExpect(jsonPath("$.entity.storageType", is(equalTo(testTuple1_0.getStorageType()))));
+        .andExpect(jsonPath("$.entity.tableId", is(equalTo(TEST_TUPLE_2_0.getTableId()))))
+        .andExpect(jsonPath("$.entity.databaseId", is(equalTo(TEST_TUPLE_2_0.getDatabaseId()))))
+        .andExpect(jsonPath("$.entity.metadataLocation", is(equalTo(TEST_TUPLE_2_0.getTableLoc()))))
+        .andExpect(jsonPath("$.entity.storageType", is(equalTo(TEST_TUPLE_1_0.getStorageType()))));
 
     // Update the same table and returning the updated object.
-    String atVersion = testTuple2_0.get_userTable().getMetadataLocation();
-    String modifiedMetaLoc = testTuple2_0.get_userTable().getMetadataLocation() + "change";
+    String atVersion = TEST_TUPLE_2_0.get_userTable().getMetadataLocation();
+    String modifiedMetaLoc = TEST_TUPLE_2_0.get_userTable().getMetadataLocation() + "change";
 
     UserTable modified2_0 =
         UserTable.builder()
-            .tableId(testTuple2_0.get_userTable().getTableId())
-            .databaseId(testTuple2_0.get_userTable().getDatabaseId())
+            .tableId(TEST_TUPLE_2_0.get_userTable().getTableId())
+            .databaseId(TEST_TUPLE_2_0.get_userTable().getDatabaseId())
             .tableVersion(atVersion)
             .metadataLocation(modifiedMetaLoc)
             .build();
@@ -273,10 +273,10 @@ public class HtsControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.entity.tableId", is(equalTo(testTuple2_0.getTableId()))))
-        .andExpect(jsonPath("$.entity.databaseId", is(equalTo(testTuple2_0.getDatabaseId()))))
+        .andExpect(jsonPath("$.entity.tableId", is(equalTo(TEST_TUPLE_2_0.getTableId()))))
+        .andExpect(jsonPath("$.entity.databaseId", is(equalTo(TEST_TUPLE_2_0.getDatabaseId()))))
         .andExpect(jsonPath("$.entity.metadataLocation", is(modifiedMetaLoc)))
-        .andExpect(jsonPath("$.entity.storageType", is(equalTo(testTuple1_0.getStorageType()))));
+        .andExpect(jsonPath("$.entity.storageType", is(equalTo(TEST_TUPLE_1_0.getStorageType()))));
   }
 
   @Test
@@ -286,7 +286,7 @@ public class HtsControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     CreateUpdateEntityRequestBody.<UserTable>builder()
-                        .entity(testTuple2_0.get_userTable())
+                        .entity(TEST_TUPLE_2_0.get_userTable())
                         .build()
                         .toJson())
                 .accept(MediaType.APPLICATION_JSON))
@@ -299,7 +299,7 @@ public class HtsControllerTest {
                 .content(
                     CreateUpdateEntityRequestBody.<UserTable>builder()
                         .entity(
-                            testTuple2_0
+                            TEST_TUPLE_2_0
                                 .get_userTable()
                                 .toBuilder()
                                 .tableVersion("file:/older/version")
@@ -317,7 +317,7 @@ public class HtsControllerTest {
     UserTable modified2_0 =
         UserTable.builder()
             .tableId(null)
-            .databaseId(testTuple2_0.get_userTable().getDatabaseId())
+            .databaseId(TEST_TUPLE_2_0.get_userTable().getDatabaseId())
             .build();
     mvc.perform(
             MockMvcRequestBuilders.put("/hts/tables")
@@ -346,8 +346,8 @@ public class HtsControllerTest {
   public void testPutUserTableWithNullStorageType() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/tables")
-                .param("tableId", testTuple1_0.getTableId())
-                .param("databaseId", testTuple1_0.getDatabaseId())
+                .param("tableId", TEST_TUPLE_1_0.getTableId())
+                .param("databaseId", TEST_TUPLE_1_0.getDatabaseId())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
 
@@ -357,15 +357,16 @@ public class HtsControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     CreateUpdateEntityRequestBody.<UserTable>builder()
-                        .entity(testTuple1_0.get_userTable().toBuilder().storageType(null).build())
+                        .entity(
+                            TEST_TUPLE_1_0.get_userTable().toBuilder().storageType(null).build())
                         .build()
                         .toJson())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isCreated())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.entity.tableId", is(equalTo(testTuple1_0.getTableId()))))
-        .andExpect(jsonPath("$.entity.databaseId", is(equalTo(testTuple1_0.getDatabaseId()))))
-        .andExpect(jsonPath("$.entity.metadataLocation", is(equalTo(testTuple1_0.getTableLoc()))))
+        .andExpect(jsonPath("$.entity.tableId", is(equalTo(TEST_TUPLE_1_0.getTableId()))))
+        .andExpect(jsonPath("$.entity.databaseId", is(equalTo(TEST_TUPLE_1_0.getDatabaseId()))))
+        .andExpect(jsonPath("$.entity.metadataLocation", is(equalTo(TEST_TUPLE_1_0.getTableLoc()))))
         .andExpect(jsonPath("$.entity.storageType", is(equalTo(TEST_DEFAULT_STORAGE_TYPE))));
   }
 }

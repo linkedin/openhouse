@@ -16,11 +16,11 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 
-public class HtsCatalogConstants {
+public final class HtsCatalogConstants {
+  public static final Catalog TEST_CATALOG = initializeCatalogOnRandomFilePath();
+  public static final TestIcebergRow TEST_ICEBERG_ROW = ir("foo", 1, "v1", "bar");
 
-  public static Catalog TEST_CATALOG = initializeCatalogOnRandomFilePath();
-
-  public static TestIcebergRow TEST_ICEBERG_ROW = ir("foo", 1, "v1", "bar");
+  private HtsCatalogConstants() {}
 
   @SneakyThrows
   private static Catalog initializeCatalogOnRandomFilePath() {

@@ -39,7 +39,7 @@ public class StorageSelectorConfigTest {
   }
 
   @Test
-  public void testProvideStorageSelector_Found() {
+  public void testProvideStorageSelectorFound() {
     when(storageSelectorProperties.getName()).thenReturn("selector1");
     when(storageSelectorProperties.getParameters())
         .thenReturn(ImmutableMap.of("key1", "value1", "key2", "value2"));

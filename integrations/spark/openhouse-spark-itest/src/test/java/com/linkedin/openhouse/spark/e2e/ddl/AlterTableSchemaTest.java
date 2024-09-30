@@ -32,7 +32,7 @@ public class AlterTableSchemaTest {
     mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
-    mockTableService.enqueue( // doCommit()
+    mockTableService.enqueue(
         mockResponse(
             200,
             mockGetTableResponseBody(
@@ -45,7 +45,7 @@ public class AlterTableSchemaTest {
                 "v1",
                 ResourceIoHelper.getSchemaJsonFromResource("evolved_dummy_healthy_schema.json"),
                 null,
-                null)));
+                null))); // doCommit()
 
     Assertions.assertDoesNotThrow(
         () -> spark.sql("ALTER TABLE openhouse.dbAlterS.tb1 ADD columns (favorite_number int)"));

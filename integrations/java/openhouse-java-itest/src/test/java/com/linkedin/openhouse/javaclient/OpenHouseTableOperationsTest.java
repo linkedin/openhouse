@@ -40,7 +40,7 @@ public class OpenHouseTableOperationsTest {
    * <p>Please refrain from enlarging the overwrite scope.
    */
   private class OpenHouseTableOperationsForTest extends OpenHouseTableOperations {
-    public OpenHouseTableOperationsForTest(
+    OpenHouseTableOperationsForTest(
         TableIdentifier tableIdentifier,
         FileIO fileIO,
         TableApi tableApi,

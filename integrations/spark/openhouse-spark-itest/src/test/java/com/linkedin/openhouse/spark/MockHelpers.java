@@ -47,9 +47,11 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 
-public class MockHelpers {
+public final class MockHelpers {
 
-  private static final ObjectMapper mapper =
+  private MockHelpers() {}
+
+  private static final ObjectMapper MAPPER =
       ApiClient.createDefaultObjectMapper(ApiClient.createDefaultDateFormat());
 
   /**
@@ -60,7 +62,7 @@ public class MockHelpers {
       GetDatabaseResponseBody... drs) {
     Map<String, Object> hashmap = new HashMap<>();
     hashmap.put("results", Arrays.asList(drs));
-    return mapper.convertValue(hashmap, GetAllDatabasesResponseBody.class);
+    return MAPPER.convertValue(hashmap, GetAllDatabasesResponseBody.class);
   }
 
   /** Helper method to create {@link GetDatabaseResponseBody} from table required fields. */
@@ -69,7 +71,7 @@ public class MockHelpers {
     Map<String, Object> hashmap = new HashMap<>();
     hashmap.put("databaseId", databaseId);
     hashmap.put("clusterId", clusterId);
-    return mapper.convertValue(hashmap, GetDatabaseResponseBody.class);
+    return MAPPER.convertValue(hashmap, GetDatabaseResponseBody.class);
   }
 
   /**
@@ -79,7 +81,7 @@ public class MockHelpers {
   public static GetAllTablesResponseBody mockGetAllTableResponseBody(GetTableResponseBody... trs) {
     Map<String, Object> hashmap = new HashMap<>();
     hashmap.put("results", Arrays.asList(trs));
-    return mapper.convertValue(hashmap, GetAllTablesResponseBody.class);
+    return MAPPER.convertValue(hashmap, GetAllTablesResponseBody.class);
   }
 
   /** Helper method to create {@link GetTableResponseBody} from table required fields. */
@@ -106,29 +108,29 @@ public class MockHelpers {
     hashmap.put("timePartitioning", timePartitionSpec);
     hashmap.put("clustering", clustering);
     hashmap.put("policies", null);
-    return mapper.convertValue(hashmap, GetTableResponseBody.class);
+    return MAPPER.convertValue(hashmap, GetTableResponseBody.class);
   }
 
   /** Helper method to create {@link GetTableResponseBody} from table optional fields. */
   @SneakyThrows
   public static GetTableResponseBody decorateResponse(
       GetTableResponseBody getTableResponseBody, Map<String, String> tblProps) {
-    JsonNode jsonNode = mapper.valueToTree(getTableResponseBody);
-    ((ObjectNode) jsonNode).put("tableProperties", mapper.convertValue(tblProps, ObjectNode.class));
-    return mapper.treeToValue(jsonNode, GetTableResponseBody.class);
+    JsonNode jsonNode = MAPPER.valueToTree(getTableResponseBody);
+    ((ObjectNode) jsonNode).put("tableProperties", MAPPER.convertValue(tblProps, ObjectNode.class));
+    return MAPPER.treeToValue(jsonNode, GetTableResponseBody.class);
   }
 
   public static GetAclPoliciesResponseBody mockGetAclPoliciesResponseBody(AclPolicy... aclPolicy) {
     Map<String, Object> hashmap = new HashMap<>();
     hashmap.put("results", Arrays.asList(aclPolicy));
-    return mapper.convertValue(hashmap, GetAclPoliciesResponseBody.class);
+    return MAPPER.convertValue(hashmap, GetAclPoliciesResponseBody.class);
   }
 
   public static AclPolicy mockAclPolicy(String role, String principal) {
     Map<String, Object> hashmap = new HashMap<>();
     hashmap.put("role", role);
     hashmap.put("principal", principal);
-    return mapper.convertValue(hashmap, AclPolicy.class);
+    return MAPPER.convertValue(hashmap, AclPolicy.class);
   }
 
   /** Helper method to create {@link MockResponse} that plugs in nicely to mockWebServer. */
@@ -137,7 +139,7 @@ public class MockHelpers {
     ;
     return new MockResponse()
         .setResponseCode(status)
-        .setBody(mapper.writeValueAsString(jsonObj))
+        .setBody(MAPPER.writeValueAsString(jsonObj))
         .addHeader("Content-Type", "application/json");
   }
 
@@ -168,16 +170,17 @@ public class MockHelpers {
    * Helper method to get a valid metadata.json path after running an SQL operation.
    *
    * @param tableIdentifier
-   * @param sql sql should have %t as the table identifier, for example: "insert into %t values.."
+   * @param sqlTpl sql should have %t as the table identifier, for example: "insert into %t
+   *     values.."
    * @return the metadata_json path for the table after the operation
    */
   @SneakyThrows
   public static String mockTableLocationAfterOperation(
-      TableIdentifier tableIdentifier, String sql) {
+      TableIdentifier tableIdentifier, String sqlTpl) {
     String tableName =
         String.format(
             "testhelper.%s.%s", tableIdentifier.namespace().toString(), tableIdentifier.name());
-    sql = sql.replace("%t", tableName);
+    String sql = sqlTpl.replace("%t", tableName);
     spark.sql(sql);
     return craftMetadataLocation(tableIdentifier, "testhelper");
   }

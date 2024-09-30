@@ -32,9 +32,9 @@ public class HouseTableTest {
             continue;
           }
 
-          if (fieldName.equals("creationTime")) {
+          if ("creationTime".equals(fieldName)) {
             Assertions.assertEquals(0L, value);
-          } else if (fieldName.equals("lastModifiedTime")) {
+          } else if ("lastModifiedTime".equals(fieldName)) {
             Assertions.assertEquals(0L, value);
           } else {
             Assertions.assertNull(value, getter.getName() + " is not null: " + value);

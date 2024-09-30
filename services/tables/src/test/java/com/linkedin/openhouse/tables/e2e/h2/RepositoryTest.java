@@ -562,10 +562,10 @@ public class RepositoryTest {
 
     Types.StructType nestedStructType1 =
         Types.StructType.of(optional(5, "nestMapCol", nestedMapType1));
-    Types.MapType NESTED2_MAP_TYPE1 =
+    Types.MapType nested2MapType1 =
         Types.MapType.ofRequired(6, 7, Types.StringType.get(), nestedStructType1);
 
-    Schema oldSchema = new Schema(required(8, "nested2MapCol", NESTED2_MAP_TYPE1));
+    Schema oldSchema = new Schema(required(8, "nested2MapCol", nested2MapType1));
 
     Types.StructType leafStructType2 =
         Types.StructType.of(optional(1, "leafLongCol", Types.LongType.get()));

@@ -24,15 +24,15 @@ import org.junit.jupiter.api.Test;
 
 public class IcebergDataUtilsTest {
 
-  private static Table TEST_TABLE;
-  private static IcebergRow TEST_ROW;
-  private static IcebergRowPrimaryKey TEST_ROW_PK;
+  private static Table testTable;
+  private static IcebergRow testRow;
+  private static IcebergRowPrimaryKey testRowPrimaryKey;
 
   @BeforeAll
   static void setup() {
-    TEST_ROW = TEST_ICEBERG_ROW;
-    TEST_ROW_PK = TEST_ROW.getIcebergRowPrimaryKey();
-    TEST_TABLE =
+    testRow = TEST_ICEBERG_ROW;
+    testRowPrimaryKey = testRow.getIcebergRowPrimaryKey();
+    testTable =
         TEST_CATALOG.createTable(
             TableIdentifier.of("test", IcebergDataUtilsTest.class.getSimpleName()),
             TEST_ICEBERG_ROW.getSchema(),
@@ -42,13 +42,13 @@ public class IcebergDataUtilsTest {
 
   @Test
   public void testCreateRowDeltaDeleteFile() {
-    DeleteFile deleteFile = IcebergDataUtils.createRowDeltaDeleteFile(TEST_TABLE, TEST_ROW_PK);
+    DeleteFile deleteFile = IcebergDataUtils.createRowDeltaDeleteFile(testTable, testRowPrimaryKey);
     Assertions.assertEquals(deleteFile.recordCount(), 1);
     Assertions.assertEquals(deleteFile.format(), FileFormat.AVRO);
     Assertions.assertEquals(deleteFile.content(), FileContent.EQUALITY_DELETES);
     Assertions.assertEquals(
         deleteFile.equalityFieldIds(),
-        TEST_ROW.getSchema().select("stringId", "intId").columns().stream()
+        testRow.getSchema().select("stringId", "intId").columns().stream()
             .map(Types.NestedField::fieldId)
             .collect(Collectors.toList()));
   }
@@ -56,7 +56,7 @@ public class IcebergDataUtilsTest {
   @Test
   public void testCreateRowDeltaDataFile() {
     Pair<DataFile, IcebergRow> dataFileAndRow =
-        IcebergDataUtils.createRowDeltaDataFileWithNextVersion(TEST_TABLE, TEST_ROW);
+        IcebergDataUtils.createRowDeltaDataFileWithNextVersion(testTable, testRow);
     DataFile dataFile = dataFileAndRow.first();
     Assertions.assertEquals(dataFile.recordCount(), 1);
     Assertions.assertEquals(dataFile.format(), FileFormat.AVRO);

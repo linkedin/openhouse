@@ -59,11 +59,11 @@ public class HtsRepositoryTest {
 
   @Test
   public void testDeleteUserTable() {
-    htsRepository.save(testTuple1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
     UserTableRowPrimaryKey key =
         UserTableRowPrimaryKey.builder()
-            .tableId(testTuple1_1.getTableId())
-            .databaseId(testTuple1_1.getDatabaseId())
+            .tableId(TEST_TUPLE_1_1.getTableId())
+            .databaseId(TEST_TUPLE_1_1.getDatabaseId())
             .build();
     // verify testTuple1_1 exist first.
     assertThat(htsRepository.existsById(key)).isTrue();

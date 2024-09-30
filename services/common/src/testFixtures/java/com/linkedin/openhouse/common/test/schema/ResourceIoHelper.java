@@ -5,7 +5,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import org.apache.commons.io.IOUtils;
 
-public class ResourceIoHelper {
+public final class ResourceIoHelper {
   private ResourceIoHelper() {
     // utility constructor noop
   }
@@ -17,6 +17,6 @@ public class ResourceIoHelper {
   public static String getSchemaJsonFromResource(Class klazz, String resourceName)
       throws IOException {
     InputStream inputStream = klazz.getClassLoader().getResourceAsStream(resourceName);
-    return IOUtils.toString(inputStream, StandardCharsets.UTF_8.name());
+    return IOUtils.toString(inputStream, StandardCharsets.UTF_8);
   }
 }

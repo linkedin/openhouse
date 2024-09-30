@@ -12,7 +12,7 @@ import org.springframework.http.HttpMethod;
 /** Data Model for auditing http requests to each service. */
 @Builder(toBuilder = true)
 @Getter
-@EqualsAndHashCode
+@EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class ServiceAuditEvent extends BaseAuditEvent {

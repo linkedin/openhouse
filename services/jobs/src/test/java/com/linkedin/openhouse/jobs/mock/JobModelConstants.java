@@ -6,8 +6,10 @@ import com.linkedin.openhouse.jobs.model.JobDto;
 import java.util.HashMap;
 import java.util.Map;
 
-public class JobModelConstants {
+public final class JobModelConstants {
   static final JobDto JOB_DTO = getFullJobDto();
+
+  private JobModelConstants() {}
 
   static JobDto.JobDtoBuilder getPartialJobDtoBuilder() {
     return JobDto.builder()
