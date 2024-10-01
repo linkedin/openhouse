@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.jobs.services;
 
+import static com.linkedin.openhouse.jobs.model.JobConf.EXECUTION_CONF_KEY_PREFIX;
+
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
 import com.linkedin.openhouse.jobs.config.JobsProperties;
@@ -68,7 +70,7 @@ public class JobsRegistry {
     }
 
     for (Map.Entry<String, String> entry : executionConf.entrySet()) {
-      if (entry.getKey().startsWith("spark.")) {
+      if (entry.getKey().startsWith(EXECUTION_CONF_KEY_PREFIX)) {
         sparkProperties.put(entry.getKey(), entry.getValue());
       }
     }

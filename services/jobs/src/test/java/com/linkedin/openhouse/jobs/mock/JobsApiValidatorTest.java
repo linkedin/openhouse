@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.mock;
 
+import static com.linkedin.openhouse.jobs.model.JobConf.EXECUTION_CONF_KEY_PREFIX;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -70,6 +71,6 @@ class JobsApiValidatorTest {
     assertDoesNotThrow(
         () ->
             jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "spark.")));
+                makeJobRequestBodyFromJobNameJobConf("job-name", EXECUTION_CONF_KEY_PREFIX)));
   }
 }

@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.jobs.api.validator.impl;
 
-import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.*;
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW;
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX_HYPHEN_ALLOW;
+import static com.linkedin.openhouse.jobs.model.JobConf.EXECUTION_CONF_KEY_PREFIX;
 
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -53,7 +55,7 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
   private static class JobConfValidator {
     private static boolean validateSparkKeys(Map<String, String> conf) {
       for (Map.Entry<String, String> entry : conf.entrySet()) {
-        if (!entry.getKey().startsWith("spark.")) {
+        if (!entry.getKey().startsWith(EXECUTION_CONF_KEY_PREFIX)) {
           return false;
         }
       }
