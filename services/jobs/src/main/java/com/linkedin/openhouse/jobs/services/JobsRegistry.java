@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.jobs.services;
 
-import static com.linkedin.openhouse.jobs.model.JobConf.EXECUTION_CONF_KEY_PREFIX;
-
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
 import com.linkedin.openhouse.jobs.config.JobsProperties;
@@ -68,12 +66,7 @@ public class JobsRegistry {
     if (authTokenPath != null) {
       sparkProperties.put("spark.sql.catalog.openhouse.auth-token", getToken(authTokenPath));
     }
-
-    for (Map.Entry<String, String> entry : executionConf.entrySet()) {
-      if (entry.getKey().startsWith(EXECUTION_CONF_KEY_PREFIX)) {
-        sparkProperties.put(entry.getKey(), entry.getValue());
-      }
-    }
+    sparkProperties.putAll(executionConf);
   }
 
   public static JobsRegistry from(JobsProperties properties, Map<String, String> storageProps) {

@@ -17,7 +17,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class JobConf {
-  public static final String EXECUTION_CONF_KEY_PREFIX = "spark.";
   private JobType jobType;
   private String proxyUser;
   @Builder.Default private Map<String, String> executionConf = new HashMap<>();

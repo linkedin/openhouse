@@ -1,9 +1,7 @@
 package com.linkedin.openhouse.jobs.mock;
 
-import static com.linkedin.openhouse.jobs.model.JobConf.EXECUTION_CONF_KEY_PREFIX;
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.validator.JobsApiValidator;
 import com.linkedin.openhouse.jobs.model.JobConf;
@@ -32,9 +30,9 @@ class JobsApiValidatorTest {
         .build();
   }
 
-  private CreateJobRequestBody makeJobRequestBodyFromJobNameJobConf(String jobName, String prefix) {
+  private CreateJobRequestBody makeJobRequestBodyFromJobNameJobConf(String jobName) {
     Map<String, String> executionConf = new HashMap<>();
-    executionConf.put(prefix + "driver.memory", "10G");
+    executionConf.put("spark.driver.memory", "10G");
     return CreateJobRequestBody.builder()
         .jobName(jobName)
         .clusterId("clusterId")
@@ -63,14 +61,7 @@ class JobsApiValidatorTest {
 
   @Test
   public void testValidExecutionConfInJobRequestBody() {
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "")));
     assertDoesNotThrow(
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", EXECUTION_CONF_KEY_PREFIX)));
+        () -> jobsApiValidator.validateCreateJob(makeJobRequestBodyFromJobNameJobConf("job-name")));
   }
 }
