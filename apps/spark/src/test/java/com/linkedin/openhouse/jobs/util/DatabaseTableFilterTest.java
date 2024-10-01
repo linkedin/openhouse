@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.util;
 
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +47,20 @@ public class DatabaseTableFilterTest {
 
   @Test
   void testFilterByMinAgeThresholdHours() {
-    // TODO: Implement the test
+    DatabaseTableFilter filter = DatabaseTableFilter.of("db", "table", 1);
+    Assertions.assertFalse(
+        filter.apply(
+            TableMetadata.builder()
+                .dbName("db")
+                .tableName("table")
+                .creationTimeMs(System.currentTimeMillis())
+                .build()));
+    Assertions.assertTrue(
+        filter.apply(
+            TableMetadata.builder()
+                .dbName("db")
+                .tableName("table")
+                .creationTimeMs(System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1))
+                .build()));
   }
 }

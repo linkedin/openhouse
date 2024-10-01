@@ -12,7 +12,8 @@ public class DatabaseTableFilter {
 
   public static DatabaseTableFilter of(
       String databaseRegex, String tableRegex, int minAgeThresholdHours) {
-    return new DatabaseTableFilter(Pattern.compile(databaseRegex), Pattern.compile(tableRegex), 0);
+    return new DatabaseTableFilter(
+        Pattern.compile(databaseRegex), Pattern.compile(tableRegex), minAgeThresholdHours);
   }
 
   public boolean apply(TableMetadata metadata) {
@@ -30,8 +31,8 @@ public class DatabaseTableFilter {
   }
 
   public boolean applyTableCreationTime(long creationTime) {
-    return creationTime
-        < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(minAgeThresholdHours);
+    long st = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(minAgeThresholdHours);
+    return creationTime < st;
   }
 
   public boolean applyTableDirectoryPath(String tableDirectoryName) {
