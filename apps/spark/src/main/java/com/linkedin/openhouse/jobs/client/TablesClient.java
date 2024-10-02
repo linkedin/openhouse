@@ -95,6 +95,10 @@ public class TablesClient {
         null);
   }
 
+  /**
+   * Scans all databases and tables in the databases, converts Tables Service responses to {@link
+   * TableMetadata}, filters out using {@link DatabaseTableFilter}, and returns as a list.
+   */
   public List<TableMetadata> getTableMetadataList() {
     List<TableMetadata> tableMetadataList = new ArrayList<>();
     for (String dbName : getDatabases()) {

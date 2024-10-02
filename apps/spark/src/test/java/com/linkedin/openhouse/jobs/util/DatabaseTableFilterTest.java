@@ -60,7 +60,7 @@ public class DatabaseTableFilterTest {
             TableMetadata.builder()
                 .dbName("db")
                 .tableName("table")
-                .creationTimeMs(System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1))
+                .creationTimeMs(System.currentTimeMillis() - TimeUnit.HOURS.toMillis(2))
                 .build()));
   }
 }

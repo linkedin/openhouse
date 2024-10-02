@@ -59,7 +59,9 @@ public class OperationTasksBuilder {
     return taskList;
   }
 
-  // Method to build a task list based on the operation task type
+  /**
+   * Fetches tables and associated metadata from Tables Service, and builds the operation task list.
+   */
   public List<OperationTask<?>> buildOperationTaskList(JobConf.JobTypeEnum jobType) {
     switch (jobType) {
       case DATA_COMPACTION:
