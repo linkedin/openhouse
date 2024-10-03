@@ -36,12 +36,13 @@ public abstract class TableOperationTask extends OperationTask<TableMetadata> {
   }
 
   protected Map<String, String> getExecutionProperties() {
+    final String propertyPrefix = MAINTENANCE_PROPERTY_PREFIX + getType().name() + ".";
     return tablesClient.getTableProperties(getMetadata()).entrySet().stream()
-        .filter(e -> e.getKey().startsWith(MAINTENANCE_PROPERTY_PREFIX))
+        .filter(e -> e.getKey().startsWith(propertyPrefix))
         .map(
             e ->
                 new AbstractMap.SimpleEntry<>(
-                    e.getKey().substring(MAINTENANCE_PROPERTY_PREFIX.length()), e.getValue()))
+                    e.getKey().substring(propertyPrefix.length()), e.getValue()))
         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 }
