@@ -1,7 +1,7 @@
 jobs:
   defaults:
     &apps-defaults
-      spark-properties: {
+      spark-properties: &spark-defaults {
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions",
         "spark.sql.catalog.openhouse": "org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.openhouse.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog",
@@ -9,7 +9,7 @@ jobs:
         "spark.sql.catalog.openhouse.cluster": "LocalHadoopCluster",
         "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0",
         "spark.sql.autoBroadcastJoinThreshold": "-1",
-        "spark.driver.memory": "2g"
+        "spark.driver.memory": "1g"
       }
       jar-path: local:/opt/spark/openhouse-spark-apps_2.12-latest-all.jar
       dependencies:
@@ -45,6 +45,9 @@ jobs:
         class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
         args: ["--trashDir", ".trash"]
         <<: *apps-defaults
+        spark-properties:
+          <<: *spark-defaults
+          "spark.driver.memory": "2g"
       - type: STAGED_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.StagedFilesDeletionSparkApp
         args: ["--trashDir", ".trash", "--daysOld", "10", "--recursive", "true"]

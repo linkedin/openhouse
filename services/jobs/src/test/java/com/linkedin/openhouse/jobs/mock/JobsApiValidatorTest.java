@@ -2,7 +2,6 @@ package com.linkedin.openhouse.jobs.mock;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.validator.JobsApiValidator;
 import com.linkedin.openhouse.jobs.model.JobConf;
@@ -31,9 +30,9 @@ class JobsApiValidatorTest {
         .build();
   }
 
-  private CreateJobRequestBody makeJobRequestBodyFromJobNameJobConf(String jobName, String memory) {
+  private CreateJobRequestBody makeJobRequestBodyFromJobNameJobConf(String jobName) {
     Map<String, String> executionConf = new HashMap<>();
-    executionConf.put("memory", memory);
+    executionConf.put("spark.driver.memory", "10G");
     return CreateJobRequestBody.builder()
         .jobName(jobName)
         .clusterId("clusterId")
@@ -61,59 +60,8 @@ class JobsApiValidatorTest {
   }
 
   @Test
-  public void testValidMemoryFormatInJobRequestBody() {
+  public void testValidExecutionConfInJobRequestBody() {
     assertDoesNotThrow(
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "4G")));
-
-    assertDoesNotThrow(
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "10G")));
-
-    assertDoesNotThrow(
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "256M")));
-  }
-
-  @Test
-  public void testInValidMemoryFormatInJobRequestBody() {
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "10MG")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "-10G")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "10P")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "0G")));
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            jobsApiValidator.validateCreateJob(
-                makeJobRequestBodyFromJobNameJobConf("job-name", "G")));
+        () -> jobsApiValidator.validateCreateJob(makeJobRequestBodyFromJobNameJobConf("job-name")));
   }
 }

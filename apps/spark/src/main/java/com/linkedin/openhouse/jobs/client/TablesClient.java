@@ -95,6 +95,11 @@ public class TablesClient {
         null);
   }
 
+  public Map<String, String> getTableProperties(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return response == null ? Collections.emptyMap() : response.getTableProperties();
+  }
+
   /**
    * Scans all databases and tables in the databases, converts Tables Service responses to {@link
    * TableMetadata}, filters out using {@link DatabaseTableFilter}, and returns as a list.
