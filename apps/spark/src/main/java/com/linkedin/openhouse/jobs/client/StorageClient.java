@@ -30,7 +30,11 @@ public class StorageClient {
       for (FileStatus fileStatus : fs().listStatus(dbPath)) {
         if (fileStatus.isDirectory()) {
           // Get the owner of data subdirectory which user directly write into
-          subdirectories.add(DirectoryMetadata.of(fileStatus.getPath(), getOwner(fileStatus)));
+          subdirectories.add(
+              DirectoryMetadata.builder()
+                  .path(fileStatus.getPath())
+                  .creator(getOwner(fileStatus))
+                  .build());
         }
       }
     } catch (Exception e) {

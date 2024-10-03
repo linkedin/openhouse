@@ -6,6 +6,7 @@ import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.commons.lang.StringUtils;
@@ -26,13 +27,12 @@ public class TableRetentionTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
-    TableMetadata tableMetadata = getMetadata();
-    RetentionConfig config = tablesClient.getTableRetention(tableMetadata).get();
-    String columnName = config.getColumnName();
+    RetentionConfig config = metadata.getRetentionConfig();
+    String columnName = Objects.requireNonNull(config).getColumnName();
     List<String> jobArgs =
         Stream.of(
                 "--tableName",
-                tableMetadata.fqtn(),
+                metadata.fqtn(),
                 "--columnName",
                 columnName,
                 "--granularity",
@@ -50,6 +50,6 @@ public class TableRetentionTask extends TableOperationTask {
 
   @Override
   protected boolean shouldRun() {
-    return tablesClient.canRunRetention(getMetadata());
+    return metadata.isPrimary() && metadata.getRetentionConfig() != null;
   }
 }

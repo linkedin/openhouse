@@ -21,7 +21,6 @@ import org.springframework.retry.support.RetryTemplate;
 public class TablesClientFactory {
   private final String basePath;
   private final DatabaseTableFilter filter;
-  private final int cutOffHours;
   private final @Nullable String token;
   protected final FsStorageProvider fsStorageProvider;
 
@@ -43,12 +42,12 @@ public class TablesClientFactory {
 
   public TablesClient create(RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi) {
     return new TablesClient(
-        retryTemplate, tableApi, dbApi, filter, cutOffHours, new StorageClient(fsStorageProvider));
+        retryTemplate, tableApi, dbApi, filter, new StorageClient(fsStorageProvider));
   }
 
   @VisibleForTesting
   public TablesClient create(
       RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi, StorageClient client) {
-    return new TablesClient(retryTemplate, tableApi, dbApi, filter, cutOffHours, client);
+    return new TablesClient(retryTemplate, tableApi, dbApi, filter, client);
   }
 }

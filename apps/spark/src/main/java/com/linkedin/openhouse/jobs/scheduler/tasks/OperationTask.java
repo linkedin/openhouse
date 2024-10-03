@@ -53,10 +53,6 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   public abstract JobConf.JobTypeEnum getType();
 
-  public T getMetadata() {
-    return metadata;
-  }
-
   protected abstract List<String> getArgs();
 
   protected abstract boolean shouldRun();
@@ -76,7 +72,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
             (metadata.getClass().equals(TableMetadata.class)
                 ? AttributeKey.stringKey(AppConstants.TABLE_NAME)
                 : AttributeKey.stringKey(AppConstants.DATABASE_NAME)),
-            metadata.getValue());
+            metadata.getEntityName());
     try {
       OtelConfig.executeWithStats(
           () -> {
@@ -197,5 +193,11 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   protected boolean jobFinished() {
     return jobsClient.getState(jobId).map(JobState::isTerminal).orElse(false);
+  }
+
+  @Override
+  public String toString() {
+    return String.format(
+        "%s(jobId: %s, metadata: %s)", getClass().getSimpleName(), jobId, metadata);
   }
 }

@@ -1,35 +1,25 @@
 package com.linkedin.openhouse.jobs.util;
 
-import lombok.Builder;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.ToString;
+import lombok.experimental.SuperBuilder;
 import org.apache.hadoop.fs.Path;
 
 /** Directory metadata, including path and creator. */
+@Getter
+@SuperBuilder
 @EqualsAndHashCode(callSuper = true)
+@ToString
 public class DirectoryMetadata extends Metadata {
-  Path path;
-
-  @Builder
-  public DirectoryMetadata(String creator, Path directoryPath) {
-    super(creator);
-    this.path = directoryPath;
-  }
-
-  public static DirectoryMetadata of(Path directoryPath, String creator) {
-    return new DirectoryMetadata(creator, directoryPath);
-  }
+  private Path path;
 
   @Override
-  public String toString() {
-    return String.format("%s(path: %s, creator: %s)", getClass().getSimpleName(), path, creator);
+  public String getEntityName() {
+    return getPath().toString();
   }
 
-  @Override
-  public String getValue() {
-    return path.toString();
-  }
-
-  public String getDirectoryName() {
+  public String getBaseName() {
     return path.getName();
   }
 }

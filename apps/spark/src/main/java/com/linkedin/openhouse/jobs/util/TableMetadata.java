@@ -1,34 +1,31 @@
 package com.linkedin.openhouse.jobs.util;
 
-import lombok.Builder;
+import javax.annotation.Nullable;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.ToString;
+import lombok.experimental.SuperBuilder;
 
 /** Table metadata, including database name, table name and owner. */
 @Getter
+@SuperBuilder
 @EqualsAndHashCode(callSuper = true)
+@ToString
 public class TableMetadata extends Metadata {
-  String dbName;
-  String tableName;
-
-  @Builder
-  public TableMetadata(String creator, String dbName, String tableName) {
-    super(creator);
-    this.dbName = dbName;
-    this.tableName = tableName;
-  }
-
-  @Override
-  public String toString() {
-    return String.format("dbName: %s, tableName: %s, creator: %s", dbName, tableName, creator);
-  }
+  protected String dbName;
+  protected String tableName;
+  protected long creationTimeMs;
+  protected boolean isPrimary;
+  protected boolean isTimePartitioned;
+  protected boolean isClustered;
+  protected @Nullable RetentionConfig retentionConfig;
 
   public String fqtn() {
     return String.format("%s.%s", dbName, tableName);
   }
 
   @Override
-  public String getValue() {
+  public String getEntityName() {
     return fqtn();
   }
 }

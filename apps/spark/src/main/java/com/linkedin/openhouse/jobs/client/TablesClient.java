@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.jobs.client;
 
+import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
@@ -18,13 +20,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
-import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
@@ -43,7 +44,6 @@ public class TablesClient {
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseFilter;
-  private final int cutOffHours;
   @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
@@ -62,7 +62,7 @@ public class TablesClient {
       return Optional.empty();
     }
     Policies policies = response.getPolicies();
-    String columnName = "";
+    String columnName;
     String columnPattern = "";
     if (response.getTimePartitioning() != null) {
       columnName = response.getTimePartitioning().getColumnName();
@@ -81,116 +81,29 @@ public class TablesClient {
   }
 
   protected GetTableResponseBody getTable(TableMetadata tableMetadata) {
+    return getTable(tableMetadata.getDbName(), tableMetadata.getTableName());
+  }
+
+  protected GetTableResponseBody getTable(String dbName, String tableName) {
     return RetryUtil.executeWithRetry(
         retryTemplate,
         (RetryCallback<GetTableResponseBody, Exception>)
             context ->
                 tableApi
-                    .getTableV1(tableMetadata.getDbName(), tableMetadata.getTableName())
+                    .getTableV1(dbName, tableName)
                     .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
         null);
   }
 
   /**
-   * Checks if data layout strategies can be generated on the input table.
-   *
-   * @param tableMetadata table metadata
-   * @return true if data layout strategies can be generated on the table, false otherwise
+   * Scans all databases and tables in the databases, converts Tables Service responses to {@link
+   * TableMetadata}, filters out using {@link DatabaseTableFilter}, and returns as a list.
    */
-  public boolean canRunDataLayoutStrategyGeneration(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && checkCreationTimeEligibility(response) && isPrimaryTable(response);
-  }
-
-  /**
-   * Checks if data compaction can be executed on the input table.
-   *
-   * @param tableMetadata table metadata
-   * @return true if the table can run data compaction, false otherwise
-   */
-  public boolean canRunDataCompaction(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && checkCreationTimeEligibility(response) && isPrimaryTable(response);
-  }
-
-  /**
-   * Checks if expire snapshots can be executed on the input table.
-   *
-   * @param tableMetadata table metadata
-   * @return true if the table can expire snapshots, false otherwise
-   */
-  public boolean canExpireSnapshots(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && checkCreationTimeEligibility(response) && isPrimaryTable(response);
-  }
-
-  /**
-   * Checks if retention can be executed on the input table.
-   *
-   * @param tableMetadata table metadata
-   * @return true if the table can run retention, false otherwise
-   */
-  public boolean canRunRetention(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-
-    if (response == null || !checkCreationTimeEligibility(response) || !isPrimaryTable(response)) {
-      return false;
-    }
-    Optional<RetentionConfig> config = getTableRetention(response);
-    return config.isPresent();
-  }
-
-  /**
-   * Checks if stats collection can be executed on the input table.
-   *
-   * @param tableMetadata table metadata
-   * @return true if the stats collection can happen, false otherwise
-   */
-  public boolean canRunTableStatsCollection(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && checkCreationTimeEligibility(response);
-  }
-
-  /**
-   * Checks if staged deletion task can be run on given table
-   *
-   * @param tableMetadata
-   * @return
-   */
-  public boolean canRunStagedDataDeletion(@NonNull TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && checkCreationTimeEligibility(response);
-  }
-
-  /**
-   * Checks if orphan files deletion task can be run on given table
-   *
-   * @param tableMetadata
-   * @return
-   */
-  public boolean canRunOrphanFileDeletion(@NonNull TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response != null && checkCreationTimeEligibility(response);
-  }
-
-  private boolean checkCreationTimeEligibility(@NonNull GetTableResponseBody response) {
-    if (response.getCreationTime() == null) {
-      // no creationTime assigned to table, by default we pick these tables for maintenance
-      return true;
-    }
-    return response.getCreationTime()
-        < System.currentTimeMillis() - TimeUnit.HOURS.toMillis(cutOffHours);
-  }
-
-  private boolean isPrimaryTable(@NonNull GetTableResponseBody response) {
-    return GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE == response.getTableType();
-  }
-
-  public List<TableMetadata> getTables() {
-    List<TableMetadata> ret = new ArrayList<>();
+  public List<TableMetadata> getTableMetadataList() {
+    List<TableMetadata> tableMetadataList = new ArrayList<>();
     for (String dbName : getDatabases()) {
       if (databaseFilter.applyDatabaseName(dbName)) {
-        ret.addAll(
+        tableMetadataList.addAll(
             RetryUtil.executeWithRetry(
                 retryTemplate,
                 (RetryCallback<List<TableMetadata>, Exception>)
@@ -199,12 +112,15 @@ public class TablesClient {
                           tableApi
                               .searchTablesV1(dbName)
                               .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+                      if (response == null) {
+                        return Collections.emptyList();
+                      }
                       return Optional.ofNullable(response.getResults())
                           .map(Collection::stream)
                           .orElseGet(Stream::empty)
                           .flatMap(
-                              result ->
-                                  Optional.ofNullable(mapTableResponseToTableMetadata(result))
+                              shallowResponseBody ->
+                                  mapTableResponseToTableMetadata(shallowResponseBody)
                                       .filter(databaseFilter::apply)
                                       .map(Stream::of)
                                       .orElseGet(Stream::empty))
@@ -213,7 +129,7 @@ public class TablesClient {
                 Collections.emptyList()));
       }
     }
-    return ret;
+    return tableMetadataList;
   }
 
   /**
@@ -234,6 +150,9 @@ public class TablesClient {
                         tableApi
                             .searchTablesV1(dbName)
                             .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+                    if (response == null) {
+                      return Collections.emptySet();
+                    }
                     return Optional.ofNullable(response.getResults())
                         .map(Collection::stream)
                         .orElseGet(Stream::empty)
@@ -260,7 +179,7 @@ public class TablesClient {
     return allTableDirectories.stream()
         .filter(
             directoryMetadata ->
-                !registeredTableDirectories.contains(directoryMetadata.getDirectoryName()))
+                !registeredTableDirectories.contains(directoryMetadata.getBaseName()))
         .collect(Collectors.toList());
   }
 
@@ -300,26 +219,44 @@ public class TablesClient {
         Collections.emptyList());
   }
 
-  protected TableMetadata mapTableResponseToTableMetadata(GetTableResponseBody responseBody) {
-    TableMetadata metadata =
-        TableMetadata.builder()
-            .dbName(responseBody.getDatabaseId())
-            .tableName(responseBody.getTableId())
-            .build();
-
-    GetTableResponseBody tableResponseBody = getTable(metadata);
+  protected Optional<TableMetadata> mapTableResponseToTableMetadata(
+      GetTableResponseBody shallowResponseBody) {
+    GetTableResponseBody tableResponseBody =
+        getTable(shallowResponseBody.getDatabaseId(), shallowResponseBody.getTableId());
 
     if (tableResponseBody == null) {
-      log.error("Error while fetching metadata for table: {}", metadata);
-      return null;
+      log.error(
+          "Error while fetching metadata for table: {}.{}",
+          shallowResponseBody.getDatabaseId(),
+          shallowResponseBody.getTableCreator());
+      return Optional.empty();
     }
 
-    String creator = tableResponseBody.getTableCreator();
-    return TableMetadata.builder()
-        .creator(creator)
-        .dbName(responseBody.getDatabaseId())
-        .tableName(responseBody.getTableId())
-        .build();
+    TableMetadata.TableMetadataBuilder<?, ?> builder =
+        TableMetadata.builder()
+            .creator(tableResponseBody.getTableCreator())
+            .dbName(tableResponseBody.getDatabaseId())
+            .tableName(tableResponseBody.getTableId())
+            .isPrimary(
+                tableResponseBody.getTableType()
+                    == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
+            .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
+            .isClustered(tableResponseBody.getClustering() != null)
+            .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
+    if (tableResponseBody.getCreationTime() != null) {
+      builder.creationTimeMs(tableResponseBody.getCreationTime());
+    }
+    return Optional.of(builder.build());
+  }
+
+  private List<DataLayoutStrategy> getDataLayoutStrategies(GetTableResponseBody tableResponseBody) {
+    Map<String, String> tableProps = tableResponseBody.getTableProperties();
+    if (tableProps == null
+        || !tableProps.containsKey(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY)) {
+      return Collections.emptyList();
+    }
+    return StrategiesDaoTableProps.deserialize(
+        tableProps.get(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY));
   }
 
   private String mapTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {

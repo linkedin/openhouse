@@ -25,15 +25,11 @@ public class TableStatsCollectionTask extends TableOperationTask {
 
   @Override
   protected List<String> getArgs() {
-    TableMetadata tableMetadata = getMetadata();
-    List<String> jobArgs =
-        Stream.of("--tableName", tableMetadata.fqtn()).collect(Collectors.toList());
-
-    return jobArgs;
+    return Stream.of("--tableName", metadata.fqtn()).collect(Collectors.toList());
   }
 
   @Override
   protected boolean shouldRun() {
-    return tablesClient.canRunTableStatsCollection(getMetadata());
+    return true;
   }
 }
