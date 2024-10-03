@@ -28,7 +28,7 @@ public class TableDataLayoutStrategyExecutionTask
     return Arrays.asList(
         "--tableName",
         metadata.fqtn(),
-        "--config",
+        "--strategy",
         StrategiesDaoTableProps.serialize(metadata.getDataLayoutStrategy()));
   }
 

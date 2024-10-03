@@ -284,7 +284,7 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
-            .longOpt("cutoffHours")
+            .longOpt("tableMinAgeThresholdHours")
             .desc("Time in hour for filtering older tables, defaults to 72")
             .build());
     options.addOption(
