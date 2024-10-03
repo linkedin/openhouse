@@ -460,6 +460,7 @@ public class TablesClientTest {
     Mockito.when(responseBody.getTimePartitioning()).thenReturn(null);
     Mockito.when(responseBody.getTableType())
         .thenReturn(GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE);
+    Mockito.when(responseBody.getTableCreator()).thenReturn("");
     if (hasClustering) {
       Mockito.when(responseBody.getClustering())
           .thenReturn(Collections.singletonList(new ClusteringColumn().columnName("col")));
@@ -608,6 +609,7 @@ public class TablesClientTest {
     Mockito.when(responseBody.getDatabaseId()).thenReturn(dbName);
     Mockito.when(responseBody.getTimePartitioning()).thenReturn(partitionSpec);
     Mockito.when(responseBody.getPolicies()).thenReturn(policies);
+    Mockito.when(responseBody.getTableCreator()).thenReturn("");
     return responseBody;
   }
 

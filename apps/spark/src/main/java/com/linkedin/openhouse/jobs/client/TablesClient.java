@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -272,7 +273,7 @@ public class TablesClient {
 
     TableMetadata.TableMetadataBuilder<?, ?> builder =
         TableMetadata.builder()
-            .creator(tableResponseBody.getTableCreator())
+            .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
             .dbName(tableResponseBody.getDatabaseId())
             .tableName(tableResponseBody.getTableId())
             .isPrimary(
@@ -281,9 +282,7 @@ public class TablesClient {
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
-    if (tableResponseBody.getCreationTime() != null) {
-      builder.creationTimeMs(tableResponseBody.getCreationTime());
-    }
+    builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     return Optional.of(builder.build());
   }
 
@@ -302,7 +301,7 @@ public class TablesClient {
 
     TableDataLayoutMetadata.TableDataLayoutMetadataBuilder<?, ?> builder =
         TableDataLayoutMetadata.builder()
-            .creator(tableResponseBody.getTableCreator())
+            .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
             .dbName(tableResponseBody.getDatabaseId())
             .tableName(tableResponseBody.getTableId())
             .isPrimary(
@@ -311,9 +310,7 @@ public class TablesClient {
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
-    if (tableResponseBody.getCreationTime() != null) {
-      builder.creationTimeMs(tableResponseBody.getCreationTime());
-    }
+    builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     List<TableDataLayoutMetadata> result = new ArrayList<>();
     for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody)) {
       result.add(builder.dataLayoutStrategy(strategy).build());

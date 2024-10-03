@@ -9,7 +9,7 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @SuperBuilder
 @EqualsAndHashCode(callSuper = true)
-@ToString
+@ToString(callSuper = true)
 public class TableDataLayoutMetadata extends TableMetadata {
   protected DataLayoutStrategy dataLayoutStrategy;
 }
