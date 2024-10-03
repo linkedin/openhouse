@@ -34,7 +34,7 @@ public class JobsRegistry {
     }
     JobLaunchConf extendedRequestConf = createDefaultLaunchConf(requestConf.getJobType());
     if (MapUtils.isNotEmpty(requestConf.getExecutionConf())) {
-      populateSparkProperties(
+      populateAllSparkProperties(
           requestConf.getExecutionConf(), extendedRequestConf.getSparkProperties());
     }
     // required arguments
@@ -57,7 +57,7 @@ public class JobsRegistry {
     return SerializationUtils.clone(jobLaunchDefaultConfByType.get(type.name()));
   }
 
-  private void populateSparkProperties(
+  private void populateAllSparkProperties(
       @NonNull Map<String, String> executionConf, Map<String, String> sparkProperties) {
     /*
     if properties has authTokenPath, read and set authToken as spark.sql.catalog.openhouse.auth-token
