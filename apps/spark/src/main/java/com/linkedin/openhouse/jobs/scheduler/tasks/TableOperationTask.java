@@ -25,19 +25,17 @@ public abstract class TableOperationTask extends OperationTask<TableMetadata> {
 
   protected boolean launchJob() {
     String jobName =
-        String.format(
-            "%s_%s_%s", getType(), getMetadata().getDbName(), getMetadata().getTableName());
+        String.format("%s_%s_%s", getType(), metadata.getDbName(), metadata.getTableName());
     jobId =
         jobsClient
-            .launch(
-                jobName, getType(), getMetadata().getCreator(), getExecutionProperties(), getArgs())
+            .launch(jobName, getType(), metadata.getCreator(), getExecutionProperties(), getArgs())
             .orElse(null);
     return jobId != null;
   }
 
   protected Map<String, String> getExecutionProperties() {
     final String propertyPrefix = MAINTENANCE_PROPERTY_PREFIX + getType().name() + ".";
-    return tablesClient.getTableProperties(getMetadata()).entrySet().stream()
+    return tablesClient.getTableProperties(metadata).entrySet().stream()
         .filter(e -> e.getKey().startsWith(propertyPrefix))
         .map(
             e ->
