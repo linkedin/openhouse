@@ -27,6 +27,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @AllArgsConstructor
 public class OperationTasksBuilder {
+  private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.5;
+  private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.5;
+  private static final double MAX_COST_BUDGET_GB_HOURS_DEFAULT = 1000.0;
+  private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+
   @Getter(AccessLevel.NONE)
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 
@@ -53,10 +58,13 @@ public class OperationTasksBuilder {
         tableDataLayoutMetadataList.stream()
             .map(TableDataLayoutMetadata::getDataLayoutStrategy)
             .collect(Collectors.toList());
-    DataLayoutStrategyScorer scorer = new SimpleWeightedSumDataLayoutStrategyScorer(0.5, 0.5);
+    DataLayoutStrategyScorer scorer =
+        new SimpleWeightedSumDataLayoutStrategyScorer(
+            COMPACTION_GAIN_WEIGHT_DEFAULT, COMPUTE_COST_WEIGHT_DEFAULT);
     List<ScoredDataLayoutStrategy> scoredStrategies = scorer.scoreDataLayoutStrategies(strategies);
     DataLayoutCandidateSelector candidateSelector =
-        new GreedyMaxBudgetCandidateSelector(1000.0, 10);
+        new GreedyMaxBudgetCandidateSelector(
+            MAX_COST_BUDGET_GB_HOURS_DEFAULT, MAX_STRATEGIES_COUNT_DEFAULT);
     List<Integer> selectedStrategyIndices = candidateSelector.select(scoredStrategies);
     log.info("Selected {} strategies", selectedStrategyIndices.size());
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
