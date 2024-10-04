@@ -16,6 +16,7 @@ import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import java.time.Duration;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -28,6 +29,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
@@ -41,6 +43,7 @@ import org.springframework.retry.support.RetryTemplate;
 @Slf4j
 @AllArgsConstructor
 public class TablesClient {
+  private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
   private static final int REQUEST_TIMEOUT_SECONDS = 180;
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
@@ -69,7 +72,8 @@ public class TablesClient {
     if (response.getTimePartitioning() != null) {
       columnName = response.getTimePartitioning().getColumnName();
     } else {
-      columnName = policies.getRetention().getColumnPattern().getColumnName();
+      columnName =
+          Objects.requireNonNull(policies.getRetention().getColumnPattern()).getColumnName();
       columnPattern = policies.getRetention().getColumnPattern().getPattern();
     }
 
@@ -95,11 +99,6 @@ public class TablesClient {
                     .getTableV1(dbName, tableName)
                     .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
         null);
-  }
-
-  public Map<String, String> getTableProperties(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response == null ? Collections.emptyMap() : response.getTableProperties();
   }
 
   /**
@@ -274,14 +273,15 @@ public class TablesClient {
     TableMetadata.TableMetadataBuilder<?, ?> builder =
         TableMetadata.builder()
             .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
-            .dbName(tableResponseBody.getDatabaseId())
-            .tableName(tableResponseBody.getTableId())
+            .dbName(Objects.requireNonNull(tableResponseBody.getDatabaseId()))
+            .tableName(Objects.requireNonNull(tableResponseBody.getTableId()))
             .isPrimary(
                 tableResponseBody.getTableType()
                     == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
-            .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
+            .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
+            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
     builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     return Optional.of(builder.build());
   }
@@ -302,20 +302,35 @@ public class TablesClient {
     TableDataLayoutMetadata.TableDataLayoutMetadataBuilder<?, ?> builder =
         TableDataLayoutMetadata.builder()
             .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
-            .dbName(tableResponseBody.getDatabaseId())
-            .tableName(tableResponseBody.getTableId())
+            .dbName(Objects.requireNonNull(tableResponseBody.getDatabaseId()))
+            .tableName(Objects.requireNonNull(tableResponseBody.getTableId()))
             .isPrimary(
                 tableResponseBody.getTableType()
                     == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
-            .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
+            .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
+            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
     builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     List<TableDataLayoutMetadata> result = new ArrayList<>();
     for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody)) {
       result.add(builder.dataLayoutStrategy(strategy).build());
     }
     return result;
+  }
+
+  private @NonNull Map<String, String> getJobExecutionProperties(
+      GetTableResponseBody responseBody) {
+    if (responseBody.getTableProperties() == null) {
+      return Collections.emptyMap();
+    }
+    return responseBody.getTableProperties().entrySet().stream()
+        .filter(e -> e.getKey().startsWith(MAINTENANCE_PROPERTY_PREFIX))
+        .map(
+            e ->
+                new AbstractMap.SimpleEntry<>(
+                    e.getKey().substring(MAINTENANCE_PROPERTY_PREFIX.length()), e.getValue()))
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 
   private List<DataLayoutStrategy> getDataLayoutStrategies(GetTableResponseBody tableResponseBody) {
@@ -331,10 +346,10 @@ public class TablesClient {
   private String mapTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
     TableMetadata metadata =
         TableMetadata.builder()
-            .dbName(responseBody.getDatabaseId())
-            .tableName(responseBody.getTableId())
+            .dbName(Objects.requireNonNull(responseBody.getDatabaseId()))
+            .tableName(Objects.requireNonNull(responseBody.getTableId()))
             .build();
     String location = getTable(metadata).getTableLocation();
-    return new Path(location).getParent().getName();
+    return new Path(Objects.requireNonNull(location)).getParent().getName();
   }
 }

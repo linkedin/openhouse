@@ -16,8 +16,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public abstract class TableOperationTask<T extends TableMetadata> extends OperationTask<T> {
-  private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
-
   protected TableOperationTask(JobsClient jobsClient, TablesClient tablesClient, T tableMetadata) {
     super(jobsClient, tablesClient, tableMetadata);
   }
@@ -27,14 +25,15 @@ public abstract class TableOperationTask<T extends TableMetadata> extends Operat
         String.format("%s_%s_%s", getType(), metadata.getDbName(), metadata.getTableName());
     jobId =
         jobsClient
-            .launch(jobName, getType(), metadata.getCreator(), getExecutionProperties(), getArgs())
+            .launch(
+                jobName, getType(), metadata.getCreator(), getJobExecutionProperties(), getArgs())
             .orElse(null);
     return jobId != null;
   }
 
-  protected Map<String, String> getExecutionProperties() {
-    final String propertyPrefix = MAINTENANCE_PROPERTY_PREFIX + getType().name() + ".";
-    return tablesClient.getTableProperties(metadata).entrySet().stream()
+  private Map<String, String> getJobExecutionProperties() {
+    final String propertyPrefix = getType().name() + ".";
+    return metadata.getJobExecutionProperties().entrySet().stream()
         .filter(e -> e.getKey().startsWith(propertyPrefix))
         .map(
             e ->
