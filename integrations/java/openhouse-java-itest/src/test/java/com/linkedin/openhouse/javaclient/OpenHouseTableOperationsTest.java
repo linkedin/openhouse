@@ -247,4 +247,18 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertTrue(updatedPolicies.getColumnTags().containsKey("col1"));
     Assertions.assertEquals(tagHC, updatedPolicies.getColumnTags().get("col1").getTags());
   }
+
+  @Test
+  public void testPoliciesReplicationUpdate() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "updated.openhouse.policy",
+        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b','aa':'bb'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+  }
 }

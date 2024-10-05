@@ -170,7 +170,6 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
           CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
               metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY)));
     }
-
     return createUpdateTableRequestBody;
   }
 

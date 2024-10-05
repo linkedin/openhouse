@@ -103,8 +103,9 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     policy.mkString(",")
   }
 
-  override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): AnyRef = {
-    ctx.getText
+  override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): (String) = {
+    val replicationPolicy = ctx.STRING().map(_.getText)
+    replicationPolicy.mkString(":")
   }
 
   override def visitColumnRetentionPolicy(ctx: ColumnRetentionPolicyContext): (String, String) = {
