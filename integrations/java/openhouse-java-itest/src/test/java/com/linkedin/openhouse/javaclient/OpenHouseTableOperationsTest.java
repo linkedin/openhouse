@@ -249,16 +249,69 @@ public class OpenHouseTableOperationsTest {
   }
 
   @Test
-  public void testPoliciesReplicationUpdate() {
+  public void testPoliciesReplicationExistsButNoUpdate() {
     Map<String, String> props = new HashMap<>();
-    props.put(
-        "updated.openhouse.policy",
-        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b','aa':'bb'}}]}}");
+    props.put("policies", "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}]}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
     when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
     Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
     Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
+  }
+
+  @Test
+  public void testNoPoliciesReplicationButUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "updated.openhouse.policy",
+        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}, {\"config\":{'aa':'bb'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(1).getConfig().containsKey("aa"));
+  }
+
+  @Test
+  public void testPoliciesReplicationExistsUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put("policies", "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}]}}");
+    props.put(
+        "updated.openhouse.policy", "{\"replication\":{\"schedules\":[{\"config\":{'aa':'bb'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aa"));
+  }
+
+  @Test
+  public void testPoliciesReplicationMultipleExistsUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "policies",
+        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}, {\"config\":{'aa':'bb'}}]}}");
+    props.put(
+        "updated.openhouse.policy",
+        "{\"replication\":{\"schedules\":[{\"config\":{'aaa':'bbb'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aaa"));
   }
 }

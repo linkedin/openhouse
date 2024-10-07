@@ -211,6 +211,10 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       }
       policies.setColumnTags(patchUpdatedPolicy.getColumnTags());
     }
+    // Update replication config
+    if (patchUpdatedPolicy.getReplication() != null) {
+      policies.replication(patchUpdatedPolicy.getReplication());
+    }
     return policies;
   }
 

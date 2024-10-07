@@ -29,7 +29,7 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
 
   override def visitSetReplicationPolicy(ctx: SetReplicationPolicyContext): SetReplicationPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val replicationPolicies = typedVisit[String](ctx.replicationPolicy())
+    val replicationPolicies = typedVisit[Seq[String]](ctx.replicationPolicy())
     SetReplicationPolicy(tableName, replicationPolicies)
   }
 
@@ -93,14 +93,14 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     typedVisit[(String, Int)](ctx.duration())
   }
 
-  override def visitReplicationPolicy(ctx: ReplicationPolicyContext): (String) = {
-    typedVisit[(String)](ctx.tableReplicationPolicy())
+  override def visitReplicationPolicy(ctx: ReplicationPolicyContext): (Seq[String]) = {
+    typedVisit[(Seq[String])](ctx.tableReplicationPolicy())
   }
 
-  override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): (String) = {
+  override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): (Seq[String]) = {
     ctx.replicationPolicyClause().forEach(ele => print(ele))
-    val policy = ctx.replicationPolicyClause().map(ele => typedVisit[String](ele))
-    policy.mkString(",")
+    val policy = ctx.replicationPolicyClause().map(ele => typedVisit[String](ele)).toSeq
+    policy
   }
 
   override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): (String) = {
