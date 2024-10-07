@@ -1,12 +1,21 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
+import com.linkedin.openhouse.datalayout.ranker.DataLayoutCandidateSelector;
+import com.linkedin.openhouse.datalayout.ranker.DataLayoutStrategyScorer;
+import com.linkedin.openhouse.datalayout.ranker.GreedyMaxBudgetCandidateSelector;
+import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrategyScorer;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.datalayout.strategy.ScoredDataLayoutStrategy;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
+import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -19,6 +28,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @AllArgsConstructor
 public class OperationTasksBuilder {
+  private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.3;
+  private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
+  private static final double MAX_COST_BUDGET_GB_HOURS_DEFAULT = 1000.0;
+  private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+
   @Getter(AccessLevel.NONE)
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 
@@ -35,6 +49,51 @@ public class OperationTasksBuilder {
     List<DirectoryMetadata> directoryMetadataList = tablesClient.getOrphanTableDirectories();
     log.info("Fetched metadata for {} directories", directoryMetadataList.size());
     return processMetadataList(directoryMetadataList, jobType);
+  }
+
+  private List<OperationTask<?>> prepareDataLayoutOperationTaskList(
+      JobConf.JobTypeEnum jobType, Meter meter) {
+    List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
+        tablesClient.getTableDataLayoutMetadataList();
+    log.info("Fetched metadata for {} data layout strategies", tableDataLayoutMetadataList.size());
+    List<DataLayoutStrategy> strategies =
+        tableDataLayoutMetadataList.stream()
+            .map(TableDataLayoutMetadata::getDataLayoutStrategy)
+            .collect(Collectors.toList());
+    DataLayoutStrategyScorer scorer =
+        new SimpleWeightedSumDataLayoutStrategyScorer(
+            COMPACTION_GAIN_WEIGHT_DEFAULT, COMPUTE_COST_WEIGHT_DEFAULT);
+    List<ScoredDataLayoutStrategy> scoredStrategies = scorer.scoreDataLayoutStrategies(strategies);
+    DataLayoutCandidateSelector candidateSelector =
+        new GreedyMaxBudgetCandidateSelector(
+            MAX_COST_BUDGET_GB_HOURS_DEFAULT, MAX_STRATEGIES_COUNT_DEFAULT);
+    List<Integer> selectedStrategyIndices = candidateSelector.select(scoredStrategies);
+    log.info("Selected {} strategies", selectedStrategyIndices.size());
+    List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
+        selectedStrategyIndices.stream()
+            .map(tableDataLayoutMetadataList::get)
+            .collect(Collectors.toList());
+    double totalComputeCost =
+        selectedTableDataLayoutMetadataList.stream()
+            .map(m -> m.getDataLayoutStrategy().getCost())
+            .reduce(0.0, Double::sum);
+    double totalReducedFileCount =
+        selectedTableDataLayoutMetadataList.stream()
+            .map(m -> m.getDataLayoutStrategy().getGain())
+            .reduce(0.0, Double::sum);
+    log.info(
+        "Total estimated compute cost: {}, total estimated reduced file count: {}",
+        totalComputeCost,
+        totalReducedFileCount);
+    meter
+        .counterBuilder("data_layout_optimization_estimated_compute_cost")
+        .build()
+        .add((long) totalComputeCost);
+    meter
+        .counterBuilder("data_layout_optimization_estimated_reduced_file_count")
+        .build()
+        .add((long) totalReducedFileCount);
+    return processMetadataList(selectedTableDataLayoutMetadataList, jobType);
   }
 
   private List<OperationTask<?>> processMetadataList(
@@ -62,7 +121,7 @@ public class OperationTasksBuilder {
   /**
    * Fetches tables and associated metadata from Tables Service, and builds the operation task list.
    */
-  public List<OperationTask<?>> buildOperationTaskList(JobConf.JobTypeEnum jobType) {
+  public List<OperationTask<?>> buildOperationTaskList(JobConf.JobTypeEnum jobType, Meter meter) {
     switch (jobType) {
       case DATA_COMPACTION:
       case NO_OP:
@@ -74,6 +133,8 @@ public class OperationTasksBuilder {
       case STAGED_FILES_DELETION:
       case DATA_LAYOUT_STRATEGY_GENERATION:
         return prepareTableOperationTaskList(jobType);
+      case DATA_LAYOUT_STRATEGY_EXECUTION:
+        return prepareDataLayoutOperationTaskList(jobType, meter);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType);
       default:

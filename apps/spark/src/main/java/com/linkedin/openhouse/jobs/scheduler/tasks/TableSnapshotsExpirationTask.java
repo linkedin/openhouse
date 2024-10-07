@@ -13,7 +13,7 @@ import java.util.List;
  * @see <a href="https://iceberg.apache.org/docs/latest/maintenance/#expire-snapshots">Expire
  *     snapshots</a>
  */
-public class TableSnapshotsExpirationTask extends TableOperationTask {
+public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
 
   protected TableSnapshotsExpirationTask(

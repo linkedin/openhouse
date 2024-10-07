@@ -6,6 +6,7 @@ import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
+import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
@@ -15,17 +16,20 @@ import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import java.time.Duration;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
@@ -39,6 +43,7 @@ import org.springframework.retry.support.RetryTemplate;
 @Slf4j
 @AllArgsConstructor
 public class TablesClient {
+  private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
   private static final int REQUEST_TIMEOUT_SECONDS = 180;
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
@@ -67,7 +72,8 @@ public class TablesClient {
     if (response.getTimePartitioning() != null) {
       columnName = response.getTimePartitioning().getColumnName();
     } else {
-      columnName = policies.getRetention().getColumnPattern().getColumnName();
+      columnName =
+          Objects.requireNonNull(policies.getRetention().getColumnPattern()).getColumnName();
       columnPattern = policies.getRetention().getColumnPattern().getPattern();
     }
 
@@ -93,11 +99,6 @@ public class TablesClient {
                     .getTableV1(dbName, tableName)
                     .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
         null);
-  }
-
-  public Map<String, String> getTableProperties(TableMetadata tableMetadata) {
-    GetTableResponseBody response = getTable(tableMetadata);
-    return response == null ? Collections.emptyMap() : response.getTableProperties();
   }
 
   /**
@@ -135,6 +136,38 @@ public class TablesClient {
       }
     }
     return tableMetadataList;
+  }
+
+  public List<TableDataLayoutMetadata> getTableDataLayoutMetadataList() {
+    List<TableDataLayoutMetadata> tableDataLayoutMetadataList = new ArrayList<>();
+    for (String dbName : getDatabases()) {
+      if (databaseFilter.applyDatabaseName(dbName)) {
+        tableDataLayoutMetadataList.addAll(
+            RetryUtil.executeWithRetry(
+                retryTemplate,
+                (RetryCallback<List<TableDataLayoutMetadata>, Exception>)
+                    context -> {
+                      GetAllTablesResponseBody response =
+                          tableApi
+                              .searchTablesV1(dbName)
+                              .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+                      if (response == null) {
+                        return Collections.emptyList();
+                      }
+                      return Optional.ofNullable(response.getResults())
+                          .map(Collection::stream)
+                          .orElseGet(Stream::empty)
+                          .flatMap(
+                              shallowResponseBody ->
+                                  mapTableResponseToTableDataLayoutMetadataList(shallowResponseBody)
+                                      .stream()
+                                      .filter(databaseFilter::apply))
+                          .collect(Collectors.toList());
+                    },
+                Collections.emptyList()));
+      }
+    }
+    return tableDataLayoutMetadataList;
   }
 
   /**
@@ -239,19 +272,65 @@ public class TablesClient {
 
     TableMetadata.TableMetadataBuilder<?, ?> builder =
         TableMetadata.builder()
-            .creator(tableResponseBody.getTableCreator())
-            .dbName(tableResponseBody.getDatabaseId())
-            .tableName(tableResponseBody.getTableId())
+            .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
+            .dbName(Objects.requireNonNull(tableResponseBody.getDatabaseId()))
+            .tableName(Objects.requireNonNull(tableResponseBody.getTableId()))
             .isPrimary(
                 tableResponseBody.getTableType()
                     == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
-            .retentionConfig(getTableRetention(tableResponseBody).orElse(null));
-    if (tableResponseBody.getCreationTime() != null) {
-      builder.creationTimeMs(tableResponseBody.getCreationTime());
-    }
+            .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
+            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
+    builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     return Optional.of(builder.build());
+  }
+
+  protected List<TableDataLayoutMetadata> mapTableResponseToTableDataLayoutMetadataList(
+      GetTableResponseBody shallowResponseBody) {
+    GetTableResponseBody tableResponseBody =
+        getTable(shallowResponseBody.getDatabaseId(), shallowResponseBody.getTableId());
+
+    if (tableResponseBody == null) {
+      log.error(
+          "Error while fetching metadata for table: {}.{}",
+          shallowResponseBody.getDatabaseId(),
+          shallowResponseBody.getTableCreator());
+      return Collections.emptyList();
+    }
+
+    TableDataLayoutMetadata.TableDataLayoutMetadataBuilder<?, ?> builder =
+        TableDataLayoutMetadata.builder()
+            .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
+            .dbName(Objects.requireNonNull(tableResponseBody.getDatabaseId()))
+            .tableName(Objects.requireNonNull(tableResponseBody.getTableId()))
+            .isPrimary(
+                tableResponseBody.getTableType()
+                    == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
+            .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
+            .isClustered(tableResponseBody.getClustering() != null)
+            .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
+            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
+    builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
+    List<TableDataLayoutMetadata> result = new ArrayList<>();
+    for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody)) {
+      result.add(builder.dataLayoutStrategy(strategy).build());
+    }
+    return result;
+  }
+
+  private @NonNull Map<String, String> getJobExecutionProperties(
+      GetTableResponseBody responseBody) {
+    if (responseBody.getTableProperties() == null) {
+      return Collections.emptyMap();
+    }
+    return responseBody.getTableProperties().entrySet().stream()
+        .filter(e -> e.getKey().startsWith(MAINTENANCE_PROPERTY_PREFIX))
+        .map(
+            e ->
+                new AbstractMap.SimpleEntry<>(
+                    e.getKey().substring(MAINTENANCE_PROPERTY_PREFIX.length()), e.getValue()))
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 
   private List<DataLayoutStrategy> getDataLayoutStrategies(GetTableResponseBody tableResponseBody) {
@@ -260,17 +339,17 @@ public class TablesClient {
         || !tableProps.containsKey(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY)) {
       return Collections.emptyList();
     }
-    return StrategiesDaoTableProps.deserialize(
+    return StrategiesDaoTableProps.deserializeList(
         tableProps.get(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY));
   }
 
   private String mapTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
     TableMetadata metadata =
         TableMetadata.builder()
-            .dbName(responseBody.getDatabaseId())
-            .tableName(responseBody.getTableId())
+            .dbName(Objects.requireNonNull(responseBody.getDatabaseId()))
+            .tableName(Objects.requireNonNull(responseBody.getTableId()))
             .build();
     String location = getTable(metadata).getTableLocation();
-    return new Path(location).getParent().getName();
+    return new Path(Objects.requireNonNull(location)).getParent().getName();
   }
 }

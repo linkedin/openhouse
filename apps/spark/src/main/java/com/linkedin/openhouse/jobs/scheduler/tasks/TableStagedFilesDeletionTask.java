@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /** A task to delete staged files for a table */
-public class TableStagedFilesDeletionTask extends TableOperationTask {
+public class TableStagedFilesDeletionTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.STAGED_FILES_DELETION;
 

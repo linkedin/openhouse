@@ -133,7 +133,7 @@ public class JobsScheduler {
 
     log.info("Fetching task list based on the job type: {}", jobType);
     List<OperationTask<?>> taskList =
-        new OperationTasksBuilder(taskFactory, tablesClient).buildOperationTaskList(jobType);
+        new OperationTasksBuilder(taskFactory, tablesClient).buildOperationTaskList(jobType, METER);
     if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
       log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
       for (OperationTask<?> operationTask : taskList) {
@@ -284,7 +284,7 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
-            .longOpt("cutoffHours")
+            .longOpt("tableMinAgeThresholdHours")
             .desc("Time in hour for filtering older tables, defaults to 72")
             .build());
     options.addOption(

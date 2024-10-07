@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /** A task to generate data layout strategies for a table. */
-public class TableDataLayoutStrategyGenerationTask extends TableOperationTask {
+public class TableDataLayoutStrategyGenerationTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION;
 

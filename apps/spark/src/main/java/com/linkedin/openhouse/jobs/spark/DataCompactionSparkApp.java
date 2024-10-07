@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
+import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import io.opentelemetry.api.common.AttributeKey;
@@ -20,6 +21,14 @@ import org.apache.iceberg.actions.RewriteDataFiles;
  * db.testTable --targetByteSize 1048576 --maxByteSizeRatio 0.75 --maxByteSizeRatio 1.8
  * --minInputFiles 5 --maxConcurrentFileGroupRewrites 2 --partialProgressEnabled
  * --partialProgressMaxCommits 10
+ *
+ * <p>Alternatively, the app accepts {@link
+ * com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy} json:
+ * com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp --tableName db.testTable --strategy
+ * '{\"score\":8.51836007387637,\"entropy\":5.598114156029669E14,\"cost\":5.517493929862976,\"gain\":47.0,
+ * \"config\":{\"targetByteSize\":526385152,\"minByteSizeRatio\":0.75,\"maxByteSizeRatio\":10.0,\"minInputFiles\":5,
+ * \"maxConcurrentFileGroupRewrites\":5,\"partialProgressEnabled\":true,\"partialProgressMaxCommits\":2,
+ * \"maxFileGroupSizeBytes\":107374182400}}' In this case, the other arguments are ignored.
  */
 @Slf4j
 public class DataCompactionSparkApp extends BaseTableSparkApp {
@@ -95,6 +104,12 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     extraOptions.add(
         new Option(
             null,
+            "strategy",
+            true,
+            "DataLayoutStrategy json, if provided, other arguments that determine compaction behavior are ignored"));
+    extraOptions.add(
+        new Option(
+            null,
             "minByteSizeRatio",
             true,
             "Minimum data file byte size, files smaller than this will be rewritten"));
@@ -128,46 +143,55 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             "partialProgressMaxCommits",
             true,
             "Maximum amount of commits that this rewrite is allowed to produce if partial progress is enabled"));
+
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-    long targetByteSize =
-        NumberUtils.toLong(
-            cmdLine.getOptionValue("targetByteSize"),
-            DataCompactionConfig.TARGET_BYTE_SIZE_DEFAULT);
-    double minByteSizeRatio =
-        NumberUtils.toDouble(
-            cmdLine.getOptionValue("minByteSizeRatio"),
-            DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
-    if (minByteSizeRatio <= 0.0 || minByteSizeRatio >= 1.0) {
-      throw new RuntimeException("minByteSizeRatio must be in range (0.0, 1.0)");
-    }
-    double maxByteSizeRatio =
-        NumberUtils.toDouble(
-            cmdLine.getOptionValue("maxByteSizeRatio"),
-            DataCompactionConfig.MAX_BYTE_SIZE_RATIO_DEFAULT);
-    if (maxByteSizeRatio <= 1.0) {
-      throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
+
+    DataCompactionConfig config;
+    if (cmdLine.hasOption("strategy")) {
+      config = StrategiesDaoTableProps.deserialize(cmdLine.getOptionValue("strategy")).getConfig();
+    } else {
+      long targetByteSize =
+          NumberUtils.toLong(
+              cmdLine.getOptionValue("targetByteSize"),
+              DataCompactionConfig.TARGET_BYTE_SIZE_DEFAULT);
+      double minByteSizeRatio =
+          NumberUtils.toDouble(
+              cmdLine.getOptionValue("minByteSizeRatio"),
+              DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+      if (minByteSizeRatio <= 0.0 || minByteSizeRatio >= 1.0) {
+        throw new RuntimeException("minByteSizeRatio must be in range (0.0, 1.0)");
+      }
+      double maxByteSizeRatio =
+          NumberUtils.toDouble(
+              cmdLine.getOptionValue("maxByteSizeRatio"),
+              DataCompactionConfig.MAX_BYTE_SIZE_RATIO_DEFAULT);
+      if (maxByteSizeRatio <= 1.0) {
+        throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
+      }
+      config =
+          DataCompactionConfig.builder()
+              .targetByteSize(targetByteSize)
+              .minByteSizeRatio(minByteSizeRatio)
+              .maxByteSizeRatio(maxByteSizeRatio)
+              .minInputFiles(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("minInputFiles"),
+                      DataCompactionConfig.MIN_INPUT_FILES_DEFAULT))
+              .maxConcurrentFileGroupRewrites(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("maxConcurrentFileGroupRewrites"),
+                      DataCompactionConfig.MAX_CONCURRENT_FILE_GROUP_REWRITES_DEFAULT))
+              .partialProgressEnabled(cmdLine.hasOption("partialProgressEnabled"))
+              .partialProgressMaxCommits(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("partialProgressMaxCommits"),
+                      DataCompactionConfig.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT))
+              .build();
     }
     return new DataCompactionSparkApp(
         getJobId(cmdLine),
         createStateManager(cmdLine),
         cmdLine.getOptionValue("tableName"),
-        DataCompactionConfig.builder()
-            .targetByteSize(targetByteSize)
-            .minByteSizeRatio(minByteSizeRatio)
-            .maxByteSizeRatio(maxByteSizeRatio)
-            .minInputFiles(
-                NumberUtils.toInt(
-                    cmdLine.getOptionValue("minInputFiles"),
-                    DataCompactionConfig.MIN_INPUT_FILES_DEFAULT))
-            .maxConcurrentFileGroupRewrites(
-                NumberUtils.toInt(
-                    cmdLine.getOptionValue("maxConcurrentFileGroupRewrites"),
-                    DataCompactionConfig.MAX_CONCURRENT_FILE_GROUP_REWRITES_DEFAULT))
-            .partialProgressEnabled(cmdLine.hasOption("partialProgressEnabled"))
-            .partialProgressMaxCommits(
-                NumberUtils.toInt(
-                    cmdLine.getOptionValue("partialProgressMaxCommits"),
-                    DataCompactionConfig.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT))
-            .build());
+        config);
   }
 }

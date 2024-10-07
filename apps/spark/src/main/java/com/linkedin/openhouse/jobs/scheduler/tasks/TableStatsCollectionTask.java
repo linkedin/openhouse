@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /** A task to collect iceberg stats on a table. */
-public class TableStatsCollectionTask extends TableOperationTask {
+public class TableStatsCollectionTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.TABLE_STATS_COLLECTION;
 

@@ -1,8 +1,12 @@
 package com.linkedin.openhouse.jobs.util;
 
+import java.util.HashMap;
+import java.util.Map;
 import javax.annotation.Nullable;
+import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NonNull;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
@@ -10,14 +14,15 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @SuperBuilder
 @EqualsAndHashCode(callSuper = true)
-@ToString
+@ToString(callSuper = true)
 public class TableMetadata extends Metadata {
-  protected String dbName;
-  protected String tableName;
+  protected @NonNull String dbName;
+  protected @NonNull String tableName;
   protected long creationTimeMs;
   protected boolean isPrimary;
   protected boolean isTimePartitioned;
   protected boolean isClustered;
+  @Builder.Default protected @NonNull Map<String, String> jobExecutionProperties = new HashMap<>();
   protected @Nullable RetentionConfig retentionConfig;
 
   public String fqtn() {

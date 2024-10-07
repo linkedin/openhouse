@@ -12,7 +12,7 @@ import java.util.stream.Stream;
 import org.apache.commons.lang.StringUtils;
 
 /** A task to apply retention to a table. */
-public class TableRetentionTask extends TableOperationTask {
+public class TableRetentionTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE = JobConf.JobTypeEnum.RETENTION;
 
   protected TableRetentionTask(

@@ -42,7 +42,7 @@ public class StrategiesDaoTableProps implements StrategiesDao {
             .collectAsList()
             .get(0)
             .getString(1);
-    return deserialize(propValue);
+    return deserializeList(propValue);
   }
 
   public static String serialize(List<DataLayoutStrategy> strategies) {
@@ -51,9 +51,19 @@ public class StrategiesDaoTableProps implements StrategiesDao {
     return StringEscapeUtils.escapeJava(gson.toJson(strategies, type));
   }
 
-  public static List<DataLayoutStrategy> deserialize(String data) {
+  public static String serialize(DataLayoutStrategy strategy) {
+    Gson gson = new GsonBuilder().create();
+    return StringEscapeUtils.escapeJava(gson.toJson(strategy, DataLayoutStrategy.class));
+  }
+
+  public static List<DataLayoutStrategy> deserializeList(String data) {
     Gson gson = new GsonBuilder().create();
     Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
     return gson.fromJson(StringEscapeUtils.unescapeJava(data), type);
+  }
+
+  public static DataLayoutStrategy deserialize(String data) {
+    Gson gson = new GsonBuilder().create();
+    return gson.fromJson(StringEscapeUtils.unescapeJava(data), DataLayoutStrategy.class);
   }
 }

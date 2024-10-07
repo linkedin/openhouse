@@ -13,7 +13,7 @@ import java.util.List;
  * @see <a href="https://iceberg.apache.org/docs/latest/maintenance/#delete-orphan-files">Delete
  *     orphan files</a>
  */
-public class TableOrphanFilesDeletionTask extends TableOperationTask {
+public class TableOrphanFilesDeletionTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.ORPHAN_FILES_DELETION;
 
