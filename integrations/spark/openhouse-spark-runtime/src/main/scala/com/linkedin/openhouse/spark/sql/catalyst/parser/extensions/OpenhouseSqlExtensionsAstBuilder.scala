@@ -98,9 +98,7 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   }
 
   override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): (Seq[String]) = {
-    ctx.replicationPolicyClause().forEach(ele => print(ele))
-    val policy = ctx.replicationPolicyClause().map(ele => typedVisit[String](ele)).toSeq
-    policy
+    ctx.replicationPolicyClause().map(ele => typedVisit[String](ele)).toSeq
   }
 
   override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): (String) = {

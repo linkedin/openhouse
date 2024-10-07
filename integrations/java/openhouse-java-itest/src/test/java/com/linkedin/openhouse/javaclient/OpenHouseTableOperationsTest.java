@@ -260,6 +260,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertNotNull(updatedPolicies);
     Assertions.assertTrue(
         updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
   }
 
   @Test
@@ -278,6 +279,7 @@ public class OpenHouseTableOperationsTest {
         updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
     Assertions.assertTrue(
         updatedPolicies.getReplication().getSchedules().get(1).getConfig().containsKey("aa"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 2);
   }
 
   @Test
@@ -294,6 +296,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertNotNull(updatedPolicies);
     Assertions.assertTrue(
         updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aa"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
   }
 
   @Test
@@ -313,5 +316,6 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertNotNull(updatedPolicies);
     Assertions.assertTrue(
         updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aaa"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
   }
 }
