@@ -17,8 +17,10 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Schedule {
-  @Schema(description = "Map of cluster and cron schedule for replication flow setup", example = "")
-  @NotNull(message = "Incorrect schedule config specified. schedule.policy cannot be null")
+  @Schema(
+      description = "Map of cluster and cron schedule for replication flow setup.",
+      example = "clusterName: 0 0 1 * * ?")
+  @NotNull(message = "Incorrect schedule config specified. Schedule config cannot be null")
   @Valid
   Map<String, String> config;
 }
