@@ -11,7 +11,7 @@ case class SetReplicationPolicyExec(catalog: TableCatalog, ident: Identifier, re
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
         val key = "updated.openhouse.policy"
-        val value = s"""{"replication":{"schedules":[{${replicationPolicies.map(replication => s"""config:{${replication}}}""").mkString(",")}]}}"""
+        val value = s"""{"replication":{"schedules":[${replicationPolicies.map(replication => s"""{config:{${replication}}}""").mkString(",")}]}}"""
         iceberg.table().updateProperties()
           .set(key, value)
           .commit()
