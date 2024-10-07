@@ -86,11 +86,11 @@ public class OperationTasksBuilder {
         totalComputeCost,
         totalReducedFileCount);
     meter
-        .counterBuilder("data_layout_optimization_compute_cost")
+        .counterBuilder("data_layout_optimization_estimated_compute_cost")
         .build()
         .add((long) totalComputeCost);
     meter
-        .counterBuilder("data_layout_optimization_reduced_file_count")
+        .counterBuilder("data_layout_optimization_estimated_reduced_file_count")
         .build()
         .add((long) totalReducedFileCount);
     return processMetadataList(selectedTableDataLayoutMetadataList, jobType);
