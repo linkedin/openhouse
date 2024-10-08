@@ -272,7 +272,7 @@ public class TablesClient {
 
     TableMetadata.TableMetadataBuilder<?, ?> builder =
         TableMetadata.builder()
-            .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
+            .creator(getTableCreator(tableResponseBody))
             .dbName(Objects.requireNonNull(tableResponseBody.getDatabaseId()))
             .tableName(Objects.requireNonNull(tableResponseBody.getTableId()))
             .isPrimary(
@@ -301,7 +301,7 @@ public class TablesClient {
 
     TableDataLayoutMetadata.TableDataLayoutMetadataBuilder<?, ?> builder =
         TableDataLayoutMetadata.builder()
-            .creator(Objects.requireNonNull(tableResponseBody.getTableCreator()))
+            .creator(getTableCreator(tableResponseBody))
             .dbName(Objects.requireNonNull(tableResponseBody.getDatabaseId()))
             .tableName(Objects.requireNonNull(tableResponseBody.getTableId()))
             .isPrimary(
@@ -341,6 +341,10 @@ public class TablesClient {
     }
     return StrategiesDaoTableProps.deserializeList(
         tableProps.get(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY));
+  }
+
+  protected @NonNull String getTableCreator(GetTableResponseBody responseBody) {
+    return Objects.requireNonNull(responseBody.getTableCreator());
   }
 
   private String mapTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
