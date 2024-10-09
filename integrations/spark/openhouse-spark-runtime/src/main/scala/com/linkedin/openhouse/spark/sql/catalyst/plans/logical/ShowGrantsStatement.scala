@@ -2,7 +2,7 @@ package com.linkedin.openhouse.spark.sql.catalyst.plans.logical
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference}
-import org.apache.spark.sql.catalyst.plans.logical.Command
+import org.apache.spark.sql.catalyst.plans.logical.{Command, LogicalPlan}
 import org.apache.spark.sql.types.StringType
 
 
@@ -14,5 +14,11 @@ case class ShowGrantsStatement(resourceType: GrantableResourceType, resourceName
   )
   override def simpleString(maxFields: Int): String = {
     s"ShowGrantsStatement: ${resourceType} ${resourceName}"
+  }
+
+  override def children: Seq[LogicalPlan] = Seq.empty
+
+  override protected def withNewChildrenInternal(newChildren: IndexedSeq[LogicalPlan]): LogicalPlan = {
+    legacyWithNewChildren(newChildren)
   }
 }

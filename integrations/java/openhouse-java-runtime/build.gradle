@@ -20,7 +20,7 @@ configurations {
 
 ext {
   icebergVersion = '1.2.0'
-  sparkVersion = '3.1.1'
+  sparkVersion = '3.3.4'
   springVersion = '2.7.8'
   hadoopVersion = '2.10.0'
 }
@@ -28,7 +28,7 @@ ext {
 dependencies {
   compileOnly project(':client:secureclient')
   compileOnly project(':client:tableclient')
-  compileOnly("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
+  compileOnly("org.apache.iceberg:iceberg-spark-runtime-3.3_2.12:" + icebergVersion)
   compileOnly ("org.springframework.boot:spring-boot-starter-webflux:" + springVersion)
 
   implementation 'org.apache.commons:commons-lang3:3.12.0'

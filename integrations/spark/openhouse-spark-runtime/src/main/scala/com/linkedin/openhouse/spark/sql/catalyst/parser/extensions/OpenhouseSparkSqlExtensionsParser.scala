@@ -72,7 +72,6 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
       normalized.startsWith("grant") ||
       normalized.startsWith("revoke") ||
       normalized.startsWith("show grants")
-
   }
 
   protected def parse[T](command: String)(toResult: OpenhouseSqlExtensionsParser => T): T = {
@@ -89,6 +88,13 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
     toResult(parser)
   }
 
+  override def parseQuery(sqlText: String): LogicalPlan = {
+    if (isOpenhouseCommand(sqlText)) {
+      parse(sqlText) { parser => astBuilder.visit(parser.singleStatement()) }.asInstanceOf[LogicalPlan]
+    } else {
+      delegate.parseQuery(sqlText)
+    }
+  }
 }
 
 /* Copied from Apache Spark's to avoid dependency on Spark Internals */
