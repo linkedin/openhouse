@@ -5,15 +5,13 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.Schedule;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
 
 /**
@@ -101,17 +99,10 @@ public class PoliciesSpecValidator {
   }
 
   private boolean validateReplicationPolicy(Replication replication) {
-    // implement replication config validation
     if (replication != null) {
-      for (Schedule schedule : replication.getSchedules()) {
-        Map<String, String> config = schedule.getConfig();
-        for (String key : config.keySet()) {
-          try {
-            CronExpression.parse(config.get(key));
-          } catch (IllegalArgumentException e) {
-            return false;
-          }
-        }
+      for (ReplicationConfig config : replication.getConfig()) {
+        String interval = config.getInterval();
+        // TODO validate interval input
       }
     }
     return true;
