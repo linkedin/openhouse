@@ -1,0 +1,66 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+}
+
+ext {
+  sparkVersion = '3.5.2'
+}
+
+dependencies {
+
+  testImplementation 'com.google.code.gson:gson:2.8.9'
+
+  testImplementation(project(path: ':integrations:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow')) {
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
+  }
+
+  testImplementation("org.apache.spark:spark-sql_2.12:" + sparkVersion){
+    // These classes are available from `client-codegen-convention.gradle`
+    exclude group: "io.netty"
+  }
+
+  testImplementation project(':tables-test-fixtures_2.12')
+  testImplementation 'org.junit.platform:junit-platform-runner:1.8.2'
+  // Required to test /tables mockserver
+  testImplementation 'org.apache.commons:commons-lang3:3.12.0'
+  testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
+  testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"
+  testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"
+}
+
+// Adding testing resources from :services:tables module
+// this is to avoid duplicating schema.json files used for evolution tests.
+sourceSets {
+  test {
+    resources {
+      srcDirs += [
+          project(':services:tables').sourceSets.test.resources
+      ]
+    }
+  }
+}
+
+// Specify order of tests to avoid spark session conflicts
+// Non-openhouse catalog tests should run before e2e tests start
+task statementTest(type: Test) {
+  filter {
+    includeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
+  }
+}
+
+task catalogTest(type: Test) {
+  filter {
+    includeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
+  }
+}
+
+test {
+  filter {
+    excludeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
+    excludeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
+  }
+}
+
+test.dependsOn statementTest
+statementTest.dependsOn catalogTest

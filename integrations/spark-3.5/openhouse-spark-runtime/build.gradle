@@ -1,0 +1,83 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+  id 'com.github.johnrengelman.shadow' version '7.1.2'
+  id 'scala'
+  id 'antlr'
+}
+
+ext {
+  icebergVersion = '1.5.2'
+  sparkVersion = '3.5.2'
+}
+
+configurations {
+  /*
+     The Gradle Antlr plugin erroneously adds both antlr-build and runtime dependencies to the runtime path. This
+     bug https://github.com/gradle/gradle/issues/820 exists because older versions of Antlr do not have separate
+     runtime and implementation dependencies and they do not want to break backwards compatibility. So to only end up with
+     the runtime dependency on the runtime classpath we remove the dependencies added by the plugin here. Then add
+     the runtime dependency back to only the runtime configuration manually.
+    */
+  implementation {
+    extendsFrom = extendsFrom.findAll { it != configurations.antlr }
+  }
+
+  fatJarPackagedDependencies {
+    exclude(group: 'org.antlr') // included in spark
+    exclude(group: 'org.mapstruct')
+  }
+  shadow.extendsFrom implementation
+}
+
+
+dependencies {
+  // Required because we remove antlr plugin dependencies from the compile configuration, see note above
+  runtimeOnly "org.antlr:antlr4-runtime:4.7.1"
+  antlr "org.antlr:antlr4:4.7.1"
+
+  compileOnly(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
+  compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.arrow'
+    exclude group: 'io.netty', module: 'netty-buffer'
+    exclude group: 'org.roaringbitmap'
+    exclude group: 'com.zaxxer', module: 'HikariCP'
+    exclude group: 'org.apache.hadoop', module: 'hadoop-client'
+  }
+
+  testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion) {
+    exclude group: "io.netty"
+  }
+  testImplementation(project(':tables-test-fixtures_2.12')) {
+    exclude group: "io.netty"
+  }
+  testImplementation('org.apache.spark:spark-sql_2.12:' + sparkVersion){
+    // These classes are available from `client-codegen-convention.gradle`
+  }
+  testImplementation(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
+
+  fatJarPackagedDependencies(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow')) {
+    transitive = false
+  }
+  implementation("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion)
+
+  generateGrammarSource {
+    maxHeapSize = "64m"
+    arguments += ['-visitor', '-package', 'com.linkedin.openhouse.spark.sql.catalyst.parser.extensions']
+  }
+}
+
+
+shadowJar {
+  dependencies {
+    exclude("javax/**")
+  }
+
+  configurations = [project.configurations.fatJarPackagedDependencies]
+  mergeServiceFiles()
+  archiveClassifier.set('uber')
+  zip64 true
+}
+
+jar.enabled=true
