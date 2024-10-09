@@ -247,4 +247,75 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertTrue(updatedPolicies.getColumnTags().containsKey("col1"));
     Assertions.assertEquals(tagHC, updatedPolicies.getColumnTags().get("col1").getTags());
   }
+
+  @Test
+  public void testPoliciesReplicationExistsButNoUpdate() {
+    Map<String, String> props = new HashMap<>();
+    props.put("policies", "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
+  }
+
+  @Test
+  public void testNoPoliciesReplicationButUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "updated.openhouse.policy",
+        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}, {\"config\":{'aa':'bb'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(1).getConfig().containsKey("aa"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 2);
+  }
+
+  @Test
+  public void testPoliciesReplicationExistsUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put("policies", "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}]}}");
+    props.put(
+        "updated.openhouse.policy", "{\"replication\":{\"schedules\":[{\"config\":{'aa':'bb'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aa"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
+  }
+
+  @Test
+  public void testPoliciesReplicationMultipleExistsUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "policies",
+        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}, {\"config\":{'aa':'bb'}}]}}");
+    props.put(
+        "updated.openhouse.policy",
+        "{\"replication\":{\"schedules\":[{\"config\":{'aaa':'bbb'}}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertTrue(
+        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aaa"));
+    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
+  }
 }
