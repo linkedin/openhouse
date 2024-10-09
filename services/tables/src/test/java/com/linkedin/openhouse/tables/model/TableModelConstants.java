@@ -10,9 +10,9 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.Schedule;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -62,12 +62,9 @@ public final class TableModelConstants {
     RETENTION_POLICY =
         Retention.builder().count(3).granularity(TimePartitionSpec.Granularity.HOUR).build();
 
-    ArrayList<Schedule> schedules = new ArrayList<>();
-    Map<String, String> schedule = new HashMap<>();
-    schedule.put("cluster1", "1 1 * 1 * *");
-    Schedule sc = Schedule.builder().config(schedule).build();
-    schedules.add(sc);
-    REPLICATION_POLICY = Replication.builder().schedules(schedules).build();
+    ArrayList<ReplicationConfig> configs = new ArrayList<>();
+    configs.add(ReplicationConfig.builder().destination("cluster1").interval("12 hour").build());
+    REPLICATION_POLICY = Replication.builder().config(configs).build();
     RETENTION_POLICY_WITH_PATTERN =
         Retention.builder()
             .count(3)
