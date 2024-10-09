@@ -59,6 +59,11 @@ public class OperationTasksBuilder {
       JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataList();
+    // filter out non-primary and non-clustered/time-partitioned tables before ranking
+    tableDataLayoutMetadataList =
+        tableDataLayoutMetadataList.stream()
+            .filter(m -> m.isPrimary() && (m.isClustered() || m.isTimePartitioned()))
+            .collect(Collectors.toList());
     log.info("Fetched metadata for {} data layout strategies", tableDataLayoutMetadataList.size());
     List<DataLayoutStrategy> strategies =
         tableDataLayoutMetadataList.stream()
