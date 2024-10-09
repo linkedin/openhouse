@@ -15,8 +15,8 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
   override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case SetRetentionPolicy(CatalogAndIdentifierExtractor(catalog, ident), granularity, count, colName, colPattern) =>
       SetRetentionPolicyExec(catalog, ident, granularity, count, colName, colPattern) :: Nil
-    case SetReplicationPolicy(CatalogAndIdentifierExtractor(catalog, ident), replicationPolicies) =>
-      SetReplicationPolicyExec(catalog, ident, replicationPolicies) :: Nil
+    case SetReplicationPolicy(CatalogAndIdentifierExtractor(catalog, ident), clusterName, interval) =>
+      SetReplicationPolicyExec(catalog, ident, clusterName, interval) :: Nil
     case SetSharingPolicy(CatalogAndIdentifierExtractor(catalog, ident), sharing) =>
       SetSharingPolicyExec(catalog, ident, sharing) :: Nil
     case SetColumnPolicyTag(CatalogAndIdentifierExtractor(catalog, ident), policyTag, cols) =>

@@ -29,8 +29,8 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
 
   override def visitSetReplicationPolicy(ctx: SetReplicationPolicyContext): SetReplicationPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val replicationPolicies = typedVisit[Seq[String]](ctx.replicationPolicy())
-    SetReplicationPolicy(tableName, replicationPolicies)
+    val (clusterName, interval) = typedVisit[(String, String)](ctx.replicationPolicy())
+    SetReplicationPolicy(tableName, clusterName, interval)
   }
 
   override def visitSetSharingPolicy(ctx: SetSharingPolicyContext): SetSharingPolicy = {
@@ -93,17 +93,24 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     typedVisit[(String, Int)](ctx.duration())
   }
 
-  override def visitReplicationPolicy(ctx: ReplicationPolicyContext): (Seq[String]) = {
-    typedVisit[(Seq[String])](ctx.tableReplicationPolicy())
+  override def visitReplicationPolicy(ctx: ReplicationPolicyContext): (String, String) = {
+    typedVisit[(String, String)](ctx.tableReplicationPolicy())
   }
 
-  override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): (Seq[String]) = {
-    ctx.replicationPolicyClause().map(ele => typedVisit[String](ele)).toSeq
+  override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): (String, String) = {
+    val clusterName = typedVisit[String](ctx.replicationPolicyClusterClause())
+    val interval = if (ctx.replicationPolicyIntervalClause() != null)
+      typedVisit[String](ctx.replicationPolicyIntervalClause())
+    else null
+    (clusterName, interval)
   }
 
-  override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): (String) = {
-    val replicationPolicy = ctx.STRING().map(_.getText)
-    replicationPolicy.mkString(":")
+  override def visitReplicationPolicyClusterClause(ctx: ReplicationPolicyClusterClauseContext): (String) = {
+    ctx.STRING().getText
+  }
+
+  override def visitReplicationPolicyIntervalClause(ctx: ReplicationPolicyIntervalClauseContext): (String) = {
+    ctx.STRING().getText
   }
 
   override def visitColumnRetentionPolicy(ctx: ColumnRetentionPolicyContext): (String, String) = {

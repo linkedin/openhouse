@@ -89,11 +89,15 @@ replicationPolicy
     ;
 
 tableReplicationPolicy
-    : '(' replicationPolicyClause (',' replicationPolicyClause)* ')'
+    : '(' '{' replicationPolicyClusterClause (',' replicationPolicyIntervalClause)? '}' ')'
     ;
 
-replicationPolicyClause
-    : '{' CLUSTER ':' STRING ',' SCHEDULE ':' STRING '}'
+replicationPolicyClusterClause
+    : CLUSTER ':' STRING
+    ;
+
+replicationPolicyIntervalClause
+    : INTERVAL ':' STRING
     ;
 
 columnRetentionPolicyPatternClause
@@ -165,7 +169,7 @@ SHOW: 'SHOW';
 GRANTS: 'GRANTS';
 PATTERN: 'PATTERN';
 CLUSTER: 'CLUSTER';
-SCHEDULE: 'SCHEDULE';
+INTERVAL: 'INTERVAL';
 WHERE: 'WHERE';
 COLUMN: 'COLUMN';
 PII: 'PII';

@@ -43,46 +43,39 @@ public class SetTableReplicationPolicyStatementTest {
 
   @Test
   public void testSimpleSetReplicationPolicy() {
-    String replicationConfigJson =
-        "{\"cluster\":\"a\", \"schedule\":\"b\"}, {\"cluster\": \"aa\", \"schedule\": \"bb\"}";
+    String replicationConfigJson = "{\"cluster\":\"a\", \"interval\":\"b\"}";
     Dataset<Row> ds =
         spark.sql(
             "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({cluster:'a', schedule:'b'}, {cluster: 'aa', schedule: 'bb'}))");
+                + "({cluster:'a', interval:'b'}))");
     assert isPlanValid(ds, replicationConfigJson);
+  }
 
-    replicationConfigJson = "{\"cluster\":\"a\", \"schedule\":\"b\"}";
-    ds =
-        spark.sql(
-            "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:'a', schedule:'b'}))");
+  @Test
+  public void testSimpleSetReplicationPolicyOptionalInterval() {
+    String replicationConfigJson = "{\"cluster\":\"a\"}";
+    Dataset<Row> ds =
+        spark.sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = " + "({cluster:'a'}))");
     assert isPlanValid(ds, replicationConfigJson);
   }
 
   @Test
   public void testReplicationPolicyWithoutProperSyntax() {
-    // missing schedule keyword
-    Assertions.assertThrows(
-        OpenhouseParseException.class,
-        () ->
-            spark
-                .sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa'}))")
-                .show());
-
     // Missing cluster keyword
     Assertions.assertThrows(
         OpenhouseParseException.class,
         () ->
             spark
-                .sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({schedule: 'ss'}))")
+                .sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({interval: 'ss'}))")
                 .show());
 
-    // Typo in keyword schedule
+    // Typo in keyword interval
     Assertions.assertThrows(
         OpenhouseParseException.class,
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', schedul: 'ss'}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interv: 'ss'}))")
                 .show());
 
     // Typo in keyword cluster
@@ -91,7 +84,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({clustr: 'aa', schedule: 'ss'}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({clustr: 'aa', interval: 'ss'}))")
                 .show());
 
     // Missing quote in cluster value
@@ -100,7 +93,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: aa', schedule: 'ss}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: aa', interval: 'ss}))")
                 .show());
 
     // Type in REPLICATION keyword
@@ -109,7 +102,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICAT = ({cluster: 'aa', schedule: 'ss}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICAT = ({cluster: 'aa', interval: 'ss}))")
                 .show());
 
     // Missing cluster and schedule value
@@ -150,8 +143,11 @@ public class SetTableReplicationPolicyStatementTest {
     for (JsonElement element : jsonArray) {
       JsonObject entry = element.getAsJsonObject();
       String cluster = entry.get("cluster").getAsString();
-      String schedule = entry.get("schedule").getAsString();
-      isValid = queryStr.contains(cluster) && queryStr.contains(schedule);
+      isValid = queryStr.contains(cluster);
+      if (entry.has("interval")) {
+        String interval = entry.get("interval").getAsString();
+        isValid = queryStr.contains(cluster) && queryStr.contains(interval);
+      }
     }
     return isValid;
   }
