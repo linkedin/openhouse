@@ -45,7 +45,7 @@ public class Policies {
   @Schema(
       description =
           "Replication as required in /tables API request. This column holds the replication spec config.",
-      example = "{cluster: a, schedule: 0 0 1 * * ?}")
+      example = "{destination: a, interval: 12hour}")
   @Valid
   Replication replication;
 }

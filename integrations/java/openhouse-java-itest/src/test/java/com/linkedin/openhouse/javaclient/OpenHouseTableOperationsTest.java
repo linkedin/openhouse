@@ -251,16 +251,18 @@ public class OpenHouseTableOperationsTest {
   @Test
   public void testPoliciesReplicationExistsButNoUpdate() {
     Map<String, String> props = new HashMap<>();
-    props.put("policies", "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}]}}");
+    props.put(
+        "policies", "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"b\"}]}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
     when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
     Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
     Assertions.assertNotNull(updatedPolicies);
-    Assertions.assertTrue(
-        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
-    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
+    Assertions.assertEquals(
+        updatedPolicies.getReplication().getConfig().get(0).getDestination(), "a");
+    Assertions.assertEquals(updatedPolicies.getReplication().getConfig().get(0).getInterval(), "b");
+    Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 1);
   }
 
   @Test
@@ -268,54 +270,37 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "updated.openhouse.policy",
-        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}, {\"config\":{'aa':'bb'}}]}}");
+        "{\"replication\":{\"config\":[{\"destination\":\"aa\", \"interval\":\"bb\"}]}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
     when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
     Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
     Assertions.assertNotNull(updatedPolicies);
-    Assertions.assertTrue(
-        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("a"));
-    Assertions.assertTrue(
-        updatedPolicies.getReplication().getSchedules().get(1).getConfig().containsKey("aa"));
-    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 2);
+    Assertions.assertEquals(
+        updatedPolicies.getReplication().getConfig().get(0).getDestination(), "aa");
+    Assertions.assertEquals(
+        updatedPolicies.getReplication().getConfig().get(0).getInterval(), "bb");
+    Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 1);
   }
 
   @Test
   public void testPoliciesReplicationExistsUpdateExists() {
     Map<String, String> props = new HashMap<>();
-    props.put("policies", "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}]}}");
     props.put(
-        "updated.openhouse.policy", "{\"replication\":{\"schedules\":[{\"config\":{'aa':'bb'}}]}}");
-    TableMetadata metadata = mock(TableMetadata.class);
-    when(metadata.properties()).thenReturn(props);
-    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
-    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
-    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
-    Assertions.assertNotNull(updatedPolicies);
-    Assertions.assertTrue(
-        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aa"));
-    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
-  }
-
-  @Test
-  public void testPoliciesReplicationMultipleExistsUpdateExists() {
-    Map<String, String> props = new HashMap<>();
-    props.put(
-        "policies",
-        "{\"replication\":{\"schedules\":[{\"config\":{'a':'b'}}, {\"config\":{'aa':'bb'}}]}}");
+        "policies", "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"b\"}]}}");
     props.put(
         "updated.openhouse.policy",
-        "{\"replication\":{\"schedules\":[{\"config\":{'aaa':'bbb'}}]}}");
+        "{\"replication\":{\"config\":[{\"destination\":\"aa\", \"interval\":\"bb\"}]}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
     when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
     Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
-    Assertions.assertNotNull(updatedPolicies);
-    Assertions.assertTrue(
-        updatedPolicies.getReplication().getSchedules().get(0).getConfig().containsKey("aaa"));
-    Assertions.assertEquals(updatedPolicies.getReplication().getSchedules().size(), 1);
+    Assertions.assertEquals(
+        updatedPolicies.getReplication().getConfig().get(0).getDestination(), "aa");
+    Assertions.assertEquals(
+        updatedPolicies.getReplication().getConfig().get(0).getInterval(), "bb");
+    Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 1);
   }
 }

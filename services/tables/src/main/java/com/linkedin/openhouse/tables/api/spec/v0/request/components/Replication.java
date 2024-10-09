@@ -18,9 +18,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Replication {
   @Schema(
-      description = "List of replication Schedules for replication flow setup.",
-      example = "clusterA: 0 0 1 * * ?, clusterB: 0 0 1 * * ?")
-  @NotNull(message = "Incorrect replication policy specified. Replication spec cannot be null.")
+      description =
+          "Replication config for the destination cluster name and replication job interval",
+      example = "Holdem, 12 hour")
+  @NotNull(message = "Incorrect replication policy specified. Replication config cannot be null.")
   @Valid
-  List<Schedule> schedules;
+  List<ReplicationConfig> config;
 }

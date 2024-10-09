@@ -66,11 +66,9 @@ public final class ValidationUtilities {
     if (policies.getReplication() != null) {
       HashMap<String, String> tableReplicationConfig =
           JsonPath.read(
-              result.getResponse().getContentAsString(),
-              "$.policies.replication.schedules[0].config");
+              result.getResponse().getContentAsString(), "$.policies.replication.config[0]");
 
-      Assertions.assertEquals(
-          policies.getReplication().getSchedules().get(0).getConfig(), tableReplicationConfig);
+      Assertions.assertEquals(policies.getReplication().getConfig(), tableReplicationConfig);
     }
   }
 

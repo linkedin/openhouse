@@ -189,8 +189,7 @@ public class TablesMapperTest {
         tableDto1.getClusterId(),
         CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getClusterId());
     Assertions.assertEquals(
-        tableDto1.getPolicies().getReplication().getSchedules().get(0).getConfig().get("cluster1"),
-        "1 1 * 1 * *");
+        tableDto1.getPolicies().getReplication().getConfig().get(0).getInterval(), "12 hour");
   }
 
   @Test
