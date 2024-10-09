@@ -7,6 +7,10 @@ plugins {
 
 import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer
 
+ext {
+  sparkVersion = '3.1.1'
+}
+
 configurations {
 
   all {
@@ -28,7 +32,7 @@ dependencies {
 
 
   compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
-  compileOnly('org.apache.spark:spark-sql_2.12:' + spark_version){
+  compileOnly('org.apache.spark:spark-sql_2.12:' + sparkVersion){
     // These classes are available from `client-codegen-convention.gradle`
     exclude group: "io.netty"
   }
