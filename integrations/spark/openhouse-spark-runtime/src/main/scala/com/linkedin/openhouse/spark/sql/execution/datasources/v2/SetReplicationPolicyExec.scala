@@ -6,12 +6,12 @@ import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
 import org.apache.spark.sql.execution.datasources.v2.V2CommandExec
 
-case class SetReplicationPolicyExec(catalog: TableCatalog, ident: Identifier, clusterName: String, interval: String) extends V2CommandExec{
+case class SetReplicationPolicyExec(catalog: TableCatalog, ident: Identifier, replicationPolicies: Seq[(String, Option[String])]) extends V2CommandExec{
   override protected def run(): Seq[InternalRow] = {
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
         val key = "updated.openhouse.policy"
-        val value = s"""{"replication":{"config":[{"destination":"$clusterName","interval":"$interval"}]}}"""
+        val value = s"""{"replication":{"config":[${replicationPolicies.map(replication => s"""{"destination":"${replication._1}","interval":"${replication._2.getOrElse("")}"}""").mkString(",")}]}}"""
         iceberg.table().updateProperties()
           .set(key, value)
           .commit()

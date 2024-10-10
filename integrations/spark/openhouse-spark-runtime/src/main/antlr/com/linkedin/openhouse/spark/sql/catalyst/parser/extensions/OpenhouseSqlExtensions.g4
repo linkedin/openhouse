@@ -89,7 +89,11 @@ replicationPolicy
     ;
 
 tableReplicationPolicy
-    : '(' '{' replicationPolicyClusterClause (',' replicationPolicyIntervalClause)? '}' ')'
+    : '(' replicationPolicyClause (',' replicationPolicyClause)* ')'
+    ;
+
+replicationPolicyClause
+    : '{' replicationPolicyClusterClause (',' replicationPolicyIntervalClause)? '}'
     ;
 
 replicationPolicyClusterClause

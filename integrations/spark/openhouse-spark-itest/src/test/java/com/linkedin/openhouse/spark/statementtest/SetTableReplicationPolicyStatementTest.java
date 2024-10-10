@@ -49,18 +49,95 @@ public class SetTableReplicationPolicyStatementTest {
             "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
                 + "({cluster:'a', interval:'b'}))");
     assert isPlanValid(ds, replicationConfigJson);
-  }
 
-  @Test
-  public void testSimpleSetReplicationPolicyOptionalInterval() {
-    String replicationConfigJson = "{\"cluster\":\"a\"}";
-    Dataset<Row> ds =
+    // Test support with multiple clusters
+    replicationConfigJson =
+        "{\"cluster\":\"a\", \"interval\":\"b\"}, {\"cluster\":\"aa\", \"interval\":\"bb\"}";
+    ds =
+        spark.sql(
+            "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
+                + "({cluster:'a', interval:'b'}, {cluster:'aa', interval:'bb'}))");
+    assert isPlanValid(ds, replicationConfigJson);
+
+    // Test with optional interval
+    replicationConfigJson = "{\"cluster\":\"a\"}";
+    ds =
         spark.sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = " + "({cluster:'a'}))");
+    assert isPlanValid(ds, replicationConfigJson);
+
+    // Test with optional interval for multiple clusters
+    replicationConfigJson = "{\"cluster\":\"a\"}, {\"cluster\":\"b\"}";
+    ds =
+        spark.sql(
+            "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
+                + "({cluster:'a'}, {cluster:'b'}))");
     assert isPlanValid(ds, replicationConfigJson);
   }
 
   @Test
   public void testReplicationPolicyWithoutProperSyntax() {
+    // Empty cluster value
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:}))")
+                .show());
+
+    // Empty interval value
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interval:}))")
+                .show());
+
+    // Empty interval value
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interval:}))")
+                .show());
+
+    // Missing cluster value but interval present
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:, interval: 'bb'}))")
+                .show());
+
+    // Missing interval value but keyword present
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'a', interval:}))")
+                .show());
+
+    // Missing cluster value for multiple clusters
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:, interval:'a'}, {cluster:, interval: 'b'}))")
+                .show());
+
+    // Missing cluster keyword for multiple clusters
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({interval:'a'}, {interval: 'b'}))")
+                .show());
+
     // Missing cluster keyword
     Assertions.assertThrows(
         OpenhouseParseException.class,
@@ -105,7 +182,7 @@ public class SetTableReplicationPolicyStatementTest {
                     "ALTER TABLE openhouse.db.table SET POLICY (REPLICAT = ({cluster: 'aa', interval: 'ss}))")
                 .show());
 
-    // Missing cluster and schedule value
+    // Missing cluster and interval values
     Assertions.assertThrows(
         OpenhouseParseException.class,
         () -> spark.sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({}))").show());

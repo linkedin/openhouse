@@ -29,8 +29,8 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
 
   override def visitSetReplicationPolicy(ctx: SetReplicationPolicyContext): SetReplicationPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val (clusterName, interval) = typedVisit[(String, String)](ctx.replicationPolicy())
-    SetReplicationPolicy(tableName, clusterName, interval)
+    val replicationPolicies = typedVisit[Seq[(String, Option[String])]](ctx.replicationPolicy())
+    SetReplicationPolicy(tableName, replicationPolicies)
   }
 
   override def visitSetSharingPolicy(ctx: SetSharingPolicyContext): SetSharingPolicy = {
@@ -93,16 +93,20 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     typedVisit[(String, Int)](ctx.duration())
   }
 
-  override def visitReplicationPolicy(ctx: ReplicationPolicyContext): (String, String) = {
-    typedVisit[(String, String)](ctx.tableReplicationPolicy())
+  override def visitReplicationPolicy(ctx: ReplicationPolicyContext): Seq[(String, Option[String])] = {
+    typedVisit[Seq[(String, Option[String])]](ctx.tableReplicationPolicy())
   }
 
-  override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): (String, String) = {
-    val clusterName = typedVisit[String](ctx.replicationPolicyClusterClause())
+  override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): Seq[(String, Option[String])] = {
+    toSeq(ctx.replicationPolicyClause()).map(typedVisit[(String, Option[String])])
+  }
+
+  override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): (String, Option[String]) = {
+    val cluster = typedVisit[String](ctx.replicationPolicyClusterClause())
     val interval = if (ctx.replicationPolicyIntervalClause() != null)
       typedVisit[String](ctx.replicationPolicyIntervalClause())
     else null
-    (clusterName, interval)
+    (cluster, Option(interval))
   }
 
   override def visitReplicationPolicyClusterClause(ctx: ReplicationPolicyClusterClauseContext): (String) = {
