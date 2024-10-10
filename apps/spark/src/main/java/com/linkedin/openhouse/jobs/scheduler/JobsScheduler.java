@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -112,6 +113,7 @@ public class JobsScheduler {
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
+    Properties properties = getAdditionalProperties(cmdLine);
     OperationTaskFactory<? extends OperationTask> tasksFactory =
         new OperationTaskFactory<>(
             operationTaskCls, getJobsClientFactory(cmdLine), tablesClientFactory);
@@ -121,11 +123,19 @@ public class JobsScheduler {
             tasksFactory,
             tablesClientFactory.create());
     app.run(
-        operationType, operationTaskCls.toString(), isDryRun(cmdLine), getTasksWaitHours(cmdLine));
+        operationType,
+        operationTaskCls.toString(),
+        properties,
+        isDryRun(cmdLine),
+        getTasksWaitHours(cmdLine));
   }
 
   protected void run(
-      JobConf.JobTypeEnum jobType, String taskType, boolean isDryRun, int tasksWaitHours) {
+      JobConf.JobTypeEnum jobType,
+      String taskType,
+      Properties properties,
+      boolean isDryRun,
+      int tasksWaitHours) {
     long startTimeMillis = System.currentTimeMillis();
     METER.counterBuilder("scheduler_start_count").build().add(1);
     Map<JobState, Integer> jobStateCountMap = new HashMap<>();
@@ -133,7 +143,8 @@ public class JobsScheduler {
 
     log.info("Fetching task list based on the job type: {}", jobType);
     List<OperationTask<?>> taskList =
-        new OperationTasksBuilder(taskFactory, tablesClient).buildOperationTaskList(jobType, METER);
+        new OperationTasksBuilder(taskFactory, tablesClient)
+            .buildOperationTaskList(jobType, properties, METER);
     if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
       log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
       for (OperationTask<?> operationTask : taskList) {
@@ -143,14 +154,14 @@ public class JobsScheduler {
     }
     log.info("Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
     List<Future<Optional<JobState>>> taskFutures = new ArrayList<>();
-    for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
-      taskFutures.add(executorService.submit(taskList.get(taskIndex)));
+    for (OperationTask<?> operationTask : taskList) {
+      taskFutures.add(executorService.submit(operationTask));
     }
 
     int emptyStateJobCount = 0;
     for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
       Optional<JobState> jobState = Optional.empty();
-      OperationTask task = taskList.get(taskIndex);
+      OperationTask<?> task = taskList.get(taskIndex);
       Future<Optional<JobState>> taskFuture = taskFutures.get(taskIndex);
       try {
         long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
@@ -323,6 +334,20 @@ public class JobsScheduler {
             .longOpt("rootPath")
             .desc("Root path of the file system")
             .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.MAX_STRATEGIES_COUNT)
+            .desc("Maximum number of strategies to schedule")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.MAX_COST_BUDGET_GB_HRS)
+            .desc("Maximum compute cost budget in GB hours")
+            .build());
     CommandLineParser parser = new BasicParser();
     try {
       return parser.parse(options, args);
@@ -399,5 +424,20 @@ public class JobsScheduler {
 
   protected static int getTasksWaitHours(CommandLine cmdLine) {
     return NumberUtils.toInt(cmdLine.getOptionValue("tasksWaitHours"), TASKS_WAIT_HOURS_DEFAULT);
+  }
+
+  protected static Properties getAdditionalProperties(CommandLine cmdLine) {
+    Properties result = new Properties();
+    if (cmdLine.hasOption(OperationTasksBuilder.MAX_COST_BUDGET_GB_HRS)) {
+      result.setProperty(
+          OperationTasksBuilder.MAX_COST_BUDGET_GB_HRS,
+          cmdLine.getOptionValue(OperationTasksBuilder.MAX_COST_BUDGET_GB_HRS));
+    }
+    if (cmdLine.hasOption(OperationTasksBuilder.MAX_STRATEGIES_COUNT)) {
+      result.setProperty(
+          OperationTasksBuilder.MAX_STRATEGIES_COUNT,
+          cmdLine.getOptionValue(OperationTasksBuilder.MAX_STRATEGIES_COUNT));
+    }
+    return result;
   }
 }

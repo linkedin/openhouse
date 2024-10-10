@@ -15,11 +15,13 @@ import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.math.NumberUtils;
 
 /**
  * Prepares the task list based on the job type. Right now task type is either table based or
@@ -28,9 +30,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @AllArgsConstructor
 public class OperationTasksBuilder {
+  public static final String MAX_COST_BUDGET_GB_HRS = "maxCostBudgetGbHrs";
+  public static final String MAX_STRATEGIES_COUNT = "maxStrategiesCount";
   private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.3;
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
-  private static final double MAX_COST_BUDGET_GB_HOURS_DEFAULT = 1000.0;
+  private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
 
   @Getter(AccessLevel.NONE)
@@ -52,9 +56,14 @@ public class OperationTasksBuilder {
   }
 
   private List<OperationTask<?>> prepareDataLayoutOperationTaskList(
-      JobConf.JobTypeEnum jobType, Meter meter) {
+      JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataList();
+    // filter out non-primary and non-clustered/time-partitioned tables before ranking
+    tableDataLayoutMetadataList =
+        tableDataLayoutMetadataList.stream()
+            .filter(m -> m.isPrimary() && (m.isClustered() || m.isTimePartitioned()))
+            .collect(Collectors.toList());
     log.info("Fetched metadata for {} data layout strategies", tableDataLayoutMetadataList.size());
     List<DataLayoutStrategy> strategies =
         tableDataLayoutMetadataList.stream()
@@ -64,9 +73,18 @@ public class OperationTasksBuilder {
         new SimpleWeightedSumDataLayoutStrategyScorer(
             COMPACTION_GAIN_WEIGHT_DEFAULT, COMPUTE_COST_WEIGHT_DEFAULT);
     List<ScoredDataLayoutStrategy> scoredStrategies = scorer.scoreDataLayoutStrategies(strategies);
+    double maxComputeCost =
+        NumberUtils.toDouble(
+            properties.getProperty(MAX_COST_BUDGET_GB_HRS), MAX_COST_BUDGET_GB_HRS_DEFAULT);
+    int maxStrategiesCount =
+        NumberUtils.toInt(
+            properties.getProperty(MAX_STRATEGIES_COUNT), MAX_STRATEGIES_COUNT_DEFAULT);
+    log.info(
+        "Max compute cost budget: {}, max strategies count: {}",
+        maxComputeCost,
+        maxStrategiesCount);
     DataLayoutCandidateSelector candidateSelector =
-        new GreedyMaxBudgetCandidateSelector(
-            MAX_COST_BUDGET_GB_HOURS_DEFAULT, MAX_STRATEGIES_COUNT_DEFAULT);
+        new GreedyMaxBudgetCandidateSelector(maxComputeCost, maxStrategiesCount);
     List<Integer> selectedStrategyIndices = candidateSelector.select(scoredStrategies);
     log.info("Selected {} strategies", selectedStrategyIndices.size());
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
@@ -121,7 +139,8 @@ public class OperationTasksBuilder {
   /**
    * Fetches tables and associated metadata from Tables Service, and builds the operation task list.
    */
-  public List<OperationTask<?>> buildOperationTaskList(JobConf.JobTypeEnum jobType, Meter meter) {
+  public List<OperationTask<?>> buildOperationTaskList(
+      JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
     switch (jobType) {
       case DATA_COMPACTION:
       case NO_OP:
@@ -134,7 +153,7 @@ public class OperationTasksBuilder {
       case DATA_LAYOUT_STRATEGY_GENERATION:
         return prepareTableOperationTaskList(jobType);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
-        return prepareDataLayoutOperationTaskList(jobType, meter);
+        return prepareDataLayoutOperationTaskList(jobType, properties, meter);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType);
       default:
