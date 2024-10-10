@@ -228,7 +228,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     return null;
   }
 
-  private boolean areSnapshotsUpdated(TableMetadata base, TableMetadata newMetadata) {
+  protected boolean areSnapshotsUpdated(TableMetadata base, TableMetadata newMetadata) {
     if (base == null) {
       return !newMetadata.snapshots().isEmpty();
     }
