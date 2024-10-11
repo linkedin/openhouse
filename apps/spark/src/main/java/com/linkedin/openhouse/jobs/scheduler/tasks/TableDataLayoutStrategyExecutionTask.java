@@ -1,12 +1,14 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
-import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
+import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class TableDataLayoutStrategyExecutionTask
     extends TableOperationTask<TableDataLayoutMetadata> {
@@ -25,11 +27,28 @@ public class TableDataLayoutStrategyExecutionTask
 
   @Override
   protected List<String> getArgs() {
-    return Arrays.asList(
-        "--tableName",
-        metadata.fqtn(),
-        "--strategy",
-        StrategiesDaoTableProps.serialize(metadata.getDataLayoutStrategy()));
+    DataCompactionConfig config = metadata.getDataLayoutStrategy().getConfig();
+    List<String> args =
+        new ArrayList<>(
+            Arrays.asList(
+                "--tableName",
+                metadata.fqtn(),
+                "--targetByteSize",
+                Objects.toString(config.getTargetByteSize()),
+                "--minByteSizeRatio",
+                Objects.toString(config.getMinByteSizeRatio()),
+                "--maxByteSizeRatio",
+                Objects.toString(config.getMaxByteSizeRatio()),
+                "--minInputFiles",
+                Objects.toString(config.getMinInputFiles()),
+                "--maxConcurrentFileGroupRewrites",
+                Objects.toString(config.getMaxConcurrentFileGroupRewrites())));
+    if (config.isPartialProgressEnabled()) {
+      args.add("--partialProgressEnabled");
+      args.add("--partialProgressMaxCommits");
+      args.add(Objects.toString(config.getPartialProgressMaxCommits()));
+    }
+    return args;
   }
 
   @Override
