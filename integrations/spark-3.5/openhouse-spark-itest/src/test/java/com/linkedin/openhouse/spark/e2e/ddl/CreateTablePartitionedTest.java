@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.google.common.collect.ImmutableList;
+import com.linkedin.openhouse.gen.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.junit.jupiter.api.Assertions;
@@ -20,23 +21,24 @@ public class CreateTablePartitionedTest {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
-    mockTableService.enqueue(
-        mockResponse(
-            201,
-            mockGetTableResponseBody(
-                "dbCreate",
-                tbName,
-                "c1",
-                "dbCreate.tbpartitionedclustered.c1",
-                "UUID",
-                mockTableLocation(
-                    TableIdentifier.of("dbDesc", tbName),
-                    convertSchemaToDDLComponent(baseSchema),
-                    "PARTITIONED BY (days(timestampCol), name, id, count)"),
-                "v1",
-                baseSchema,
-                null,
-                null))); // doCommit()
+    GetTableResponseBody getTableResponseBody =
+        mockGetTableResponseBody(
+            "dbCreate",
+            tbName,
+            "c1",
+            "dbCreate.tbpartitionedclustered.c1",
+            "UUID",
+            mockTableLocation(
+                TableIdentifier.of("dbDesc", tbName),
+                convertSchemaToDDLComponent(baseSchema),
+                "PARTITIONED BY (days(timestampCol), name, id, count)"),
+            "v1",
+            baseSchema,
+            null,
+            null);
+
+    mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
+    mockTableService.enqueue(mockResponse(200, getTableResponseBody)); // doRefresh()
 
     Assertions.assertDoesNotThrow(
         () ->
@@ -53,23 +55,24 @@ public class CreateTablePartitionedTest {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
-    mockTableService.enqueue(
-        mockResponse(
-            201,
-            mockGetTableResponseBody(
-                "dbCreate",
-                tbName,
-                "c1",
-                "dbCreate.tbpartitionedclustered.c1",
-                "UUID",
-                mockTableLocation(
-                    TableIdentifier.of("dbDesc", tbName),
-                    convertSchemaToDDLComponent(baseSchema),
-                    "PARTITIONED BY (days(timestampCol), truncate(100, name))"),
-                "v1",
-                baseSchema,
-                null,
-                null))); // doCommit()
+    GetTableResponseBody getTableResponseBody =
+        mockGetTableResponseBody(
+            "dbCreate",
+            tbName,
+            "c1",
+            "dbCreate.tbpartitionedclustered.c1",
+            "UUID",
+            mockTableLocation(
+                TableIdentifier.of("dbDesc", tbName),
+                convertSchemaToDDLComponent(baseSchema),
+                "PARTITIONED BY (days(timestampCol), truncate(100, name))"),
+            "v1",
+            baseSchema,
+            null,
+            null);
+
+    mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
+    mockTableService.enqueue(mockResponse(200, getTableResponseBody)); // doRefresh()
 
     Assertions.assertDoesNotThrow(
         () ->
@@ -87,23 +90,24 @@ public class CreateTablePartitionedTest {
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
-      mockTableService.enqueue(
-          mockResponse(
-              201,
-              mockGetTableResponseBody(
-                  "dbCreate",
-                  tbName,
-                  "c1",
-                  "dbCreate.tbpartitioned.c1",
-                  "UUID",
-                  mockTableLocation(
-                      TableIdentifier.of("dbDesc", tbName),
-                      convertSchemaToDDLComponent(baseSchema),
-                      String.format("PARTITIONED BY (%s(timestampCol))", transform)),
-                  "v1",
-                  baseSchema,
-                  null,
-                  null))); // doCommit()
+      GetTableResponseBody getTableResponseBody =
+          mockGetTableResponseBody(
+              "dbCreate",
+              tbName,
+              "c1",
+              "dbCreate.tbpartitioned.c1",
+              "UUID",
+              mockTableLocation(
+                  TableIdentifier.of("dbDesc", tbName),
+                  convertSchemaToDDLComponent(baseSchema),
+                  String.format("PARTITIONED BY (%s(timestampCol))", transform)),
+              "v1",
+              baseSchema,
+              null,
+              null);
+
+      mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
+      mockTableService.enqueue(mockResponse(200, getTableResponseBody)); // doRefresh()
 
       Assertions.assertDoesNotThrow(
           () ->
@@ -126,23 +130,24 @@ public class CreateTablePartitionedTest {
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
-      mockTableService.enqueue(
-          mockResponse(
-              201,
-              mockGetTableResponseBody(
-                  "dbCreate",
-                  tbName,
-                  "c1",
-                  "dbCreate.tbpartitioned.c1",
-                  "UUID",
-                  mockTableLocation(
-                      TableIdentifier.of("dbDesc", tbName),
-                      convertSchemaToDDLComponent(baseSchema),
-                      String.format("PARTITIONED BY (%s)", transform)),
-                  "v1",
-                  baseSchema,
-                  null,
-                  null))); // doCommit()
+      GetTableResponseBody getTableResponseBody =
+          mockGetTableResponseBody(
+              "dbCreate",
+              tbName,
+              "c1",
+              "dbCreate.tbpartitioned.c1",
+              "UUID",
+              mockTableLocation(
+                  TableIdentifier.of("dbDesc", tbName),
+                  convertSchemaToDDLComponent(baseSchema),
+                  String.format("PARTITIONED BY (%s)", transform)),
+              "v1",
+              baseSchema,
+              null,
+              null);
+
+      mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
+      mockTableService.enqueue(mockResponse(200, getTableResponseBody)); // doRefresh()
 
       Assertions.assertDoesNotThrow(
           () ->

@@ -31,7 +31,8 @@ public class ShowTablesTest {
             .map(row -> row.mkString("."))
             .collect(Collectors.toList());
 
-    Assertions.assertTrue(actualRows.containsAll(ImmutableList.of("dbShow.tb1", "dbShow.tb2")));
+    Assertions.assertTrue(
+        actualRows.containsAll(ImmutableList.of("dbShow.tb1.false", "dbShow.tb2.false")));
   }
 
   @Test

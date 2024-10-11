@@ -42,11 +42,10 @@ public class DropTableTest {
         Assertions.assertThrows(
             AnalysisException.class, () -> spark.sql("DESCRIBE TABLE openhouse.dbDrop.t1").show());
 
-    Assertions.assertEquals(
-        "Table or view not found for 'DESCRIBE TABLE': openhouse.dbDrop.t1; line 1 pos 0;\n"
-            + "'DescribeRelation false\n"
-            + "+- 'UnresolvedTableOrView [openhouse, dbDrop, t1], DESCRIBE TABLE, true\n",
-        ex.getMessage());
+    Assertions.assertTrue(
+        ex.getMessage()
+            .contains(
+                "[TABLE_OR_VIEW_NOT_FOUND] The table or view `openhouse`.`dbDrop`.`t1` cannot be found. Verify the spelling and correctness of the schema and catalog."));
   }
 
   @Test
@@ -58,11 +57,10 @@ public class DropTableTest {
     AnalysisException ex =
         Assertions.assertThrows(AnalysisException.class, () -> spark.sql(ddl).show());
 
-    Assertions.assertEquals(
-        "Table or view not found for 'DROP TABLE': openhouse.dbDrop.t1; line 1 pos 0;\n"
-            + "'DropTable false, false\n"
-            + "+- 'UnresolvedTableOrView [openhouse, dbDrop, t1], DROP TABLE, true\n",
-        ex.getMessage());
+    Assertions.assertTrue(
+        ex.getMessage()
+            .contains(
+                "[TABLE_OR_VIEW_NOT_FOUND] The table or view `openhouse`.`dbDrop`.`t1` cannot be found. Verify the spelling and correctness of the schema and catalog."));
   }
 
   @Test

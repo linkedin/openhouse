@@ -47,12 +47,16 @@ task statementTest(type: Test) {
   filter {
     includeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
   }
+  jvmArgs \
+      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
 }
 
 task catalogTest(type: Test) {
   filter {
     includeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
   }
+  jvmArgs \
+      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
 }
 
 test {
@@ -60,6 +64,11 @@ test {
     excludeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
     excludeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
   }
+  jvmArgs \
+      '--add-opens=java.base/java.nio=ALL-UNNAMED',
+      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+      '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+      '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED'
 }
 
 test.dependsOn statementTest
