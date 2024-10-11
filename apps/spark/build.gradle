@@ -134,7 +134,7 @@ shadowJar {
             exclude 'org.springframework.**' // otherwise fails with ClassNotFoundException: org.springframework.http.codec.ClientCodecConfigurer
             exclude 'org.log4j.**'
             exclude 'org.slf4j.**'
-            exclude 'org.apache.log4j.**'
+            exclude '%regex[org.apache.log4j.*]'
             exclude 'org.apache.logging.**' // otherwise fails with add log4j-core to the classpath
             exclude 'org.xml.sax.**' // otherwise fails with NoClassDefFoundError: org/xml/sax/ContentHandler
             exclude '%regex[org.w3c.*]'
