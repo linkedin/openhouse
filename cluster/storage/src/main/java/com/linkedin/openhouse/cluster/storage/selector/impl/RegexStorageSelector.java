@@ -54,12 +54,14 @@ public class RegexStorageSelector extends BaseStorageSelector {
       log.info("Initializing {} ", this.getName());
       String regex = storageProperties.getStorageSelector().getParameters().get(REGEX_CONFIG);
       Preconditions.checkNotNull(
-          regex, "{} pattern not defined in {} parameters", REGEX_CONFIG, this.getName());
+          regex,
+          String.format("%s pattern not defined in %s parameters", REGEX_CONFIG, this.getName()));
       pattern = Pattern.compile(regex);
       providedStorage =
           storageProperties.getStorageSelector().getParameters().get(STORAGE_TYPE_CONFIG);
       Preconditions.checkNotNull(
-          providedStorage, "{} not defined in {} parameters", STORAGE_TYPE_CONFIG, this.getName());
+          providedStorage,
+          String.format("%s not defined in %s parameters", STORAGE_TYPE_CONFIG, this.getName()));
     }
   }
 
