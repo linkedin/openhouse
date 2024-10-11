@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.spark.SparkTestBase.baseSchema;
 import static com.linkedin.openhouse.spark.SparkTestBase.mockTableService;
 import static com.linkedin.openhouse.spark.SparkTestBase.spark;
 
+import com.linkedin.openhouse.gen.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -21,20 +22,20 @@ public class CreateTableTest {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
-    mockTableService.enqueue(
-        mockResponse(
-            201,
-            mockGetTableResponseBody(
-                "dbCreate",
-                "tb1",
-                "c1",
-                "dbCreate.tb1.c1",
-                "UUID",
-                mockTableLocationDefaultSchema(TableIdentifier.of("dbCreate", "tb1")),
-                "v1",
-                baseSchema,
-                null,
-                null))); // doCommit()
+    GetTableResponseBody getTableResponseBody =
+        mockGetTableResponseBody(
+            "dbCreate",
+            "tb1",
+            "c1",
+            "dbCreate.tb1.c1",
+            "UUID",
+            mockTableLocationDefaultSchema(TableIdentifier.of("dbCreate", "tb1")),
+            "v1",
+            baseSchema,
+            null,
+            null);
+    mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
+    mockTableService.enqueue(mockResponse(200, getTableResponseBody)); // doRefresh()
 
     String ddlWithSchema =
         "CREATE TABLE openhouse.dbCreate.tb1 (" + convertSchemaToDDLComponent(baseSchema) + ")";

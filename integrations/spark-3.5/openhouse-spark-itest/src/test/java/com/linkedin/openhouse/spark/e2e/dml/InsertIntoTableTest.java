@@ -3,10 +3,10 @@ package com.linkedin.openhouse.spark.e2e.dml;
 import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.spark.SparkTestBase;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.spark.SparkException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -112,9 +112,9 @@ public class InsertIntoTableTest {
         mockResponse(
             403,
             "{\"status\":\"FORBIDDEN\",\"error\":\"forbidden\",\"message\":\"Operation on table dbInsert.tblError failed as user sraikar is unauthorized\"}"));
-    SparkException exception =
+    WebClientResponseWithMessageException exception =
         Assertions.assertThrows(
-            SparkException.class,
+            WebClientResponseWithMessageException.class,
             () ->
                 spark.sql("INSERT INTO openhouse.dbInsert.tblError VALUES ('3', 'c'), ('4', 'd')"));
     Assertions.assertTrue(

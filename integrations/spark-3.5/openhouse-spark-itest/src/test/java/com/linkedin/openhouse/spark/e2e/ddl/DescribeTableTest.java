@@ -37,6 +37,7 @@ public class DescribeTableTest {
                 null)));
 
     Dataset<Row> rows = spark.sql("DESCRIBE TABLE openhouse.dbDesc.tb1");
+    spark.sql("DESCRIBE TABLE openhouse.dbDesc.tb1").show(false);
     validateSchema(rows, baseSchema);
   }
 
@@ -50,11 +51,10 @@ public class DescribeTableTest {
             AnalysisException.class,
             () -> spark.sql("DESCRIBE TABLE openhouse.dbDesc.tbNotExist").show());
 
-    Assertions.assertEquals(
-        "Table or view not found for 'DESCRIBE TABLE': openhouse.dbDesc.tbNotExist; line 1 pos 0;\n"
-            + "'DescribeRelation false\n"
-            + "+- 'UnresolvedTableOrView [openhouse, dbDesc, tbNotExist], DESCRIBE TABLE, true\n",
-        ex.getMessage());
+    Assertions.assertTrue(
+        ex.getMessage()
+            .contains(
+                "[TABLE_OR_VIEW_NOT_FOUND] The table or view `openhouse`.`dbDesc`.`tbNotExist` cannot be found. Verify the spelling and correctness of the schema and catalog."));
   }
 
   @Test

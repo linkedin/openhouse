@@ -16,7 +16,7 @@ public class PartitionTest extends OpenHouseSparkITest {
       List<String> transformList =
           Arrays.asList("days(time)", "header.time", "truncate(10, header.time)");
       List<String> expectedResult =
-          Arrays.asList("days(time)", "header.time", "truncate(header.time, 10)");
+          Arrays.asList("days(time)", "bigint", "truncate(10, header.time)");
       for (int i = 0; i < transformList.size(); i++) {
         String transform = transformList.get(i);
         String tableName =

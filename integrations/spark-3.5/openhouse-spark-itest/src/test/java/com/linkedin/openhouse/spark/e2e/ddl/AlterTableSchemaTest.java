@@ -17,6 +17,8 @@ public class AlterTableSchemaTest {
   @SneakyThrows
   @Test
   public void testAlterTableUpdateSchema() {
+    String mockTableLocation =
+        mockTableLocationDefaultSchema(TableIdentifier.of("dbAlterS", "tb1"));
     Object existingTable =
         mockGetTableResponseBody(
             "dbAlterS",
@@ -24,7 +26,7 @@ public class AlterTableSchemaTest {
             "c1",
             "dbAlterS.tb1.c1",
             "UUID",
-            mockTableLocationDefaultSchema(TableIdentifier.of("dbAlterS", "tb1")),
+            mockTableLocation,
             "v1",
             baseSchema,
             null,
@@ -41,11 +43,12 @@ public class AlterTableSchemaTest {
                 "c1",
                 "dbAlterS.tb1.c1",
                 "UUID",
-                "file:/loc2",
+                mockTableLocation,
                 "v1",
                 ResourceIoHelper.getSchemaJsonFromResource("evolved_dummy_healthy_schema.json"),
                 null,
                 null)));
+    mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
 
     Assertions.assertDoesNotThrow(
         () -> spark.sql("ALTER TABLE openhouse.dbAlterS.tb1 ADD columns (favorite_number int)"));
