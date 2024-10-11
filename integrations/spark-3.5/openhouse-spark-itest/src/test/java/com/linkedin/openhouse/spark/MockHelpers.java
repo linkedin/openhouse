@@ -286,8 +286,8 @@ public class MockHelpers {
         .map(
             x ->
                 x.type().toString().equals("long")
-                    ? Arrays.asList(x.name(), "bigint", "").toArray(new String[3])
-                    : Arrays.asList(x.name(), x.type().toString(), "").toArray(new String[3]))
+                    ? Arrays.asList(x.name(), "bigint", null).toArray(new String[3])
+                    : Arrays.asList(x.name(), x.type().toString(), null).toArray(new String[3]))
         .collect(Collectors.toList());
   }
 

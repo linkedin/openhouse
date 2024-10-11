@@ -39,6 +39,7 @@ public class CreateTableWithPropsTest {
     tblProps.put("k", "v");
     GetTableResponseBody responseWithProp = decorateResponse(mockResponse, tblProps);
     mockTableService.enqueue(mockResponse(201, responseWithProp)); // doCommit()
+    mockTableService.enqueue(mockResponse(200, responseWithProp)); // doRefresh()
 
     Assertions.assertDoesNotThrow(
         () ->
