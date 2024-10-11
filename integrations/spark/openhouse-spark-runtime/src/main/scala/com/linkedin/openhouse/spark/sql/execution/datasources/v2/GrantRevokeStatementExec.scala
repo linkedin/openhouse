@@ -10,6 +10,7 @@ import org.apache.iceberg.spark.Spark3Util
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.V2CommandExec
 
 case class GrantRevokeStatementExec(
@@ -46,5 +47,11 @@ case class GrantRevokeStatementExec(
   private def toNamespace(ident: Identifier): Namespace = {
     val dbArray: Array[String] = ident.namespace() :+ ident.name()
     Namespace.of(dbArray:_*)
+  }
+
+  override def children: Seq[SparkPlan] = Seq.empty
+
+  override protected def withNewChildrenInternal(newChildren: IndexedSeq[SparkPlan]): SparkPlan = {
+    legacyWithNewChildren(newChildren)
   }
 }

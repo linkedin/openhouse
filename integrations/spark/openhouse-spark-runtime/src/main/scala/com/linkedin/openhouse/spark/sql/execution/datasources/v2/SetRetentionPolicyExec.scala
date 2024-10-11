@@ -4,6 +4,7 @@ import org.apache.iceberg.spark.source.SparkTable
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.V2CommandExec
 
 case class SetRetentionPolicyExec(
@@ -48,5 +49,11 @@ case class SetRetentionPolicyExec(
 
   override def simpleString(maxFields: Int): String = {
     s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")}"
+  }
+
+  override def children: Seq[SparkPlan] = Seq.empty
+
+  override protected def withNewChildrenInternal(newChildren: IndexedSeq[SparkPlan]): SparkPlan = {
+    legacyWithNewChildren(newChildren)
   }
 }

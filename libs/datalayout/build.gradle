@@ -7,7 +7,7 @@ plugins {
 
 ext {
     icebergVersion = '1.2.0'
-    sparkVersion = '3.1.1'
+    sparkVersion = '3.3.4'
     springVersion = '2.7.8'
     hadoopVersion = '2.10.0'
 }
@@ -25,7 +25,7 @@ dependencies {
         exclude group: 'org.apache.hadoop', module: 'hadoop-client'
     }
     implementation 'org.apache.hadoop:hadoop-common:' + hadoopVersion
-    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
+    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.3_2.12:' + icebergVersion
 
     testImplementation (project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
         exclude group: 'io.netty'
