@@ -43,30 +43,33 @@ public class SetTableReplicationPolicyStatementTest {
 
   @Test
   public void testSimpleSetReplicationPolicy() {
-    String replicationConfigJson = "{\"cluster\":\"a\", \"interval\":\"b\"}";
+    String replicationConfigJson = "[{\"cluster\":\"a\", \"interval\":\"24H\"}]";
     Dataset<Row> ds =
         spark.sql(
             "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({cluster:'a', interval:'b'}))");
+                + "({cluster:'a', interval:24H}))");
     assert isPlanValid(ds, replicationConfigJson);
 
     // Test support with multiple clusters
     replicationConfigJson =
-        "{\"cluster\":\"a\", \"interval\":\"b\"}, {\"cluster\":\"aa\", \"interval\":\"bb\"}";
+        "[{\"cluster\":\"a\", \"interval\":\"12H\"}, {\"cluster\":\"aa\", \"interval\":\"12H\"}]";
     ds =
         spark.sql(
             "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({cluster:'a', interval:'b'}, {cluster:'aa', interval:'bb'}))");
+                + "({cluster:'a', interval:12h}, {cluster:'aa', interval:12H}))");
     assert isPlanValid(ds, replicationConfigJson);
+  }
 
+  @Test
+  public void testSimpleSetReplicationPolicyOptionalInterval() {
     // Test with optional interval
-    replicationConfigJson = "{\"cluster\":\"a\"}";
-    ds =
+    String replicationConfigJson = "[{\"cluster\":\"a\"}]";
+    Dataset<Row> ds =
         spark.sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = " + "({cluster:'a'}))");
     assert isPlanValid(ds, replicationConfigJson);
 
     // Test with optional interval for multiple clusters
-    replicationConfigJson = "{\"cluster\":\"a\"}, {\"cluster\":\"b\"}";
+    replicationConfigJson = "[{\"cluster\":\"a\"}, {\"cluster\":\"b\"}]";
     ds =
         spark.sql(
             "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
@@ -108,7 +111,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:, interval: 'bb'}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:, interval: '12h'}))")
                 .show());
 
     // Missing interval value but keyword present
@@ -126,7 +129,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:, interval:'a'}, {cluster:, interval: 'b'}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster:, interval:'12H'}, {cluster:, interval: '12H'}))")
                 .show());
 
     // Missing cluster keyword for multiple clusters
@@ -135,7 +138,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({interval:'a'}, {interval: 'b'}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({interval:'a'}, {interval: '12h'}))")
                 .show());
 
     // Missing cluster keyword
@@ -143,7 +146,8 @@ public class SetTableReplicationPolicyStatementTest {
         OpenhouseParseException.class,
         () ->
             spark
-                .sql("ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({interval: 'ss'}))")
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({interval: '12h'}))")
                 .show());
 
     // Typo in keyword interval
@@ -152,7 +156,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interv: 'ss'}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interv: '12h'}))")
                 .show());
 
     // Typo in keyword cluster
@@ -161,7 +165,7 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({clustr: 'aa', interval: 'ss'}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({clustr: 'aa', interval: '12h'}))")
                 .show());
 
     // Missing quote in cluster value
@@ -170,16 +174,25 @@ public class SetTableReplicationPolicyStatementTest {
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: aa', interval: 'ss}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: aa', interval: '12h}))")
                 .show());
 
-    // Type in REPLICATION keyword
+    // Typo in REPLICATION keyword
     Assertions.assertThrows(
         OpenhouseParseException.class,
         () ->
             spark
                 .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICAT = ({cluster: 'aa', interval: 'ss}))")
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICAT = ({cluster: 'aa', interval: '12h'}))")
+                .show());
+
+    // Interval input does not follow 'h/H' format
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interval: '12'}))")
                 .show());
 
     // Missing cluster and interval values
@@ -213,7 +226,6 @@ public class SetTableReplicationPolicyStatementTest {
 
   @SneakyThrows
   private boolean isPlanValid(Dataset<Row> dataframe, String replicationConfigJson) {
-    replicationConfigJson = "[" + replicationConfigJson + "]";
     String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
     JsonArray jsonArray = new Gson().fromJson(replicationConfigJson, JsonArray.class);
     boolean isValid = false;

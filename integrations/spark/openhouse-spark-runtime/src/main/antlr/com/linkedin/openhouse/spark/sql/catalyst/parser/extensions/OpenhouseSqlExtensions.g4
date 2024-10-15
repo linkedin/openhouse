@@ -101,7 +101,7 @@ replicationPolicyClusterClause
     ;
 
 replicationPolicyIntervalClause
-    : INTERVAL ':' STRING
+    : INTERVAL ':' RETENTION_HOUR
     ;
 
 columnRetentionPolicyPatternClause
