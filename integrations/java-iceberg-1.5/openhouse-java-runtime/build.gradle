@@ -1,0 +1,83 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+  id 'com.github.johnrengelman.shadow' version '7.1.2'
+}
+
+configurations {
+  fatJarPackagedDependencies {
+    // Following exclusions are not needed during runtime
+    // and often cause conflict with existing classpath.
+    exclude(group: 'org.slf4j') // logging libraries
+    exclude(group: 'org.apache.log4j')
+    exclude(group: 'org.apache.logging.log4j')
+    exclude(group: 'org.mapstruct')
+    exclude(group: 'io.micrometer') // not used in client
+    exclude(group: 'ch.qos.logback')
+  }
+  shadow.extendsFrom implementation
+}
+
+ext {
+  icebergVersion = '1.5.2'
+  sparkVersion = '3.5.2'
+  springVersion = '2.7.8'
+  hadoopVersion = '2.10.0'
+}
+
+dependencies {
+  compileOnly project(':client:secureclient')
+  compileOnly project(':client:tableclient')
+  compileOnly("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion)
+  compileOnly ("org.springframework.boot:spring-boot-starter-webflux:" + springVersion)
+
+  implementation 'org.apache.commons:commons-lang3:3.12.0'
+  fatJarPackagedDependencies(project(':client:secureclient'))
+  implementation("org.apache.iceberg:iceberg-core:" + icebergVersion)
+  implementation("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
+    exclude group: 'junit', module: 'junit'
+    exclude group: 'javax', module: 'servlet-api'
+    exclude group: "io.netty"
+    exclude group: 'com.zaxxer', module: 'HikariCP-java7'
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
+  }
+}
+
+// Following codeblock completely relocates contents of the jar
+// except for source code written in the module. As a result,
+// we remove chances of classpath conflicts during runtime/compiletime.
+shadowJar {
+  dependencies {
+    exclude("org/springframework/http/codec/CodecConfigurer.properties")
+    exclude("javax/**")
+    exclude("okio/**")
+    exclude("kotlin/**")
+
+    relocate ('io.', 'com.linkedin.openhouse.relocated.io.')
+    relocate('org','com.linkedin.openhouse.relocated.org') {
+      exclude 'org.xml.sax.**'
+      exclude 'org.apache.hadoop.**'
+      exclude 'org.apache.iceberg.**'
+      exclude 'org.slf4j.**'
+    }
+    relocate('reactor', 'com.linkedin.openhouse.relocated.reactor')
+    relocate('com.linkedin.openhouse.jobs.client', 'com.linkedin.openhouse.gen.job.client')
+    relocate('com.linkedin.openhouse.tables.client', 'com.linkedin.openhouse.gen.tables.client')
+    relocate('com.linkedin.openhouse.client.ssl', 'com.linkedin.openhouse.gen.client.ssl')
+    relocate('com.linkedin.openhouse.housetables.client', 'com.linkedin.openhouse.gen.housetables.client')
+    relocate('com', 'com.linkedin.openhouse.relocated.com') {
+      exclude 'com.linkedin.openhouse.**'
+    }
+  }
+  // Jackson file not needed in newer version
+  exclude 'module-info.class'
+  // service file not needed for client
+  exclude 'log4j2.springboot'
+
+  configurations = [project.configurations.fatJarPackagedDependencies]
+  mergeServiceFiles()
+  archiveClassifier.set('uber')
+  zip64 true
+}
+
+jar.enabled=true
