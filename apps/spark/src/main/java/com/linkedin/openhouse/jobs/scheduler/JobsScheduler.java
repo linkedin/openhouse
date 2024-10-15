@@ -308,7 +308,7 @@ public class JobsScheduler {
     options.addOption(
         Option.builder(null)
             .required(false)
-            .hasArg(false)
+            .hasArg()
             .longOpt("tasksWaitHours")
             .desc("Timeout in hours for scheduler")
             .build());
