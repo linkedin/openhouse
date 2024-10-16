@@ -1054,6 +1054,7 @@ public class TablesControllerTest {
     Assertions.assertEquals(
         updatedPolicies.get("replication").get("config").toString(),
         "[{\"destination\":\"clusterA\",\"interval\":\"24H\"}]");
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
   @Test
@@ -1096,5 +1097,6 @@ public class TablesControllerTest {
     Assertions.assertEquals(
         updatedPolicies.get("replication").get("config").toString(),
         "[{\"destination\":\"clusterA\",\"interval\":\"24H\"},{\"destination\":\"clusterB\",\"interval\":\"12H\"}]");
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 }
