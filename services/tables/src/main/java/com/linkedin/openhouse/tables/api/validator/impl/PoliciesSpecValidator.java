@@ -87,22 +87,49 @@ public class PoliciesSpecValidator {
                 tableUri);
         return false;
       }
-      if (!validateReplicationPolicy(policies.getReplication())) {
+      if (!validateReplicationPolicy(policies.getReplication(), tableUri)) {
         failureMessage =
             String.format(
-                "For table with non-null replication policy, a valid replication schedule %s is mandatory",
-                policies.getReplication());
+                "Invalid replication interval format %s for table %s. Please provide a valid input in intervals 12h to 72h.",
+                policies.getReplication().getConfig(), tableUri);
         return false;
       }
     }
     return true;
   }
 
-  private boolean validateReplicationPolicy(Replication replication) {
+  private boolean validateReplicationPolicy(Replication replication, TableUri tableUri) {
     if (replication != null) {
       for (ReplicationConfig config : replication.getConfig()) {
-        String interval = config.getInterval();
-        // TODO validate interval input
+        if (!validateReplicationInterval(config) || !validateReplicationCluster(config, tableUri)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Validate that the optional interval parameter provided by users exists as an interval of 12
+   * from 12h to 72h
+   */
+  private boolean validateReplicationInterval(ReplicationConfig replication) {
+    if (replication != null) {
+      if (replication.getInterval() != null) {
+        int interval =
+            Integer.parseInt(
+                replication.getInterval().substring(0, replication.getInterval().length() - 1));
+        return interval % 12 == 0 && interval >= 12 && interval <= 72;
+      }
+    }
+    return true;
+  }
+
+  private boolean validateReplicationCluster(ReplicationConfig replication, TableUri tableUri) {
+    if (replication != null) {
+      if (replication.getDestination() != null) {
+        // check that destination cluster != source cluster
+        return !replication.getDestination().equals(tableUri.getClusterId());
       }
     }
     return true;

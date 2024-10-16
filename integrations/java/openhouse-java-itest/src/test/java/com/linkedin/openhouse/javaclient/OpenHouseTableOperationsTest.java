@@ -252,7 +252,8 @@ public class OpenHouseTableOperationsTest {
   public void testPoliciesReplicationExistsButNoUpdate() {
     Map<String, String> props = new HashMap<>();
     props.put(
-        "policies", "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"b\"}]}}");
+        "policies",
+        "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"12H\"}]}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -261,7 +262,8 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertNotNull(updatedPolicies);
     Assertions.assertEquals(
         updatedPolicies.getReplication().getConfig().get(0).getDestination(), "a");
-    Assertions.assertEquals(updatedPolicies.getReplication().getConfig().get(0).getInterval(), "b");
+    Assertions.assertEquals(
+        updatedPolicies.getReplication().getConfig().get(0).getInterval(), "12H");
     Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 1);
   }
 
@@ -270,7 +272,7 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "updated.openhouse.policy",
-        "{\"replication\":{\"config\":[{\"destination\":\"aa\", \"interval\":\"bb\"}]}}");
+        "{\"replication\":{\"config\":[{\"destination\":\"aa\", \"interval\":\"24H\"}]}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -280,7 +282,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(
         updatedPolicies.getReplication().getConfig().get(0).getDestination(), "aa");
     Assertions.assertEquals(
-        updatedPolicies.getReplication().getConfig().get(0).getInterval(), "bb");
+        updatedPolicies.getReplication().getConfig().get(0).getInterval(), "24H");
     Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 1);
   }
 
@@ -288,10 +290,11 @@ public class OpenHouseTableOperationsTest {
   public void testPoliciesReplicationExistsUpdateExists() {
     Map<String, String> props = new HashMap<>();
     props.put(
-        "policies", "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"b\"}]}}");
+        "policies",
+        "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"36H\"}]}}");
     props.put(
         "updated.openhouse.policy",
-        "{\"replication\":{\"config\":[{\"destination\":\"aa\", \"interval\":\"bb\"}]}}");
+        "{\"replication\":{\"config\":[{\"destination\":\"aa\", \"interval\":\"24H\"}]}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -300,7 +303,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(
         updatedPolicies.getReplication().getConfig().get(0).getDestination(), "aa");
     Assertions.assertEquals(
-        updatedPolicies.getReplication().getConfig().get(0).getInterval(), "bb");
+        updatedPolicies.getReplication().getConfig().get(0).getInterval(), "24H");
     Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 1);
   }
 }

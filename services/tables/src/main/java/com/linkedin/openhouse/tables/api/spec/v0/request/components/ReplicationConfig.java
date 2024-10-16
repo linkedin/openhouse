@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ReplicationConfig {
-  @Schema(description = "Replication destination cluster name", example = "Holdem")
+  @Schema(description = "Replication destination cluster name", example = "clusterA")
   @NotNull(
       message =
           "Incorrect destination cluster name specified. Destination cluster name cannot be null")
@@ -24,8 +24,9 @@ public class ReplicationConfig {
   String destination;
 
   @Schema(
-      description = "Optional interval at which the replication job should run",
-      example = "12 hour")
+      description =
+          "Optional parameter interval at which the replication job should run. Default value is 24H",
+      example = "24H")
   @Valid
   String interval;
 }
