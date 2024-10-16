@@ -13,7 +13,6 @@ import com.linkedin.openhouse.tables.model.IcebergSnapshotsModelTestUtilities;
 import java.io.UnsupportedEncodingException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -56,20 +55,6 @@ public final class ValidationUtilities {
         JsonPath.read(result.getResponse().getContentAsString(), "$.policies.retention.count");
 
     Assertions.assertEquals(tableRetentionDays, policies.getRetention().getCount());
-  }
-
-  /**
-   * validation which verify all policies json are as per the Policies class in the return value.
-   */
-  static void tableReplicationConfig(MvcResult result, Policies policies)
-      throws UnsupportedEncodingException {
-    if (policies.getReplication() != null) {
-      HashMap<String, String> tableReplicationConfig =
-          JsonPath.read(
-              result.getResponse().getContentAsString(), "$.policies.replication.config[0]");
-
-      Assertions.assertEquals(policies.getReplication().getConfig(), tableReplicationConfig);
-    }
   }
 
   static void validateUUID(MvcResult result, String uuid) throws UnsupportedEncodingException {

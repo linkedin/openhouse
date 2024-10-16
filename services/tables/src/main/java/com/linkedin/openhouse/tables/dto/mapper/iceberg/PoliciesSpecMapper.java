@@ -4,9 +4,13 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
+import com.linkedin.openhouse.tables.common.DefaultReplicationInterval;
 import com.linkedin.openhouse.tables.model.TableDto;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.mapstruct.Mapper;
 import org.mapstruct.Named;
 
@@ -87,8 +91,29 @@ public class PoliciesSpecMapper {
                       .build())
               .build();
       return policies.toBuilder().retention(retentionPolicy).build();
-    } else {
-      return policies;
     }
+    if (policies != null
+        && policies.getReplication() != null
+        && policies.getReplication().getConfig() != null) {
+      List<ReplicationConfig> replicationConfig =
+          policies.getReplication().getConfig().stream()
+              .map(
+                  replication -> {
+                    if (replication.getInterval() == null) {
+                      return replication
+                          .toBuilder()
+                          .interval(DefaultReplicationInterval.DAILY.getInterval())
+                          .build();
+                    }
+                    return replication;
+                  })
+              .collect(Collectors.toList());
+
+      return policies
+          .toBuilder()
+          .replication(policies.getReplication().toBuilder().config(replicationConfig).build())
+          .build();
+    }
+    return policies;
   }
 }
