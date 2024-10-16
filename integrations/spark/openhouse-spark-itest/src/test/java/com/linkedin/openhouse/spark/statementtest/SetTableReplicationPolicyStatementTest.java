@@ -195,6 +195,22 @@ public class SetTableReplicationPolicyStatementTest {
                     "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interval: '12'}))")
                 .show());
 
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interval: '1D'}))")
+                .show());
+
+    Assertions.assertThrows(
+        OpenhouseParseException.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({cluster: 'aa', interval: '12d'}))")
+                .show());
+
     // Missing cluster and interval values
     Assertions.assertThrows(
         OpenhouseParseException.class,
