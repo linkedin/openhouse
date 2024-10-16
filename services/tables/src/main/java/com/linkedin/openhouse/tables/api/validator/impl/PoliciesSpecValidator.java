@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -87,24 +86,35 @@ public class PoliciesSpecValidator {
                 tableUri);
         return false;
       }
-      if (!validateReplicationPolicy(policies.getReplication(), tableUri)) {
-        failureMessage =
-            String.format(
-                "Invalid replication interval format %s for table %s. Please provide a valid input in intervals 12h to 72h.",
-                policies.getReplication().getConfig(), tableUri);
-        return false;
-      }
     }
-    return true;
-  }
 
-  private boolean validateReplicationPolicy(Replication replication, TableUri tableUri) {
-    if (replication != null) {
-      for (ReplicationConfig config : replication.getConfig()) {
-        if (!validateReplicationInterval(config) || !validateReplicationCluster(config, tableUri)) {
-          return false;
-        }
-      }
+    if (policies != null
+        && policies.getReplication() != null
+        && policies.getReplication().getConfig() != null) {
+      // invalid cases for replication config
+      return policies.getReplication().getConfig().stream()
+          .allMatch(
+              replicationConfig -> {
+                if (replicationConfig.getInterval() != null) {
+                  if (!validateReplicationInterval(replicationConfig)) {
+                    failureMessage =
+                        String.format(
+                            "Replication interval provided is not a multiple of 12 or not in the range of 12h to 72h for table %s",
+                            tableUri);
+                    return false;
+                  }
+                }
+                if (replicationConfig.getDestination() != null) {
+                  if (!validateReplicationCluster(replicationConfig, tableUri)) {
+                    failureMessage =
+                        String.format(
+                            "Replication destination cluster provided cannot be equal to source cluster for table %s",
+                            tableUri);
+                    return false;
+                  }
+                }
+                return true;
+              });
     }
     return true;
   }
@@ -113,26 +123,21 @@ public class PoliciesSpecValidator {
    * Validate that the optional interval parameter provided by users exists as an interval of 12
    * from 12h to 72h
    */
-  private boolean validateReplicationInterval(ReplicationConfig replication) {
-    if (replication != null) {
-      if (replication.getInterval() != null) {
-        int interval =
-            Integer.parseInt(
-                replication.getInterval().substring(0, replication.getInterval().length() - 1));
-        return interval % 12 == 0 && interval >= 12 && interval <= 72;
-      }
-    }
-    return true;
+  protected boolean validateReplicationInterval(ReplicationConfig replicationConfig) {
+    int interval =
+        Integer.parseInt(
+            replicationConfig
+                .getInterval()
+                .substring(0, replicationConfig.getInterval().length() - 1));
+    return interval % 12 == 0 && interval >= 12 && interval <= 72;
   }
 
-  private boolean validateReplicationCluster(ReplicationConfig replication, TableUri tableUri) {
-    if (replication != null) {
-      if (replication.getDestination() != null) {
-        // check that destination cluster != source cluster
-        return !replication.getDestination().equals(tableUri.getClusterId());
-      }
-    }
-    return true;
+  /**
+   * Validate that the destination cluster provided by users is not the same as the source cluster
+   */
+  protected boolean validateReplicationCluster(
+      ReplicationConfig replicationConfig, TableUri tableUri) {
+    return !replicationConfig.getDestination().equals(tableUri.getClusterId());
   }
 
   /**
