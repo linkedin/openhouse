@@ -25,6 +25,7 @@ singleStatement
 statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
+  | ALTER TABLE multipartIdentifier SET POLICY '(' snapshotsRetentionPolicy ')'                        #setSnapshotsRetentionPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
@@ -64,7 +65,7 @@ quotedIdentifier
     ;
 
 nonReserved
-    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING
+    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | SNAPSHOTS_RETENTION
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     ;
 
@@ -131,6 +132,27 @@ policyTag
     : PII | HC
     ;
 
+snapshotsRetentionPolicy
+    : SNAPSHOTS_RETENTION snapshotsCombinedRetention
+    ;
+
+snapshotsCombinedRetention
+    : snapshotsTTL (snapshotsCount)?
+    ;
+
+snapshotsTTL
+    : TTL '=' snapshotsTTLValue
+    ;
+
+snapshotsCount
+    : COUNT '=' POSITIVE_INTEGER
+    ;
+
+snapshotsTTLValue
+    : RETENTION_DAY
+    | RETENTION_HOUR
+    ;
+
 ALTER: 'ALTER';
 TABLE: 'TABLE';
 SET: 'SET';
@@ -157,6 +179,9 @@ HC: 'HC';
 MODIFY: 'MODIFY';
 TAG: 'TAG';
 NONE: 'NONE';
+TTL: 'TTL';
+COUNT: 'COUNT';
+SNAPSHOTS_RETENTION : 'SNAPSHOTS_RETENTION';
 
 POSITIVE_INTEGER
     : DIGIT+
