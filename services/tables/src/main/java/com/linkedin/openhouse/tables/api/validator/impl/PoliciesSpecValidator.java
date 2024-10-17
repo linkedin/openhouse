@@ -41,80 +41,80 @@ public class PoliciesSpecValidator {
   public boolean validate(
       Policies policies, TimePartitionSpec timePartitioning, TableUri tableUri, String schema) {
 
-    if (policies != null && policies.getRetention() != null) {
-      // Two invalid case for timePartitioned table
-      if (timePartitioning != null) {
-        if (policies.getRetention().getColumnPattern() != null) {
+    if (policies != null) {
+      if (policies.getRetention() != null) {
+        // Two invalid case for timePartitioned table
+        if (timePartitioning != null) {
+          if (policies.getRetention().getColumnPattern() != null) {
+            failureMessage =
+                String.format(
+                    "You can only specify retention column pattern on non-timestampPartitioned table (table[%s] is time-partitioned by[%s])",
+                    tableUri, timePartitioning.getColumnName());
+            return false;
+          }
+          if (!policies.getRetention().getGranularity().equals(timePartitioning.getGranularity())) {
+            failureMessage =
+                String.format(
+                    "invalid policies retention granularity format for table %s. Policies granularity must be equal to or lesser than"
+                        + " time partition spec granularity",
+                    tableUri);
+            errorField = "retention";
+            return false;
+          }
+        }
+
+        // invalid cases regarding the integrity of retention object.
+        if (!validateGranularityWithPattern(policies.getRetention())) {
           failureMessage =
               String.format(
-                  "You can only specify retention column pattern on non-timestampPartitioned table (table[%s] is time-partitioned by[%s])",
-                  tableUri, timePartitioning.getColumnName());
+                  "Provided Retention Granularity[%s] is not supported with default pattern. "
+                      + "Please define pattern in retention config or use one of supported granularity: %s",
+                  policies.getRetention().getGranularity().name(),
+                  Arrays.toString(DefaultColumnPattern.values()));
           return false;
         }
-        if (!policies.getRetention().getGranularity().equals(timePartitioning.getGranularity())) {
+        if (!validatePatternIfPresent(policies.getRetention(), tableUri, schema)) {
           failureMessage =
               String.format(
-                  "invalid policies retention granularity format for table %s. Policies granularity must be equal to or lesser than"
-                      + " time partition spec granularity",
+                  "Provided pattern[%s] is not recognizable by OpenHouse for the table[%s]; Also please make sure the declared column is part of table schema.",
+                  policies.getRetention().getColumnPattern(), tableUri);
+          return false;
+        }
+        if (timePartitioning == null && policies.getRetention().getColumnPattern() == null) {
+          failureMessage =
+              String.format(
+                  "For non timestamp-partitioned table %s, column pattern in retention policy is mandatory",
                   tableUri);
-          errorField = "retention";
           return false;
         }
       }
 
-      // invalid cases regarding the integrity of retention object.
-      if (!validateGranularityWithPattern(policies.getRetention())) {
-        failureMessage =
-            String.format(
-                "Provided Retention Granularity[%s] is not supported with default pattern. "
-                    + "Please define pattern in retention config or use one of supported granularity: %s",
-                policies.getRetention().getGranularity().name(),
-                Arrays.toString(DefaultColumnPattern.values()));
-        return false;
-      }
-      if (!validatePatternIfPresent(policies.getRetention(), tableUri, schema)) {
-        failureMessage =
-            String.format(
-                "Provided pattern[%s] is not recognizable by OpenHouse for the table[%s]; Also please make sure the declared column is part of table schema.",
-                policies.getRetention().getColumnPattern(), tableUri);
-        return false;
-      }
-      if (timePartitioning == null && policies.getRetention().getColumnPattern() == null) {
-        failureMessage =
-            String.format(
-                "For non timestamp-partitioned table %s, column pattern in retention policy is mandatory",
-                tableUri);
-        return false;
-      }
-    }
-
-    if (policies != null
-        && policies.getReplication() != null
-        && policies.getReplication().getConfig() != null) {
-      // invalid cases for replication config
-      return policies.getReplication().getConfig().stream()
-          .allMatch(
-              replicationConfig -> {
-                if (replicationConfig.getInterval() != null) {
-                  if (!validateReplicationInterval(replicationConfig)) {
-                    failureMessage =
-                        String.format(
-                            "Replication interval provided is not a multiple of 12 or not in the range of 12h to 72h for table %s",
-                            tableUri);
-                    return false;
+      if (policies.getReplication() != null && policies.getReplication().getConfig() != null) {
+        // invalid cases for replication config
+        return policies.getReplication().getConfig().stream()
+            .allMatch(
+                replicationConfig -> {
+                  if (replicationConfig.getInterval() != null) {
+                    if (!validateReplicationInterval(replicationConfig)) {
+                      failureMessage =
+                          String.format(
+                              "Replication interval provided is not a multiple of 12 or not in the range of 12h to 72h for table %s",
+                              tableUri);
+                      return false;
+                    }
                   }
-                }
-                if (replicationConfig.getDestination() != null) {
-                  if (!validateReplicationCluster(replicationConfig, tableUri)) {
-                    failureMessage =
-                        String.format(
-                            "Replication destination cluster provided cannot be equal to source cluster for table %s",
-                            tableUri);
-                    return false;
+                  if (replicationConfig.getDestination() != null) {
+                    if (!validateReplicationCluster(replicationConfig, tableUri)) {
+                      failureMessage =
+                          String.format(
+                              "Replication destination cluster provided cannot be equal to source cluster for table %s",
+                              tableUri);
+                      return false;
+                    }
                   }
-                }
-                return true;
-              });
+                  return true;
+                });
+      }
     }
     return true;
   }

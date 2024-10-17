@@ -65,54 +65,53 @@ public class PoliciesSpecMapper {
   @Named("mapPolicies")
   public Policies mapPolicies(Policies policies) {
     String defaultPattern;
-    if (policies != null
-        && policies.getRetention() != null
-        && policies.getRetention().getColumnPattern() != null
-        && policies.getRetention().getColumnPattern().getPattern().isEmpty()) {
-      if (policies
-          .getRetention()
-          .getGranularity()
-          .name()
-          .equals(DefaultColumnPattern.HOUR.toString())) {
-        defaultPattern = DefaultColumnPattern.HOUR.getPattern();
-      } else {
-        defaultPattern = DefaultColumnPattern.DAY.getPattern();
+    if (policies != null) {
+      if (policies.getRetention() != null
+          && policies.getRetention().getColumnPattern() != null
+          && policies.getRetention().getColumnPattern().getPattern().isEmpty()) {
+        if (policies
+            .getRetention()
+            .getGranularity()
+            .name()
+            .equals(DefaultColumnPattern.HOUR.toString())) {
+          defaultPattern = DefaultColumnPattern.HOUR.getPattern();
+        } else {
+          defaultPattern = DefaultColumnPattern.DAY.getPattern();
+        }
+        Retention retentionPolicy =
+            policies
+                .getRetention()
+                .toBuilder()
+                .columnPattern(
+                    policies
+                        .getRetention()
+                        .getColumnPattern()
+                        .toBuilder()
+                        .pattern(defaultPattern)
+                        .build())
+                .build();
+        return policies.toBuilder().retention(retentionPolicy).build();
       }
-      Retention retentionPolicy =
-          policies
-              .getRetention()
-              .toBuilder()
-              .columnPattern(
-                  policies
-                      .getRetention()
-                      .getColumnPattern()
-                      .toBuilder()
-                      .pattern(defaultPattern)
-                      .build())
-              .build();
-      return policies.toBuilder().retention(retentionPolicy).build();
-    }
-    if (policies != null
-        && policies.getReplication() != null
-        && policies.getReplication().getConfig() != null) {
-      List<ReplicationConfig> replicationConfig =
-          policies.getReplication().getConfig().stream()
-              .map(
-                  replication -> {
-                    if (replication.getInterval() == null) {
-                      return replication
-                          .toBuilder()
-                          .interval(DefaultReplicationInterval.DAILY.getInterval())
-                          .build();
-                    }
-                    return replication;
-                  })
-              .collect(Collectors.toList());
+      if (policies.getReplication() != null && policies.getReplication().getConfig() != null) {
+        List<ReplicationConfig> replicationConfig =
+            policies.getReplication().getConfig().stream()
+                .map(
+                    replication -> {
+                      if (replication.getInterval() == null) {
+                        return replication
+                            .toBuilder()
+                            .interval(DefaultReplicationInterval.DAILY.getInterval())
+                            .build();
+                      }
+                      return replication;
+                    })
+                .collect(Collectors.toList());
 
-      return policies
-          .toBuilder()
-          .replication(policies.getReplication().toBuilder().config(replicationConfig).build())
-          .build();
+        return policies
+            .toBuilder()
+            .replication(policies.getReplication().toBuilder().config(replicationConfig).build())
+            .build();
+      }
     }
     return policies;
   }
