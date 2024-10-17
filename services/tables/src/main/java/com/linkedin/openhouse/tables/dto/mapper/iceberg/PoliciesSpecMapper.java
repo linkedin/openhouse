@@ -97,7 +97,7 @@ public class PoliciesSpecMapper {
             policies.getReplication().getConfig().stream()
                 .map(
                     replication -> {
-                      if (replication.getInterval() == null) {
+                      if (replication.getInterval().isEmpty()) {
                         return replication
                             .toBuilder()
                             .interval(DefaultReplicationInterval.DAILY.getInterval())
