@@ -94,7 +94,8 @@ public class PoliciesSpecValidator {
         return policies.getReplication().getConfig().stream()
             .allMatch(
                 replicationConfig -> {
-                  if (replicationConfig.getInterval() != null) {
+                  if (replicationConfig.getInterval() != null
+                      && !replicationConfig.getInterval().isEmpty()) {
                     if (!validateReplicationInterval(replicationConfig)) {
                       failureMessage =
                           String.format(

@@ -1026,7 +1026,7 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
     ReplicationConfig replicationConfig =
-        ReplicationConfig.builder().destination("clusterA").build();
+        ReplicationConfig.builder().destination("clusterA").interval("").build();
     Replication replication =
         Replication.builder().config(Arrays.asList(replicationConfig)).build();
     Policies newPolicies = Policies.builder().replication(replication).build();
@@ -1067,7 +1067,7 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
     ReplicationConfig replicationConfig1 =
-        ReplicationConfig.builder().destination("clusterA").build();
+        ReplicationConfig.builder().destination("clusterA").interval("").build();
     ReplicationConfig replicationConfig2 =
         ReplicationConfig.builder().destination("clusterB").interval("12H").build();
     Replication replication =
