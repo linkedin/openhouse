@@ -34,6 +34,9 @@ public class PoliciesSpecMapperTest {
     Assertions.assertEquals(
         (Integer) JsonPath.read(policiesSpec, "$.retention.count"),
         TableModelConstants.TABLE_POLICIES.getRetention().getCount());
+    Assertions.assertEquals(
+        JsonPath.read(policiesSpec, "$.replication.config[0].destination"),
+        TableModelConstants.TABLE_POLICIES.getReplication().getConfig().get(0).getDestination());
   }
 
   @Test
