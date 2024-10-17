@@ -5,7 +5,7 @@ package com.linkedin.openhouse.tables.common;
  * com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig}
  */
 public enum DefaultReplicationInterval {
-  // default interval for replication jobs
+  // default interval to run replication jobs
   DAILY("24H");
 
   private final String interval;
