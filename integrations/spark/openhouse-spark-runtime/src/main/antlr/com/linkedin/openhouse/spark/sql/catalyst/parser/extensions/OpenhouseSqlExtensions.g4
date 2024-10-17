@@ -97,7 +97,7 @@ replicationPolicyClause
     ;
 
 replicationPolicyClusterClause
-    : CLUSTER ':' STRING
+    : DESTINATION ':' STRING
     ;
 
 replicationPolicyIntervalClause
@@ -172,7 +172,7 @@ DATABASE: 'DATABASE';
 SHOW: 'SHOW';
 GRANTS: 'GRANTS';
 PATTERN: 'PATTERN';
-CLUSTER: 'CLUSTER';
+DESTINATION: 'DESTINATION';
 INTERVAL: 'INTERVAL';
 WHERE: 'WHERE';
 COLUMN: 'COLUMN';
