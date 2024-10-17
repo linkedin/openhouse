@@ -24,7 +24,7 @@ dependencies {
     exclude group: 'org.xerial'
     exclude group: 'javax'
   }
-  
+
   compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
   compileOnly('org.apache.spark:spark-sql_2.12:' + spark_version){
     // These classes are available from `client-codegen-convention.gradle`
@@ -66,18 +66,18 @@ dependencies {
 }
 
 shadowJar {
-
-
   zip64 = true
   archiveClassifier.set('uber')
 
   dependencies {
-
-
-
     exclude(dependency('com.fasterxml.jackson.module::'))
     exclude(dependency('com.fasterxml.jackson.core::'))
     exclude(dependency('com.azure::'))
+
+    relocate('com.google', 'openhouse.relocated.com.google')
+    relocate('com.jayway', 'openhouse.relocated.com.jayway')
+    relocate('com.zaxxer', 'openhouse.relocated.com.zaxxer')
+    relocate('com.ctc', 'openhouse.relocated.com.ctc')
 
     exclude(dependency('ch.qos.logback::'))
     exclude(dependency('org.apache.hadoop::'))
@@ -86,12 +86,6 @@ shadowJar {
     exclude(dependency('org.log4j::'))
     exclude(dependency('org.apache.log4j::'))
     exclude(dependency('org.apache.spark::'))
-
-
-    relocate('com.google', 'openhouse.relocated.com.google')
-    relocate('com.jayway', 'openhouse.relocated.com.jayway')
-    relocate('com.zaxxer', 'openhouse.relocated.com.zaxxer')
-    relocate('com.ctc', 'openhouse.relocated.com.ctc')
 
     relocate('org.codehaus', 'openhouse.relocated.org.codehaus')
     relocate('org.hibernate', 'openhouse.relocated.org.hibernate')

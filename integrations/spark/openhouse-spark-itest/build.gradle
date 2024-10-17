@@ -15,7 +15,7 @@ dependencies {
     // These classes are available from `client-codegen-convention.gradle`
     exclude group: "io.netty"
   }
-   
+ 
   testImplementation project(':tables-test-fixtures_2.12')
   testImplementation 'org.junit.platform:junit-platform-runner:1.11.0'
   testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.0'
