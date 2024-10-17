@@ -24,6 +24,7 @@ singleStatement
 
 statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
+  | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
@@ -64,7 +65,7 @@ quotedIdentifier
     ;
 
 nonReserved
-    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING
+    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     ;
 
@@ -81,6 +82,26 @@ retentionPolicy
 
 columnRetentionPolicy
     : ON columnNameClause (columnRetentionPolicyPatternClause)?
+    ;
+
+replicationPolicy
+    : REPLICATION '=' tableReplicationPolicy
+    ;
+
+tableReplicationPolicy
+    : '(' replicationPolicyClause (',' replicationPolicyClause)* ')'
+    ;
+
+replicationPolicyClause
+    : '{' replicationPolicyClusterClause (',' replicationPolicyIntervalClause)? '}'
+    ;
+
+replicationPolicyClusterClause
+    : DESTINATION ':' STRING
+    ;
+
+replicationPolicyIntervalClause
+    : INTERVAL ':' RETENTION_HOUR
     ;
 
 columnRetentionPolicyPatternClause
@@ -136,6 +157,7 @@ TABLE: 'TABLE';
 SET: 'SET';
 POLICY: 'POLICY';
 RETENTION: 'RETENTION';
+REPLICATION: 'REPLICATION';
 SHARING: 'SHARING';
 GRANT: 'GRANT';
 REVOKE: 'REVOKE';
@@ -150,6 +172,8 @@ DATABASE: 'DATABASE';
 SHOW: 'SHOW';
 GRANTS: 'GRANTS';
 PATTERN: 'PATTERN';
+DESTINATION: 'DESTINATION';
+INTERVAL: 'INTERVAL';
 WHERE: 'WHERE';
 COLUMN: 'COLUMN';
 PII: 'PII';

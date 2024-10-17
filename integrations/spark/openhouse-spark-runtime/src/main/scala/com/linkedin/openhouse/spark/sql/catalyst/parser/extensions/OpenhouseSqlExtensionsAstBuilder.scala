@@ -2,13 +2,14 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetRetentionPolicy, SetSharingPolicy, SetColumnPolicyTag, ShowGrantsStatement}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
+import scala.collection.JavaConversions.iterableAsScalaIterable
 import scala.collection.JavaConverters._
 
 class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends OpenhouseSqlExtensionsBaseVisitor[AnyRef] {
@@ -24,6 +25,12 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
       typedVisit[(String, String)](ctx.columnRetentionPolicy())
       else (null, null)
     SetRetentionPolicy(tableName, granularity, count, Option(colName), Option(colPattern))
+  }
+
+  override def visitSetReplicationPolicy(ctx: SetReplicationPolicyContext): SetReplicationPolicy = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val replicationPolicies = typedVisit[Seq[(String, Option[String])]](ctx.replicationPolicy())
+    SetReplicationPolicy(tableName, replicationPolicies)
   }
 
   override def visitSetSharingPolicy(ctx: SetSharingPolicyContext): SetSharingPolicy = {
@@ -84,6 +91,31 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
 
   override def visitRetentionPolicy(ctx: RetentionPolicyContext): (String, Int) = {
     typedVisit[(String, Int)](ctx.duration())
+  }
+
+  override def visitReplicationPolicy(ctx: ReplicationPolicyContext): Seq[(String, Option[String])] = {
+    typedVisit[Seq[(String, Option[String])]](ctx.tableReplicationPolicy())
+  }
+
+  override def visitTableReplicationPolicy(ctx: TableReplicationPolicyContext): Seq[(String, Option[String])] = {
+    toSeq(ctx.replicationPolicyClause()).map(typedVisit[(String, Option[String])])
+  }
+
+  override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): (String, Option[String]) = {
+    val cluster = typedVisit[String](ctx.replicationPolicyClusterClause())
+    val interval = if (ctx.replicationPolicyIntervalClause() != null)
+      typedVisit[String](ctx.replicationPolicyIntervalClause())
+    else
+      null
+    (cluster, Option(interval))
+  }
+
+  override def visitReplicationPolicyClusterClause(ctx: ReplicationPolicyClusterClauseContext): (String) = {
+    ctx.STRING().getText
+  }
+
+  override def visitReplicationPolicyIntervalClause(ctx: ReplicationPolicyIntervalClauseContext): (String) = {
+    ctx.RETENTION_HOUR().getText.toUpperCase
   }
 
   override def visitColumnRetentionPolicy(ctx: ColumnRetentionPolicyContext): (String, String) = {
