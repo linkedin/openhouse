@@ -1,7 +1,7 @@
 plugins {
     id 'openhouse.java-conventions'
     id 'openhouse.hadoop-conventions'
-    id 'openhouse.iceberg-conventions'
+    id 'openhouse.iceberg-conventions-1.2'
     id 'openhouse.maven-publish'
     id 'com.github.johnrengelman.shadow' version '7.1.2'
 }

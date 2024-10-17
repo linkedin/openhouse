@@ -3,7 +3,7 @@ plugins {
   id 'openhouse.hadoop-conventions'
   id 'openhouse.iceberg-aws-conventions'
   id 'openhouse.iceberg-azure-conventions'
-  id 'openhouse.iceberg-conventions'
+  id 'openhouse.iceberg-conventions-1.5.2'
   id 'openhouse.maven-publish'
   /**
    * FIXME: Ideally, the below line are also defined in shared buildSrc. But raises following error:
@@ -34,5 +34,7 @@ dependencies {
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
   testImplementation(testFixtures(project(':services:common')))
-  testImplementation project(':tables-test-fixtures_2.12')
+  testImplementation (project(':tables-test-fixtures_2.12')) {
+    exclude group: 'org.apache.iceberg'
+  }
 }
