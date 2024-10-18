@@ -124,14 +124,16 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   private void validatePolicies(CreateUpdateTableRequestBody createUpdateTableRequestBody) {
-    if (!policiesSpecValidator.validate(
-        createUpdateTableRequestBody.getPolicies(),
-        createUpdateTableRequestBody.getTimePartitioning(),
+    TableUri tableUri =
         TableUri.builder()
             .tableId(createUpdateTableRequestBody.getTableId())
             .clusterId(createUpdateTableRequestBody.getClusterId())
             .databaseId(createUpdateTableRequestBody.getDatabaseId())
-            .build(),
+            .build();
+    if (!policiesSpecValidator.validate(
+        createUpdateTableRequestBody.getPolicies(),
+        createUpdateTableRequestBody.getTimePartitioning(),
+        tableUri,
         createUpdateTableRequestBody.getSchema())) {
       throw new RequestValidationFailureException(
           Arrays.asList(
