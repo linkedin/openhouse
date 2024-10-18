@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
@@ -86,7 +87,59 @@ public class PoliciesSpecValidator {
         return false;
       }
     }
+
+    if (policies != null
+        && policies.getReplication() != null
+        && policies.getReplication().getConfig() != null) {
+      // invalid cases for replication config
+      return policies.getReplication().getConfig().stream()
+          .allMatch(
+              replicationConfig -> {
+                if (replicationConfig.getInterval() != null
+                    && !replicationConfig.getInterval().isEmpty()) {
+                  if (!validateReplicationInterval(replicationConfig)) {
+                    failureMessage =
+                        String.format(
+                            "Replication interval for the table [%s] must be 12h or multiple of 12h and must not exceed 72h",
+                            tableUri);
+                    return false;
+                  }
+                }
+                if (replicationConfig.getDestination() != null) {
+                  if (!validateReplicationCluster(replicationConfig, tableUri)) {
+                    failureMessage =
+                        String.format(
+                            "Replication destination cluster for the table [%s] must be different from the source cluster",
+                            tableUri);
+                    return false;
+                  }
+                }
+                return true;
+              });
+    }
+
     return true;
+  }
+
+  /**
+   * Validate that the optional interval parameter provided by users exists as an interval of 12
+   * from 12h to 72h
+   */
+  protected boolean validateReplicationInterval(ReplicationConfig replicationConfig) {
+    int interval =
+        Integer.parseInt(
+            replicationConfig
+                .getInterval()
+                .substring(0, replicationConfig.getInterval().length() - 1));
+    return interval % 12 == 0 && interval >= 12 && interval <= 72;
+  }
+
+  /**
+   * Validate that the destination cluster provided by users is not the same as the source cluster
+   */
+  protected boolean validateReplicationCluster(
+      ReplicationConfig replicationConfig, TableUri tableUri) {
+    return !replicationConfig.getDestination().equals(tableUri.getClusterId());
   }
 
   /**
