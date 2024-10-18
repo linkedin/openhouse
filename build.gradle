@@ -57,18 +57,19 @@ allprojects {
     }
   }
 
-  configurations.all {
-    resolutionStrategy {
-      force 'com.fasterxml.jackson:jackson-bom:2.13.4'
-      force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
-      force 'org.apache.orc:orc-core:1.8.3'
-      force 'com.google.guava:guava:31.1-jre'
+  if (it.path != ':integrations:spark-3.5:openhouse-spark-3.5-itest') {
+    configurations.all {
+      resolutionStrategy {
+        force 'com.fasterxml.jackson:jackson-bom:2.13.4'
+        force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
+        force 'org.apache.orc:orc-core:1.8.3'
+        force 'com.google.guava:guava:31.1-jre'
+      }
     }
   }
 
   plugins.withType(JavaPlugin) {
     dependencies {
-
       testImplementation "org.assertj:assertj-core:3.24.2" //assertions library
       testImplementation "org.junit.jupiter:junit-jupiter-api:" + junit_version
       testImplementation "org.junit.jupiter:junit-jupiter-params:" + junit_version
