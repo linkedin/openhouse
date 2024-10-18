@@ -309,7 +309,9 @@ class PoliciesSpecValidatorTest {
     Assertions.assertTrue(
         ((String) org.springframework.util.ReflectionUtils.getField(failedMsg, validator))
             .contains(
-                "Replication destination cluster provided cannot be equal to source cluster"));
+                String.format(
+                    "Replication destination cluster for the table [%s] must be different from the source cluster",
+                    tableUri)));
 
     // Negative: invalid interval input
     replication1 = ReplicationConfig.builder().destination("testCluster1").interval("13H").build();
@@ -328,6 +330,8 @@ class PoliciesSpecValidatorTest {
     Assertions.assertTrue(
         ((String) org.springframework.util.ReflectionUtils.getField(failedMsg, validator))
             .contains(
-                "Replication interval provided is not a multiple of 12 or not in the range of 12h to 72h"));
+                String.format(
+                    "Replication interval for the table [%s] must be 12h or multiple of 12h and must not exceed 72h",
+                    tableUri)));
   }
 }
