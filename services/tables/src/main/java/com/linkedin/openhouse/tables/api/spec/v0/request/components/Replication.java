@@ -20,7 +20,7 @@ public class Replication {
   @Schema(
       description =
           "Replication config for the destination cluster name and replication job interval",
-      example = "{destination: clusterA, interval: 12H}, {destination: clusterB, interval: 12H}")
+      example = "[{destination: clusterA, interval: 12H}, {destination: clusterB, interval: 12H}]")
   @NotNull(message = "Incorrect replication policy specified. Replication config cannot be null.")
   @Valid
   List<ReplicationConfig> config;

@@ -99,7 +99,7 @@ public class PoliciesSpecValidator {
                     if (!validateReplicationInterval(replicationConfig)) {
                       failureMessage =
                           String.format(
-                              "Replication interval provided is not a multiple of 12 or not in the range of 12h to 72h for table %s",
+                              "Replication interval for the table [%s] must be 12h or multiple of 12h and must not exceed 72h",
                               tableUri);
                       return false;
                     }
@@ -108,7 +108,7 @@ public class PoliciesSpecValidator {
                     if (!validateReplicationCluster(replicationConfig, tableUri)) {
                       failureMessage =
                           String.format(
-                              "Replication destination cluster provided cannot be equal to source cluster for table %s",
+                              "Replication destination cluster for the table [%s] must be different from the source cluster",
                               tableUri);
                       return false;
                     }
