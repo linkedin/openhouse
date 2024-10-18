@@ -93,6 +93,16 @@ shadowJar {
     relocate('org.junit', 'openhouse.relocated.org.junit')
     relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
     relocate ('org.json', 'openhouse.relocated.org.json')
+    relocate('org.apache', 'openhouse.relocated.org.apache') {
+      exclude 'org.apache.spark.**'
+      exclude 'org.apache.hadoop.**'
+    }
+    relocate('com.fasterxml', 'openhouse.relocated.com.fasterxml') {
+      exclude 'com.fasterxml.jackson.databind.**'
+      exclude 'com.fasterxml.jackson.core.**'
+      exclude 'com.fasterxml.jackson.module.**'
+      exclude 'com.fasterxml.jackson.annotation.**'
+    }
 
     relocate('reactor', 'openhouse.relocated.reactor')
     relocate('io', 'openhouse.relocated.io') {
