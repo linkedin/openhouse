@@ -171,6 +171,7 @@ shadowJar {
   exclude '**/public-suffix-list.txt'
   exclude 'assets/**/**/**/**/**/**/*.properties'
   exclude '**/*.dll'
+  exclude '**/*.ico'
   exclude '**/*.dylib'
   exclude '**/**/*.so'
 
