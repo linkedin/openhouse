@@ -19,7 +19,7 @@ public class ReplicationConfig {
   @Schema(description = "Replication destination cluster name", example = "clusterA")
   @NotNull(
       message =
-          "Incorrect destination cluster name specified. Destination cluster name cannot be null")
+          "Incorrect destination specified. destination field for replication config cannot be null")
   @Valid
   String destination;
 
