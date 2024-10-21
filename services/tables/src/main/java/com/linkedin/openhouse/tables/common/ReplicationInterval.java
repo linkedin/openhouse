@@ -6,7 +6,7 @@ package com.linkedin.openhouse.tables.common;
  */
 public enum ReplicationInterval {
   // default interval to run replication jobs if no interval provided by user
-  DEFAULT("24H");
+  DEFAULT("1D");
 
   private final String interval;
 

@@ -258,7 +258,7 @@ class PoliciesSpecValidatorTest {
     // Positive: valid replication config
     TableUri tableUri = TableUri.builder().clusterId("testClusterA").build();
     ReplicationConfig replication1 =
-        ReplicationConfig.builder().destination("testClusterB").interval("24H").build();
+        ReplicationConfig.builder().destination("testClusterB").interval("12H").build();
 
     Assertions.assertTrue(validator.validateReplicationCluster(replication1, tableUri));
     Assertions.assertTrue(validator.validateReplicationInterval(replication1));
@@ -271,18 +271,24 @@ class PoliciesSpecValidatorTest {
     Assertions.assertFalse(validator.validateReplicationCluster(replication1, tableUri));
 
     replication1 =
-        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("24H").build();
+        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("12H").build();
     Assertions.assertFalse(validator.validateReplicationCluster(replication1, tableUri));
 
     // Negative: invalid interval input
     replication1 =
         ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("13H").build();
     Assertions.assertFalse(validator.validateReplicationInterval(replication1));
+    replication1 =
+        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("24H").build();
+    Assertions.assertFalse(validator.validateReplicationInterval(replication1));
+    replication1 =
+        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("48H").build();
+    Assertions.assertFalse(validator.validateReplicationInterval(replication1));
 
     // Positive: valid replication config with multiple destinations
-    replication1 = ReplicationConfig.builder().destination("testCluster1").interval("24H").build();
+    replication1 = ReplicationConfig.builder().destination("testCluster1").interval("1D").build();
     ReplicationConfig replication2 =
-        ReplicationConfig.builder().destination("testCluster2").interval("12H").build();
+        ReplicationConfig.builder().destination("testCluster2").interval("2D").build();
     Policies policies0 =
         Policies.builder()
             .replication(
@@ -328,7 +334,7 @@ class PoliciesSpecValidatorTest {
         ((String) org.springframework.util.ReflectionUtils.getField(failedMsg, validator))
             .contains(
                 String.format(
-                    "Replication interval for the table [%s] must be 12h or multiple of 12h and must not exceed 72h",
+                    "Replication interval for the table [%s] can either be 12 hours or daily for up to 3 days",
                     tableUri)));
   }
 }

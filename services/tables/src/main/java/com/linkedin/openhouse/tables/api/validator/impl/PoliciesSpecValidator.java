@@ -103,7 +103,7 @@ public class PoliciesSpecValidator {
                   if (!validateReplicationInterval(replicationConfig)) {
                     failureMessage =
                         String.format(
-                            "Replication interval for the table [%s] must be 12h or multiple of 12h and must not exceed 72h",
+                            "Replication interval for the table [%s] can either be 12 hours or daily for up to 3 days",
                             tableUri);
                     return false;
                   }
@@ -124,16 +124,20 @@ public class PoliciesSpecValidator {
   }
 
   /**
-   * Validate that the optional interval parameter provided by users exists as an interval of 12
-   * from 12h to 72h
+   * Validate that the optional interval parameter provided by users exists as an interval of 12 or
+   * as a daily value up to 3 days
    */
   protected boolean validateReplicationInterval(ReplicationConfig replicationConfig) {
+    String granularity =
+        replicationConfig.getInterval().substring(replicationConfig.getInterval().length() - 1);
     int interval =
         Integer.parseInt(
             replicationConfig
                 .getInterval()
                 .substring(0, replicationConfig.getInterval().length() - 1));
-    return interval % 12 == 0 && interval >= 12 && interval <= 72;
+
+    return (interval >= 0 && interval <= 3 && granularity.equals("D"))
+        || (interval == 12 && granularity.equals("H"));
   }
 
   /**

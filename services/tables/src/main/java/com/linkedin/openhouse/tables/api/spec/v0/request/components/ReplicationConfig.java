@@ -25,8 +25,8 @@ public class ReplicationConfig {
 
   @Schema(
       description =
-          "Optional parameter interval at which the replication job should run. Default value is 24H",
-      example = "24H")
+          "Optional parameter interval at which the replication job should run. Default value is 1D",
+      example = "1D")
   @Valid
   String interval;
 }

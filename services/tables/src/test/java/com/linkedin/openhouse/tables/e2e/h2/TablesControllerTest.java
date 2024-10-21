@@ -1053,7 +1053,7 @@ public class TablesControllerTest {
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
     Assertions.assertEquals(
         updatedPolicies.get("replication").get("config").toString(),
-        "[{\"destination\":\"clusterA\",\"interval\":\"24H\"}]");
+        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"}]");
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
@@ -1096,7 +1096,7 @@ public class TablesControllerTest {
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
     Assertions.assertEquals(
         updatedPolicies.get("replication").get("config").toString(),
-        "[{\"destination\":\"clusterA\",\"interval\":\"24H\"},{\"destination\":\"clusterB\",\"interval\":\"12H\"}]");
+        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"},{\"destination\":\"clusterB\",\"interval\":\"12H\"}]");
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 }
