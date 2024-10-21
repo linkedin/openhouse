@@ -43,20 +43,20 @@ public class SetTableReplicationPolicyStatementTest {
 
   @Test
   public void testSimpleSetReplicationPolicy() {
-    String replicationConfigJson = "[{\"destination\":\"a\", \"interval\":\"24H\"}]";
+    String replicationConfigJson = "[{\"destination\":\"a\", \"interval\":\"12H\"}]";
     Dataset<Row> ds =
         spark.sql(
             "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({destination:'a', interval:24H}))");
+                + "({destination:'a', interval:12H}))");
     assert isPlanValid(ds, replicationConfigJson);
 
     // Test support with multiple clusters
     replicationConfigJson =
-        "[{\"destination\":\"a\", \"interval\":\"12H\"}, {\"destination\":\"aa\", \"interval\":\"12H\"}]";
+        "[{\"destination\":\"a\", \"interval\":\"12H\"}, {\"destination\":\"aa\", \"interval\":\"2D\"}]";
     ds =
         spark.sql(
             "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({destination:'a', interval:12h}, {destination:'aa', interval:12H}))");
+                + "({destination:'a', interval:12h}, {destination:'aa', interval:2d}))");
     assert isPlanValid(ds, replicationConfigJson);
   }
 
@@ -187,29 +187,13 @@ public class SetTableReplicationPolicyStatementTest {
                     "ALTER TABLE openhouse.db.table SET POLICY (REPLICAT = ({destination: 'aa', interval: '12h'}))")
                 .show());
 
-    // Interval input does not follow 'h/H' format
+    // Interval input does not follow 'h/H' or 'd/D' format
     Assertions.assertThrows(
         OpenhouseParseException.class,
         () ->
             spark
                 .sql(
                     "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({destination: 'aa', interval: '12'}))")
-                .show());
-
-    Assertions.assertThrows(
-        OpenhouseParseException.class,
-        () ->
-            spark
-                .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({destination: 'aa', interval: '1D'}))")
-                .show());
-
-    Assertions.assertThrows(
-        OpenhouseParseException.class,
-        () ->
-            spark
-                .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = ({destination: 'aa', interval: '12d'}))")
                 .show());
 
     // Missing cluster and interval values
