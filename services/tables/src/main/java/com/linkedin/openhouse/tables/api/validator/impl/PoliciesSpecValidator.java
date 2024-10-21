@@ -87,7 +87,10 @@ public class PoliciesSpecValidator {
         return false;
       }
     }
+    return true;
+  }
 
+  public boolean validateReplication(Policies policies, TableUri tableUri) {
     if (policies != null
         && policies.getReplication() != null
         && policies.getReplication().getConfig() != null) {
@@ -117,7 +120,6 @@ public class PoliciesSpecValidator {
                 return true;
               });
     }
-
     return true;
   }
 
