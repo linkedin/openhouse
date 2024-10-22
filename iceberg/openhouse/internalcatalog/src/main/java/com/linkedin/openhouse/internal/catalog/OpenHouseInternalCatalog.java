@@ -137,7 +137,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
    * @param tableIdentifier
    * @return fileIO
    */
-  private FileIO resolveFileIO(TableIdentifier tableIdentifier) {
+  protected FileIO resolveFileIO(TableIdentifier tableIdentifier) {
     Optional<HouseTable> houseTable = Optional.empty();
     try {
       houseTable =
