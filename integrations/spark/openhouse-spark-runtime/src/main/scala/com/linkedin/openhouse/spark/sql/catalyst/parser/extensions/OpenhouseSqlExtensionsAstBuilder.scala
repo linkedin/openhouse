@@ -115,7 +115,9 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   }
 
   override def visitReplicationPolicyIntervalClause(ctx: ReplicationPolicyIntervalClauseContext): (String) = {
-    ctx.RETENTION_HOUR().getText.toUpperCase
+    if (ctx.RETENTION_HOUR() != null)
+      ctx.RETENTION_HOUR().getText.toUpperCase()
+    else ctx.RETENTION_DAY().getText.toUpperCase()
   }
 
   override def visitColumnRetentionPolicy(ctx: ColumnRetentionPolicyContext): (String, String) = {
