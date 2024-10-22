@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.mock.storage;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
-import com.linkedin.openhouse.cluster.storage.selector.impl.DefaultStorageSelector;
+import com.linkedin.openhouse.cluster.storage.selector.impl.RegexStorageSelector;
 import com.linkedin.openhouse.tables.mock.properties.CustomClusterPropertiesInitializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -20,11 +20,10 @@ public class StoragePropertiesConfigTest {
   @MockBean private StorageManager storageManager;
   private static final String DEFAULT_TYPE = "hdfs";
 
-  private static final String DEFAULT_ENDPOINT = "hdfs://localhost:9000";
+  private static final String DEFAULT_ENDPOINT = "file:///";
 
-  private static final String ANOTHER_TYPE = "objectstore";
+  private static final String ANOTHER_TYPE = "local";
 
-  private static final String ANOTHER_ENDPOINT = "http://localhost:9000";
   private static final String NON_EXISTING_TYPE = "non-existing-type";
 
   @Test
@@ -41,7 +40,7 @@ public class StoragePropertiesConfigTest {
   @Test
   public void testStorageTypeLookup() {
     Assertions.assertEquals(
-        ANOTHER_ENDPOINT, storageProperties.getTypes().get(ANOTHER_TYPE).getEndpoint());
+        DEFAULT_ENDPOINT, storageProperties.getTypes().get(ANOTHER_TYPE).getEndpoint());
   }
 
   @Test
@@ -60,13 +59,14 @@ public class StoragePropertiesConfigTest {
     Assertions.assertNotNull(storageProperties.getStorageSelector());
     Assertions.assertEquals(
         storageProperties.getStorageSelector().getName(),
-        DefaultStorageSelector.class.getSimpleName());
+        RegexStorageSelector.class.getSimpleName());
     Assertions.assertNotNull(storageProperties.getStorageSelector().getParameters());
     Assertions.assertEquals(storageProperties.getStorageSelector().getParameters().size(), 2);
     Assertions.assertEquals(
-        storageProperties.getStorageSelector().getParameters().get("prop1"), "value1");
+        storageProperties.getStorageSelector().getParameters().get("regex"),
+        "local_db\\.[a-zA-Z0-9_]+$");
     Assertions.assertEquals(
-        storageProperties.getStorageSelector().getParameters().get("prop2"), "value2");
+        storageProperties.getStorageSelector().getParameters().get("storage-type"), "local");
   }
 
   @AfterAll

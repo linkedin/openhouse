@@ -96,6 +96,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
     String tableLocation = loadTable(identifier).location();
+    FileIO fileIO = resolveFileIO(identifier);
     log.debug("Dropping table {}, purge:{}", tableLocation, purge);
     try {
       houseTableRepository.deleteById(
@@ -110,7 +111,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     }
     if (purge) {
       // Delete data and metadata files from storage.
-      FileIO fileIO = fileIOManager.getFileIO(storageManager.getDefaultStorage().getType());
       if (fileIO instanceof SupportsPrefixOperations) {
         log.debug("Deleting files for table {}", tableLocation);
         ((SupportsPrefixOperations) fileIO).deletePrefix(tableLocation);

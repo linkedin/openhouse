@@ -396,6 +396,39 @@ public final class TableModelConstants {
         .build();
   }
 
+  public static GetTableResponseBody buildGetTableResponseBodyWithDbTbl(String db, String table) {
+    return GetTableResponseBody.builder()
+        .tableId(table)
+        .databaseId(db)
+        .clusterId(CLUSTER_NAME)
+        .tableUri(String.format("%s.%s.%s", CLUSTER_NAME, db, table))
+        .tableLocation(INITIAL_TABLE_VERSION)
+        .tableVersion(INITIAL_TABLE_VERSION)
+        .tableUUID(UUID.randomUUID().toString())
+        .tableProperties(buildTableProperties(TABLE_PROPS))
+        .tableCreator(TEST_USER)
+        .schema(HEALTH_SCHEMA_LITERAL)
+        .policies(TABLE_POLICIES)
+        .tableType(TableType.PRIMARY_TABLE)
+        .timePartitioning(
+            TimePartitionSpec.builder()
+                .columnName("timestampCol")
+                .granularity(TimePartitionSpec.Granularity.HOUR)
+                .build())
+        .clustering(
+            Arrays.asList(
+                ClusteringColumn.builder().columnName("id").build(),
+                ClusteringColumn.builder()
+                    .columnName("name")
+                    .transform(
+                        Transform.builder()
+                            .transformType(Transform.TransformType.TRUNCATE)
+                            .transformParams(Collections.singletonList("10"))
+                            .build())
+                    .build()))
+        .build();
+  }
+
   public static CreateUpdateTableRequestBody buildCreateUpdateTableRequestBody(
       GetTableResponseBody getTableResponseBody) {
     return buildCreateUpdateTableRequestBody(getTableResponseBody, false);
