@@ -17,14 +17,9 @@ configurations {
 dependencies {
   implementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   implementation 'org.springframework.boot:spring-boot-starter-test:' + spring_web_version
-  implementation(project(':services:tables')) {
-    exclude group: 'org.apache.hadoop'
-    exclude group: 'org.testcontainers'
-    exclude group: 'org.ow2.asm'
-    exclude group: 'org.xerial'
-    exclude group: 'javax'
+  implementation ((project(':services:tables'))) {
+    exclude group: 'org.apache.iceberg'
   }
-
   compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
   compileOnly('org.apache.spark:spark-sql_2.12:' + spark_version){
     // These classes are available from `client-codegen-convention.gradle`
@@ -32,30 +27,12 @@ dependencies {
   }
 
   implementation 'org.springframework.boot:spring-boot-starter-webflux:' + spring_web_version
-  implementation ('org.springframework.boot:spring-boot-starter-data-jpa:' + spring_web_version) {
-    exclude(group: 'org.springframework', module: 'spring-aspects')
-    exclude(group: 'org.springframework.boot', module: 'spring-boot-starter-aop')
-  }
-
-  implementation ('org.springframework.boot:spring-boot-starter-actuator:2.7.8') {
-    exclude(group: 'io.micrometer', module: 'micrometer-core')
-  }
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:' + spring_web_version
+  implementation 'org.springframework.boot:spring-boot-starter-actuator:2.7.8'
   implementation group: 'com.zaxxer', name: 'HikariCP', version: '4.0.3'
   compileOnly('org.projectlombok:lombok:' + '1.18.20')
-  implementation (project(':cluster:storage')) {
-   exclude group: 'org.testcontainers'
-   exclude group: 'javax'
-   exclude group: 'org.xerial'
-
-  }
-  implementation (project(':iceberg:openhouse:internalcatalog')) {
-    exclude group: 'org.apache.hadoop'
-    exclude group: 'org.ow2.asm'
-    exclude group: 'org.testcontainers'
-    exclude group: 'javax'
-    exclude group: 'org.xerial'
-    exclude group: 'com.h2database'
-  }
+  implementation project(':cluster:storage')
+  implementation project(':iceberg:openhouse:internalcatalog')
 
 
   testImplementation('org.apache.hadoop:hadoop-common:3.2.0'){
@@ -63,126 +40,42 @@ dependencies {
     exclude group: "io.netty"
   }
   testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
+
+
 }
 
 shadowJar {
   zip64 = true
+  // Required for Spring
   archiveClassifier.set('uber')
-
-  dependencies {
-    exclude(dependency('com.fasterxml.jackson.module::'))
-    exclude(dependency('com.fasterxml.jackson.core::'))
-    exclude(dependency('com.azure::'))
-
-    relocate('com.google', 'openhouse.relocated.com.google')
-    relocate('com.jayway', 'openhouse.relocated.com.jayway')
-    relocate('com.zaxxer', 'openhouse.relocated.com.zaxxer')
-    relocate('com.ctc', 'openhouse.relocated.com.ctc')
-
-    exclude(dependency('ch.qos.logback::'))
-    exclude(dependency('org.apache.hadoop::'))
-    exclude(dependency('org.apache.logging.log4j::'))
-    exclude(dependency('org.slf4j::'))
-    exclude(dependency('org.log4j::'))
-    exclude(dependency('org.apache.log4j::'))
-    exclude(dependency('org.apache.spark::'))
-
-    relocate('org.codehaus', 'openhouse.relocated.org.codehaus')
-    relocate('org.hibernate', 'openhouse.relocated.org.hibernate')
-    relocate('org.reactivestreams', 'openhouse.relocated.org.reactivestreams')
-    relocate('org.junit', 'openhouse.relocated.org.junit')
-    relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
-    relocate ('org.json', 'openhouse.relocated.org.json')
-    relocate('org.apache', 'openhouse.relocated.org.apache') {
-      exclude 'org.apache.spark.**'
-      exclude 'org.apache.hadoop.**'
-    }
-    relocate('com.fasterxml', 'openhouse.relocated.com.fasterxml') {
-      exclude 'com.fasterxml.jackson.databind.**'
-      exclude 'com.fasterxml.jackson.core.**'
-      exclude 'com.fasterxml.jackson.module.**'
-      exclude 'com.fasterxml.jackson.annotation.**'
-    }
-
-    relocate('reactor', 'openhouse.relocated.reactor')
-    relocate('io', 'openhouse.relocated.io') {
-      exclude 'io.netty.resolver.dns.macos.**' // dynamically loaded classes
-    }
-    relocate('net', 'openhouse.relocated.net')
-    relocate('junit', 'openhouse.relocated.junit')
-    relocate('antlr', 'openhouse.relocated.antlr')
-    relocate('aj', 'openhouse.relocated.aj')
-    relocate('edu', 'openhouse.relocated.edu')
-
-    exclude("com/sun/**")
-    exclude("com/microsoft/**")
-    exclude("com/github/**")
-    exclude("com/jamesmurty/**")
-    exclude("com/jcraft/**")
-    exclude("com/nimbusds/**")
-    exclude("com/azure/**")
-    exclude("org/jboss/**")
-
-    exclude("org/aopalliance/**")
-    exclude("org/aspectj/**")
-    exclude("org/atteo/**")
-    exclude("org/assertj/**")
-    exclude("org/checkerframework/**")
-    exclude("org/ehcache/**")
-    exclude("org/fusesource/**")
-    exclude("org/h2/**")
-    exclude("org/HdrHistogram/**")
-    exclude("org/hamcrest/**")
-    exclude("org/iq80/**")
-    exclude("org/jets3t/**")
-    exclude("org/intellij/**")
-    exclude("org/jetbrains/**")
-    exclude("org/jvnet/**")
-    exclude("org/jets3t/**")
-    exclude("org/jboss/**")
-    exclude("org/LatencyUtils/**")
-    exclude("org/mapstruct/**")
-    exclude("org/mockito/**")
-    exclude("org/mortbay/**")
-    exclude("org/objenesis/**")
-    exclude("org/objectweb/**")
-    exclude("org/openapitools/**")
-    exclude("org/opentest4j/**")
-    exclude("org/rnorth/**")
-    exclude("org/roaringbitmap/**")
-    exclude("org/skyscreamer/**")
-    exclude("org/springdoc/**")
-    //TODO: Relocate org.springframework if required.
-    exclude("org/terracotta/**")
-    exclude("org/testcontainers/**")
-    exclude("org/threeten/**")
-    exclude("org/xerial/**")
-    exclude("org/xmlunit/**")
-    exclude("org/znerd/**")
-
-    exclude("javax/**")
-    exclude("jline/**")
-    exclude("linux/**")
-    exclude("software/**")
-    exclude("contribs/**")
-    exclude("microsoft/**")
-  }
-
-  exclude '**/public-suffix-list.txt'
-  exclude 'assets/**/**/**/**/**/**/*.properties'
-  exclude '**/*.dll'
-  exclude '**/*.ico'
-  exclude '**/*.dylib'
-  exclude '**/**/*.so'
-
   mergeServiceFiles()
-
   append 'META-INF/spring.handlers'
   append 'META-INF/spring.schemas'
   append 'META-INF/spring.tooling'
   transform(PropertiesFileTransformer) {
     paths = ['META-INF/spring.factories' ]
     mergeStrategy = "append"
+  }
+
+  dependencies {
+    exclude(dependency('org.apache.logging.log4j::'))
+    exclude(dependency('org.slf4j::'))
+    exclude(dependency('org.log4j::'))
+    exclude(dependency('org.apache.log4j::'))
+    exclude(dependency('ch.qos.logback::'))
+    exclude(dependency('com.fasterxml.jackson.module::'))
+    exclude(dependency('com.fasterxml.jackson.core::'))
+    exclude(dependency('org.apache.hadoop::'))
+    relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
+    relocate ('com.jayway.jsonpath', 'openhouse.relocated.com.jayway.jsonpath')
+    relocate ('org.json', 'openhouse.relocated.org.json')
+    relocate ('com.google', 'openhouse.relocated.com.google') {
+      // dynamically loaded classes
+      // e.g. java.lang.NoClassDefFoundError: openhouse/relocated/com/google/protobuf/GeneratedMessageV3
+      // when users use fixtures library in their tests
+      exclude 'com.google.protobuf.**'
+      exclude 'com.google.gson.**'
+    }
   }
 }
 
