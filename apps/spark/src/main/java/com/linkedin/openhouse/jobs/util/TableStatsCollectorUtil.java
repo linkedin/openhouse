@@ -210,6 +210,10 @@ public final class TableStatsCollectorUtil {
 
   private static String getEarliestPartitionDate(
       Table table, SparkSession spark, Map<String, Object> policyMap) {
+    // Check if retention policy is present by checking if granularity exists
+    if (!policyMap.containsKey("granularity")) {
+      return null;
+    }
     String partitionColumnName =
         policyMap.containsKey("columnName")
             ? (String) policyMap.get("columnName")
@@ -246,10 +250,13 @@ public final class TableStatsCollectorUtil {
     if (policies.isEmpty()) {
       return policyMap;
     }
-
-    addEntriesToMap(policiesObject.getAsJsonObject("retention"), policyMap);
-    policyMap.put(
-        "sharingEnabled", Boolean.valueOf(policiesObject.get("sharingEnabled").getAsString()));
+    if (policiesObject.get("retention") != null) {
+      addEntriesToMap(policiesObject.getAsJsonObject("retention"), policyMap);
+    }
+    if (policiesObject.get("sharingEnabled") != null) {
+      policyMap.put(
+          "sharingEnabled", Boolean.valueOf(policiesObject.get("sharingEnabled").getAsString()));
+    }
 
     return policyMap;
   }

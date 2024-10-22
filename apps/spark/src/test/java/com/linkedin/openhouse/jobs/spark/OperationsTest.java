@@ -540,6 +540,11 @@ public class OperationsTest extends OpenHouseSparkITest {
       IcebergTableStats stats = ops.collectTableStats(tableName);
       Assertions.assertNull(stats.getEarliestPartitionDate());
 
+      // Test table has sharing policy but no retention policy
+      prepareTableWithSharingPolicies(ops, tableName, true);
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getSharingEnabled(), true);
+
       // Test yyyy-mm-dd format on table with multiple partitioned columns
       prepareTableWithPoliciesWithMultipleStringPartition(ops, tableName, "30d", false);
       rowValue.add("202%s-07-16");
@@ -569,15 +574,15 @@ public class OperationsTest extends OpenHouseSparkITest {
     List<String> rowValue = new ArrayList<>();
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // Test table with both retention and sharing policies
       prepareTableWithPolicies(ops, tableName, "30d", true);
       populateTable(ops, tableName, 2, 2);
-
       IcebergTableStats stats = ops.collectTableStats(tableName);
-
       Assertions.assertEquals(stats.getSharingEnabled(), true);
       Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 30);
       Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "DAY");
 
+      // Test table with retention policy and sharing set to false
       prepareTableWithPoliciesWithStringPartition(ops, tableName, "16h", false);
       rowValue.add("202%s-07-16");
       populateTableWithStringColumn(ops, tableName, 1, rowValue);
@@ -589,6 +594,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getRetentionPolicies().getColumnPattern(), "yyyy-MM-dd-HH");
       rowValue.clear();
 
+      // Test table with retention policy with custom string partition without sharing policy set
       prepareTableWithPoliciesWithCustomStringPartition(ops, tableName, "2y", "yyyy-MM-dd-HH");
       rowValue.add("202%s-07-16-12");
       populateTableWithStringColumn(ops, tableName, 1, rowValue);
@@ -596,6 +602,17 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 2);
       Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "YEAR");
       Assertions.assertEquals(stats.getRetentionPolicies().getColumnPattern(), "'yyyy-MM-dd-HH'");
+
+      // Test table with sharing policy without retention policy
+      prepareTableWithSharingPolicies(ops, tableName, true);
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getSharingEnabled(), true);
+      // Test that building RetentionStatsSchema will not fail even if retention is not set
+      Assertions.assertNotNull(stats.getRetentionPolicies());
+      Assertions.assertNull(stats.getRetentionPolicies().getGranularity());
+      Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 0);
+      Assertions.assertNull(stats.getRetentionPolicies().getColumnName());
+      Assertions.assertNull(stats.getRetentionPolicies().getColumnPattern());
     }
   }
 
@@ -760,6 +777,18 @@ public class OperationsTest extends OpenHouseSparkITest {
         .show();
     ops.spark()
         .sql(String.format("ALTER TABLE %s SET POLICY (RETENTION=%s)", tableName, retention));
+    ops.spark().sql(String.format("ALTER TABLE %s SET POLICY (SHARING=%s)", tableName, sharing));
+    ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
+  }
+
+  private static void prepareTableWithSharingPolicies(
+      Operations ops, String tableName, boolean sharing) {
+    ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+    ops.spark()
+        .sql(
+            String.format(
+                "CREATE TABLE %s (data string, ts timestamp) PARTITIONED BY (days(ts))", tableName))
+        .show();
     ops.spark().sql(String.format("ALTER TABLE %s SET POLICY (SHARING=%s)", tableName, sharing));
     ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
   }
