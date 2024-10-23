@@ -113,7 +113,7 @@ public class PoliciesSpecValidator {
                   }
                 }
                 if (replicationConfig.getDestination() != null) {
-                  if (!validateReplicationCluster(replicationConfig, tableUri)) {
+                  if (!validateReplicationDestination(replicationConfig, tableUri)) {
                     failureMessage =
                         String.format(
                             "Replication destination cluster for the table [%s] must be different from the source cluster",
@@ -147,7 +147,7 @@ public class PoliciesSpecValidator {
   /**
    * Validate that the destination cluster provided by users is not the same as the source cluster
    */
-  protected boolean validateReplicationCluster(
+  protected boolean validateReplicationDestination(
       ReplicationConfig replicationConfig, TableUri tableUri) {
     return !replicationConfig.getDestination().toString().equals(tableUri.getClusterId());
   }

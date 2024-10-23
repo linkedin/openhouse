@@ -96,7 +96,7 @@ public class PoliciesSpecMapper {
     }
     if (policies != null && policies.getReplication() != null) {
       updatedPolicies =
-          policies
+          updatedPolicies
               .toBuilder()
               .replication(mapReplicationPolicies(policies.getReplication()))
               .build();
@@ -112,14 +112,13 @@ public class PoliciesSpecMapper {
    * @param replicationPolicy config for Openhouse table
    * @return mapped policies object
    */
-  @Named("mapReplicationPolicies")
-  public Replication mapReplicationPolicies(Replication replicationPolicy) {
+  private Replication mapReplicationPolicies(Replication replicationPolicy) {
     if (replicationPolicy != null && replicationPolicy.getConfig() != null) {
       List<ReplicationConfig> replicationConfig =
           replicationPolicy.getConfig().stream()
               .map(
                   replication -> {
-                    if (replication.getInterval().isEmpty()) {
+                    if (replication.getInterval() == null || replication.getInterval().isEmpty()) {
                       return replication
                           .toBuilder()
                           .interval(ReplicationInterval.DEFAULT.getInterval())

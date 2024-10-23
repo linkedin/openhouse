@@ -260,19 +260,19 @@ class PoliciesSpecValidatorTest {
     ReplicationConfig replication1 =
         ReplicationConfig.builder().destination("testClusterB").interval("12H").build();
 
-    Assertions.assertTrue(validator.validateReplicationCluster(replication1, tableUri));
+    Assertions.assertTrue(validator.validateReplicationDestination(replication1, tableUri));
     Assertions.assertTrue(validator.validateReplicationInterval(replication1));
 
     replication1 = ReplicationConfig.builder().destination("testCluster").build();
-    Assertions.assertTrue(validator.validateReplicationCluster(replication1, tableUri));
+    Assertions.assertTrue(validator.validateReplicationDestination(replication1, tableUri));
 
     // Negative: destination cluster equal to source cluster
     replication1 = ReplicationConfig.builder().destination(tableUri.getClusterId()).build();
-    Assertions.assertFalse(validator.validateReplicationCluster(replication1, tableUri));
+    Assertions.assertFalse(validator.validateReplicationDestination(replication1, tableUri));
 
     replication1 =
         ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("12H").build();
-    Assertions.assertFalse(validator.validateReplicationCluster(replication1, tableUri));
+    Assertions.assertFalse(validator.validateReplicationDestination(replication1, tableUri));
 
     // Negative: invalid interval input
     replication1 =

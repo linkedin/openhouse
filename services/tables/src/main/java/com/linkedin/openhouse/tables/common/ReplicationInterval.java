@@ -1,9 +1,8 @@
 package com.linkedin.openhouse.tables.common;
 
-/**
- * ENUM for default replication interval associated with Interval in {@link
- * com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig}
- */
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
+
+/** ENUM for default replication interval associated with Interval in {@link ReplicationConfig} */
 public enum ReplicationInterval {
   // default interval to run replication jobs if no interval provided by user
   DEFAULT("1D");

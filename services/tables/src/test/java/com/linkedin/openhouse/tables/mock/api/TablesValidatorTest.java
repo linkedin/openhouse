@@ -285,7 +285,7 @@ public class TablesValidatorTest {
   }
 
   @Test
-  public void validateCreateTableRequestParamWithInvalidReplicationClusterInPoliciesObject() {
+  public void validateCreateTableRequestParamWithInvalidReplicationDestinationInPoliciesObject() {
     assertThrows(
         RequestValidationFailureException.class,
         () ->
