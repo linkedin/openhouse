@@ -294,7 +294,8 @@ class PoliciesSpecValidatorTest {
             .replication(
                 Replication.builder().config(Arrays.asList(replication1, replication2)).build())
             .build();
-    Assertions.assertTrue(validator.validateReplication(policies0, tableUri));
+    Assertions.assertTrue(
+        validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
 
     // Negative: destination cluster equal to source cluster
     replication1 = ReplicationConfig.builder().destination(tableUri.getClusterId()).build();
@@ -304,7 +305,8 @@ class PoliciesSpecValidatorTest {
                 Replication.builder().config(Arrays.asList(replication1, replication2)).build())
             .build();
 
-    Assertions.assertFalse(validator.validateReplication(policies0, tableUri));
+    Assertions.assertFalse(
+        validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
     Field failedMsg =
         org.springframework.util.ReflectionUtils.findField(
             PoliciesSpecValidator.class, "failureMessage");
@@ -324,7 +326,8 @@ class PoliciesSpecValidatorTest {
             .replication(
                 Replication.builder().config(Arrays.asList(replication1, replication2)).build())
             .build();
-    Assertions.assertFalse(validator.validateReplication(policies0, tableUri));
+    Assertions.assertFalse(
+        validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
     failedMsg =
         org.springframework.util.ReflectionUtils.findField(
             PoliciesSpecValidator.class, "failureMessage");

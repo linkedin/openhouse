@@ -87,14 +87,18 @@ public class PoliciesSpecValidator {
         return false;
       }
     }
-    return true;
+
+    return validateReplication(policies, tableUri);
   }
 
-  public boolean validateReplication(Policies policies, TableUri tableUri) {
+  /**
+   * Valid cases for replication object: 0. Interval input can be either be accepted as 12H or daily
+   * from 1-3D 1. Destination cluster cannot be equal to the source cluster
+   */
+  protected boolean validateReplication(Policies policies, TableUri tableUri) {
     if (policies != null
         && policies.getReplication() != null
         && policies.getReplication().getConfig() != null) {
-      // invalid cases for replication config
       return policies.getReplication().getConfig().stream()
           .allMatch(
               replicationConfig -> {
@@ -145,7 +149,7 @@ public class PoliciesSpecValidator {
    */
   protected boolean validateReplicationCluster(
       ReplicationConfig replicationConfig, TableUri tableUri) {
-    return !replicationConfig.getDestination().equals(tableUri.getClusterId());
+    return !replicationConfig.getDestination().toString().equals(tableUri.getClusterId());
   }
 
   /**
