@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.mock.properties.CustomClusterPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
@@ -33,6 +34,8 @@ public class DualStorageTest {
 
   @Autowired Catalog catalog;
 
+  @Autowired TablesMapper tablesMapper;
+
   @Test
   public void testCreateDropTableDualStorage() {
 
@@ -40,7 +43,7 @@ public class DualStorageTest {
     // db.table should be created on hdfs storage
     TableDto hdfsTableDto = buildTableDto(buildGetTableResponseBodyWithDbTbl("db", "table"));
     openHouseInternalRepository.save(hdfsTableDto);
-    TableDtoPrimaryKey hdfsDtoPrimaryKey = hdfsTableDto.getPrimaryKey();
+    TableDtoPrimaryKey hdfsDtoPrimaryKey = tablesMapper.toTableDtoPrimaryKey(hdfsTableDto);
     Assertions.assertTrue(openHouseInternalRepository.existsById(hdfsDtoPrimaryKey));
     HouseTablePrimaryKey hdfsHtsPrimaryKey =
         HouseTablePrimaryKey.builder()
@@ -55,7 +58,7 @@ public class DualStorageTest {
     // local_db.table should be created on local storage
     TableDto localTableDto = buildTableDto(buildGetTableResponseBodyWithDbTbl("local_db", "table"));
     openHouseInternalRepository.save(localTableDto);
-    TableDtoPrimaryKey localDtoPrimaryKey = localTableDto.getPrimaryKey();
+    TableDtoPrimaryKey localDtoPrimaryKey = tablesMapper.toTableDtoPrimaryKey(localTableDto);
     Assertions.assertTrue(openHouseInternalRepository.existsById(localDtoPrimaryKey));
     HouseTablePrimaryKey localHtsPrimaryKey =
         HouseTablePrimaryKey.builder()

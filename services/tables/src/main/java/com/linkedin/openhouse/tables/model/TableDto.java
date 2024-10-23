@@ -104,13 +104,4 @@ public class TableDto {
   private boolean isTableDtoPrimitive(Field field) {
     return field.getType() == String.class || field.getType() == long.class;
   }
-
-  /**
-   * Returns the primary key for TableDto Class
-   *
-   * @return TableDtoPrimaryKey
-   */
-  public TableDtoPrimaryKey getPrimaryKey() {
-    return TableDtoPrimaryKey.builder().databaseId(this.databaseId).tableId(this.tableId).build();
-  }
 }

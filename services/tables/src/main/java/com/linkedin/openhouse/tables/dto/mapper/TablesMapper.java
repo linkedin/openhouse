@@ -126,6 +126,12 @@ public interface TablesMapper {
   TableDtoPrimaryKey toTableDtoPrimaryKey(TableIdentifier tableIdentifier);
 
   @Mappings({
+    @Mapping(source = "tableDto.databaseId", target = "databaseId"),
+    @Mapping(source = "tableDto.tableId", target = "tableId")
+  })
+  TableDtoPrimaryKey toTableDtoPrimaryKey(TableDto tableDto);
+
+  @Mappings({
     @Mapping(
         conditionExpression = "java(tableIdentifier.namespace() != null)",
         expression = "java(tableIdentifier.namespace().toString())",
