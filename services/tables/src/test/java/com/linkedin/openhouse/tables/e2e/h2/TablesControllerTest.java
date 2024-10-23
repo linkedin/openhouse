@@ -1026,7 +1026,7 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
     ReplicationConfig replicationConfig =
-        ReplicationConfig.builder().destination("clusterA").interval("").build();
+        ReplicationConfig.builder().destination("clusterA").interval("12H").build();
     Replication replication =
         Replication.builder().config(Arrays.asList(replicationConfig)).build();
     Policies newPolicies = Policies.builder().replication(replication).build();
@@ -1051,9 +1051,14 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
-    Assertions.assertEquals(
-        updatedPolicies.get("replication").get("config").toString(),
-        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"}]");
+
+    LinkedHashMap<String, LinkedHashMap> updatedReplication =
+        JsonPath.read(
+            mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[0]");
+
+    Assertions.assertEquals(updatedReplication.get("destination"), "clusterA");
+    Assertions.assertEquals(updatedReplication.get("interval"), "12H");
+    System.out.println();
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
@@ -1158,9 +1163,20 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
-    Assertions.assertEquals(
-        updatedPolicies.get("replication").get("config").toString(),
-        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"},{\"destination\":\"clusterB\",\"interval\":\"12H\"}]");
+
+    LinkedHashMap<String, LinkedHashMap> updatedReplication =
+        JsonPath.read(
+            mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[0]");
+
+    Assertions.assertEquals(updatedReplication.get("destination"), "clusterA");
+    Assertions.assertEquals(updatedReplication.get("interval"), "1D");
+
+    updatedReplication =
+        JsonPath.read(
+            mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[1]");
+
+    Assertions.assertEquals(updatedReplication.get("destination"), "clusterB");
+    Assertions.assertEquals(updatedReplication.get("interval"), "12H");
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 }

@@ -10,6 +10,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import com.linkedin.openhouse.tables.common.ReplicationInterval;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.utils.CronScheduleGenerator;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.mapstruct.Mapper;
@@ -106,8 +107,8 @@ public class PoliciesSpecMapper {
 
   /**
    * mapRetentionPolicies is a mapStruct function which assigns default interval value in
-   * replication config if the interval is empty. Default values for pattern are defined at {@link
-   * ReplicationInterval}.
+   * replication config if the interval is empty and the generated cron schedule from the interval
+   * value. Default values for pattern are defined at {@link ReplicationInterval}.
    *
    * @param replicationPolicy config for Openhouse table
    * @return mapped policies object
@@ -122,9 +123,16 @@ public class PoliciesSpecMapper {
                       return replication
                           .toBuilder()
                           .interval(ReplicationInterval.DEFAULT.getInterval())
+                          .cronSchedule(
+                              CronScheduleGenerator.buildCronExpression(
+                                  ReplicationInterval.DEFAULT.getInterval()))
                           .build();
                     }
-                    return replication;
+                    return replication
+                        .toBuilder()
+                        .cronSchedule(
+                            CronScheduleGenerator.buildCronExpression(replication.getInterval()))
+                        .build();
                   })
               .collect(Collectors.toList());
 

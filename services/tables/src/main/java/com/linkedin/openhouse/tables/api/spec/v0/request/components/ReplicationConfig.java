@@ -29,4 +29,15 @@ public class ReplicationConfig {
       example = "1D")
   @Valid
   String interval;
+
+  @Schema(
+      description = "Cron schedule generated from interval used for replication job scheduling",
+      example = "Schedule could be '0 3/12 * * *' if interval is 12H")
+  @Valid
+  String cronSchedule;
+
+  public enum Granularity {
+    H,
+    D
+  }
 }
