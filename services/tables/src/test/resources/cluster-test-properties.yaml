@@ -7,20 +7,17 @@ cluster:
     types:
       hdfs:
         rootpath: "/tmp/unittest"
-        endpoint: "hdfs://localhost:9000"
+        endpoint: "file:///"
         parameters:
           key1: value1
-      objectstore:
-        rootpath: "tmpbucket"
-        endpoint: "http://localhost:9000"
-        parameters:
-          key2: value2
-          token: xyz
+      local:
+        rootpath: "/tmp/unittest"
+        endpoint: "file:///"
     storage-selector:
-      name: "DefaultStorageSelector"
+      name: "RegexStorageSelector"
       parameters:
-        prop1: "value1"
-        prop2: "value2"
+        regex: local_db\.[a-zA-Z0-9_]+$
+        storage-type: local
   housetables:
     base-uri: "http://localhost:8080"
   tables:
