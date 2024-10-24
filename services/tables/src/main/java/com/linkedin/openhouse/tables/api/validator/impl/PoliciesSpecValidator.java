@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
@@ -86,7 +87,69 @@ public class PoliciesSpecValidator {
         return false;
       }
     }
+
+    return validateReplication(policies, tableUri);
+  }
+
+  /**
+   * Valid cases for replication object: 0. Interval input can be either be accepted as 12H or daily
+   * from 1-3D 1. Destination cluster cannot be equal to the source cluster
+   */
+  protected boolean validateReplication(Policies policies, TableUri tableUri) {
+    if (policies != null
+        && policies.getReplication() != null
+        && policies.getReplication().getConfig() != null) {
+      return policies.getReplication().getConfig().stream()
+          .allMatch(
+              replicationConfig -> {
+                if (replicationConfig.getInterval() != null
+                    && !replicationConfig.getInterval().isEmpty()) {
+                  if (!validateReplicationInterval(replicationConfig)) {
+                    failureMessage =
+                        String.format(
+                            "Replication interval for the table [%s] can either be 12 hours or daily for up to 3 days",
+                            tableUri);
+                    return false;
+                  }
+                }
+                if (replicationConfig.getDestination() != null) {
+                  if (!validateReplicationDestination(replicationConfig, tableUri)) {
+                    failureMessage =
+                        String.format(
+                            "Replication destination cluster for the table [%s] must be different from the source cluster",
+                            tableUri);
+                    return false;
+                  }
+                }
+                return true;
+              });
+    }
     return true;
+  }
+
+  /**
+   * Validate that the optional interval parameter provided by users exists as an interval of 12 or
+   * as a daily value up to 3 days
+   */
+  protected boolean validateReplicationInterval(ReplicationConfig replicationConfig) {
+    String granularity =
+        replicationConfig.getInterval().substring(replicationConfig.getInterval().length() - 1);
+    int interval =
+        Integer.parseInt(
+            replicationConfig
+                .getInterval()
+                .substring(0, replicationConfig.getInterval().length() - 1));
+
+    return (interval >= 1 && interval <= 3 && granularity.equals("D"))
+        || (interval == 12 && granularity.equals("H"));
+  }
+
+  /**
+   * Validate that the destination cluster provided by users is not the same as the source cluster
+   */
+  protected boolean validateReplicationDestination(
+      ReplicationConfig replicationConfig, TableUri tableUri) {
+    return !replicationConfig.getDestination().toString().equals(tableUri.getClusterId());
   }
 
   /**

@@ -26,6 +26,8 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -1011,6 +1013,154 @@ public class TablesControllerTest {
     LinkedHashMap<String, LinkedHashMap> updatedPolicies =
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
     Assertions.assertNull(updatedPolicies.get("columnTags"));
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testUpdateSucceedsForReplicationConfig() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+
+    LinkedHashMap<String, LinkedHashMap> currentPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    ReplicationConfig replicationConfig =
+        ReplicationConfig.builder().destination("clusterA").interval("").build();
+    Replication replication =
+        Replication.builder().config(Arrays.asList(replicationConfig)).build();
+    Policies newPolicies = Policies.builder().replication(replication).build();
+
+    GetTableResponseBody container = GetTableResponseBody.builder().policies(newPolicies).build();
+    GetTableResponseBody addProp = buildGetTableResponseBody(mvcResult, container);
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            addProp.getDatabaseId(),
+                            addProp.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(addProp).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    LinkedHashMap<String, LinkedHashMap> updatedPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    Assertions.assertNotEquals(currentPolicies, updatedPolicies);
+    Assertions.assertEquals(
+        updatedPolicies.get("replication").get("config").toString(),
+        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"}]");
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testUpdateSucceedsForReplicationAndRetention() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
+                .timePartitioning(null)
+                .policies(TABLE_POLICIES_COMPLEX)
+                .build(),
+            mvc,
+            storageManager);
+
+    LinkedHashMap<String, LinkedHashMap> currentPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    ReplicationConfig replicationConfig =
+        ReplicationConfig.builder().destination("clusterA").interval("").build();
+    Replication replication =
+        Replication.builder().config(Arrays.asList(replicationConfig)).build();
+    Retention retention =
+        Retention.builder()
+            .count(4)
+            .granularity(TimePartitionSpec.Granularity.HOUR)
+            .columnPattern(
+                RetentionColumnPattern.builder()
+                    .pattern("yyyy-MM-dd")
+                    .columnName("timestampCol")
+                    .build())
+            .build();
+    Policies newPolicies = Policies.builder().replication(replication).retention(retention).build();
+
+    GetTableResponseBody container = GetTableResponseBody.builder().policies(newPolicies).build();
+    GetTableResponseBody addProp = buildGetTableResponseBody(mvcResult, container);
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            addProp.getDatabaseId(),
+                            addProp.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(addProp).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    LinkedHashMap<String, LinkedHashMap> updatedPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    Assertions.assertNotEquals(currentPolicies, updatedPolicies);
+    Assertions.assertEquals(
+        updatedPolicies.get("replication").get("config").toString(),
+        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"}]");
+    Assertions.assertEquals(updatedPolicies.get("retention").get("count"), 4);
+    Assertions.assertEquals(
+        ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("columnName"),
+        "timestampCol");
+    Assertions.assertEquals(
+        ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("pattern"),
+        "yyyy-MM-dd");
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testUpdateSucceedsForMultipleReplicationConfig() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+
+    LinkedHashMap<String, LinkedHashMap> currentPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    ReplicationConfig replicationConfig1 =
+        ReplicationConfig.builder().destination("clusterA").interval("").build();
+    ReplicationConfig replicationConfig2 =
+        ReplicationConfig.builder().destination("clusterB").interval("12H").build();
+    Replication replication =
+        Replication.builder().config(Arrays.asList(replicationConfig1, replicationConfig2)).build();
+    Policies newPolicies = Policies.builder().replication(replication).build();
+
+    GetTableResponseBody container = GetTableResponseBody.builder().policies(newPolicies).build();
+    GetTableResponseBody addProp = buildGetTableResponseBody(mvcResult, container);
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            addProp.getDatabaseId(),
+                            addProp.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(addProp).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    LinkedHashMap<String, LinkedHashMap> updatedPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    Assertions.assertNotEquals(currentPolicies, updatedPolicies);
+    Assertions.assertEquals(
+        updatedPolicies.get("replication").get("config").toString(),
+        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"},{\"destination\":\"clusterB\",\"interval\":\"12H\"}]");
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 }

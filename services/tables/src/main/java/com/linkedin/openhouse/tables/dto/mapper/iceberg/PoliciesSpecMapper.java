@@ -4,9 +4,14 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
+import com.linkedin.openhouse.tables.common.ReplicationInterval;
 import com.linkedin.openhouse.tables.model.TableDto;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.mapstruct.Mapper;
 import org.mapstruct.Named;
 
@@ -61,6 +66,7 @@ public class PoliciesSpecMapper {
   @Named("mapPolicies")
   public Policies mapPolicies(Policies policies) {
     String defaultPattern;
+    Policies updatedPolicies = policies;
     if (policies != null
         && policies.getRetention() != null
         && policies.getRetention().getColumnPattern() != null
@@ -86,9 +92,44 @@ public class PoliciesSpecMapper {
                       .pattern(defaultPattern)
                       .build())
               .build();
-      return policies.toBuilder().retention(retentionPolicy).build();
-    } else {
-      return policies;
+      updatedPolicies = policies.toBuilder().retention(retentionPolicy).build();
     }
+    if (policies != null && policies.getReplication() != null) {
+      updatedPolicies =
+          updatedPolicies
+              .toBuilder()
+              .replication(mapReplicationPolicies(policies.getReplication()))
+              .build();
+    }
+    return updatedPolicies;
+  }
+
+  /**
+   * mapRetentionPolicies is a mapStruct function which assigns default interval value in
+   * replication config if the interval is empty. Default values for pattern are defined at {@link
+   * ReplicationInterval}.
+   *
+   * @param replicationPolicy config for Openhouse table
+   * @return mapped policies object
+   */
+  private Replication mapReplicationPolicies(Replication replicationPolicy) {
+    if (replicationPolicy != null && replicationPolicy.getConfig() != null) {
+      List<ReplicationConfig> replicationConfig =
+          replicationPolicy.getConfig().stream()
+              .map(
+                  replication -> {
+                    if (replication.getInterval() == null || replication.getInterval().isEmpty()) {
+                      return replication
+                          .toBuilder()
+                          .interval(ReplicationInterval.DEFAULT.getInterval())
+                          .build();
+                    }
+                    return replication;
+                  })
+              .collect(Collectors.toList());
+
+      return replicationPolicy.toBuilder().config(replicationConfig).build();
+    }
+    return replicationPolicy;
   }
 }

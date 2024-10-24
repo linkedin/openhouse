@@ -168,6 +168,31 @@ public class TablesMapperTest {
   }
 
   @Test
+  public void testToTableDtoWithReplicationPolicy() {
+    IcebergSnapshotsRequestBody icebergSnapshotsRequestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion("v1")
+            .createUpdateTableRequestBody(
+                CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST
+                    .toBuilder()
+                    .policies(TABLE_POLICIES)
+                    .build())
+            .jsonSnapshots(Collections.singletonList("dummy"))
+            .build();
+    TableDto tableDto1 = tablesMapper.toTableDto(TABLE_DTO, icebergSnapshotsRequestBody);
+    Assertions.assertEquals(
+        tableDto1.getDatabaseId(),
+        CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getDatabaseId());
+    Assertions.assertEquals(
+        tableDto1.getTableId(), CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getTableId());
+    Assertions.assertEquals(
+        tableDto1.getClusterId(),
+        CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getClusterId());
+    Assertions.assertEquals(
+        tableDto1.getPolicies().getReplication().getConfig().get(0).getInterval(), "12H");
+  }
+
+  @Test
   public void testToTableDtoWithStagedCreate() {
     TableDto tableDto = TableDto.builder().build();
     TableDto tableDto1 =
