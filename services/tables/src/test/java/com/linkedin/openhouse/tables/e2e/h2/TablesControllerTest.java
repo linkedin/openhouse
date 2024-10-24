@@ -773,7 +773,8 @@ public class TablesControllerTest {
         mvc, storageManager, buildGetTableResponseBody(mvcResult), INITIAL_TABLE_VERSION, false);
     Assertions.assertEquals(
         tableType, GET_TABLE_RESPONSE_BODY_WITH_TABLE_TYPE.getTableType().toString());
-    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    RequestAndValidateHelper.deleteTableAndValidateResponse(
+        mvc, GET_TABLE_RESPONSE_BODY_WITH_TABLE_TYPE);
   }
 
   @Test
@@ -1058,7 +1059,7 @@ public class TablesControllerTest {
 
     Assertions.assertEquals(updatedReplication.get("destination"), "clusterA");
     Assertions.assertEquals(updatedReplication.get("interval"), "12H");
-    System.out.println();
+    Assertions.assertNotNull(updatedReplication.get("cronSchedule"));
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
@@ -1113,9 +1114,6 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
-    Assertions.assertEquals(
-        updatedPolicies.get("replication").get("config").toString(),
-        "[{\"destination\":\"clusterA\",\"interval\":\"1D\"}]");
     Assertions.assertEquals(updatedPolicies.get("retention").get("count"), 4);
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("columnName"),
@@ -1170,13 +1168,14 @@ public class TablesControllerTest {
 
     Assertions.assertEquals(updatedReplication.get("destination"), "clusterA");
     Assertions.assertEquals(updatedReplication.get("interval"), "1D");
-
+    Assertions.assertNotNull(updatedReplication.get("cronSchedule"));
     updatedReplication =
         JsonPath.read(
             mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[1]");
 
     Assertions.assertEquals(updatedReplication.get("destination"), "clusterB");
     Assertions.assertEquals(updatedReplication.get("interval"), "12H");
+    Assertions.assertNotNull(updatedReplication.get("cronSchedule"));
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 }

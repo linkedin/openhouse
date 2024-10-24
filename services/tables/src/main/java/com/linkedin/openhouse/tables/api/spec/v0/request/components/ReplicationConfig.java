@@ -26,18 +26,11 @@ public class ReplicationConfig {
   @Schema(
       description =
           "Optional parameter interval at which the replication job should run. Default value is 1D",
-      example = "1D")
+      example = "12H, 1D, 2D, 3D")
   @Valid
   String interval;
 
-  @Schema(
-      description = "Cron schedule generated from interval used for replication job scheduling",
-      example = "Schedule could be '0 3/12 * * *' if interval is 12H")
+  @Schema(description = "Cron schedule generated from the interval.", example = "0 0 1/1 * ? *")
   @Valid
   String cronSchedule;
-
-  public enum Granularity {
-    H,
-    D
-  }
 }

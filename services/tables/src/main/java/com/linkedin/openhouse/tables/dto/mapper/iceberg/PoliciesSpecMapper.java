@@ -128,14 +128,16 @@ public class PoliciesSpecMapper {
                                   ReplicationInterval.DEFAULT.getInterval()))
                           .build();
                     }
-                    return replication
-                        .toBuilder()
-                        .cronSchedule(
-                            CronScheduleGenerator.buildCronExpression(replication.getInterval()))
-                        .build();
+                    if (replication.getCronSchedule() == null) {
+                      return replication
+                          .toBuilder()
+                          .cronSchedule(
+                              CronScheduleGenerator.buildCronExpression(replication.getInterval()))
+                          .build();
+                    }
+                    return replication;
                   })
               .collect(Collectors.toList());
-
       return replicationPolicy.toBuilder().config(replicationConfig).build();
     }
     return replicationPolicy;
