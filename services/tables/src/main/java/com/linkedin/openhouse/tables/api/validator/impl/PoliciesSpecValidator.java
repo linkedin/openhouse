@@ -140,7 +140,7 @@ public class PoliciesSpecValidator {
                 .getInterval()
                 .substring(0, replicationConfig.getInterval().length() - 1));
 
-    return (interval >= 0 && interval <= 3 && granularity.equals("D"))
+    return (interval >= 1 && interval <= 3 && granularity.equals("D"))
         || (interval == 12 && granularity.equals("H"));
   }
 
