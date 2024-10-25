@@ -102,16 +102,12 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   }
 
   override def visitReplicationPolicyClause(ctx: ReplicationPolicyClauseContext): (String, Option[String]) = {
-    val cluster = typedVisit[String](ctx.replicationPolicyClusterClause())
+    val cluster = ctx.replicationPolicyClusterClause().identifier().getText
     val interval = if (ctx.replicationPolicyIntervalClause() != null)
       typedVisit[String](ctx.replicationPolicyIntervalClause())
     else
       null
     (cluster, Option(interval))
-  }
-
-  override def visitReplicationPolicyClusterClause(ctx: ReplicationPolicyClusterClauseContext): (String) = {
-    ctx.STRING().getText
   }
 
   override def visitReplicationPolicyIntervalClause(ctx: ReplicationPolicyIntervalClauseContext): (String) = {

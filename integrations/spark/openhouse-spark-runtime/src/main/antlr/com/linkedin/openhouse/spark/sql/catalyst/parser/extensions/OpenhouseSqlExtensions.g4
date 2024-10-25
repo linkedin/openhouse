@@ -97,7 +97,7 @@ replicationPolicyClause
     ;
 
 replicationPolicyClusterClause
-    : DESTINATION ':' STRING
+    : DESTINATION ':' identifier
     ;
 
 replicationPolicyIntervalClause
