@@ -10,7 +10,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import com.linkedin.openhouse.tables.common.ReplicationInterval;
 import com.linkedin.openhouse.tables.model.TableDto;
-import com.linkedin.openhouse.tables.utils.CronScheduleGenerator;
+import com.linkedin.openhouse.tables.utils.IntervalToCronConverter;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.mapstruct.Mapper;
@@ -124,7 +124,7 @@ public class PoliciesSpecMapper {
                           .toBuilder()
                           .interval(ReplicationInterval.DEFAULT.getInterval())
                           .cronSchedule(
-                              CronScheduleGenerator.buildCronExpression(
+                              IntervalToCronConverter.generateCronExpression(
                                   ReplicationInterval.DEFAULT.getInterval()))
                           .build();
                     }
@@ -132,7 +132,8 @@ public class PoliciesSpecMapper {
                       return replication
                           .toBuilder()
                           .cronSchedule(
-                              CronScheduleGenerator.buildCronExpression(replication.getInterval()))
+                              IntervalToCronConverter.generateCronExpression(
+                                  replication.getInterval()))
                           .build();
                     }
                     return replication;

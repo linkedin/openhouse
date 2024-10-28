@@ -33,4 +33,9 @@ public class ReplicationConfig {
   @Schema(description = "Cron schedule generated from the interval.", example = "0 0 1/1 * ? *")
   @Valid
   String cronSchedule;
+
+  public enum Granularity {
+    H,
+    D
+  }
 }
