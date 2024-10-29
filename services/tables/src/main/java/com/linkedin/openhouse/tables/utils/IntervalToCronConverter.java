@@ -29,13 +29,14 @@ public class IntervalToCronConverter {
       throw new RequestValidationFailureException(errorMessage);
     }
     int count = Integer.parseInt(interval.substring(0, interval.length() - 1));
+    // Generating random hourly and minute intervals for the cron expression
     int hour = new Random().nextInt(24);
     int minute = new int[] {0, 15, 30, 45}[new Random().nextInt(4)];
 
     String granularity = interval.substring(interval.length() - 1);
     String schedule;
 
-    if (granularity.equals(ReplicationConfig.Granularity.H.toString())) {
+    if (granularity.equals(ReplicationConfig.Granularity.HOUR.getGranularity())) {
       schedule = generateHourlyCronExpression(hour, minute, count);
     } else {
       schedule = generateDailyCronExpression(hour, minute, count);

@@ -34,8 +34,16 @@ public class ReplicationConfig {
   @Valid
   String cronSchedule;
 
+  // ENUM for granularity of the replication interval
+  @Getter
   public enum Granularity {
-    H,
-    D
+    HOUR("H"),
+    DAY("D");
+
+    private String granularity;
+
+    Granularity(String granularity) {
+      this.granularity = granularity;
+    }
   }
 }
