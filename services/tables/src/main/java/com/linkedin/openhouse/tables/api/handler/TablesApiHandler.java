@@ -5,7 +5,9 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetDataAccessCredentialResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import java.util.Map;
 
 /**
  * Interface layer between REST and Tables backend. The implementation is injected into the Service
@@ -108,4 +110,17 @@ public interface TablesApiHandler {
    */
   ApiResponse<GetAclPoliciesResponseBody> getAclPoliciesForUserPrincipal(
       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
+
+  /**
+   * Function to get data access credential for a Table Resource identified by tableId in a given
+   * databaseId.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param params
+   * @return an access token to read data for the tableId if supported by the table's underlying
+   *     data storage.
+   */
+  ApiResponse<GetDataAccessCredentialResponseBody> getDataAccessCredential(
+      String databaseId, String tableId, Map<String, String> params);
 }

@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetDataAccessCredentialResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +15,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import java.util.Collections;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.annotation.Secured;
@@ -288,6 +291,41 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAclPoliciesResponseBody> apiResponse =
         tablesApiHandler.getAclPoliciesForUserPrincipal(
             databaseId, tableId, extractAuthenticatedUserPrincipal(), principal);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Get temporary credentials to access data in a given table",
+      description =
+          "Returns the temporary credentials which have data access to the Table resource identified by by "
+              + "databaseId and tableId. The expiration time of the temporary credentials is returned "
+              + "in millis since epoch.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Access GET: OK"),
+        @ApiResponse(responseCode = "400", description = "Access GET: ACCESS_UNSUPPORTED"),
+      })
+  @GetMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/{tableId}/access",
+        "/v1/databases/{databaseId}/tables/{tableId}/access"
+      },
+      produces = {"application/json"})
+  public ResponseEntity<GetDataAccessCredentialResponseBody> getDataAccessCredential(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Other Params", required = false) @PathVariable
+          Map<String, String> params) {
+
+    if (params == null) {
+      params = Collections.emptyMap();
+    }
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetDataAccessCredentialResponseBody>
+        apiResponse = tablesApiHandler.getDataAccessCredential(databaseId, tableId, params);
+
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

@@ -92,6 +92,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
+
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());

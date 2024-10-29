@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.cluster.storage;
 
 import com.google.common.base.Preconditions;
+import com.linkedin.openhouse.cluster.storage.auth.DataAccessCredential;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.net.URI;
 import java.util.HashMap;
@@ -75,5 +76,12 @@ public abstract class BaseStorage implements Storage {
                 + tableUUID)
         .normalize()
         .toString();
+  }
+
+  /** Default implementation returns Optional.empty. */
+  @Override
+  public Optional<DataAccessCredential> getDataAccessCredentialForTableLocation(
+      String tableLocation, Map<String, String> params) {
+    return Optional.empty();
   }
 }

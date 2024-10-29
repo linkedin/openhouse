@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.cluster.storage;
 
+import com.linkedin.openhouse.cluster.storage.auth.DataAccessCredential;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The Storage interface represents a storage system in OpenHouse. It provides methods to check if
@@ -70,4 +72,15 @@ public interface Storage {
    */
   String allocateTableLocation(
       String databaseId, String tableId, String tableUUID, String tableCreator);
+
+  /**
+   * Returns an optional DataAccessCredential for the given table location.
+   *
+   * @param tableLocation the table location
+   * @param params input parameters needed to get a data access credential for the given table
+   *     location
+   * @return DataAccessCredential for the given table location if possible. Otherwise, empty.
+   */
+  Optional<DataAccessCredential> getDataAccessCredentialForTableLocation(
+      String tableLocation, Map<String, String> params);
 }

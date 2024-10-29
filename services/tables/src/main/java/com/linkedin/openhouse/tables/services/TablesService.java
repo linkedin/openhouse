@@ -1,10 +1,13 @@
 package com.linkedin.openhouse.tables.services;
 
+import com.linkedin.openhouse.cluster.storage.auth.DataAccessCredential;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.springframework.data.util.Pair;
 
 /** Service Interface for Implementing /tables endpoint. */
@@ -93,4 +96,8 @@ public interface TablesService {
    */
   List<AclPolicy> getAclPolicies(
       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
+
+  /** Get DataAccessCredential for the given table */
+  Optional<DataAccessCredential> getDataAccessCredential(
+      String databaseId, String tableId, Map<String, String> params);
 }

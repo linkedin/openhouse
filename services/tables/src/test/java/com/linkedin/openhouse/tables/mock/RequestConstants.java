@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetDataAccessCredentialResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -114,4 +115,11 @@ public final class RequestConstants {
       AclPolicy.builder().principal("TEST_USER").role("TABLE_ADMIN").build();
   public static final GetAclPoliciesResponseBody TEST_GET_ACL_POLICIES_RESPONSE_BODY =
       GetAclPoliciesResponseBody.builder().results(Collections.singletonList(ACL_POLICY)).build();
+
+  public static final GetDataAccessCredentialResponseBody
+      TEST_GET_DATA_ACCESS_CREDENTIAL_RESPONSE_BODY =
+          GetDataAccessCredentialResponseBody.builder()
+              .credential(Collections.singletonMap("token", "header.payload.signature"))
+              .expirationMillisSinceEpoch(0)
+              .build();
 }
