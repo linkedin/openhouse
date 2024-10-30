@@ -11,6 +11,7 @@ configurations {
 
   all {
     exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+    //exclude group: 'io.micrometer', module: 'micrometer-core'
   }
   shadow.extendsFrom implementation
 }
@@ -56,7 +57,8 @@ dependencies {
     exclude group: 'org.testcontainers'
     exclude group: 'javax'
     exclude group: 'org.xerial'
-  //  exclude group: 'com.h2database'
+    exclude group: 'com.h2database'
+    exclude group: 'io.micrometer'
   }
 
   testImplementation('org.apache.hadoop:hadoop-common:3.2.0'){
@@ -65,8 +67,6 @@ dependencies {
   }
   testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
 }
-
-//jar.enabled=true
 
 shadowJar {
   zip64  true
@@ -111,6 +111,9 @@ shadowJar {
     relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
     relocate ('org.json', 'openhouse.relocated.org.json')
     relocate('org.openapitools', 'openhouse.relocated.org.openapitools')
+    relocate ('org.apache.iceberg', 'openhouse.relocated.org.apache.iceberg') {
+      exclude 'org.apache.iceberg.spark.SparkCatalog'
+    }
 
 
 
@@ -146,6 +149,7 @@ shadowJar {
     relocate('io.airlift', 'openhouse.relocated.io.airlift')
     relocate('io.swagger', 'openhouse.relocated.io.swagger')
     relocate('io.jsonwebtoken', 'openhouse.relocated.io.jsonwebtoken')
+    relocate('io.prometheus', 'openhouse.relocated.io.prometheus')
 
     relocate('net', 'openhouse.relocated.net')
     relocate('junit', 'openhouse.relocated.junit')
