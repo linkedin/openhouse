@@ -31,10 +31,17 @@ public class TimePartitionSpec {
   @NotNull(message = "granularity cannot be null")
   Granularity granularity;
 
+  @Getter
   public enum Granularity {
-    HOUR,
-    DAY,
-    MONTH,
-    YEAR
+    HOUR("H"),
+    DAY("D"),
+    MONTH("M"),
+    YEAR("Y");
+
+    private final String granularity;
+
+    Granularity(String granularity) {
+      this.granularity = granularity;
+    }
   }
 }

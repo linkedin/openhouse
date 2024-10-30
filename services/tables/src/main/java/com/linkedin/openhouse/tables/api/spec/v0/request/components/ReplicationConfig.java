@@ -33,17 +33,4 @@ public class ReplicationConfig {
   @Schema(description = "Cron schedule generated from the interval.", example = "0 0 1/1 * ? *")
   @Valid
   String cronSchedule;
-
-  // ENUM for granularity of the replication interval
-  @Getter
-  public enum Granularity {
-    HOUR("H"),
-    DAY("D");
-
-    private String granularity;
-
-    Granularity(String granularity) {
-      this.granularity = granularity;
-    }
-  }
 }

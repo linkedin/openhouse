@@ -6,6 +6,7 @@ import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.model.field.expression.FieldExpressionFactory;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import java.util.Random;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -36,7 +37,7 @@ public class IntervalToCronConverter {
     String granularity = interval.substring(interval.length() - 1);
     String schedule;
 
-    if (granularity.equals(ReplicationConfig.Granularity.HOUR.getGranularity())) {
+    if (granularity.equals(TimePartitionSpec.Granularity.HOUR.getGranularity())) {
       schedule = generateHourlyCronExpression(hour, minute, count);
     } else {
       schedule = generateDailyCronExpression(hour, minute, count);
