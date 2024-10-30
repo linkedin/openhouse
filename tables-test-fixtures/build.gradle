@@ -11,7 +11,6 @@ configurations {
 
   all {
     exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
-    //exclude group: 'io.micrometer', module: 'micrometer-core'
   }
   shadow.extendsFrom implementation
 }
