@@ -10,6 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.cronutils.model.Cron;
+import com.cronutils.model.CronType;
+import com.cronutils.model.definition.CronDefinition;
+import com.cronutils.model.definition.CronDefinitionBuilder;
+import com.cronutils.parser.CronParser;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.jayway.jsonpath.JsonPath;
@@ -323,5 +328,17 @@ public final class RequestAndValidateHelper {
     validateSnapshots(catalog, result, icebergSnapshotsRequestBody);
     validateMetadataInPutSnapshotsRequest(result, icebergSnapshotsRequestBody);
     return result;
+  }
+
+  static boolean validateCronSchedule(String cronSchedule) {
+    try {
+      CronDefinition cronDefinition = CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ);
+      CronParser parser = new CronParser(cronDefinition);
+      Cron cron = parser.parse(cronSchedule);
+      cron.validate();
+      return true;
+    } catch (IllegalArgumentException e) {
+      return false;
+    }
   }
 }
