@@ -30,4 +30,6 @@ public class UserTableRow {
   String metadataLocation;
 
   String storageType;
+
+  Long creationTime;
 }

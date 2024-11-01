@@ -57,6 +57,10 @@ public class UserTable {
   @JsonProperty(value = "storageType")
   private String storageType;
 
+  @Schema(description = "Creation time of the table.", example = "1651002318265")
+  @JsonProperty(value = "creationTime")
+  private Long creationTime;
+
   public String toJson() {
     return new Gson().toJson(this);
   }
