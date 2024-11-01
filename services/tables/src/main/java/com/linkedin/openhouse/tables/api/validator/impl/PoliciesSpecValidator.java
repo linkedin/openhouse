@@ -92,8 +92,8 @@ public class PoliciesSpecValidator {
   }
 
   /**
-   * Valid cases for replication object: 0. Interval input can be either be accepted as 12H or daily
-   * from 1-3D 1. Destination cluster cannot be equal to the source cluster
+   * Valid cases for replication interval: Interval input can be either be accepted as 12H or daily
+   * from 1-3D
    */
   protected boolean validateReplication(Policies policies, TableUri tableUri) {
     if (policies != null
@@ -108,15 +108,6 @@ public class PoliciesSpecValidator {
                     failureMessage =
                         String.format(
                             "Replication interval for the table [%s] can either be 12 hours or daily for up to 3 days",
-                            tableUri);
-                    return false;
-                  }
-                }
-                if (replicationConfig.getDestination() != null) {
-                  if (!validateReplicationDestination(replicationConfig, tableUri)) {
-                    failureMessage =
-                        String.format(
-                            "Replication destination cluster for the table [%s] must be different from the source cluster",
                             tableUri);
                     return false;
                   }
@@ -142,14 +133,6 @@ public class PoliciesSpecValidator {
 
     return (interval >= 1 && interval <= 3 && granularity.equals("D"))
         || (interval == 12 && granularity.equals("H"));
-  }
-
-  /**
-   * Validate that the destination cluster provided by users is not the same as the source cluster
-   */
-  protected boolean validateReplicationDestination(
-      ReplicationConfig replicationConfig, TableUri tableUri) {
-    return !replicationConfig.getDestination().toString().equals(tableUri.getClusterId());
   }
 
   /**

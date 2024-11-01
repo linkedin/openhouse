@@ -186,7 +186,11 @@ public class TablesValidatorTest {
                             .granularity(TimePartitionSpec.Granularity.HOUR)
                             .build())
                     .baseTableVersion("base")
-                    .policies(Policies.builder().retention(RETENTION_POLICY).build())
+                    .policies(
+                        Policies.builder()
+                            .retention(RETENTION_POLICY)
+                            .replication(REPLICATION_POLICY)
+                            .build())
                     .build()));
   }
 

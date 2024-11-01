@@ -260,19 +260,7 @@ class PoliciesSpecValidatorTest {
     ReplicationConfig replication1 =
         ReplicationConfig.builder().destination("testClusterB").interval("12H").build();
 
-    Assertions.assertTrue(validator.validateReplicationDestination(replication1, tableUri));
     Assertions.assertTrue(validator.validateReplicationInterval(replication1));
-
-    replication1 = ReplicationConfig.builder().destination("testCluster").build();
-    Assertions.assertTrue(validator.validateReplicationDestination(replication1, tableUri));
-
-    // Negative: destination cluster equal to source cluster
-    replication1 = ReplicationConfig.builder().destination(tableUri.getClusterId()).build();
-    Assertions.assertFalse(validator.validateReplicationDestination(replication1, tableUri));
-
-    replication1 =
-        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("12H").build();
-    Assertions.assertFalse(validator.validateReplicationDestination(replication1, tableUri));
 
     // Negative: invalid interval input
     replication1 =
@@ -297,28 +285,6 @@ class PoliciesSpecValidatorTest {
     Assertions.assertTrue(
         validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
 
-    // Negative: destination cluster equal to source cluster
-    replication1 = ReplicationConfig.builder().destination(tableUri.getClusterId()).build();
-    policies0 =
-        Policies.builder()
-            .replication(
-                Replication.builder().config(Arrays.asList(replication1, replication2)).build())
-            .build();
-
-    Assertions.assertFalse(
-        validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
-    Field failedMsg =
-        org.springframework.util.ReflectionUtils.findField(
-            PoliciesSpecValidator.class, "failureMessage");
-    Assertions.assertNotNull(failedMsg);
-    org.springframework.util.ReflectionUtils.makeAccessible(failedMsg);
-    Assertions.assertTrue(
-        ((String) org.springframework.util.ReflectionUtils.getField(failedMsg, validator))
-            .contains(
-                String.format(
-                    "Replication destination cluster for the table [%s] must be different from the source cluster",
-                    tableUri)));
-
     // Negative: invalid interval input
     replication1 = ReplicationConfig.builder().destination("testCluster1").interval("13H").build();
     policies0 =
@@ -328,7 +294,7 @@ class PoliciesSpecValidatorTest {
             .build();
     Assertions.assertFalse(
         validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
-    failedMsg =
+    Field failedMsg =
         org.springframework.util.ReflectionUtils.findField(
             PoliciesSpecValidator.class, "failureMessage");
     Assertions.assertNotNull(failedMsg);
