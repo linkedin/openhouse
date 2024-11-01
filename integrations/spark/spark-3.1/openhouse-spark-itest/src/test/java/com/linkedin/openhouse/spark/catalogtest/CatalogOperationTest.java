@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.spark.catalogtest;
 
+import com.google.common.collect.Sets;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
 import java.util.Map;
@@ -9,6 +10,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -65,6 +67,110 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
           () -> {
             table.newAppend().appendFile(fooDataFile).commit();
           });
+    }
+  }
+
+  @Test
+  public void testCreateReplicaUnPartitionedTable() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog icebergCatalog = getOpenHouseCatalog(spark);
+
+      Schema schema =
+          new Schema(
+              Types.NestedField.required(
+                  1,
+                  "a",
+                  Types.StructType.of(Types.NestedField.required(2, "b", Types.StringType.get()))),
+              Types.NestedField.required(3, "c", Types.StringType.get()));
+
+      // Field ids reassigned (Status quo)
+      TableIdentifier tableIdentifier = TableIdentifier.of("db", "table");
+      Map<String, String> props = new HashMap<>();
+      Table table =
+          icebergCatalog.createTable(tableIdentifier, schema, PartitionSpec.unpartitioned(), props);
+      Schema schemaAfterCreation = table.schema();
+      Assertions.assertFalse(schemaAfterCreation.sameSchema(schema));
+      Assertions.assertEquals(schemaAfterCreation.findField("a").fieldId(), 1);
+      Assertions.assertEquals(schemaAfterCreation.findField("a.b").fieldId(), 3);
+      Assertions.assertEquals(schemaAfterCreation.findField("c").fieldId(), 2);
+      // Evolve schema, add top level column d (should work as before)
+      table.updateSchema().addColumn("d", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("d").fieldId(), 4);
+      // Evolve schema, add child column e to a (should work as before)
+      table.updateSchema().addColumn("a", "e", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("a.e").fieldId(), 5);
+
+      // Field ids not reassigned
+      tableIdentifier = TableIdentifier.of("db", "table1");
+      props.put("source.table.schema", SchemaParser.toJson(schema));
+      table =
+          icebergCatalog.createTable(tableIdentifier, schema, PartitionSpec.unpartitioned(), props);
+      schemaAfterCreation = table.schema();
+      Assertions.assertTrue(schemaAfterCreation.sameSchema(schema));
+      Assertions.assertEquals(schemaAfterCreation.findField("a").fieldId(), 1);
+      Assertions.assertEquals(schemaAfterCreation.findField("a.b").fieldId(), 2);
+      Assertions.assertEquals(schemaAfterCreation.findField("c").fieldId(), 3);
+      // Evolve schema, add top level column d (should work as before)
+      table.updateSchema().addColumn("d", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("d").fieldId(), 4);
+      // Evolve schema, add child column e to a (should work as before)
+      table.updateSchema().addColumn("a", "e", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("a.e").fieldId(), 5);
+    }
+  }
+
+  @Test
+  public void testCreateReplicaPartitionedTable() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog icebergCatalog = getOpenHouseCatalog(spark);
+
+      Schema schema =
+          new Schema(
+              Types.NestedField.required(
+                  1,
+                  "a",
+                  Types.StructType.of(Types.NestedField.required(2, "b", Types.StringType.get()))),
+              Types.NestedField.required(3, "c", Types.StringType.get()));
+      // Parititon spec with identity partitioning on "c"
+      PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).identity("c").build();
+
+      // Field ids reassigned (Status quo)
+      TableIdentifier tableIdentifier = TableIdentifier.of("db", "table");
+      Map<String, String> props = new HashMap<>();
+      Table table = icebergCatalog.createTable(tableIdentifier, schema, partitionSpec, props);
+      Schema schemaAfterCreation = table.schema();
+      Assertions.assertFalse(schemaAfterCreation.sameSchema(schema));
+      Assertions.assertEquals(schemaAfterCreation.findField("a").fieldId(), 1);
+      Assertions.assertEquals(schemaAfterCreation.findField("a.b").fieldId(), 3);
+      Assertions.assertEquals(schemaAfterCreation.findField("c").fieldId(), 2);
+      PartitionSpec pspecAfterCreation = table.spec();
+      // pspec on c changes to 2
+      Assertions.assertEquals(pspecAfterCreation.identitySourceIds(), Sets.newHashSet(2));
+      // Evolve schema, add top level column d (should work as before)
+      table.updateSchema().addColumn("d", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("d").fieldId(), 4);
+      // Evolve schema, add child column e to a (should work as before)
+      table.updateSchema().addColumn("a", "e", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("a.e").fieldId(), 5);
+
+      // Field ids not reassigned (new changes)
+      tableIdentifier = TableIdentifier.of("db", "table1");
+      props.put("source.table.schema", SchemaParser.toJson(schema));
+      table = icebergCatalog.createTable(tableIdentifier, schema, partitionSpec, props);
+      schemaAfterCreation = table.schema();
+      Assertions.assertTrue(schemaAfterCreation.sameSchema(schema));
+      Assertions.assertEquals(schemaAfterCreation.findField("a").fieldId(), 1);
+      Assertions.assertEquals(schemaAfterCreation.findField("a.b").fieldId(), 2);
+      Assertions.assertEquals(schemaAfterCreation.findField("c").fieldId(), 3);
+      pspecAfterCreation = table.spec();
+      // pspec on c changes remains 3
+      Assertions.assertEquals(pspecAfterCreation.identitySourceIds(), Sets.newHashSet(3));
+      // Evolve schema, add top level column d (should work as before)
+      table.updateSchema().addColumn("d", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("d").fieldId(), 4);
+      // Evolve schema, add child column e to a (should work as before)
+      table.updateSchema().addColumn("a", "e", Types.StringType.get()).commit();
+      Assertions.assertEquals(table.schema().findField("a.e").fieldId(), 5);
     }
   }
 
