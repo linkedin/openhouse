@@ -30,9 +30,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.iceberg.BaseMetastoreTableOperations;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SnapshotSummary;
+import org.apache.iceberg.SortDirection;
+import org.apache.iceberg.SortField;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableProperties;
@@ -40,6 +47,8 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
 import org.springframework.data.util.Pair;
@@ -168,6 +177,22 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   @SuppressWarnings("checkstyle:MissingSwitchDefault")
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
+
+    if (base == null && metadata.properties().get("source.table.schema") != null) {
+      String schema = metadata.properties().get("source.table.schema");
+      Schema sourceSchema = SchemaParser.fromJson(schema);
+
+      TableMetadata newTableMetadata =
+          TableMetadata.buildFromEmpty()
+              .setLocation(metadata.location())
+              .addSchema(sourceSchema, metadata.lastColumnId())
+              .addPartitionSpec(clonePartitionSpec(metadata.spec(), sourceSchema))
+              .addSortOrder(cloneSortOrder(metadata.sortOrder(), sourceSchema))
+              .setProperties(metadata.properties())
+              .build();
+      metadata = newTableMetadata;
+    }
+
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
 
@@ -280,6 +305,62 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           break; /*should never happen, kept to silence SpotBugs*/
       }
     }
+  }
+
+  public static PartitionSpec clonePartitionSpec(PartitionSpec original, Schema schema) {
+    // Create a builder with the new schema
+    PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
+
+    // Copy each PartitionField from the existing spec to the new spec
+    for (PartitionField field : original.fields()) {
+      String transformName = field.transform().toString(); // Transform as a string
+      String fieldName = field.name(); // Target name for partition
+
+      switch (transformName) {
+        case "identity":
+          builder.identity(fieldName);
+          break;
+        case "year":
+          builder.year(fieldName);
+          break;
+        case "month":
+          builder.month(fieldName);
+          break;
+        case "day":
+          builder.day(fieldName);
+          break;
+        case "hour":
+          builder.hour(fieldName);
+          break;
+          // Add cases for other transforms, if needed
+        default:
+          throw new UnsupportedOperationException("Unsupported transform: " + transformName);
+      }
+    }
+
+    // Build and return the new PartitionSpec
+    return builder.build();
+  }
+
+  public static SortOrder cloneSortOrder(SortOrder original, Schema newSchema) {
+    SortOrder.Builder builder = SortOrder.builderFor(newSchema).withOrderId(original.orderId());
+
+    for (SortField field : original.fields()) {
+      // Find the field name in the original schema based on the sourceId
+      String fieldName = original.schema().findField(field.sourceId()).name();
+
+      // Create a new SortField with the updated sourceId and original direction and null order
+      Term term = Expressions.ref(fieldName);
+
+      // Apply sort direction and null ordering with the updated sourceId
+      if (field.direction() == SortDirection.ASC) {
+        builder.asc(term, field.nullOrder());
+      } else {
+        builder.desc(term, field.nullOrder());
+      }
+    }
+
+    return builder.build();
   }
 
   /**
