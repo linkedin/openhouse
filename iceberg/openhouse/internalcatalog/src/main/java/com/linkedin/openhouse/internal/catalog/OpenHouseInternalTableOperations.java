@@ -186,8 +186,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           TableMetadata.buildFromEmpty()
               .setLocation(metadata.location())
               .addSchema(sourceSchema, metadata.lastColumnId())
-              .addPartitionSpec(clonePartitionSpec(metadata.spec(), sourceSchema))
-              .addSortOrder(cloneSortOrder(metadata.sortOrder(), sourceSchema))
+              .addPartitionSpec(rebuildPartitionSpec(metadata.spec(), sourceSchema))
+              .addSortOrder(rebuildSortOrder(metadata.sortOrder(), sourceSchema))
               .setProperties(metadata.properties())
               .build();
       metadata = newTableMetadata;
@@ -307,7 +307,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
-  public static PartitionSpec clonePartitionSpec(PartitionSpec original, Schema schema) {
+  public static PartitionSpec rebuildPartitionSpec(PartitionSpec original, Schema schema) {
     // Create a builder with the new schema
     PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
 
@@ -342,7 +342,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     return builder.build();
   }
 
-  public static SortOrder cloneSortOrder(SortOrder original, Schema newSchema) {
+  public static SortOrder rebuildSortOrder(SortOrder original, Schema newSchema) {
     SortOrder.Builder builder = SortOrder.builderFor(newSchema).withOrderId(original.orderId());
 
     for (SortField field : original.fields()) {
