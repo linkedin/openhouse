@@ -20,7 +20,6 @@ public abstract class HouseTableMapper {
   @Autowired FileIOManager fileIOManager;
 
   @Mapping(target = "lastModifiedTime", ignore = true)
-  @Mapping(target = "creationTime", ignore = true)
   @Mapping(
       target = "storageType",
       expression = "java(fileIOManager.getStorage(fileIO).getType().getValue())")

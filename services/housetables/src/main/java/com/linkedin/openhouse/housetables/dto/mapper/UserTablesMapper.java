@@ -44,6 +44,7 @@ public interface UserTablesMapper {
    */
   @Mapping(target = "version", source = "userTable", qualifiedByName = "toVersion")
   @Mapping(target = "storageType", source = "userTable.storageType", defaultValue = DEFAULT_STORAGE)
+  @Mapping(target = "creationTime", source = "userTable.creationTime")
   UserTableRow toUserTableRow(
       UserTable userTable, @Context Optional<UserTableRow> existingUserTableRow);
 
