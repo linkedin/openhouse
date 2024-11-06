@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 public class ReplicationConfigValidator {
   public void validate(Policies policies, TableUri tableUri) {
     if (policies != null && policies.getReplication() != null) {
-      log.info("Table replication: \n" + policies.getReplication());
+      log.info(String.format("Table [%s] replication: %s\n", tableUri, policies.getReplication()));
     }
   }
 }
