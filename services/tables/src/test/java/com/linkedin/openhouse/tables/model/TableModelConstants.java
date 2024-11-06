@@ -61,10 +61,10 @@ public final class TableModelConstants {
 
     RETENTION_POLICY =
         Retention.builder().count(3).granularity(TimePartitionSpec.Granularity.HOUR).build();
-
     ArrayList<ReplicationConfig> configs = new ArrayList<>();
     configs.add(ReplicationConfig.builder().destination("cluster1").interval("12H").build());
     REPLICATION_POLICY = Replication.builder().config(configs).build();
+
     RETENTION_POLICY_WITH_PATTERN =
         Retention.builder()
             .count(3)

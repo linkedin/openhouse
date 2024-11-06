@@ -11,8 +11,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -186,11 +184,7 @@ public class TablesValidatorTest {
                             .granularity(TimePartitionSpec.Granularity.HOUR)
                             .build())
                     .baseTableVersion("base")
-                    .policies(
-                        Policies.builder()
-                            .retention(RETENTION_POLICY)
-                            .replication(REPLICATION_POLICY)
-                            .build())
+                    .policies(Policies.builder().retention(RETENTION_POLICY).build())
                     .build()));
   }
 
@@ -286,107 +280,6 @@ public class TablesValidatorTest {
                       .baseTableVersion("base")
                       .build()));
     }
-  }
-
-  @Test
-  public void validateCreateTableRequestParamWithInvalidReplicationDestinationInPoliciesObject() {
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            tablesApiValidator.validateCreateTable(
-                "c",
-                "d",
-                CreateUpdateTableRequestBody.builder()
-                    .databaseId("d")
-                    .tableId("t")
-                    .clusterId("c")
-                    .schema(HEALTH_SCHEMA_LITERAL)
-                    .tableProperties(ImmutableMap.of())
-                    .timePartitioning(
-                        TimePartitionSpec.builder()
-                            .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
-                            .build())
-                    .policies(
-                        Policies.builder()
-                            .replication(
-                                Replication.builder()
-                                    .config(
-                                        Arrays.asList(
-                                            ReplicationConfig.builder().destination("c").build()))
-                                    .build())
-                            .build())
-                    .baseTableVersion("base")
-                    .build()));
-  }
-
-  @Test
-  public void validateCreateTableRequestParamWithInvalidReplicationIntervalInPoliciesObject() {
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            tablesApiValidator.validateCreateTable(
-                "c",
-                "d",
-                CreateUpdateTableRequestBody.builder()
-                    .databaseId("d")
-                    .tableId("t")
-                    .clusterId("c")
-                    .schema(HEALTH_SCHEMA_LITERAL)
-                    .tableProperties(ImmutableMap.of())
-                    .timePartitioning(
-                        TimePartitionSpec.builder()
-                            .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
-                            .build())
-                    .policies(
-                        Policies.builder()
-                            .replication(
-                                Replication.builder()
-                                    .config(
-                                        Arrays.asList(
-                                            ReplicationConfig.builder()
-                                                .destination("z")
-                                                .interval("13H")
-                                                .build()))
-                                    .build())
-                            .build())
-                    .baseTableVersion("base")
-                    .build()));
-  }
-
-  @Test
-  public void validateCreateTableRequestParamWithValidReplicationInPoliciesObject() {
-    assertDoesNotThrow(
-        () ->
-            tablesApiValidator.validateCreateTable(
-                "c",
-                "d",
-                CreateUpdateTableRequestBody.builder()
-                    .databaseId("d")
-                    .tableId("t")
-                    .clusterId("c")
-                    .schema(HEALTH_SCHEMA_LITERAL)
-                    .tableProperties(ImmutableMap.of())
-                    .timePartitioning(
-                        TimePartitionSpec.builder()
-                            .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
-                            .build())
-                    .policies(
-                        Policies.builder()
-                            .replication(
-                                Replication.builder()
-                                    .config(
-                                        Arrays.asList(
-                                            ReplicationConfig.builder()
-                                                .destination("z")
-                                                .interval("12H")
-                                                .build()))
-                                    .build())
-                            .build())
-                    .baseTableVersion("base")
-                    .build()));
   }
 
   @Test

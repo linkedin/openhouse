@@ -5,13 +5,10 @@ import static org.apache.iceberg.types.Types.NestedField.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import java.lang.reflect.Field;
-import java.util.Arrays;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -251,59 +248,5 @@ class PoliciesSpecValidatorTest {
     // com.linkedin.openhouse.tables.e2e.h2.TablesControllerTest.testCreateRequestFailsForWithGranularityDifferentFromTimePartitionSpec
     // with error message validation
 
-  }
-
-  @Test
-  void testValidateReplicationConfig() {
-    // Positive: valid replication config
-    TableUri tableUri = TableUri.builder().clusterId("testClusterA").build();
-    ReplicationConfig replication1 =
-        ReplicationConfig.builder().destination("testClusterB").interval("12H").build();
-
-    Assertions.assertTrue(validator.validateReplicationInterval(replication1));
-
-    // Negative: invalid interval input
-    replication1 =
-        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("13H").build();
-    Assertions.assertFalse(validator.validateReplicationInterval(replication1));
-    replication1 =
-        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("24H").build();
-    Assertions.assertFalse(validator.validateReplicationInterval(replication1));
-    replication1 =
-        ReplicationConfig.builder().destination(tableUri.getClusterId()).interval("48H").build();
-    Assertions.assertFalse(validator.validateReplicationInterval(replication1));
-
-    // Positive: valid replication config with multiple destinations
-    replication1 = ReplicationConfig.builder().destination("testCluster1").interval("1D").build();
-    ReplicationConfig replication2 =
-        ReplicationConfig.builder().destination("testCluster2").interval("2D").build();
-    Policies policies0 =
-        Policies.builder()
-            .replication(
-                Replication.builder().config(Arrays.asList(replication1, replication2)).build())
-            .build();
-    Assertions.assertTrue(
-        validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
-
-    // Negative: invalid interval input
-    replication1 = ReplicationConfig.builder().destination("testCluster1").interval("13H").build();
-    policies0 =
-        Policies.builder()
-            .replication(
-                Replication.builder().config(Arrays.asList(replication1, replication2)).build())
-            .build();
-    Assertions.assertFalse(
-        validator.validate(policies0, null, tableUri, getSchemaJsonFromSchema(dummySchema)));
-    Field failedMsg =
-        org.springframework.util.ReflectionUtils.findField(
-            PoliciesSpecValidator.class, "failureMessage");
-    Assertions.assertNotNull(failedMsg);
-    org.springframework.util.ReflectionUtils.makeAccessible(failedMsg);
-    Assertions.assertTrue(
-        ((String) org.springframework.util.ReflectionUtils.getField(failedMsg, validator))
-            .contains(
-                String.format(
-                    "Replication interval for the table [%s] can either be 12 hours or daily for up to 3 days",
-                    tableUri)));
   }
 }
