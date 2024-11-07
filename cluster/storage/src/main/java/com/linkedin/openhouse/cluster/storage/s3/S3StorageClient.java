@@ -3,16 +3,20 @@ package com.linkedin.openhouse.cluster.storage.s3;
 import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.iceberg.aws.AwsClientFactories;
-import org.apache.iceberg.aws.AwsClientFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 
 /**
  * S3StorageClient is an implementation of the StorageClient interface for S3. It uses the {@link
@@ -39,11 +43,30 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
   @PostConstruct
   public synchronized void init() {
     log.info("Initializing storage client for type: " + S3_TYPE);
+
     validateProperties();
     Map properties =
         new HashMap(storageProperties.getTypes().get(S3_TYPE.getValue()).getParameters());
-    AwsClientFactory clientFactory = AwsClientFactories.from(properties);
-    this.s3 = clientFactory.s3();
+
+    this.s3 =
+        S3Client.builder()
+            .region(Region.of(properties.get("s3.region").toString()))
+            .endpointOverride(URI.create(properties.get("s3.endpoint").toString()))
+            .httpClient(UrlConnectionHttpClient.builder().build())
+            .credentialsProvider(
+                StaticCredentialsProvider.create(
+                    AwsBasicCredentials.create(
+                        properties.get("s3.access-key-id").toString(),
+                        properties.get("s3.secret-access-key").toString())))
+            .serviceConfiguration(
+                S3Configuration.builder()
+                    .pathStyleAccessEnabled(true)
+                    .checksumValidationEnabled(false)
+                    .build())
+            .build();
+
+    // AwsClientFactory clientFactory = AwsClientFactories.from(properties);
+    // this.s3 = clientFactory.s3();
   }
 
   @Override

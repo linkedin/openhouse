@@ -4,13 +4,18 @@ cluster:
     default-type: "s3"
     types:
       s3:
-        rootpath: "openhouse-bucket"
+        rootpath: "container-a"
         endpoint: "s3://"
         parameters:
-          s3.endpoint: "http://minioS3:9000"
+          s3.region: "us-east-1"
+          s3.endpoint: "https://lor1-0002329.int.linkedin.com:3183/s3/openhouse-s3-ambry-integration-prototype"
           s3.access-key-id: "admin"
           s3.secret-access-key: "password"
           s3.path-style-access: true
+          s3.disable-put-object-md5-validation: true
+          s3.disable-get-object-md5-validation: true
+          s3.checksum-algorithm: "null"
+          s3.checksum-enabled: false
   iceberg:
     write:
       format:
