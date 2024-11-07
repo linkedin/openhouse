@@ -53,6 +53,7 @@ include ':services:housetables'
 include ':services:jobs'
 include ':services:tables'
 include ':tables-test-fixtures'
+include ':tables-test-fixtures-iceberg-1.5'
 
 include ':cluster:configs'
 include ':cluster:storage'
@@ -68,3 +69,4 @@ project(':integrations:java-iceberg-1.5:openhouse-java-runtime').name = 'openhou
 project(':integrations:java-iceberg-1.5:openhouse-java-itest').name = 'openhouse-java-iceberg-1.5-itest'
 project(':integrations:spark-3.5:openhouse-spark-runtime').name = 'openhouse-spark-3.5-runtime_2.12'
 project(':integrations:spark-3.5:openhouse-spark-itest').name = 'openhouse-spark-3.5-itest'
+project(':tables-test-fixtures-iceberg-1.5').name = 'tables-test-fixtures-iceberg-1.5_2.12'

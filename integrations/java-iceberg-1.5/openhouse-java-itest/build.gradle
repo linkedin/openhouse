@@ -6,6 +6,15 @@ plugins {
 ext {
   icebergVersion = '1.5.2'
 }
+
+sourceSets {
+  test {
+    java {
+      srcDirs += project(':integrations:java:openhouse-java-itest').sourceSets.test.java.srcDirs
+    }
+  }
+}
+
 dependencies {
   testImplementation(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
 

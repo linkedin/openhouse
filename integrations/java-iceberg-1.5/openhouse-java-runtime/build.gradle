@@ -25,6 +25,17 @@ ext {
   hadoopVersion = '2.10.0'
 }
 
+sourceSets {
+  main {
+    java {
+      srcDirs += project(':integrations:java:openhouse-java-runtime').sourceSets.main.java.srcDirs
+    }
+    resources {
+      srcDirs += project(':integrations:java:openhouse-java-runtime').sourceSets.main.resources.srcDirs
+    }
+  }
+}
+
 dependencies {
   compileOnly project(':client:secureclient')
   compileOnly project(':client:tableclient')
