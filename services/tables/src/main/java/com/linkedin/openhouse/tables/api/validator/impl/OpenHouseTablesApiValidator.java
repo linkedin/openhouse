@@ -143,7 +143,11 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
                   "%s : %s",
                   policiesSpecValidator.getField(), policiesSpecValidator.getMessage())));
     }
-    replicationConfigValidator.validate(createUpdateTableRequestBody.getPolicies(), tableUri);
+    if (createUpdateTableRequestBody.getPolicies() != null
+        && createUpdateTableRequestBody.getPolicies().getReplication() != null) {
+      replicationConfigValidator.validate(
+          createUpdateTableRequestBody.getPolicies().getReplication(), tableUri);
+    }
   }
 
   @SuppressWarnings("checkstyle:OperatorWrap")

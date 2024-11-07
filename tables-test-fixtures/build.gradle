@@ -145,8 +145,6 @@ shadowJar {
 
     relocate('reactor', 'openhouse.relocated.reactor')
 
-    relocate('com.cronutils', 'openhouse.relocated.com.cronutils')
-
     relocate('io.airlift', 'openhouse.relocated.io.airlift')
     relocate('io.swagger', 'openhouse.relocated.io.swagger')
     relocate('io.jsonwebtoken', 'openhouse.relocated.io.jsonwebtoken')
