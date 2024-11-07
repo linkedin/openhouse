@@ -7,6 +7,15 @@ ext {
   sparkVersion = '3.5.2'
 }
 
+sourceSets {
+  test {
+    java {
+      srcDirs = ['src/test/java', project(':integrations:spark:openhouse-spark-itest').sourceSets.test.java.srcDirs]
+      exclude '**/PartitionTest.java', '**/AlterTable*.java', '**/CreateTable*.java', '**/DescribeTableTest.java', '**/DropTableTest.java', '**/ShowTablesTest.java', '**/InsertIntoTableTest.java'
+    }
+  }
+}
+
 dependencies {
 
   testImplementation 'com.google.code.gson:gson:2.8.9'
@@ -20,7 +29,7 @@ dependencies {
     exclude group: "io.netty"
   }
 
-  testImplementation project(':tables-test-fixtures_2.12')
+  testImplementation project(':tables-test-fixtures-iceberg-1.5_2.12')
   testImplementation 'org.junit.platform:junit-platform-runner:1.8.2'
   // Required to test /tables mockserver
   testImplementation 'org.apache.commons:commons-lang3:3.12.0'

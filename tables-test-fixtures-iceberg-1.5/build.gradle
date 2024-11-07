@@ -1,0 +1,245 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'com.github.johnrengelman.shadow' version '7.1.2'
+  id 'openhouse.maven-publish'
+  id 'openhouse.iceberg-conventions-1.5.2'
+}
+
+import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer
+
+ext {
+  sparkVersion = '3.5.2'
+}
+
+configurations {
+
+  all {
+    exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+  }
+  shadow.extendsFrom implementation
+}
+
+project.evaluationDependsOn(':tables-test-fixtures_2.12')
+
+sourceSets {
+  main {
+    java {
+      srcDirs += project(':tables-test-fixtures_2.12').sourceSets.main.java.srcDirs
+    }
+    resources {
+      srcDirs += project(':tables-test-fixtures_2.12').sourceSets.main.resources.srcDirs
+    }
+  }
+  test {
+    java {
+      srcDirs += project(':tables-test-fixtures_2.12').sourceSets.test.java.srcDirs
+    }
+  }
+}
+
+dependencies {
+  implementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
+  implementation 'org.springframework.boot:spring-boot-starter-test:' + spring_web_version
+  implementation(project(':services:tables')) {
+    exclude group: 'org.apache.hadoop'
+    exclude group: 'org.testcontainers'
+    exclude group: 'org.ow2.asm'
+    exclude group: 'org.xerial'
+    exclude group: 'javax'
+  }
+
+
+  compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
+  compileOnly('org.apache.spark:spark-sql_2.12:' + sparkVersion){
+    // These classes are available from `client-codegen-convention.gradle`
+    exclude group: "io.netty"
+  }
+
+  implementation 'org.springframework.boot:spring-boot-starter-webflux:' + spring_web_version
+  implementation ('org.springframework.boot:spring-boot-starter-data-jpa:' + spring_web_version) {
+    exclude(group: 'org.springframework', module: 'spring-aspects')
+    exclude(group: 'org.springframework.boot', module: 'spring-boot-starter-aop')
+  }
+
+  implementation ('org.springframework.boot:spring-boot-starter-actuator:2.7.8') {
+    exclude(group: 'io.micrometer', module: 'micrometer-core')
+  }
+  implementation group: 'com.zaxxer', name: 'HikariCP', version: '4.0.3'
+  compileOnly('org.projectlombok:lombok:' + '1.18.20')
+  implementation (project(':cluster:storage')) {
+   exclude group: 'org.testcontainers'
+   exclude group: 'javax'
+   exclude group: 'org.xerial'
+
+  }
+  implementation (project(':iceberg:openhouse:internalcatalog')) {
+    exclude group: 'org.apache.hadoop'
+    exclude group: 'org.ow2.asm'
+    exclude group: 'org.testcontainers'
+    exclude group: 'javax'
+    exclude group: 'org.xerial'
+    exclude group: 'com.h2database'
+    exclude group: 'io.micrometer'
+  }
+
+  testImplementation('org.apache.hadoop:hadoop-common:3.2.0'){
+    transitive = false
+    exclude group: "io.netty"
+  }
+  testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
+}
+
+shadowJar {
+  zip64  true
+
+  archiveClassifier.set('uber')
+
+  mergeServiceFiles()
+
+  append 'META-INF/spring.handlers'
+  append 'META-INF/spring.schemas'
+  append 'META-INF/spring.tooling'
+  transform(PropertiesFileTransformer) {
+    paths = ['META-INF/spring.factories' ]
+    mergeStrategy = "merge"
+  }
+
+  dependencies {
+    exclude(dependency('com.fasterxml.jackson.module::'))
+    exclude(dependency('com.fasterxml.jackson.core::'))
+
+    relocate('com.google', 'openhouse.relocated.com.google')
+    relocate('com.jayway', 'openhouse.relocated.com.jayway')
+
+    // TODO: relocate zaxxer, ehcache, h2, hibernate. With relocation it fails by either picking up HouseTableRepositoryImp or with a missing validatorBean
+
+    relocate('org.jboss', 'openhouse.relocated.org.jboss')
+    relocate('com.ctc', 'openhouse.relocated.com.ctc')
+    relocate('com.azure', 'openhouse.relocated.com.azure')
+
+
+    relocate('ch.qos.logback', 'openhouse.relocated.ch.qos.logback')
+    exclude(dependency('org.apache.hadoop::'))
+    exclude(dependency('org.apache.logging.log4j::'))
+    exclude(dependency('org.slf4j::'))
+    exclude(dependency('org.log4j::'))
+    exclude(dependency('org.apache.log4j::'))
+    exclude(dependency('org.apache.spark::'))
+
+    relocate('org.codehaus', 'openhouse.relocated.org.codehaus')
+    relocate('org.reactivestreams', 'openhouse.relocated.org.reactivestreams')
+    relocate('org.junit', 'openhouse.relocated.org.junit')
+    relocate ('org.yaml.snakeyaml', 'openhouse.relocated.org.yaml.snakeyaml')
+    relocate ('org.json', 'openhouse.relocated.org.json')
+    relocate('org.openapitools', 'openhouse.relocated.org.openapitools')
+    relocate ('org.apache.iceberg', 'openhouse.relocated.org.apache.iceberg') {
+      exclude 'org.apache.iceberg.spark.SparkCatalog'
+    }
+
+
+
+    relocate('org.apache.avro', 'openhouse.relocated.org.apache.avro')
+    relocate('org.apache.commons', 'openhouse.relocated.org.apache.commons')
+    relocate('org.apache.curator', 'openhouse.relocated.org.apache.curator')
+    relocate('org.apache.directory', 'openhouse.relocated.org.apache.directory')
+    relocate('org.apache.el', 'openhouse.relocated.org.apache.el')
+    relocate('org.apache.hc', 'openhouse.relocated.org.apache.hc')
+    relocate('org.apache.htrace', 'openhouse.relocated.org.apache.htrace')
+    relocate('org.apache.http', 'openhouse.relocated.org.apache.http')
+    relocate('org.apache.juli', 'openhouse.relocated.org.apache.juli')
+    relocate('org.apache.jute', 'openhouse.relocated.org.apache.jute')
+    relocate('org.apache.log4j', 'openhouse.relocated.org.apache.log4j')
+    relocate('org.apache.naming', 'openhouse.relocated.org.apache.naming')
+    relocate('org.apache.parquet', 'openhouse.relocated.org.apache.parquet')
+    relocate('org.apache.orc', 'openhouse.relocated.org.apache.orc')
+    relocate('org.apache.yetus', 'openhouse.relocated.org.apache.yetus')
+    relocate('org.apache.zookeeper', 'openhouse.relocated.org.apache.zookeeper')
+    relocate('org.aspectj', 'openhouse.relocated.org.aspectj')
+    relocate('org.HdrHistogram', 'openhouse.relocated.org.HdrHistogram')
+
+
+    relocate('com.fasterxml', 'openhouse.relocated.com.fasterxml') {
+      exclude 'com.fasterxml.jackson.databind.**'
+      exclude 'com.fasterxml.jackson.core.**'
+      exclude 'com.fasterxml.jackson.module.**'
+      exclude 'com.fasterxml.jackson.annotation.**'
+    }
+
+    relocate('reactor', 'openhouse.relocated.reactor')
+
+    relocate('io.airlift', 'openhouse.relocated.io.airlift')
+    relocate('io.swagger', 'openhouse.relocated.io.swagger')
+    relocate('io.jsonwebtoken', 'openhouse.relocated.io.jsonwebtoken')
+    relocate('io.prometheus', 'openhouse.relocated.io.prometheus')
+
+    relocate('net', 'openhouse.relocated.net')
+    relocate('junit', 'openhouse.relocated.junit')
+    relocate('antlr', 'openhouse.relocated.antlr')
+    relocate('aj', 'openhouse.relocated.aj')
+    relocate('edu', 'openhouse.relocated.edu')
+    relocate('software', 'openhouse.relocated.software')
+
+    exclude("com/sun/**")
+    exclude("com/microsoft/**")
+    relocate('com.github', 'openhouse.relocated.com.github')
+    exclude("com/jamesmurty/**")
+    exclude("com/jcraft/**")
+    exclude("com/nimbusds/**")
+
+    exclude("org/aopalliance/**")
+    exclude("org/atteo/**")
+    exclude("org/assertj/**")
+    exclude("org/checkerframework/**")
+    exclude("org/fusesource/**")
+
+
+    exclude("org/hamcrest/**")
+    exclude("org/iq80/**")
+    exclude("org/jets3t/**")
+    exclude("org/intellij/**")
+    exclude("org/jetbrains/**")
+    exclude("org/jvnet/**")
+    exclude("org/jets3t/**")
+    exclude("org/LatencyUtils/**")
+    exclude("org/mapstruct/**")
+    exclude("org/mockito/**")
+    exclude("org/mortbay/**")
+    exclude("org/objenesis/**")
+    exclude("org/objectweb/**")
+
+    exclude("org/opentest4j/**")
+    exclude("org/rnorth/**")
+    exclude("org/roaringbitmap/**")
+    exclude("org/skyscreamer/**")
+
+    //TODO: Relocate org.springframework if required.
+    exclude("org/terracotta/**")
+    exclude("org/testcontainers/**")
+    exclude("org/threeten/**")
+    exclude("org/xerial/**")
+    exclude("org/xmlunit/**")
+    exclude("org/znerd/**")
+
+    exclude("jline/**")
+    exclude("linux/**")
+    exclude("contribs/**")
+    exclude("microsoft/**")
+  }
+
+  exclude '**/public-suffix-list.txt'
+  exclude 'assets/**/**/**/**/**/**/*.properties'
+  exclude '**/*.dll'
+  exclude '**/*.ico'
+  exclude '**/*.dylib'
+  exclude '**/**/*.so'
+}
+
+// https://github.com/johnrengelman/shadow/issues/335
+// By default shadow doesn't configure the build task to depend on the shadowJar task.
+tasks.build.dependsOn tasks.shadowJar
+
+test {
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9){
+    jvmArgs '--add-opens=java.base/java.net=ALL-UNNAMED'
+  }
+}
