@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class ReplicationConfigValidator {
   public void validate(Replication replication, TableUri tableUri) {
-    log.info(String.format("Table: %s replication: %s\n", tableUri, replication));
+    if (replication != null) {
+      log.info(String.format("Table: %s replication: %s\n", tableUri, replication));
+    }
   }
 }
