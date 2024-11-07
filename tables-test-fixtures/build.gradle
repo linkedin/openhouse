@@ -88,6 +88,7 @@ shadowJar {
 
     relocate('com.google', 'openhouse.relocated.com.google')
     relocate('com.jayway', 'openhouse.relocated.com.jayway')
+    relocate('com.cronutils', 'openhouse.relocated.com.cronutils')
 
     // TODO: relocate zaxxer, ehcache, h2, hibernate. With relocation it fails by either picking up HouseTableRepositoryImp or with a missing validatorBean
 
