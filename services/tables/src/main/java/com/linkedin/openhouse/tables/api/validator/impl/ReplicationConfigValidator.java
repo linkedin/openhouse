@@ -12,9 +12,21 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class ReplicationConfigValidator {
-  public void validate(Replication replication, TableUri tableUri) {
+  private String failureMessage = "";
+  private String errorField = "";
+
+  public boolean validate(Replication replication, TableUri tableUri) {
     if (replication != null) {
       log.info(String.format("Table: %s replication: %s\n", tableUri, replication));
     }
+    return true;
+  }
+
+  public String getMessage() {
+    return failureMessage;
+  }
+
+  public String getField() {
+    return errorField;
   }
 }

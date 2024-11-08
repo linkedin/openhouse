@@ -145,8 +145,15 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
     if (createUpdateTableRequestBody.getPolicies() != null
         && createUpdateTableRequestBody.getPolicies().getReplication() != null) {
-      replicationConfigValidator.validate(
-          createUpdateTableRequestBody.getPolicies().getReplication(), tableUri);
+      if (!replicationConfigValidator.validate(
+          createUpdateTableRequestBody.getPolicies().getReplication(), tableUri)) {
+        throw new RequestValidationFailureException(
+            Arrays.asList(
+                String.format(
+                    "%s : %s",
+                    replicationConfigValidator.getField(),
+                    replicationConfigValidator.getMessage())));
+      }
     }
   }
 
