@@ -16,7 +16,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnkownException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -384,7 +384,7 @@ public class HouseTableRepositoryImplTest {
     ((HouseTableRepositoryImpl) htsRepo)
         .getHtsRetryTemplate(
             Arrays.asList(
-                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
         .registerListener(retryListener);
     Assertions.assertThrows(
         HouseTableConcurrentUpdateException.class, () -> htsRepo.findById(testKey));
@@ -393,7 +393,7 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
-  public void testNoRetryForStateUnkown() {
+  public void testNoRetryForStateUnknown() {
     for (int i : Arrays.asList(500, 501, 502, 503, 504)) {
       mockHtsServer.enqueue(
           new MockResponse()
@@ -405,9 +405,10 @@ public class HouseTableRepositoryImplTest {
           .getHtsRetryTemplate(Collections.singletonList(IllegalStateException.class))
           .registerListener(retryListener);
       Assertions.assertThrows(
-          HouseTableRepositoryStateUnkownException.class, () -> htsRepo.save(HOUSE_TABLE));
+          HouseTableRepositoryStateUnknownException.class, () -> htsRepo.save(HOUSE_TABLE));
       int actualRetryCount = retryListener.getRetryCount();
-      Assertions.assertEquals(actualRetryCount, 1);
+      // Should not be retrying table writes regardless of the error to avoid corruption
+      Assertions.assertEquals(actualRetryCount, 0);
     }
   }
 
@@ -423,7 +424,7 @@ public class HouseTableRepositoryImplTest {
     ((HouseTableRepositoryImpl) htsRepo)
         .getHtsRetryTemplate(
             Arrays.asList(
-                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
         .registerListener(retryListener);
 
     HouseTablePrimaryKey testKey =
