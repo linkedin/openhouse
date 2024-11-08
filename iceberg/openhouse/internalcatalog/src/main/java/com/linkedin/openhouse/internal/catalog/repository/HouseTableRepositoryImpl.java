@@ -39,13 +39,14 @@ import reactor.core.publisher.Mono;
 public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   /**
-   * The request timeout is decided based on retry template logic and server side gateway timeout of
-   * 60 sec. The retry template has retry max attempt of 3 with 2 secs delay (with delay multiplier
-   * as attempt increases) between each retry. So the overall retry process should complete within
-   * 60 sec.
+   * The read request timeout is decided based on retry template logic and server side gateway
+   * timeout of 60 sec. The retry template has retry max attempt of 3 with 2 secs delay (with delay
+   * multiplier as attempt increases) between each retry. So the overall retry process should
+   * complete within 60 sec.
    */
   private static final int READ_REQUEST_TIMEOUT_SECONDS = 17;
 
+  /** Write request timeout is 30 secs due to no retries on table write operations */
   private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 30;
 
   @Autowired private UserTableApi apiInstance;

@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterAll;
@@ -436,5 +437,51 @@ public class HouseTableRepositoryImplTest {
         HouseTableConcurrentUpdateException.class, () -> htsRepo.findById(testKey));
     int actualRetryCount = retryListener.getRetryCount();
     Assertions.assertEquals(actualRetryCount, 1);
+  }
+
+  @Test
+  public void testWriteTimeout() {
+    EntityResponseBodyUserTable putResponse = new EntityResponseBodyUserTable();
+    putResponse.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
+    int writeTimeout = 30;
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(putResponse))
+            .setHeadersDelay(writeTimeout - 2, TimeUnit.SECONDS)
+            .addHeader("Content-Type", "application/json"));
+    Assertions.assertDoesNotThrow(() -> htsRepo.save(HOUSE_TABLE));
+  }
+
+  @Test
+  public void testReadTimeoutWithRetries() {
+    EntityResponseBodyUserTable response = new EntityResponseBodyUserTable();
+    response.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
+    int readTimeout = 17;
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .setHeadersDelay(readTimeout + 1, TimeUnit.SECONDS)
+            .addHeader("Content-Type", "application/json"));
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .setHeadersDelay(readTimeout + 1, TimeUnit.SECONDS)
+            .addHeader("Content-Type", "application/json"));
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .setHeadersDelay(0, TimeUnit.SECONDS) // Last attempt should pass
+            .addHeader("Content-Type", "application/json"));
+    Assertions.assertDoesNotThrow(
+        () ->
+            htsRepo.findById(
+                HouseTablePrimaryKey.builder()
+                    .tableId(HOUSE_TABLE.getTableId())
+                    .databaseId(HOUSE_TABLE.getDatabaseId())
+                    .build()));
   }
 }
