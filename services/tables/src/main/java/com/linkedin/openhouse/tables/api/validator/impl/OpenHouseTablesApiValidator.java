@@ -31,6 +31,8 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
   @Autowired private ClusteringSpecValidator clusteringSpecValidator;
 
+  @Autowired private ReplicationConfigValidator replicationConfigValidator;
+
   @Override
   public void validateGetTable(String databaseId, String tableId) {
     List<String> validationFailures = new ArrayList<>();
@@ -140,6 +142,18 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               String.format(
                   "%s : %s",
                   policiesSpecValidator.getField(), policiesSpecValidator.getMessage())));
+    }
+    if (createUpdateTableRequestBody.getPolicies() != null
+        && createUpdateTableRequestBody.getPolicies().getReplication() != null) {
+      if (!replicationConfigValidator.validate(
+          createUpdateTableRequestBody.getPolicies().getReplication(), tableUri)) {
+        throw new RequestValidationFailureException(
+            Arrays.asList(
+                String.format(
+                    "%s : %s",
+                    replicationConfigValidator.getField(),
+                    replicationConfigValidator.getMessage())));
+      }
     }
   }
 

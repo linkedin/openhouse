@@ -285,107 +285,6 @@ public class TablesValidatorTest {
   }
 
   @Test
-  public void validateCreateTableRequestParamWithInvalidReplicationDestinationInPoliciesObject() {
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            tablesApiValidator.validateCreateTable(
-                "c",
-                "d",
-                CreateUpdateTableRequestBody.builder()
-                    .databaseId("d")
-                    .tableId("t")
-                    .clusterId("c")
-                    .schema(HEALTH_SCHEMA_LITERAL)
-                    .tableProperties(ImmutableMap.of())
-                    .timePartitioning(
-                        TimePartitionSpec.builder()
-                            .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
-                            .build())
-                    .policies(
-                        Policies.builder()
-                            .replication(
-                                Replication.builder()
-                                    .config(
-                                        Arrays.asList(
-                                            ReplicationConfig.builder().destination("c").build()))
-                                    .build())
-                            .build())
-                    .baseTableVersion("base")
-                    .build()));
-  }
-
-  @Test
-  public void validateCreateTableRequestParamWithInvalidReplicationIntervalInPoliciesObject() {
-    assertThrows(
-        RequestValidationFailureException.class,
-        () ->
-            tablesApiValidator.validateCreateTable(
-                "c",
-                "d",
-                CreateUpdateTableRequestBody.builder()
-                    .databaseId("d")
-                    .tableId("t")
-                    .clusterId("c")
-                    .schema(HEALTH_SCHEMA_LITERAL)
-                    .tableProperties(ImmutableMap.of())
-                    .timePartitioning(
-                        TimePartitionSpec.builder()
-                            .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
-                            .build())
-                    .policies(
-                        Policies.builder()
-                            .replication(
-                                Replication.builder()
-                                    .config(
-                                        Arrays.asList(
-                                            ReplicationConfig.builder()
-                                                .destination("z")
-                                                .interval("13H")
-                                                .build()))
-                                    .build())
-                            .build())
-                    .baseTableVersion("base")
-                    .build()));
-  }
-
-  @Test
-  public void validateCreateTableRequestParamWithValidReplicationInPoliciesObject() {
-    assertDoesNotThrow(
-        () ->
-            tablesApiValidator.validateCreateTable(
-                "c",
-                "d",
-                CreateUpdateTableRequestBody.builder()
-                    .databaseId("d")
-                    .tableId("t")
-                    .clusterId("c")
-                    .schema(HEALTH_SCHEMA_LITERAL)
-                    .tableProperties(ImmutableMap.of())
-                    .timePartitioning(
-                        TimePartitionSpec.builder()
-                            .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
-                            .build())
-                    .policies(
-                        Policies.builder()
-                            .replication(
-                                Replication.builder()
-                                    .config(
-                                        Arrays.asList(
-                                            ReplicationConfig.builder()
-                                                .destination("z")
-                                                .interval("12H")
-                                                .build()))
-                                    .build())
-                            .build())
-                    .baseTableVersion("base")
-                    .build()));
-  }
-
-  @Test
   public void validateCreateTableSpecialCharacterAndEmpty() {
     assertThrows(
         RequestValidationFailureException.class,
@@ -895,6 +794,40 @@ public class TablesValidatorTest {
     assertThrows(
         RequestValidationFailureException.class,
         () -> tablesApiValidator.validateDeleteTable("d", ";;"));
+  }
+
+  @Test
+  public void validateCreateTableRequestParamWithValidReplicationInPoliciesObject() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(ImmutableMap.of())
+                    .timePartitioning(
+                        TimePartitionSpec.builder()
+                            .columnName("timestamp")
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .policies(
+                        Policies.builder()
+                            .replication(
+                                Replication.builder()
+                                    .config(
+                                        Arrays.asList(
+                                            ReplicationConfig.builder()
+                                                .destination("z")
+                                                .interval("12H")
+                                                .build()))
+                                    .build())
+                            .build())
+                    .baseTableVersion("base")
+                    .build()));
   }
 
   @Test
