@@ -15,10 +15,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Snapshot;
@@ -127,14 +126,11 @@ public final class TableStatsCollectorUtil {
     long sumOfTotalDirectorySizeInBytes = 0;
     long numOfObjectsInDirectory = 0;
     try {
-      RemoteIterator<LocatedFileStatus> it = fs.listFiles(new Path(table.location()), true);
-      while (it.hasNext()) {
-        LocatedFileStatus status = it.next();
-        numOfObjectsInDirectory++;
-        sumOfTotalDirectorySizeInBytes += status.getLen();
-      }
+      ContentSummary contentSummary = fs.getContentSummary(new Path(table.location()));
+      numOfObjectsInDirectory = contentSummary.getFileAndDirectoryCount();
+      sumOfTotalDirectorySizeInBytes = contentSummary.getLength();
     } catch (IOException e) {
-      log.error("Error while listing files in HDFS directory for table: {}", fqtn, e);
+      log.error("Error while counting folders, files, and getting size of table: {}", fqtn, e);
       return stats;
     }
 

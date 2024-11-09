@@ -1,0 +1,158 @@
+plugins {
+    id 'openhouse.java-conventions'
+    id 'openhouse.hadoop-conventions'
+    id 'openhouse.iceberg-conventions-1.2'
+    id 'openhouse.maven-publish'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+}
+
+configurations {
+    // Excluding these libraries avoids competing implementations for LoggerFactory
+    // Standardizing on slf4j + log4j2 as implementation.
+    all*.exclude module : 'spring-boot-starter-logging'
+    all*.exclude module : 'logback-classic'
+    shadow.extendsFrom implementation
+}
+
+ext {
+    sparkVersion = '3.5.2'
+    icebergVersion = '1.5.2'
+}
+
+dependencies {
+    implementation project(':iceberg:openhouse:internalcatalog')
+    implementation project(':client:hts')
+    implementation project(':client:jobsclient')
+    implementation project(':client:tableclient')
+    implementation project(':client:secureclient')
+    implementation project(':services:common')
+    implementation project(':cluster:storage')
+    compileOnly (project(path: ':integrations:spark-3.5:openhouse-spark-3.5-runtime_2.12')) {
+        exclude group: 'io.netty'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-common'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-client'
+    }
+    implementation project(':libs:datalayout')
+    implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
+        exclude group: 'io.netty'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-common'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-client'
+    }
+    implementation ('org.apache.spark:spark-sql_2.12:' + sparkVersion) {
+        exclude group: 'io.netty'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-common'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-client'
+    }
+    implementation ('org.apache.hadoop:hadoop-common:2.10.0') {
+        exclude group: 'io.netty'
+        exclude group: 'org.apache.curator', module: 'curator-client'
+        exclude group: 'org.apache.commons', module: 'commons-lang3'
+
+    }
+    implementation ('org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:' + icebergVersion) {
+        exclude group: 'io.netty'
+    }
+    implementation 'commons-cli:commons-cli:1.5.0'
+    implementation 'org.reflections:reflections:0.10.2'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
+    implementation 'io.netty:netty-resolver-dns-native-macos:4.1.75.Final:osx-x86_64'
+    implementation 'org.springframework.retry:spring-retry:1.3.3'
+    implementation 'org.apache.logging.log4j:log4j-core:2.18.0'
+    implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.20.0'
+    implementation 'org.apache.logging.log4j:log4j-api:2.18.0'
+    implementation 'com.fasterxml.jackson.core:jackson-core:2.15.2'
+    implementation 'com.fasterxml.jackson.core:jackson-annotations:2.15.2'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    implementation 'com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:2.15.2'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.15.2'
+    implementation 'com.fasterxml.woodstox:woodstox-core:6.2.7'
+
+    // open telemetry related classed. Latest Okhttp version is 4.10.0, pinning to 4.9.3 to avoid dependency issues
+    implementation 'com.squareup.okhttp3:okhttp:' + ok_http3_version
+    implementation 'com.squareup.okhttp:okhttp:2.7.5'
+    implementation 'com.squareup.okio:okio:3.2.0'
+    implementation 'com.squareup.okio:okio-jvm:3.2.0'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.20'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.20'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.20'
+    implementation 'io.opentelemetry:opentelemetry-api:1.18.0'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp:1.18.0'
+    implementation 'io.opentelemetry:opentelemetry-sdk:1.18.0'
+    implementation 'io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.14.0-alpha'
+    implementation 'io.opentelemetry:opentelemetry-semconv:1.14.0-alpha'
+    implementation 'org.apache.commons:commons-lang3:3.12.0'
+
+    testImplementation (project(path: ':integrations:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow')) {
+        exclude group: 'io.netty'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-common'
+        exclude group: 'org.apache.hadoop', module: 'hadoop-client'
+    }
+    // Otherwise throws the error: Scala module 2.10.0 requires Jackson Databind version >= 2.10.0 and < 2.11.0
+    testImplementation 'com.fasterxml.jackson.module:jackson-module-scala_2.12:2.15.2'
+    testImplementation 'org.mockito:mockito-inline:4.11.0'
+    testImplementation 'org.powermock:powermock-module-junit4:2.0.9'
+    testImplementation 'org.powermock:powermock-api-mockito2:2.0.9'
+    testImplementation(project(':tables-test-fixtures-iceberg-1.5_2.12')) {
+        exclude group: "io.netty"
+    }
+    testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
+
+}
+
+// Need spark runtime to be built before this test for this project to run successfully because compileOnly and
+// testImplementation dependencies are not triggering it.
+test.dependsOn ':integrations:spark-3.5:openhouse-spark-3.5-runtime_2.12:build'
+
+shadowJar {
+    zip64 = true
+    archiveClassifier.set('uber')
+    mergeServiceFiles() // merge META-INF/services configuration files to allow FileSystem to be discovered
+    dependencies {
+        // unnecessary dependencies from iceberg-spark3-runtime
+        exclude(dependency('org.apache.iceberg::'))
+        // this dependency will be provided at runtime
+        exclude(dependency('org.apache.iceberg:iceberg-spark3-runtime::'))
+
+        relocate('io', 'openhouse.relocated.io') {
+            exclude 'io.netty.resolver.dns.macos.**' // dynamically loaded classes
+        }
+        relocate('com', 'openhouse.relocated.com') {
+            exclude 'com.linkedin.openhouse.**' // don't want our classes to be shaded
+            exclude 'com.ctc.wstx.**' // dynamically loaded classes
+            exclude 'com.squareup.**'
+            exclude '%regex[com.sun.security.*]'
+        }
+        relocate 'okhttp3', 'openhouse.relocated.okhttp3'
+        relocate 'okio', 'openhouse.relocated.okio'
+        relocate 'reactor', 'openhouse.relocated.reactor'
+        relocate('org','openhouse.relocated.org') {
+            exclude 'org.apache.iceberg.**' // these are runtime classes, we shouldn't relocate them unless we shade them
+            exclude '%regex[org.apache.hadoop.*]' // these are runtime classes too, use regex to exclude string literals
+            exclude 'org.apache.commons.**' // these are part of method signatures reused in sub-classes
+            exclude 'org.apache.avro.**' // these runtime classes too
+            exclude 'org.apache.spark.**' // these runtime classes too
+            exclude 'org.springframework.**' // otherwise fails with ClassNotFoundException: org.springframework.http.codec.ClientCodecConfigurer
+            exclude 'org.log4j.**'
+            exclude 'org.slf4j.**'
+            exclude 'org.apache.log4j.**'
+            exclude 'org.apache.logging.**' // otherwise fails with add log4j-core to the classpath
+            exclude 'org.xml.sax.**' // otherwise fails with NoClassDefFoundError: org/xml/sax/ContentHandler
+            exclude '%regex[org.w3c.*]'
+            exclude '%regex[org.ietf.*]'
+        }
+    }
+}
+
+// https://github.com/johnrengelman/shadow/issues/335
+// By default shadow doesn't configure the build task to depend on the shadowJar task.
+tasks.build.dependsOn tasks.shadowJar
+
+test {
+    if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+        jvmArgs \
+            '--add-opens=java.base/java.nio=ALL-UNNAMED',
+            '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+            '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+            '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED'
+    }
+}
