@@ -29,7 +29,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   private static final long NUM_FILE_GROUPS_PER_COMMIT = 100;
   private static final long MAX_NUM_COMMITS = 30;
   private static final long MAX_BYTES_SIZE_RATIO = 10;
-  private static final long REWRITE_BYTES_PER_SECOND = 3 * MB;
+  private static final long REWRITE_BYTES_PER_SECOND = 2 * MB;
   private static final long EXECUTOR_MEMORY_GB = 2;
   private static final int MAX_CONCURRENT_FILE_GROUP_REWRITES = 50;
   private static final int REWRITE_PARALLELISM = 900; // number of Spark tasks to run in parallel
