@@ -83,7 +83,7 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
         .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_BYTES)
         .build()
         .add(
-            result.rewrittenDataFilesCount(),
+            result.rewrittenBytesCount(),
             Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
     METER
         .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_GROUP_COUNT)
