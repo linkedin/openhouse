@@ -512,9 +512,6 @@ public class HouseTableRepositoryImplTest {
 
     Assertions.assertThrows(
         HouseTableRepositoryStateUnknownException.class, () -> htsRepo.save(HOUSE_TABLE));
-
-    Assertions.assertThrows(
-        HouseTableRepositoryStateUnknownException.class, () -> htsRepo.save(HOUSE_TABLE));
     int actualRetryCount = retryListener.getRetryCount();
     // Should not be retrying table writes regardless of the error to avoid corruption
     Assertions.assertEquals(actualRetryCount, 0);
