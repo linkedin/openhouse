@@ -2,6 +2,9 @@ package com.linkedin.openhouse.javaclient;
 
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
@@ -21,6 +24,7 @@ import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
+import java.io.Closeable;
 import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
@@ -68,7 +72,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
+    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, Closeable {
 
   private TableApi tableApi;
 
@@ -87,6 +91,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   private String name;
 
   protected Map<String, String> properties;
+
+  private Cache<TableOperations, FileIO> fileIOCloser;
 
   private static final String DEFAULT_CLUSTER = "local";
 
@@ -130,6 +136,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     this.fileIO = loadFileIO(properties);
 
     this.cluster = properties.getOrDefault(CLUSTER_PROPERTY, DEFAULT_CLUSTER);
+    this.fileIOCloser = newFileIOCloser();
   }
 
   protected FileIO loadFileIO(Map<String, String> properties) {
@@ -235,13 +242,17 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public TableOperations newTableOps(TableIdentifier tableIdentifier) {
-    return OpenHouseTableOperations.builder()
-        .tableIdentifier(tableIdentifier)
-        .fileIO(fileIO)
-        .tableApi(tableApi)
-        .snapshotApi(snapshotApi)
-        .cluster(cluster)
-        .build();
+    FileIO tableOperationsLocalFileIO = loadFileIO(properties);
+    TableOperations openHouseTableOperations =
+        OpenHouseTableOperations.builder()
+            .tableIdentifier(tableIdentifier)
+            .fileIO(tableOperationsLocalFileIO)
+            .tableApi(tableApi)
+            .snapshotApi(snapshotApi)
+            .cluster(cluster)
+            .build();
+    fileIOCloser.put(openHouseTableOperations, openHouseTableOperations.io());
+    return openHouseTableOperations;
   }
 
   /**
@@ -591,5 +602,26 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
               .block();
       return new StaticTableOperations(tableLocation, fileIO).refresh();
     }
+  }
+
+  @Override
+  public void close() {
+    if (fileIOCloser != null) {
+      fileIOCloser.invalidateAll();
+      fileIOCloser.cleanUp();
+    }
+  }
+
+  private Cache<TableOperations, FileIO> newFileIOCloser() {
+    return Caffeine.newBuilder()
+        .weakKeys()
+        .removalListener(
+            (RemovalListener<TableOperations, FileIO>)
+                (ops, fileIO, cause) -> {
+                  if (null != fileIO) {
+                    fileIO.close();
+                  }
+                })
+        .build();
   }
 }

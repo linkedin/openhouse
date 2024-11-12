@@ -23,6 +23,7 @@ ext {
   sparkVersion = '3.1.1'
   springVersion = '2.7.8'
   hadoopVersion = '2.10.0'
+  caffeineVersion = '2.9.3'
 }
 
 dependencies {
@@ -41,6 +42,7 @@ dependencies {
     exclude group: 'com.zaxxer', module: 'HikariCP-java7'
     exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
+  implementation("com.github.ben-manes.caffeine:caffeine:" + caffeineVersion)
 }
 
 // Following codeblock completely relocates contents of the jar
