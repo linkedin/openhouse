@@ -5,17 +5,16 @@ plugins {
 }
 
 ext {
-    jacksonVersion = "2.15.2"
     log4jVersion = "2.20.0"
+
+    sparkVersion = '3.5.2'
+    icebergVersion = '1.5.2'
+    sparkVersionSuffix = "-3.5"
+    openhouseSparkRuntimeModule = ":integrations:spark${sparkVersionSuffix}:openhouse-spark${sparkVersionSuffix}-runtime_2.12"
+    icebergSparkRuntimeModule = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}"
+    tablesTestFixturesModule = ":tables-test-fixtures-iceberg-1.5_2.12"
 }
 
 dependencies {
     implementation "org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}"
-
-//    implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
-//    implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
-//    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
-//    implementation "com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:${jacksonVersion}"
-//    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}"
-//    testImplementation "com.fasterxml.jackson.module:jackson-module-scala_2.12:${jacksonVersion}"
 }
