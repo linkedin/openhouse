@@ -40,14 +40,14 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   /**
    * The read request timeout is decided based on retry template logic and server side gateway
-   * timeout of 60 sec. The retry template has retry max attempt of 3 with 2 secs delay (with delay
+   * timeout of 180 sec. The retry template has retry max attempt of 3 with 2 secs delay (with delay
    * multiplier as attempt increases) between each retry. So the overall retry process should
-   * complete within 60 sec.
+   * complete within 180 sec.
    */
-  private static final int READ_REQUEST_TIMEOUT_SECONDS = 17;
+  private static final int READ_REQUEST_TIMEOUT_SECONDS = 45;
 
-  /** Write request timeout is 30 secs due to no retries on table write operations */
-  private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 30;
+  /** Write request timeout is 60 secs due to no retries on table write operations */
+  private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 60;
 
   @Autowired private UserTableApi apiInstance;
 
