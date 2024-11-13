@@ -466,7 +466,7 @@ public class HouseTableRepositoryImplTest {
   public void testReadTimeoutWithRetries() {
     EntityResponseBodyUserTable response = new EntityResponseBodyUserTable();
     response.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
-    int readTimeout = 45;
+    int readTimeout = 30;
     mockHtsServer.enqueue(
         new MockResponse()
             .setResponseCode(200)
