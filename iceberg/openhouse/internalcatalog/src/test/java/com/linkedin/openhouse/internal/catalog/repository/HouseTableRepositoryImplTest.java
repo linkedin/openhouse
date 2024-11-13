@@ -485,6 +485,14 @@ public class HouseTableRepositoryImplTest {
             .setBody((new Gson()).toJson(response))
             .setHeadersDelay(0, TimeUnit.SECONDS) // Last attempt should pass
             .addHeader("Content-Type", "application/json"));
+
+    CustomRetryListener retryListener = new CustomRetryListener();
+    ((HouseTableRepositoryImpl) htsRepo)
+        .getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .registerListener(retryListener);
+
     Assertions.assertDoesNotThrow(
         () ->
             htsRepo.findById(
@@ -492,6 +500,7 @@ public class HouseTableRepositoryImplTest {
                     .tableId(HOUSE_TABLE.getTableId())
                     .databaseId(HOUSE_TABLE.getDatabaseId())
                     .build()));
+    Assertions.assertEquals(retryListener.getRetryCount(), 2);
   }
 
   @Test
