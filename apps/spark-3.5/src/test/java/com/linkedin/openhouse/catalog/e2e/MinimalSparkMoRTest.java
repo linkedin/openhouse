@@ -46,10 +46,28 @@ public class MinimalSparkMoRTest extends OpenHouseSparkITest {
           .withRecordCount(1)
           .build();
 
+  private void setupTableWithTwoDataFiles(String tableName, Operations ops) {
+    final int numInserts = 2;
+    prepareTable(ops, tableName, false);
+    populateTable(ops, tableName, numInserts);
+    ops.spark()
+        .sql(
+            "ALTER TABLE db.test_data_compaction SET TBLPROPERTIES ('write.delete.mode'='merge-on-read', 'write.update.mode'='merge-on-read', 'write.merge.mode'='merge-on-read', 'write.delete.distribution-mode'='range');")
+        .show();
+    ops.spark().sql("select * from db.test_data_compaction").drop("summary").show(80, false);
+    ops.spark()
+        .sql("select * from db.test_data_compaction.snapshots")
+        .drop("summary")
+        .show(80, false);
+  }
+
+  private void createDeletes(Operations ops) {
+    ops.spark().sql("DELETE FROM db.test_data_compaction WHERE data = 'v6'").show();
+  }
+
   @Test
   public void testDataCompactionPartialProgressNonPartitionedTable() throws Exception {
     final String tableName = "db.test_data_compaction";
-    final int numInserts = 2;
 
     BiFunction<Operations, Table, RewriteDataFiles.Result> rewriteFunc =
         (ops, table) ->
@@ -64,22 +82,45 @@ public class MinimalSparkMoRTest extends OpenHouseSparkITest {
                 10);
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), null)) {
-      prepareTable(ops, tableName, false);
-      populateTable(ops, tableName, numInserts);
-      //      ops.spark().sql("ALTER TABLE db.test_data_compaction SET TBLPROPERTIES
-      // ('write.delete.mode'='merge-on-read', 'write.update.mode'='merge-on-read',
-      // 'write.merge.mode'='merge-on-read', 'write.delete.distribution-mode'='range');").show();
-      // ops.spark().sql("DELETE FROM db.test_data_compaction WHERE data = 'v12'").show();
-      ops.spark().sql("select * from db.test_data_compaction").drop("summary").show(80, false);
-      ops.spark()
-          .sql("select * from db.test_data_compaction.snapshots")
-          .drop("summary")
-          .show(80, false);
-      ops.getTable(tableName)
-          .updateProperties()
-          .set("write.delete.distribution-mode", "range")
-          .commit();
-      ops.spark().sql("DELETE FROM db.test_data_compaction WHERE data = 'v6'").show();
+      //      setupTestTable();
+      //      // create table with two big datafiles and it creates two delete files
+      //      assertDeleteFilesCreated();
+      //
+      //      setupTestTable();
+      //      // same as above, then run compaction, and two delete files exist
+      //      assertCompactionCanCreateDanglingDeletes();
+      //
+      //      setupTestTable();
+      //      // a file in an old snapshot is expired / removable if it no longer represents the
+      // underlying data
+      //      // meaning a newer snapshot has overwritten the data
+      //      // so for delete file it means that the equality
+      //
+      //
+      //      // cow will create new datafile
+      //
+      //      // delete file to represent a new snapshot with one row edit
+      //
+      //      // cow will create an entirely new datafile
+      //
+      //      // then delete file will be unused, should expire.
+      //
+      //
+      //      // then do the same but with compaction, it won't expire
+      //      assertDanglingDeleteFilesCanNeverExpire();
+      //
+      //      setupTestTable();
+      //      assertRewritePositionDeleteRemovesDanglingDeletes();
+      //
+      //      setupTestTable();
+      //      assertEqualityDeletesNotCompactable();
+      //
+      //      setupTestTable();
+      //      assertProcessToCompactEqualityDeletes();
+      //
+      //      setupTestTable();
+      //      assertCompactionCanRemoveDeletes();
+
       Table table = ops.getTable(tableName);
       // log.info("Loaded table {}, location {}", table.name(), table.location());
       RewriteDataFiles.Result result = rewriteFunc.apply(ops, table);
