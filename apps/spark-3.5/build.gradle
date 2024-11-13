@@ -5,6 +5,17 @@ plugins {
 }
 
 ext {
-    sparkVersion = '3.5.2'
-    icebergVersion = '1.5.2'
+    jacksonVersion = "2.15.2"
+    log4jVersion = "2.20.0"
+}
+
+dependencies {
+    implementation "org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}"
+
+//    implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+//    implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
+//    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+//    implementation "com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:${jacksonVersion}"
+//    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}"
+//    testImplementation "com.fasterxml.jackson.module:jackson-module-scala_2.12:${jacksonVersion}"
 }
