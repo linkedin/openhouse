@@ -12,7 +12,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnkownException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.time.Duration;
 import java.util.Arrays;
@@ -39,12 +39,15 @@ import reactor.core.publisher.Mono;
 public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   /**
-   * The request timeout is decided based on retry template logic and server side gateway timeout of
-   * 60 sec. The retry template has retry max attempt of 3 with 2 secs delay (with delay multiplier
-   * as attempt increases) between each retry. So the overall retry process should complete within
-   * 60 sec.
+   * The read request timeout is decided based on retry template logic and server side gateway
+   * timeout of 60 sec. The retry template has retry max attempt of 3 with 2 secs delay (with delay
+   * multiplier as attempt increases) between each retry. So the overall retry process should
+   * complete within 60 sec.
    */
-  private static final int REQUEST_TIMEOUT_SECONDS = 17;
+  private static final int READ_REQUEST_TIMEOUT_SECONDS = 30;
+
+  /** Write request timeout is 60 secs due to no retries on table write operations */
+  private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 60;
 
   @Autowired private UserTableApi apiInstance;
 
@@ -87,7 +90,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
     return getHtsRetryTemplate(
             Arrays.asList(
-                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
         .execute(
             context ->
                 apiInstance
@@ -96,7 +99,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .flatMapMany(Flux::fromIterable)
                     .map(houseTableMapper::toHouseTable)
                     .collectList()
-                    .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+                    .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -107,15 +110,12 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
     CreateUpdateEntityRequestBodyUserTable requestBody =
         new CreateUpdateEntityRequestBodyUserTable().entity(houseTableMapper.toUserTable(entity));
 
-    return getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
-        .execute(
-            context ->
-                apiInstance
-                    .putUserTable(requestBody)
-                    .map(EntityResponseBodyUserTable::getEntity)
-                    .map(houseTableMapper::toHouseTable)
-                    .onErrorResume(this::handleHtsHttpError)
-                    .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+    return apiInstance
+        .putUserTable(requestBody)
+        .map(EntityResponseBodyUserTable::getEntity)
+        .map(houseTableMapper::toHouseTable)
+        .onErrorResume(this::handleHtsHttpError)
+        .block(Duration.ofSeconds(WRITE_REQUEST_TIMEOUT_SECONDS));
   }
 
   @Override
@@ -123,7 +123,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
     return getHtsRetryTemplate(
             Arrays.asList(
-                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
         .execute(
             context ->
                 apiInstance
@@ -133,7 +133,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .map(houseTableMapper::toHouseTable)
                     .switchIfEmpty(Mono.empty())
                     .onErrorResume(this::handleHtsHttpError)
-                    .blockOptional(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+                    .blockOptional(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
   }
 
   /**
@@ -159,14 +159,14 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
     } else if (e instanceof WebClientResponseException
         && ((WebClientResponseException) e).getStatusCode().is5xxServerError()) {
       return Mono.error(
-          new HouseTableRepositoryStateUnkownException(
+          new HouseTableRepositoryStateUnknownException(
               "Cannot determine if HTS has persisted the proposed change", e));
     } else if (ExceptionUtils.indexOfThrowable(e, DnsNameResolverTimeoutException.class)
         != -1) { // DnsNameResolverTimeoutException appears nested within exception causes and
       // ExceptionUtils class is used to match the occurrence of this failure. Retry is done
       // for this failure using existing retry template.
       return Mono.error(
-          new HouseTableRepositoryStateUnkownException(
+          new HouseTableRepositoryStateUnknownException(
               "HTS service could not be resolved due to DNS lookup timeout", e));
     } else {
       return Mono.error(new RuntimeException("UNKNOWN and unhandled failure from HTS:", e));

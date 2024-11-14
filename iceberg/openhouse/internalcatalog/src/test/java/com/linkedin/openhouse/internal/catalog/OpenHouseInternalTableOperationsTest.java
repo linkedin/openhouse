@@ -13,7 +13,7 @@ import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnkownException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -322,7 +322,7 @@ public class OpenHouseInternalTableOperationsTest {
         CommitFailedException.class,
         () -> openHouseInternalTableOperations.doCommit(base, metadata));
     when(mockHouseTableRepository.save(Mockito.any(HouseTable.class)))
-        .thenThrow(HouseTableRepositoryStateUnkownException.class);
+        .thenThrow(HouseTableRepositoryStateUnknownException.class);
     Assertions.assertThrows(
         CommitStateUnknownException.class,
         () -> openHouseInternalTableOperations.doCommit(base, metadata));

@@ -16,27 +16,35 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnkownException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
+import io.netty.handler.codec.dns.DefaultDnsQuestion;
+import io.netty.handler.codec.dns.DnsRecordType;
+import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.util.ReflectionUtils;
+import reactor.core.publisher.Mono;
 
 /** As part of prerequisite of this test, bring up the /hts Springboot application. */
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
@@ -48,6 +56,8 @@ public class HouseTableRepositoryImplTest {
   HouseTableRepository htsRepo;
 
   @Autowired HouseTableMapper houseTableMapper;
+
+  @SpyBean UserTableApi userTableApi;
 
   @TestConfiguration
   public static class MockWebServerConfiguration {
@@ -384,7 +394,7 @@ public class HouseTableRepositoryImplTest {
     ((HouseTableRepositoryImpl) htsRepo)
         .getHtsRetryTemplate(
             Arrays.asList(
-                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
         .registerListener(retryListener);
     Assertions.assertThrows(
         HouseTableConcurrentUpdateException.class, () -> htsRepo.findById(testKey));
@@ -393,7 +403,7 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
-  public void testNoRetryForStateUnkown() {
+  public void testNoRetryForStateUnknown() {
     for (int i : Arrays.asList(500, 501, 502, 503, 504)) {
       mockHtsServer.enqueue(
           new MockResponse()
@@ -405,9 +415,10 @@ public class HouseTableRepositoryImplTest {
           .getHtsRetryTemplate(Collections.singletonList(IllegalStateException.class))
           .registerListener(retryListener);
       Assertions.assertThrows(
-          HouseTableRepositoryStateUnkownException.class, () -> htsRepo.save(HOUSE_TABLE));
+          HouseTableRepositoryStateUnknownException.class, () -> htsRepo.save(HOUSE_TABLE));
       int actualRetryCount = retryListener.getRetryCount();
-      Assertions.assertEquals(actualRetryCount, 1);
+      // Should not be retrying table writes regardless of the error to avoid corruption
+      Assertions.assertEquals(actualRetryCount, 0);
     }
   }
 
@@ -423,7 +434,7 @@ public class HouseTableRepositoryImplTest {
     ((HouseTableRepositoryImpl) htsRepo)
         .getHtsRetryTemplate(
             Arrays.asList(
-                HouseTableRepositoryStateUnkownException.class, IllegalStateException.class))
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
         .registerListener(retryListener);
 
     HouseTablePrimaryKey testKey =
@@ -435,5 +446,83 @@ public class HouseTableRepositoryImplTest {
         HouseTableConcurrentUpdateException.class, () -> htsRepo.findById(testKey));
     int actualRetryCount = retryListener.getRetryCount();
     Assertions.assertEquals(actualRetryCount, 1);
+  }
+
+  @Test
+  public void testWriteTimeout() {
+    EntityResponseBodyUserTable putResponse = new EntityResponseBodyUserTable();
+    putResponse.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
+    int writeTimeout = 60;
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(putResponse))
+            .setHeadersDelay(writeTimeout - 2, TimeUnit.SECONDS)
+            .addHeader("Content-Type", "application/json"));
+    Assertions.assertDoesNotThrow(() -> htsRepo.save(HOUSE_TABLE));
+  }
+
+  @Test
+  public void testReadTimeoutWithRetries() {
+    EntityResponseBodyUserTable response = new EntityResponseBodyUserTable();
+    response.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
+    int readTimeout = 30;
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .setHeadersDelay(readTimeout + 1, TimeUnit.SECONDS)
+            .addHeader("Content-Type", "application/json"));
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .setHeadersDelay(readTimeout + 1, TimeUnit.SECONDS)
+            .addHeader("Content-Type", "application/json"));
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .setHeadersDelay(0, TimeUnit.SECONDS) // Last attempt should pass
+            .addHeader("Content-Type", "application/json"));
+
+    CustomRetryListener retryListener = new CustomRetryListener();
+    ((HouseTableRepositoryImpl) htsRepo)
+        .getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .registerListener(retryListener);
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            htsRepo.findById(
+                HouseTablePrimaryKey.builder()
+                    .tableId(HOUSE_TABLE.getTableId())
+                    .databaseId(HOUSE_TABLE.getDatabaseId())
+                    .build()));
+    Assertions.assertEquals(retryListener.getRetryCount(), 2);
+  }
+
+  @Test
+  void testDnsResolverTimeoutDoesNotRetry() {
+    DnsNameResolverTimeoutException mockDnsException =
+        new DnsNameResolverTimeoutException(
+            InetSocketAddress.createUnresolved("localhost", 8080),
+            new DefaultDnsQuestion("test", DnsRecordType.ANY),
+            "DNS resolution timeout");
+    Mockito.doReturn(Mono.error(mockDnsException)).when(userTableApi).putUserTable(Mockito.any());
+
+    CustomRetryListener retryListener = new CustomRetryListener();
+    ((HouseTableRepositoryImpl) htsRepo)
+        .getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .registerListener(retryListener);
+
+    Assertions.assertThrows(
+        HouseTableRepositoryStateUnknownException.class, () -> htsRepo.save(HOUSE_TABLE));
+    int actualRetryCount = retryListener.getRetryCount();
+    // Should not be retrying table writes regardless of the error to avoid corruption
+    Assertions.assertEquals(actualRetryCount, 0);
   }
 }
