@@ -1,17 +1,23 @@
 package com.linkedin.openhouse.tables.api.handler.impl;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.cluster.storage.auth.DataAccessCredential;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetDataAccessCredentialResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.services.TablesService;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.util.Pair;
@@ -23,6 +29,14 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class OpenHouseTablesApiHandler implements TablesApiHandler {
+
+  // Default DataAccessCredential that is returned when no credential is generated for a given
+  // table.
+  private static final DataAccessCredential UNSUPPORTED_DATA_ACCESS_CREDENTIAL =
+      DataAccessCredential.builder()
+          .credential(new HashMap<>())
+          .expirationMillisSinceEpoch(-1)
+          .build();
 
   @Autowired private TablesApiValidator tablesApiValidator;
 
@@ -137,6 +151,29 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
                     tableService.getAclPolicies(databaseId, tableId, actingPrincipal, userPrincipal)
                         .stream()
                         .collect(Collectors.toList()))
+                .build())
+        .build();
+  }
+
+  @Override
+  public ApiResponse<GetDataAccessCredentialResponseBody> getDataAccessCredential(
+      String databaseId, String tableId, Map<String, String> params) {
+    Optional<DataAccessCredential> dataAccessCredential =
+        tableService.getDataAccessCredential(databaseId, tableId, params);
+
+    if (!dataAccessCredential.isPresent()) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.DATA_ACCESS_CREDENTIAL_UNSUPPORTED,
+          "Unable to get a DataAccessCredential for the given table.");
+    }
+
+    return ApiResponse.<GetDataAccessCredentialResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            GetDataAccessCredentialResponseBody.builder()
+                .credential(dataAccessCredential.get().getCredential())
+                .expirationMillisSinceEpoch(
+                    dataAccessCredential.get().getExpirationMillisSinceEpoch())
                 .build())
         .build();
   }

@@ -416,4 +416,37 @@ public class TablesControllerTest {
           .andReturn();
     }
   }
+
+  @Test
+  public void testGetDataAccessCredentialSuccessful() throws Exception {
+    mvcUnauthenticated
+        .perform(
+            MockMvcRequestBuilders.get(
+                    String.format(
+                        CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/tb1/access"))
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(
+            content()
+                .json(RequestConstants.TEST_GET_DATA_ACCESS_CREDENTIAL_RESPONSE_BODY.toJson()));
+  }
+
+  @Test
+  public void testGetDataAccessCredentialForVariousExceptions() throws Exception {
+    List<AbstractMap.SimpleEntry<String, HttpStatus>> list =
+        Arrays.asList(new AbstractMap.SimpleEntry<>("d400", HttpStatus.BAD_REQUEST));
+
+    for (AbstractMap.SimpleEntry<String, HttpStatus> pair : list) {
+      String db = pair.getKey();
+      HttpStatus status = pair.getValue();
+      mvcUnauthenticated
+          .perform(
+              MockMvcRequestBuilders.get(
+                      String.format(
+                          CURRENT_MAJOR_VERSION_PREFIX + "/databases/" + db + "/tables/tb1/access"))
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().is(status.value()));
+    }
+  }
 }

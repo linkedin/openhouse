@@ -1,5 +1,9 @@
 package com.linkedin.openhouse.tables.services;
 
+import com.linkedin.openhouse.cluster.storage.Storage;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
+import com.linkedin.openhouse.cluster.storage.auth.DataAccessCredential;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
@@ -18,6 +22,7 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,6 +46,9 @@ public class TablesServiceImpl implements TablesService {
   @Autowired AuthorizationHandler authorizationHandler;
 
   @Autowired TableUUIDGenerator tableUUIDGenerator;
+
+  @Autowired StorageManager storageManager;
+
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -209,6 +217,18 @@ public class TablesServiceImpl implements TablesService {
       String databaseId, String tableId, String actingPrincipal, String userPrincipal) {
     TableDto tableDto = getTableOrThrow(databaseId, tableId);
     return authorizationHandler.listAclPolicies(tableDto, userPrincipal);
+  }
+
+  @Override
+  public Optional<DataAccessCredential> getDataAccessCredential(
+      String databaseId, String tableId, Map<String, String> params) {
+    TableDto tableDto = getTableOrThrow(databaseId, tableId);
+    StorageType.Type tableStorageType =
+        new StorageType().fromString(URI.create(tableDto.getTableLocation()).getScheme());
+
+    Storage storage = storageManager.getStorage(tableStorageType);
+
+    return storage.getDataAccessCredentialForTableLocation(tableDto.getTableLocation(), params);
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */

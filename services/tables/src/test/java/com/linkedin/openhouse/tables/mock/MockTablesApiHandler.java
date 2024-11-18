@@ -14,7 +14,9 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetDataAccessCredentialResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import java.util.Map;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
@@ -184,6 +186,23 @@ public class MockTablesApiHandler implements TablesApiHandler {
         throw new AuthorizationServiceException("Internal authz service not available");
       default:
         return null;
+    }
+  }
+
+  @Override
+  public ApiResponse<GetDataAccessCredentialResponseBody> getDataAccessCredential(
+      String databaseId, String tableId, Map<String, String> params) {
+    switch (databaseId) {
+      case "d200":
+        return ApiResponse.<GetDataAccessCredentialResponseBody>builder()
+            .httpStatus(HttpStatus.OK)
+            .responseBody(RequestConstants.TEST_GET_DATA_ACCESS_CREDENTIAL_RESPONSE_BODY)
+            .build();
+      case "d400":
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.DATA_ACCESS_CREDENTIAL_UNSUPPORTED, "");
+      default:
+        throw new RuntimeException("Unknown databaseId: " + databaseId);
     }
   }
 
