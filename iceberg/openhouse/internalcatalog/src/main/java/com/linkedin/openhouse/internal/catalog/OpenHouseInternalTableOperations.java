@@ -63,7 +63,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   private static final Gson GSON = new Gson();
 
   private static final Cache<String, Integer> CACHE =
-      CacheBuilder.newBuilder().expireAfterWrite(1, TimeUnit.MINUTES).maximumSize(100).build();
+      CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
 
   @Override
   protected String tableName() {
