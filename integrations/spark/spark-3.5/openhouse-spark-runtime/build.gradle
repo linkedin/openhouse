@@ -22,13 +22,13 @@ configurations {
 sourceSets {
   main {
     java {
-      srcDirs += "${project(':integrations:spark:openhouse-spark-runtime_2.12').buildDir}/generated-src/antlr/main"
+      srcDirs += "${project(':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12').buildDir}/generated-src/antlr/main"
     }
   }
 }
 
 dependencies {
-  compileOnly(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
+  compileOnly(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
   compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {
     exclude group: 'org.apache.avro', module: 'avro'
     exclude group: 'org.apache.arrow'
@@ -41,21 +41,21 @@ dependencies {
   testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion) {
     exclude group: "io.netty"
   }
-  testImplementation(project(':tables-test-fixtures-iceberg-1.5_2.12')) {
+  testImplementation(project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12')) {
     exclude group: "io.netty"
   }
   testImplementation('org.apache.spark:spark-sql_2.12:' + sparkVersion){
     // These classes are available from `client-codegen-convention.gradle`
   }
-  testImplementation(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
+  testImplementation(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
 
-  fatJarPackagedDependencies(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow')) {
+  fatJarPackagedDependencies(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow')) {
     transitive = false
   }
-  fatJarPackagedDependencies(project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
+  fatJarPackagedDependencies(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
     transitive = false
   }
-  implementation(project(path: ':integrations:spark:openhouse-spark-runtime_2.12', configuration: 'shadow'))
+  implementation(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow'))
   implementation("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion)
 }
 

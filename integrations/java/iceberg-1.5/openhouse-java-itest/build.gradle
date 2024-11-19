@@ -10,13 +10,13 @@ ext {
 sourceSets {
   test {
     java {
-      srcDirs += project(':integrations:java:openhouse-java-itest').sourceSets.test.java.srcDirs
+      srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-itest').sourceSets.test.java.srcDirs
     }
   }
 }
 
 dependencies {
-  testImplementation(project(path: ':integrations:java-iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
+  testImplementation(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
 
   testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
   testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"

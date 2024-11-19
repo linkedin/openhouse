@@ -16,9 +16,9 @@ configurations {
     exclude(group: 'org.antlr') // included in spark
     exclude(group: 'org.mapstruct')
   }
-  
+
   shadow.extendsFrom implementation
-  
+
   antlr
 }
 
@@ -28,7 +28,7 @@ dependencies {
   runtimeOnly "org.antlr:antlr4-runtime:4.7.1"
   antlr "org.antlr:antlr4:4.7.1"
 
-  compileOnly(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
+  compileOnly(project(path: ':integrations:java:iceberg-1.2:openhouse-java-runtime', configuration: 'shadow'))
   compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {
     exclude group: 'org.apache.avro', module: 'avro'
     exclude group: 'org.apache.arrow'
@@ -41,15 +41,15 @@ dependencies {
   testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion) {
     exclude group: "io.netty"
   }
-  testImplementation(project(':tables-test-fixtures_2.12')) {
+  testImplementation(project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
     exclude group: "io.netty"
   }
   testImplementation('org.apache.spark:spark-sql_2.12:' + spark_version){
     // These classes are available from `client-codegen-convention.gradle`
   }
-  testImplementation(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow'))
+  testImplementation(project(path: ':integrations:java:iceberg-1.2:openhouse-java-runtime', configuration: 'shadow'))
 
-  fatJarPackagedDependencies(project(path: ':integrations:java:openhouse-java-runtime', configuration: 'shadow')) {
+  fatJarPackagedDependencies(project(path: ':integrations:java:iceberg-1.2:openhouse-java-runtime', configuration: 'shadow')) {
     transitive = false
   }
   implementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
@@ -77,9 +77,9 @@ task runAntlr(type:JavaExec) {
   outputs.dir antlrMainGeneratedSrcDir
 
   main = "org.antlr.v4.Tool"
-  args = ["${antlrMainDir}/OpenhouseSqlExtensions.g4", 
-          "-visitor", 
-          "-o", "${antlrMainGeneratedSrcDir}/${antlrPackageDirPrefix}", 
+  args = ["${antlrMainDir}/OpenhouseSqlExtensions.g4",
+          "-visitor",
+          "-o", "${antlrMainGeneratedSrcDir}/${antlrPackageDirPrefix}",
           "-package", "com.linkedin.openhouse.spark.sql.catalyst.parser.extensions"]
   maxHeapSize = "64m"
   classpath = configurations.antlr
@@ -91,7 +91,7 @@ shadowJar {
   dependencies {
     exclude("javax/**")
   }
-  
+
   configurations = [project.configurations.fatJarPackagedDependencies]
   mergeServiceFiles()
   archiveClassifier.set('uber')

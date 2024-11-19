@@ -19,20 +19,20 @@ configurations {
   shadow.extendsFrom implementation
 }
 
-project.evaluationDependsOn(':tables-test-fixtures_2.12')
+project.evaluationDependsOn(':tables-test-fixtures:tables-test-fixtures_2.12')
 
 sourceSets {
   main {
     java {
-      srcDirs += project(':tables-test-fixtures_2.12').sourceSets.main.java.srcDirs
+      srcDirs += project(':tables-test-fixtures:tables-test-fixtures_2.12').sourceSets.main.java.srcDirs
     }
     resources {
-      srcDirs += project(':tables-test-fixtures_2.12').sourceSets.main.resources.srcDirs
+      srcDirs += project(':tables-test-fixtures:tables-test-fixtures_2.12').sourceSets.main.resources.srcDirs
     }
   }
   test {
     java {
-      srcDirs += project(':tables-test-fixtures_2.12').sourceSets.test.java.srcDirs
+      srcDirs += project(':tables-test-fixtures:tables-test-fixtures_2.12').sourceSets.test.java.srcDirs
     }
   }
 }

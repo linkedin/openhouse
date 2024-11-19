@@ -28,10 +28,10 @@ ext {
 sourceSets {
   main {
     java {
-      srcDirs += project(':integrations:java:openhouse-java-runtime').sourceSets.main.java.srcDirs
+      srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-runtime').sourceSets.main.java.srcDirs
     }
     resources {
-      srcDirs += project(':integrations:java:openhouse-java-runtime').sourceSets.main.resources.srcDirs
+      srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-runtime').sourceSets.main.resources.srcDirs
     }
   }
 }

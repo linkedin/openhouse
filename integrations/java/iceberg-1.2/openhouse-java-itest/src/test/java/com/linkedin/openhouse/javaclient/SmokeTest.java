@@ -26,9 +26,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * This class tests out packaging done in :integrations:java:openhouse-java-runtime. The goal of
- * this test is to ensure all of `tableclient` functionality, such as configuring {@link ApiClient},
- * {@link TableApi}, making REST call can be satisfied by the singular jar
+ * This class tests out packaging done in :integrations:java:iceberg-1.2:openhouse-java-runtime. The
+ * goal of this test is to ensure all of `tableclient` functionality, such as configuring {@link
+ * ApiClient}, {@link TableApi}, making REST call can be satisfied by the singular jar
  * `openhouse-java-runtime.jar`. These tests do not test complete functionality, rather it tests
  * various interfaces and their integration.
  */
