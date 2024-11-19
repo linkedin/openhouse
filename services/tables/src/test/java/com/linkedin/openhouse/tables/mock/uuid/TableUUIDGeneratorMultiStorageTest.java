@@ -82,7 +82,7 @@ public class TableUUIDGeneratorMultiStorageTest {
     String tableLocationWithoutEndpoint =
         String.format("%s/%s/%s-%s", rootPrefix, databaseId, tableId, tableUUID.toString());
     if (StringUtils.isNotEmpty(endPoint)) {
-      return String.format("%s/%s", endPoint, tableLocationWithoutEndpoint);
+      return String.format("%s%s", endPoint, tableLocationWithoutEndpoint);
     }
 
     return tableLocationWithoutEndpoint;

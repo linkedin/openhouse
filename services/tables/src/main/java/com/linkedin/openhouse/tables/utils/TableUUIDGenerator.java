@@ -193,24 +193,16 @@ public class TableUUIDGenerator {
     }
 
     Storage storage = catalog.resolveStorage(TableIdentifier.of(databaseId, tableId));
-    java.nio.file.Path databaseDirPath;
-    if (StringUtils.isNotEmpty(storage.getClient().getEndpoint())) {
-      databaseDirPath =
-          Paths.get(
-              storage.getClient().getEndpoint(), storage.getClient().getRootPrefix(), databaseId);
-    } else {
-      databaseDirPath = Paths.get(storage.getClient().getRootPrefix(), databaseId);
-    }
-
+    java.nio.file.Path databaseDirPath = Paths.get(storage.getClient().getRootPrefix(), databaseId);
+    ;
     String manifestListKey = "manifest-list";
     java.nio.file.Path manifestListPath;
     try {
-      manifestListPath =
-          Paths.get(
-              new Gson()
-                  .fromJson(snapshotStr, JsonObject.class)
-                  .get(manifestListKey)
-                  .getAsString());
+      String manifestListPathString =
+          new Gson().fromJson(snapshotStr, JsonObject.class).get(manifestListKey).getAsString();
+      manifestListPathString =
+          StringUtils.removeStart(manifestListPathString, storage.getClient().getEndpoint());
+      manifestListPath = Paths.get(manifestListPathString);
     } catch (Exception exception) {
       throw new RequestValidationFailureException(
           String.format(
