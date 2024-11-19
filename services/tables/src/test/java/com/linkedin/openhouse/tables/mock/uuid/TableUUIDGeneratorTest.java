@@ -2,36 +2,47 @@ package com.linkedin.openhouse.tables.mock.uuid;
 
 import static com.linkedin.openhouse.tables.mock.RequestConstants.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
+import static org.mockito.Mockito.*;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.Storage;
+import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.common.TableType;
-import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import lombok.SneakyThrows;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
-@SpringBootTest
 public class TableUUIDGeneratorTest {
+  @Mock private OpenHouseInternalCatalog catalog;
+  @InjectMocks private TableUUIDGenerator tableUUIDGenerator;
+  @Mock private Storage storage;
+  @Mock private StorageClient storageClient;
 
-  @Autowired private StorageManager storageManager;
-
-  @Autowired private TableUUIDGenerator tableUUIDGenerator;
+  @BeforeEach
+  public void setUp() {
+    MockitoAnnotations.openMocks(this);
+    // Mock storage and catalog behavior
+    when(catalog.resolveStorage(any())).thenReturn(storage);
+    when(storage.getClient()).thenReturn(storageClient);
+    when(storageClient.getRootPrefix()).thenReturn("/tmp");
+    when(storage.tableLocationExists(any(), any(), any(), any())).thenReturn(true);
+  }
 
   @Test
   public void testUUIDExtractedFromSnapshotSuccessfulPutSnapshot() {
@@ -56,7 +67,7 @@ public class TableUUIDGeneratorTest {
                         .build())
                 .jsonSnapshots(
                     Collections.singletonList(
-                        getIcebergSnapshot("db", "t", expectedUUID, "/manifest.avro")))
+                        getIcebergSnapshot("/tmp", "db", "t", expectedUUID, "/manifest.avro")))
                 .build());
     Assertions.assertEquals(expectedUUID, existingUUID);
   }
@@ -65,13 +76,6 @@ public class TableUUIDGeneratorTest {
   @Test
   public void testUUIDExtractedFromTablePropertySuccessfulPutSnapshot() {
     UUID expectedUUID = UUID.randomUUID();
-    FileSystem fsClient =
-        (FileSystem) storageManager.getDefaultStorage().getClient().getNativeClient();
-    fsClient.create(
-        new Path(
-            InternalRepositoryUtils.constructTablePath(
-                    storageManager, "db", "t", expectedUUID.toString())
-                .toString()));
     UUID existingUUID =
         tableUUIDGenerator.generateUUID(
             IcebergSnapshotsRequestBody.builder()
@@ -99,13 +103,6 @@ public class TableUUIDGeneratorTest {
   @Test
   public void testUUIDExtractedFromTablePropertySuccessfulCreateTable() {
     UUID expectedUUID = UUID.randomUUID();
-    FileSystem fsClient =
-        (FileSystem) storageManager.getDefaultStorage().getClient().getNativeClient();
-    fsClient.create(
-        new Path(
-            InternalRepositoryUtils.constructTablePath(
-                    storageManager, "db", "t", expectedUUID.toString())
-                .toString()));
     UUID existingUUID =
         tableUUIDGenerator.generateUUID(
             CreateUpdateTableRequestBody.builder()
@@ -154,12 +151,14 @@ public class TableUUIDGeneratorTest {
                             .build())
                     .jsonSnapshots(
                         Collections.singletonList(
-                            getIcebergSnapshot("db", "RANDOM", UUID.randomUUID(), "")))
+                            getIcebergSnapshot("/tmp", "db", "RANDOM", UUID.randomUUID(), "")))
                     .build()));
   }
 
   @Test
   public void testUUIDFailsForNonExistingOpenhouseDotPropertyPath() {
+    when(storage.tableLocationExists(any(), any(), any(), any())).thenReturn(false);
+
     RequestValidationFailureException exception =
         Assertions.assertThrows(
             RequestValidationFailureException.class,
@@ -196,11 +195,7 @@ public class TableUUIDGeneratorTest {
                             .tableProperties(generateMinimalTestProps("db", "t"))
                             .clusterId(CLUSTER_NAME)
                             .build())
-                    .jsonSnapshots(
-                        Collections.singletonList(
-                            getIcebergSnapshot(
-                                storageManager.getDefaultStorage().getClient().getRootPrefix()
-                                    + "/db")))
+                    .jsonSnapshots(Collections.singletonList(getIcebergSnapshot("/tmp" + "db")))
                     .build()));
   }
 
@@ -222,9 +217,7 @@ public class TableUUIDGeneratorTest {
                                 .build())
                         .jsonSnapshots(
                             Collections.singletonList(
-                                getIcebergSnapshot(
-                                    storageManager.getDefaultStorage().getClient().getRootPrefix()
-                                        + "/db/t-NOTUUID/maniffest-list")))
+                                getIcebergSnapshot("/tmp" + "/db/t-NOTUUID/maniffest-list")))
                         .build()));
     Assertions.assertTrue(exception.getMessage().contains("contains invalid UUID"));
   }
@@ -293,12 +286,19 @@ public class TableUUIDGeneratorTest {
                     .build()));
   }
 
+  private String getTableLocation(
+      String rootPrefix, String databaseId, String tableId, UUID tableUUID) {
+    return String.format("%s/%s/%s-%s", rootPrefix, databaseId, tableId, tableUUID.toString());
+  }
+
   private String getIcebergSnapshot(
-      String databaseId, String tableId, UUID tableUUID, String appendedPath) {
-    return getIcebergSnapshot(
-        InternalRepositoryUtils.constructTablePath(
-                storageManager, databaseId, tableId, tableUUID.toString())
-            + appendedPath);
+      String rootPrefix, String databaseId, String tableId, UUID tableUUID, String appendedPath) {
+    String tableLocation = getTableLocation(rootPrefix, databaseId, tableId, tableUUID);
+    String manifestListValue = String.format("%s/%s", tableLocation, appendedPath);
+    String key = "manifest-list";
+    JsonObject jsonObject = new Gson().fromJson(TEST_ICEBERG_SNAPSHOT_JSON, JsonObject.class);
+    jsonObject.addProperty(key, manifestListValue);
+    return jsonObject.toString();
   }
 
   private String getIcebergSnapshot(String manifestListValue) {

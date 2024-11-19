@@ -47,4 +47,12 @@ public interface StorageClient<T> {
    * @return the root prefix for OpenHouse on the storage system
    */
   String getRootPrefix();
+
+  /**
+   * Checks if the path exists on the storage system
+   *
+   * @param path
+   * @return true if path exists else false
+   */
+  boolean pathExists(String path);
 }

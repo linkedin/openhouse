@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 
 /**
  * S3StorageClient is an implementation of the StorageClient interface for S3. It uses the {@link
@@ -54,5 +55,12 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
   @Override
   public StorageType.Type getStorageType() {
     return S3_TYPE;
+  }
+
+  @Override
+  public boolean pathExists(String path) {
+    ListObjectsV2Request req =
+        ListObjectsV2Request.builder().prefix(path).bucket(getRootPrefix()).maxKeys(1).build();
+    return s3.listObjectsV2(req).keyCount() > 0;
   }
 }

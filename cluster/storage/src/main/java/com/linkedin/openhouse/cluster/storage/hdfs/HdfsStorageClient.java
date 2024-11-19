@@ -7,6 +7,7 @@ import java.io.IOException;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -47,5 +48,15 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
   @Override
   public StorageType.Type getStorageType() {
     return HDFS_TYPE;
+  }
+
+  @Override
+  public boolean pathExists(String path) {
+    try {
+      return fs.exists(new Path(path));
+    } catch (IOException e) {
+      log.error("Table location {} does not exist: ", path);
+      return false;
+    }
   }
 }

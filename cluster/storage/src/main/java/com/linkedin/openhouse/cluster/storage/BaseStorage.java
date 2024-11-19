@@ -76,4 +76,20 @@ public abstract class BaseStorage implements Storage {
         .normalize()
         .toString();
   }
+
+  /**
+   * Checks if the table location exists.
+   *
+   * @param databaseId the database id of the table
+   * @param tableId the table id of the table
+   * @param tableUUID the UUID of the table
+   * @param tableCreator the creator of the table
+   * @return true if table location exists else false
+   */
+  @Override
+  public boolean tableLocationExists(
+      String databaseId, String tableId, String tableUUID, String tableCreator) {
+    return getClient()
+        .pathExists(allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+  }
 }

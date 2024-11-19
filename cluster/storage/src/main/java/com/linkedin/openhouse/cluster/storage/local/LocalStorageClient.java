@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FilterFileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
+import org.apache.hadoop.fs.Path;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -129,5 +130,15 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
   @Override
   public String getRootPrefix() {
     return rootPath;
+  }
+
+  @Override
+  public boolean pathExists(String path) {
+    try {
+      return fs.exists(new Path(path));
+    } catch (IOException e) {
+      log.error("Table location {} does not exist: ", path);
+      return false;
+    }
   }
 }
