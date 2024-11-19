@@ -49,9 +49,9 @@ dependencies {
   implementation group: 'com.zaxxer', name: 'HikariCP', version: '4.0.3'
   compileOnly('org.projectlombok:lombok:' + '1.18.20')
   implementation (project(':cluster:storage')) {
-   exclude group: 'org.testcontainers'
-   exclude group: 'javax'
-   exclude group: 'org.xerial'
+    exclude group: 'org.testcontainers'
+    exclude group: 'javax'
+    exclude group: 'org.xerial'
 
   }
   implementation (project(':iceberg:openhouse:internalcatalog')) {
