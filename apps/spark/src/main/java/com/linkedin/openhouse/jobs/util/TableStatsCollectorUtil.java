@@ -226,12 +226,14 @@ public final class TableStatsCollectorUtil {
         SparkTableUtil.loadMetadataTable(spark, table, MetadataTableType.PARTITIONS);
     String partitionColumn = String.format("partition.%s", partitionColumnName);
 
-    return partitionData
-        .select(partitionColumn)
-        .orderBy(functions.asc(partitionColumn))
-        .first()
-        .get(0)
-        .toString();
+    if (partitionData.isEmpty()) {
+      return null;
+    }
+
+    Row firstRow =
+        partitionData.select(partitionColumn).orderBy(functions.asc(partitionColumn)).first();
+
+    return firstRow != null ? firstRow.get(0).toString() : null;
   }
 
   private static String getPartitionColumnName(Table table) {

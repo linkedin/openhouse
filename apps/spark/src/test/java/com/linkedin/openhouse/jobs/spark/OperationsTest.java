@@ -569,6 +569,28 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testCollectTableStatsWithEmptyPartitions() throws Exception {
+    final String tableName = "db.test_empty_partitions";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // Create table with partition but no data
+      prepareTableWithPolicies(ops, tableName, "30d", true);
+
+      // Collect stats without any data
+      IcebergTableStats stats = ops.collectTableStats(tableName);
+
+      // Verify stats are collected without NPE and partition date is null
+      Assertions.assertNotNull(stats);
+      Assertions.assertNull(stats.getEarliestPartitionDate());
+
+      // Add some data and verify stats again
+      populateTable(ops, tableName, 2, 2);
+      stats = ops.collectTableStats(tableName);
+      Assertions.assertNotNull(stats.getEarliestPartitionDate());
+    }
+  }
+
+  @Test
   public void testCollectTablePolicyStats() throws Exception {
     final String tableName = "db.test_collect_table_stats_with_policy";
     List<String> rowValue = new ArrayList<>();
