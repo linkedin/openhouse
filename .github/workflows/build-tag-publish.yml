@@ -45,7 +45,7 @@ jobs:
         run: pip install -r scripts/python/requirements.txt
 
       - name: Run Integration Tests
-        run: python scripts/python/integration_test.py ./tables-test-fixtures/src/main/resources/dummy.token
+        run: python scripts/python/integration_test.py ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
 
       - name: Stop Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down

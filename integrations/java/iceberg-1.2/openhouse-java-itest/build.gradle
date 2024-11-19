@@ -1,0 +1,16 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+}
+
+ext {
+  icebergVersion = '1.2.0'
+}
+
+dependencies {
+  testImplementation(project(path: ':integrations:java:iceberg-1.2:openhouse-java-runtime', configuration: 'shadow'))
+
+  testImplementation "com.squareup.okhttp3:okhttp:" + ok_http3_version
+  testImplementation "com.squareup.okhttp3:mockwebserver:" + ok_http3_version
+  testImplementation "org.apache.iceberg:iceberg-bundled-guava:" + icebergVersion
+}

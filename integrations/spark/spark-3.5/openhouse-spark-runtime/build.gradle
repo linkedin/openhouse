@@ -1,0 +1,74 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+  id 'com.github.johnrengelman.shadow' version '7.1.2'
+  id 'scala'
+}
+
+ext {
+  icebergVersion = '1.5.2'
+  sparkVersion = '3.5.2'
+}
+
+configurations {
+  fatJarPackagedDependencies {
+    exclude(group: 'org.antlr') // included in spark
+    exclude(group: 'org.mapstruct')
+  }
+  shadow.extendsFrom implementation
+}
+
+// Set source for antlr generated directory
+sourceSets {
+  main {
+    java {
+      srcDirs += "${project(':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12').buildDir}/generated-src/antlr/main"
+    }
+  }
+}
+
+dependencies {
+  compileOnly(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
+  compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {
+    exclude group: 'org.apache.avro', module: 'avro'
+    exclude group: 'org.apache.arrow'
+    exclude group: 'io.netty', module: 'netty-buffer'
+    exclude group: 'org.roaringbitmap'
+    exclude group: 'com.zaxxer', module: 'HikariCP'
+    exclude group: 'org.apache.hadoop', module: 'hadoop-client'
+  }
+
+  testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion) {
+    exclude group: "io.netty"
+  }
+  testImplementation(project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12')) {
+    exclude group: "io.netty"
+  }
+  testImplementation('org.apache.spark:spark-sql_2.12:' + sparkVersion){
+    // These classes are available from `client-codegen-convention.gradle`
+  }
+  testImplementation(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
+
+  fatJarPackagedDependencies(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow')) {
+    transitive = false
+  }
+  fatJarPackagedDependencies(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
+    transitive = false
+  }
+  implementation(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow'))
+  implementation("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion)
+}
+
+
+shadowJar {
+  dependencies {
+    exclude("javax/**")
+  }
+
+  configurations = [project.configurations.fatJarPackagedDependencies]
+  mergeServiceFiles()
+  archiveClassifier.set('uber')
+  zip64 true
+}
+
+jar.enabled=true
