@@ -96,9 +96,9 @@ public class StorageManager {
 
   /**
    * Get the storage from the provided path. Iterate over all storages and return the storage which
-   * is configured and its endpoint is the prefix of supplied path Note: if local storage type is
-   * configured, then return the local storage This is a workaround for unit tests to work because
-   * hdfs and local storage do not append scheme to the paths see:
+   * is configured and its endpoint is the prefix of supplied path. Note: if local storage type is
+   * configured, then return the local storage. This is a workaround for unit tests to work because
+   * hdfs and local storage do not append scheme to the paths. See:
    * https://github.com/linkedin/openhouse/issues/121
    *
    * @param path Path that contains the scheme

@@ -50,7 +50,7 @@ public interface StorageClient<T> {
 
   /**
    * Checks if the path exists on the backend storage. Path is the absolute path to file including
-   * scheme Scheme is not prefix for local and hdfs storage. see:
+   * scheme. Scheme is not prefix for local and hdfs storage. See:
    * https://github.com/linkedin/openhouse/issues/121
    *
    * @param path absolute path to a file including scheme
