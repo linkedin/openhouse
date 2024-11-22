@@ -9,7 +9,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
-import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
@@ -24,12 +24,12 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 public class TableUUIDGeneratorMultiStorageTest {
-  @Mock private OpenHouseInternalCatalog catalog;
   @InjectMocks private TableUUIDGenerator tableUUIDGenerator;
   @Mock private Storage defaultStorage;
   @Mock private StorageClient defaultStorageClient;
   @Mock private Storage resolvedStorage;
   @Mock private StorageClient resolvedStorageClient;
+  @Mock private StorageManager storageManager;
 
   @BeforeEach
   public void setUp() {
@@ -47,8 +47,8 @@ public class TableUUIDGeneratorMultiStorageTest {
     when(resolvedStorage.getClient()).thenReturn(resolvedStorageClient);
     when(resolvedStorageClient.getEndpoint()).thenReturn("s3://");
     when(resolvedStorageClient.getRootPrefix()).thenReturn("bucket");
-    // storage selector returns resolved storage
-    when(catalog.resolveStorage(any())).thenReturn(resolvedStorage);
+    // storage manager returns resolved storage
+    when(storageManager.getStorageFromPath(any())).thenReturn(resolvedStorage);
 
     UUID expectedUUID = UUID.randomUUID();
     UUID existingUUID =

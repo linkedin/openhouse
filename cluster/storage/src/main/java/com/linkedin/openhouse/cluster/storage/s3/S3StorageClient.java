@@ -13,7 +13,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 /**
  * S3StorageClient is an implementation of the StorageClient interface for S3. It uses the {@link
@@ -57,10 +59,25 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
     return S3_TYPE;
   }
 
+  /**
+   * Checks if the blob/object exists on the backend storage. The path is the absolute path to the
+   * object including scheme (s3://)
+   *
+   * @param path absolute path to a file including scheme
+   * @return true if path exists else false
+   */
   @Override
-  public boolean pathExists(String path) {
-    ListObjectsV2Request req =
-        ListObjectsV2Request.builder().prefix(path).bucket(getRootPrefix()).maxKeys(1).build();
-    return s3.listObjectsV2(req).keyCount() > 0;
+  public boolean fileExists(String path) {
+    try {
+      HeadObjectRequest headObjectRequest =
+          HeadObjectRequest.builder().bucket(getRootPrefix()).key(path).build();
+      s3.headObject(headObjectRequest);
+      return true;
+    } catch (NoSuchKeyException e) {
+      // Object does not exist
+      return false;
+    } catch (S3Exception e) {
+      throw new RuntimeException("Error checking S3 object existence: " + e.getMessage(), e);
+    }
   }
 }

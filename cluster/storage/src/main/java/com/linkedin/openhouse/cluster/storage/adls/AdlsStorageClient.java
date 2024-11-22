@@ -66,7 +66,7 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
   }
 
   @Override
-  public boolean pathExists(String path) {
+  public boolean fileExists(String path) {
     // TODO: Support pathExists on ADLS
     throw new UnsupportedOperationException("Path existence check not supported in ADLS Storage");
   }

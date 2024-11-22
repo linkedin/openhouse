@@ -49,10 +49,12 @@ public interface StorageClient<T> {
   String getRootPrefix();
 
   /**
-   * Checks if the path exists on the storage system
+   * Checks if the path exists on the backend storage. Path is the absolute path to file including
+   * scheme Scheme is not prefix for local and hdfs storage. see:
+   * https://github.com/linkedin/openhouse/issues/121
    *
-   * @param path
+   * @param path absolute path to a file including scheme
    * @return true if path exists else false
    */
-  boolean pathExists(String path);
+  boolean fileExists(String path);
 }

@@ -9,9 +9,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
+import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
-import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -29,19 +29,19 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 public class TableUUIDGeneratorTest {
-  @Mock private OpenHouseInternalCatalog catalog;
   @InjectMocks private TableUUIDGenerator tableUUIDGenerator;
   @Mock private Storage storage;
   @Mock private StorageClient storageClient;
+  @Mock private StorageManager storageManager;
 
   @BeforeEach
   public void setUp() {
     MockitoAnnotations.openMocks(this);
     // Mock storage and catalog behavior
-    when(catalog.resolveStorage(any())).thenReturn(storage);
+    when(storageManager.getStorageFromPath(any())).thenReturn(storage);
     when(storage.getClient()).thenReturn(storageClient);
     when(storageClient.getRootPrefix()).thenReturn("/tmp");
-    when(storage.tableLocationExists(any(), any(), any(), any())).thenReturn(true);
+    when(storageClient.fileExists(any())).thenReturn(true);
   }
 
   @Test
@@ -157,7 +157,7 @@ public class TableUUIDGeneratorTest {
 
   @Test
   public void testUUIDFailsForNonExistingOpenhouseDotPropertyPath() {
-    when(storage.tableLocationExists(any(), any(), any(), any())).thenReturn(false);
+    when(storage.getClient().fileExists(any())).thenReturn(false);
 
     RequestValidationFailureException exception =
         Assertions.assertThrows(

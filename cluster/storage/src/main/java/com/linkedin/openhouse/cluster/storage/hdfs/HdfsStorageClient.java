@@ -50,13 +50,19 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
     return HDFS_TYPE;
   }
 
+  /**
+   * Checks if the path exists on the backend storage. Scheme is not prefix for local and hdfs
+   * storage. see: https://github.com/linkedin/openhouse/issues/121
+   *
+   * @param path absolute path to a file including scheme
+   * @return true if path exists else false
+   */
   @Override
-  public boolean pathExists(String path) {
+  public boolean fileExists(String path) {
     try {
       return fs.exists(new Path(path));
     } catch (IOException e) {
-      log.error("Table location {} does not exist: ", path);
-      return false;
+      throw new RuntimeException("Exception checking path existence " + e.getMessage(), e);
     }
   }
 }

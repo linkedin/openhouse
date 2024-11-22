@@ -7,7 +7,6 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
-import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -18,7 +17,6 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -33,10 +31,9 @@ public class TableUUIDGenerator {
   private static final String OPENHOUSE_NAMESPACE = "openhouse.";
   private static final String DB_RAW_KEY = "databaseId";
   private static final String TBL_RAW_KEY = "tableId";
+  private static final String TBL_LOC_RAW_KEY = "tableLocation";
 
   @Autowired StorageManager storageManager;
-
-  @Autowired OpenHouseInternalCatalog catalog;
 
   /**
    * Public api to generate UUID for a {@link CreateUpdateTableRequestBody}
@@ -80,9 +77,9 @@ public class TableUUIDGenerator {
 
   /**
    * Extracting the value of given key from the table properties map. The main use cases are for
-   * tableId and databaseId where the value captured in tblproperties preserved the casing from
-   * creation. This casing is critical if r/w for this table occurs in a platform with different
-   * casing-preservation contract.
+   * tableId, databaseId and tableLocation where the value captured in tblproperties preserved the
+   * casing from creation. This casing is critical if r/w for this table occurs in a platform with
+   * different casing-preservation contract.
    */
   private String extractFromTblPropsIfExists(
       String tableURI, Map<String, String> tblProps, String rawKey) {
@@ -91,8 +88,8 @@ public class TableUUIDGenerator {
         || tblProps.get(OPENHOUSE_NAMESPACE + rawKey) == null) {
       throw new RequestValidationFailureException(
           String.format(
-              "Provided snapshot is invalid for %s since databaseId or tableId is missing in properties",
-              tableURI));
+              "Provided snapshot is invalid for %s since %s is missing in properties",
+              tableURI, OPENHOUSE_NAMESPACE + rawKey));
     }
     return tblProps.get(OPENHOUSE_NAMESPACE + rawKey);
   }
@@ -138,15 +135,17 @@ public class TableUUIDGenerator {
       String tableUUIDProperty,
       TableType tableType) {
 
-    String dbIdFromProps =
-        extractFromTblPropsIfExists(databaseId + "." + tableId, tableProperties, DB_RAW_KEY);
-    String tblIdFromProps =
-        extractFromTblPropsIfExists(databaseId + "." + tableId, tableProperties, TBL_RAW_KEY);
+    String tableURI = String.format("%s.%s", databaseId, tableId);
+    String dbIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, DB_RAW_KEY);
+    String tblIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_RAW_KEY);
+    // Extract tableLocation from table properties (openhouse.tableLocation)
+    // tableLocation should be the absolute path to the latest metadata file including scheme.
+    // Scheme is not present for HDFS and Local storages. See:
+    // https://github.com/linkedin/openhouse/issues/121
+    String tableLocation = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
+    Storage storage = storageManager.getStorageFromPath(tableLocation);
 
-    Storage storage = catalog.resolveStorage(TableIdentifier.of(dbIdFromProps, tblIdFromProps));
-
-    if (TableType.REPLICA_TABLE != tableType
-        && !storage.tableLocationExists(databaseId, tableId, tableUUIDProperty, "")) {
+    if (TableType.REPLICA_TABLE != tableType && !storage.getClient().fileExists(tableLocation)) {
       log.error(
           "Previous tableLocation: {} doesn't exist",
           storage.allocateTableLocation(databaseId, tableId, tableUUIDProperty, ""));
@@ -192,9 +191,17 @@ public class TableUUIDGenerator {
       return Optional.empty();
     }
 
-    Storage storage = catalog.resolveStorage(TableIdentifier.of(databaseId, tableId));
+    // Extract tableLocation from table properties (openhouse.tableLocation)
+    // tableLocation should be the absolute path to the latest metadata file including scheme.
+    // Scheme is not present for HDFS and Local storages. See:
+    // https://github.com/linkedin/openhouse/issues/121
+    Storage storage =
+        storageManager.getStorageFromPath(
+            extractFromTblPropsIfExists(
+                tableURI,
+                snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
+                TBL_LOC_RAW_KEY));
     java.nio.file.Path databaseDirPath = Paths.get(storage.getClient().getRootPrefix(), databaseId);
-    ;
     String manifestListKey = "manifest-list";
     java.nio.file.Path manifestListPath;
     try {
