@@ -63,7 +63,9 @@ public class TableUUIDGeneratorTest {
                                 "openhouse.tableId",
                                 "t",
                                 "openhouse.databaseId",
-                                "db"))
+                                "db",
+                                "openhouse.tableLocation",
+                                String.format("/tmp/db/t-%s/metadata.json", expectedUUID)))
                         .build())
                 .jsonSnapshots(
                     Collections.singletonList(
@@ -92,7 +94,9 @@ public class TableUUIDGeneratorTest {
                                 "openhouse.tableId",
                                 "t",
                                 "openhouse.databaseId",
-                                "db"))
+                                "db",
+                                "openhouse.tableLocation",
+                                String.format("/tmp/db/t-%s/metadata.json", expectedUUID)))
                         .build())
                 .jsonSnapshots(null)
                 .build());
@@ -116,7 +120,9 @@ public class TableUUIDGeneratorTest {
                         "openhouse.tableId",
                         "t",
                         "openhouse.databaseId",
-                        "db"))
+                        "db",
+                        "openhouse.tableLocation",
+                        String.format("/tmp/db/t-%s/metadata.json", expectedUUID)))
                 .build());
     Assertions.assertEquals(expectedUUID, existingUUID);
   }
@@ -212,12 +218,20 @@ public class TableUUIDGeneratorTest {
                             CreateUpdateTableRequestBody.builder()
                                 .tableId("t")
                                 .databaseId("db")
-                                .tableProperties(generateMinimalTestProps("db", "t"))
+                                .tableProperties(
+                                    ImmutableMap.of(
+                                        "openhouse.tableId",
+                                        "t",
+                                        "openhouse.databaseId",
+                                        "db",
+                                        "openhouse.tableLocation",
+                                        String.format(
+                                            "/tmp/db/t-%s/metadata.json", UUID.randomUUID())))
                                 .clusterId(CLUSTER_NAME)
                                 .build())
                         .jsonSnapshots(
                             Collections.singletonList(
-                                getIcebergSnapshot("/tmp" + "/db/t-NOTUUID/maniffest-list")))
+                                getIcebergSnapshot("/tmp/db/t-NOTUUID/maniffest-list")))
                         .build()));
     Assertions.assertTrue(exception.getMessage().contains("contains invalid UUID"));
   }
@@ -257,12 +271,14 @@ public class TableUUIDGeneratorTest {
                         .tableType(TableType.REPLICA_TABLE)
                         .tableProperties(
                             ImmutableMap.of(
-                                CatalogConstants.OPENHOUSE_UUID_KEY,
+                                "openhouse.tableUUID",
                                 expectedUUID.toString(),
                                 "openhouse.tableId",
                                 "t",
                                 "openhouse.databaseId",
-                                "db"))
+                                "db",
+                                "openhouse.tableLocation",
+                                String.format("/tmp/db/t-%s/metadata.json", expectedUUID)))
                         .build()));
     Assertions.assertEquals(expectedUUID, actualUUID);
   }

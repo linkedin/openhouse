@@ -51,10 +51,11 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
   }
 
   /**
-   * Checks if the path exists on the backend storage. Scheme is not prefix for local and hdfs
-   * storage. see: https://github.com/linkedin/openhouse/issues/121
+   * Checks if the path exists on the hdfs. Scheme is not specified in the path for local and hdfs
+   * storage. See: https://github.com/linkedin/openhouse/issues/121 Example: For Hdfs and local file
+   * system, the path would be /rootPath/db/table/file.
    *
-   * @param path absolute path to a file including scheme
+   * @param path path to a file
    * @return true if path exists else false
    */
   @Override

@@ -60,8 +60,8 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
   }
 
   /**
-   * Checks if the blob/object exists on the backend storage. The path is the absolute path to the
-   * object including scheme (s3://)
+   * Checks if the blob/object exists on the s3 backend storage. The path is the absolute path to
+   * the object including scheme (s3://)
    *
    * @param path absolute path to a file including scheme
    * @return true if path exists else false

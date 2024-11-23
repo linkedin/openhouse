@@ -543,7 +543,9 @@ public class TablesServiceTest {
                     "openhouse.tableId",
                     "t",
                     "openhouse.databaseId",
-                    "db"))
+                    "db",
+                    "openhouse.tableLocation",
+                    String.format("/tmp/db/t-%s/metadata.json", expectedUUID)))
             .tableType(TableType.REPLICA_TABLE)
             .build();
     Assertions.assertEquals(tableDtoCopy.getTableType(), TableType.REPLICA_TABLE);
@@ -573,7 +575,11 @@ public class TablesServiceTest {
                     "openhouse.tableId",
                     TABLE_DTO.getTableId(),
                     "openhouse.databaseId",
-                    TABLE_DTO.getDatabaseId()))
+                    TABLE_DTO.getDatabaseId(),
+                    "openhouse.tableLocation",
+                    String.format(
+                        "/tmp/%s/%s-%s/metadata.json",
+                        TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), expectedUUID)))
             .tableType(TableType.REPLICA_TABLE)
             .build();
     Assertions.assertEquals(tableDtoCopy.getTableType(), TableType.REPLICA_TABLE);

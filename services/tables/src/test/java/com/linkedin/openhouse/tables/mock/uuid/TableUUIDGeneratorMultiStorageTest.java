@@ -67,7 +67,9 @@ public class TableUUIDGeneratorMultiStorageTest {
                                 "openhouse.tableId",
                                 "t",
                                 "openhouse.databaseId",
-                                "db"))
+                                "db",
+                                "openhouse.tableLocation",
+                                String.format("/bucket/db/t-%s/metadata.json", expectedUUID)))
                         .build())
                 .jsonSnapshots(
                     Collections.singletonList(
