@@ -5,14 +5,14 @@ plugins {
 }
 
 ext {
-    log4jVersion = "2.18.0"
+    log4jVersion = "2.20.0"
 
-    sparkVersion = '3.1.1'
-    icebergVersion = '1.2.0'
-    sparkVersionSuffix = "3.1"
-    openhouseSparkRuntimeModule = ":integrations:spark:spark-${sparkVersionSuffix}:openhouse-spark-runtime_2.12"
-    icebergSparkRuntimeModule = "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:${icebergVersion}"
-    tablesTestFixturesModule = ":tables-test-fixtures:tables-test-fixtures_2.12"
+    sparkVersion = '3.5.2'
+    icebergVersion = '1.5.2'
+    sparkVersionSuffix = "3.5"
+    openhouseSparkRuntimeModule = ":integrations:spark:spark-${sparkVersionSuffix}:openhouse-spark-3.5-runtime_2.12"
+    icebergSparkRuntimeModule = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}"
+    tablesTestFixturesModule = ":tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12"
 }
 
 dependencies {
@@ -23,27 +23,13 @@ dependencies {
     }
 
     implementation "org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}"
-    implementation project(':libs:datalayout')
-    implementation("org.apache.iceberg:iceberg-bundled-guava") {
-        version {
-            strictly("${icebergVersion}")
-        }
+    implementation(project(':libs:datalayout')) {
+        exclude group: 'org.apache.iceberg', module: 'iceberg-spark-runtime-3.1_2.12'
     }
-    implementation("org.apache.iceberg:iceberg-data") {
-        version {
-            strictly("${icebergVersion}")
-        }
-    }
-    implementation("org.apache.iceberg:iceberg-core") {
-        version {
-            strictly("${icebergVersion}")
-        }
-    }
-    implementation("org.apache.iceberg:iceberg-common") {
-        version {
-            strictly("${icebergVersion}")
-        }
-    }
+    implementation("org.apache.iceberg:iceberg-bundled-guava:${icebergVersion}")
+    implementation("org.apache.iceberg:iceberg-data:${icebergVersion}")
+    implementation("org.apache.iceberg:iceberg-core:${icebergVersion}")
+    implementation("org.apache.iceberg:iceberg-common:${icebergVersion}")
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
         exclude group: 'org.apache.hadoop', module: 'hadoop-common'
@@ -65,5 +51,18 @@ dependencies {
     }
     testImplementation(project(tablesTestFixturesModule)) {
         exclude group: "io.netty"
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/main/java', project(':apps:openhouse-spark-apps_2.12').sourceSets.main.java.srcDirs]
+        }
+    }
+    test {
+        java {
+            srcDirs = ['src/test/java', project(':apps:openhouse-spark-apps_2.12').sourceSets.test.java.srcDirs]
+        }
     }
 }

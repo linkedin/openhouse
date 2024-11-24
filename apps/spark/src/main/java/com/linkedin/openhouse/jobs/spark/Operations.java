@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import avro.shaded.com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -29,6 +28,7 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
 import org.apache.spark.sql.SparkSession;
 import scala.collection.JavaConverters;
