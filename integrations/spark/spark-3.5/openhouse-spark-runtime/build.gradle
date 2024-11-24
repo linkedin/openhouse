@@ -55,7 +55,9 @@ dependencies {
   fatJarPackagedDependencies(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
     transitive = false
   }
-  implementation(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow'))
+  implementation(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
+    exclude group: "org.apache.iceberg", module: "iceberg-spark-runtime-3.1_2.12"
+  }
   implementation("org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion)
 }
 
