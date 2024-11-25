@@ -26,7 +26,7 @@ public abstract class WebClientFactory {
   private static final String SESSION_ID = "session-id";
 
   public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
-  private static final int IN_MEMORY_BUFFER_SIZE = 10 * 1000 * 1024;
+  private static final int IN_MEMORY_BUFFER_SIZE = 20 * 1000 * 1024;
   // The maximum number of connections per connection pool
   private static final int MAX_CONNECTION_POOL_SIZE = 500;
   // Max time to keep requests in pending queue before acquiring a connection
