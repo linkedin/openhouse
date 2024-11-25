@@ -48,7 +48,7 @@ import reactor.netty.http.client.HttpClient;
 public class MainApplicationConfig extends BaseApplicationConfig {
   public static final String APP_NAME = "tables";
   private static final Pattern VERSION_PART_PATTERN = Pattern.compile("v[0-9]+");
-  private static final int IN_MEMORY_BUFFER_SIZE = 20 * 1000 * 1024;
+  private static final int IN_MEMORY_BUFFER_SIZE = 20 * 1024 * 1024;
 
   private static final int DNS_QUERY_TIMEOUT_SECONDS = 10;
 
