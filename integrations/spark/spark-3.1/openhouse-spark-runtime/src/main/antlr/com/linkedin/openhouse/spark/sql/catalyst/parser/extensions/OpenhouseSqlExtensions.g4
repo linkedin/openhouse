@@ -26,7 +26,7 @@ statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
-  | ALTER TABLE multipartIdentifier SET POLICY snapshotsRetentionPolicy                                #setSnapshotsRetentionPolicy
+  | ALTER TABLE multipartIdentifier SET POLICY '(' versionsRetentionPolicy ')'                         #setVersionsRetentionPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
@@ -66,7 +66,11 @@ quotedIdentifier
     ;
 
 nonReserved
+<<<<<<< HEAD:integrations/spark/spark-3.1/openhouse-spark-runtime/src/main/antlr/com/linkedin/openhouse/spark/sql/catalyst/parser/extensions/OpenhouseSqlExtensions.g4
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | RETAIN_SNAPSHOTS
+=======
+    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | VERSIONS
+>>>>>>> 3b7388d (Formatting fix):integrations/spark/openhouse-spark-runtime/src/main/antlr/com/linkedin/openhouse/spark/sql/catalyst/parser/extensions/OpenhouseSqlExtensions.g4
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     ;
 
@@ -159,23 +163,18 @@ policyTag
     : PII | HC
     ;
 
-snapshotsRetentionPolicy
-    : RETAIN_SNAPSHOTS snapshotsTTL
-    | RETAIN_SNAPSHOTS snapshotsCount
-    | RETAIN_SNAPSHOTS snapshotsTTL AND_OR_LOGICAL_OPERATOR snapshotsCount
+versionsRetentionPolicy
+    : VERSIONS versionsTime
+    | VERSIONS versionsCount
+    | VERSIONS versionsTime AND_OR_LOGICAL_OPERATOR versionsCount
     ;
 
-snapshotsTTL
-    : dateGranularity'='POSITIVE_INTEGER
+versionsTime
+    : TIME'='duration
     ;
 
-snapshotsCount
+versionsCount
     : COUNT'='POSITIVE_INTEGER
-    ;
-
-dateGranularity
-    : 'DAYS'
-    | 'HOURS'
     ;
 
 ALTER: 'ALTER';
@@ -207,8 +206,8 @@ HC: 'HC';
 MODIFY: 'MODIFY';
 TAG: 'TAG';
 NONE: 'NONE';
-RETAIN_SNAPSHOTS: 'RETAIN SNAPSHOTS';
-TTL: 'TTL';
+VERSIONS: 'VERSIONS';
+TIME: 'TIME';
 COUNT: 'COUNT';
 
 POSITIVE_INTEGER

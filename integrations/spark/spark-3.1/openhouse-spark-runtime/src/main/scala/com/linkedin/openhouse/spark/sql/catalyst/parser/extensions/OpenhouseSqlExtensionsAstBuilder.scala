@@ -2,7 +2,7 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.{GrantableResourceTypes, LogicalOperators}
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, SetSnapshotsRetentionPolicy, ShowGrantsStatement}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, SetVersionsRetentionPolicy, ShowGrantsStatement}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.spark.sql.catalyst.enums.LogicalOperators.LogicalOperatorsType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
@@ -150,31 +150,39 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     toSeq(ctx.policyTag()).map(_.getText)
   }
 
-  override def visitSetSnapshotsRetentionPolicy(ctx: SetSnapshotsRetentionPolicyContext): SetSnapshotsRetentionPolicy = {
-    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val (logicalOperator, granularity, timeCount, count) = typedVisit[(Option[LogicalOperatorsType], Option[String], Int, Int)](ctx.snapshotsRetentionPolicy())
-    SetSnapshotsRetentionPolicy(tableName, logicalOperator, granularity, timeCount, count)
+  override def visitDuration(ctx: DurationContext): (String, Int) = {
+    val granularity: String = if (ctx.RETENTION_DAY != null) {
+      TimePartitionSpec.GranularityEnum.DAY.getValue()
+    } else if (ctx.RETENTION_YEAR() != null) {
+      TimePartitionSpec.GranularityEnum.YEAR.getValue()
+    } else if (ctx.RETENTION_MONTH() != null) {
+      TimePartitionSpec.GranularityEnum.MONTH.getValue()
+    } else {
+      TimePartitionSpec.GranularityEnum.HOUR.getValue()
+    }
+    val count = ctx.getText.substring(0, ctx.getText.length - 1).toInt
+    (granularity, count)
   }
-  override def visitSnapshotsRetentionPolicy(ctx: SnapshotsRetentionPolicyContext): (Option[LogicalOperatorsType], Option[String], Int, Int) = {
+
+  override def visitSetVersionsRetentionPolicy(ctx: SetVersionsRetentionPolicyContext): SetVersionsRetentionPolicy = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val (logicalOperator, granularity, timeCount, count) = typedVisit[(Option[LogicalOperatorsType], Option[String], Int, Int)](ctx.versionsRetentionPolicy())
+    SetVersionsRetentionPolicy(tableName, logicalOperator, granularity, timeCount, count)
+  }
+  override def visitVersionsRetentionPolicy(ctx: VersionsRetentionPolicyContext): (Option[LogicalOperatorsType], Option[String], Int, Int) = {
     val logicalOperator = if (ctx.AND_OR_LOGICAL_OPERATOR() != null)
         LogicalOperators.withName(ctx.AND_OR_LOGICAL_OPERATOR().getText)
       else null
-    val timePolicy = if (ctx.snapshotsTTL() != null)
-        typedVisit[(String, Int)](ctx.snapshotsTTL())
+    val timePolicy = if (ctx.versionsTime() != null)
+        typedVisit[(String, Int)](ctx.versionsTime().duration())
       else (null, -1)
-    val countPolicy = if (ctx.snapshotsCount() != null)
-        typedVisit[Int](ctx.snapshotsCount())
+    val countPolicy = if (ctx.versionsCount() != null)
+        typedVisit[Int](ctx.versionsCount())
       else -1
     (Option(logicalOperator), Option(timePolicy._1), timePolicy._2, countPolicy)
   }
 
-  override def visitSnapshotsTTL(ctx: SnapshotsTTLContext): (String, Int) = {
-    val granularity = ctx.dateGranularity().getText
-    val count = ctx.POSITIVE_INTEGER().getText.toInt
-    (granularity, count)
-  }
-
-  override def visitSnapshotsCount(ctx: SnapshotsCountContext): Integer = {
+  override def visitVersionsCount(ctx: VersionsCountContext): Integer = {
     ctx.POSITIVE_INTEGER().getText.toInt
   }
 
