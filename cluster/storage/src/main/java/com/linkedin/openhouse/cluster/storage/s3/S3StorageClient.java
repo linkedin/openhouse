@@ -1,8 +1,11 @@
 package com.linkedin.openhouse.cluster.storage.s3;
 
+import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.cluster.storage.BaseStorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
@@ -68,15 +71,27 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
    */
   @Override
   public boolean fileExists(String path) {
+    Preconditions.checkArgument(
+        path.startsWith(getEndpoint()), String.format("Invalid S3 URL format %s", path));
     try {
+      URI uri = new URI(path);
+      String schemeSpecificPart = uri.getSchemeSpecificPart();
+      int firstSlash = schemeSpecificPart.indexOf('/');
+      if (firstSlash == -1) {
+        throw new IllegalArgumentException(
+            String.format("S3 URL must contain a bucket and key: %s", path));
+      }
+      String bucket = schemeSpecificPart.substring(0, firstSlash);
+      String key = schemeSpecificPart.substring(firstSlash + 1);
+
       HeadObjectRequest headObjectRequest =
-          HeadObjectRequest.builder().bucket(getRootPrefix()).key(path).build();
+          HeadObjectRequest.builder().bucket(bucket).key(key).build();
       s3.headObject(headObjectRequest);
       return true;
     } catch (NoSuchKeyException e) {
       // Object does not exist
       return false;
-    } catch (S3Exception e) {
+    } catch (URISyntaxException | S3Exception e) {
       throw new RuntimeException("Error checking S3 object existence: " + e.getMessage(), e);
     }
   }
