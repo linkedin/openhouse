@@ -8,6 +8,7 @@ import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -59,11 +60,12 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
    * @return true if path exists else false
    */
   @Override
-  public boolean fileExists(String path) {
+  public boolean exists(String path) {
     try {
       return fs.exists(new Path(path));
     } catch (IOException e) {
-      throw new RuntimeException("Exception checking path existence " + e.getMessage(), e);
+      throw new ServiceUnavailableException(
+          "Exception checking path existence " + e.getMessage(), e);
     }
   }
 }

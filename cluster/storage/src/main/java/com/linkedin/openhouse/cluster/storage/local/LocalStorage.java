@@ -65,4 +65,18 @@ public class LocalStorage extends BaseStorage {
       String databaseId, String tableId, String tableUUID, String tableCreator) {
     return Paths.get(getClient().getRootPrefix(), databaseId, tableId + "-" + tableUUID).toString();
   }
+
+  /**
+   * Checks if the provided path is a valid path for Local storage type. It checks if the path
+   * starts with the endpoint (scheme) specified in cluster.yaml ir if no endpoint is specified.
+   * This method future proofs for when we start prefixing local paths with endpoint (scheme) See:
+   * https://github.com/linkedin/openhouse/issues/121
+   *
+   * @param path path to a file/object
+   * @return true if endpoint is specified in cluster.yaml or no endpoint else false
+   */
+  @Override
+  public boolean isPathValid(String path) {
+    return (super.isPathValid(path) || path.startsWith("/"));
+  }
 }

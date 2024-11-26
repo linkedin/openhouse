@@ -145,10 +145,8 @@ public class TableUUIDGenerator {
     String tableLocation = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
     Storage storage = storageManager.getStorageFromPath(tableLocation);
 
-    if (TableType.REPLICA_TABLE != tableType && !storage.getClient().fileExists(tableLocation)) {
-      log.error(
-          "Previous tableLocation: {} doesn't exist",
-          storage.allocateTableLocation(databaseId, tableId, tableUUIDProperty, ""));
+    if (TableType.REPLICA_TABLE != tableType && !storage.getClient().exists(tableLocation)) {
+      log.error("Previous tableLocation: {} doesn't exist", tableLocation);
       throw new RequestValidationFailureException(
           String.format("Provided snapshot is invalid for %s.%s", dbIdFromProps, tblIdFromProps));
     }

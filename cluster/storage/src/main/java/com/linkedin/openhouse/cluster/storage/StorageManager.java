@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -17,6 +18,7 @@ import org.springframework.util.StringUtils;
  * The StorageManager class is responsible for managing the storage types and providing the
  * appropriate storage implementation based on the configuration.
  */
+@Slf4j
 @Component
 public class StorageManager {
 
@@ -107,9 +109,11 @@ public class StorageManager {
   public Storage getStorageFromPath(String path) {
     for (Storage storage : storages) {
       if (storage.isConfigured()) {
-        if (StorageType.LOCAL.equals(storage.getType())) {
+        if (storage.isPathValid(path)) {
+          log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
           return storage;
-        } else if (path.startsWith(storage.getClient().getEndpoint())) {
+        } else if (StorageType.LOCAL.equals(storage.getType())) {
+          log.info("Resolved to local storage for path {}", path);
           return storage;
         }
       }

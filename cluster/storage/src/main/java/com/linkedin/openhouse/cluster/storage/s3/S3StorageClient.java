@@ -12,6 +12,7 @@ import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.aws.AwsClientFactories;
 import org.apache.iceberg.aws.AwsClientFactory;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -70,7 +71,7 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
    * @return true if path exists else false
    */
   @Override
-  public boolean fileExists(String path) {
+  public boolean exists(String path) {
     Preconditions.checkArgument(
         path.startsWith(getEndpoint()), String.format("Invalid S3 URL format %s", path));
     try {
@@ -92,7 +93,8 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
       // Object does not exist
       return false;
     } catch (URISyntaxException | S3Exception e) {
-      throw new RuntimeException("Error checking S3 object existence: " + e.getMessage(), e);
+      throw new ServiceUnavailableException(
+          "Error checking S3 object existence: " + e.getMessage(), e);
     }
   }
 }

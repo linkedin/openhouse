@@ -3,7 +3,6 @@ package com.linkedin.openhouse.internal.catalog;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.METRICS_PREFIX;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
-import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
@@ -138,11 +137,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
    * @param tableIdentifier
    * @return fileIO
    */
-  public FileIO resolveFileIO(TableIdentifier tableIdentifier) {
-    return fileIOManager.getFileIO(resolveStorage(tableIdentifier).getType());
-  }
-
-  public Storage resolveStorage(TableIdentifier tableIdentifier) {
+  protected FileIO resolveFileIO(TableIdentifier tableIdentifier) {
     Optional<HouseTable> houseTable = Optional.empty();
     try {
       houseTable =
@@ -157,9 +152,13 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
           tableIdentifier.namespace().toString(),
           tableIdentifier.name());
     }
-    return houseTable.isPresent()
-        ? storageManager.getStorage(storageType.fromString(houseTable.get().getStorageType()))
-        : storageSelector.selectStorage(
-            tableIdentifier.namespace().toString(), tableIdentifier.name());
+    StorageType.Type type =
+        houseTable.isPresent()
+            ? storageType.fromString(houseTable.get().getStorageType())
+            : storageSelector
+                .selectStorage(tableIdentifier.namespace().toString(), tableIdentifier.name())
+                .getType();
+
+    return fileIOManager.getFileIO(type);
   }
 }

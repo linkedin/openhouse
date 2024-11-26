@@ -41,7 +41,7 @@ public class TableUUIDGeneratorTest {
     when(storageManager.getStorageFromPath(any())).thenReturn(storage);
     when(storage.getClient()).thenReturn(storageClient);
     when(storageClient.getRootPrefix()).thenReturn("/tmp");
-    when(storageClient.fileExists(any())).thenReturn(true);
+    when(storageClient.exists(any())).thenReturn(true);
   }
 
   @Test
@@ -163,7 +163,7 @@ public class TableUUIDGeneratorTest {
 
   @Test
   public void testUUIDFailsForNonExistingOpenhouseDotPropertyPath() {
-    when(storage.getClient().fileExists(any())).thenReturn(false);
+    when(storage.getClient().exists(any())).thenReturn(false);
 
     RequestValidationFailureException exception =
         Assertions.assertThrows(

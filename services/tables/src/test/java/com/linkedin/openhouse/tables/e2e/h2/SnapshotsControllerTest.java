@@ -8,6 +8,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import com.google.common.collect.ImmutableList;
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -62,6 +63,8 @@ public class SnapshotsControllerTest {
   @Autowired MockMvc mvc;
 
   @Autowired StorageManager storageManager;
+
+  @Autowired LocalStorage localStorage;
 
   /** For now starting with a naive object feeder. */
   private static Stream<GetTableResponseBody> responseBodyFeeder() {
@@ -247,7 +250,10 @@ public class SnapshotsControllerTest {
         "openhouse.tableLocation",
         String.format(
             "%s/%s/%s-%s/metadata.json",
-            "/tmp", getTableResponseBody.getDatabaseId(), getTableResponseBody.getTableId(), uuid));
+            localStorage.getClient().getRootPrefix(),
+            getTableResponseBody.getDatabaseId(),
+            getTableResponseBody.getTableId(),
+            uuid));
 
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
@@ -355,8 +361,11 @@ public class SnapshotsControllerTest {
     originalProps.put(
         "openhouse.tableLocation",
         String.format(
-            "/tmp/%s/%s-%s/metadata.json",
-            responseBody.getDatabaseId(), responseBody.getTableId(), uuid));
+            "%s/%s/%s-%s/metadata.json",
+            localStorage.getClient().getRootPrefix(),
+            responseBody.getDatabaseId(),
+            responseBody.getTableId(),
+            uuid));
     return originalProps;
   }
 }

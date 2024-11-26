@@ -70,4 +70,15 @@ public interface Storage {
    */
   String allocateTableLocation(
       String databaseId, String tableId, String tableUUID, String tableCreator);
+
+  /**
+   * Checks if the provided path is a valid path for this storage type. It defaults to checking if
+   * the path starts with the endpoint (scheme) specified in cluster.yaml
+   *
+   * @param path path to a file/object
+   * @return true if endpoint is specified in cluster.yaml else false
+   */
+  default boolean isPathValid(String path) {
+    return path.startsWith(getClient().getEndpoint());
+  }
 }
