@@ -2,6 +2,7 @@ plugins {
     // dependency in apps-spark-conventions
     id 'com.github.johnrengelman.shadow' version '7.1.2'
     id 'openhouse.apps-spark-conventions'
+    id 'openhouse.iceberg-conventions-1.2'
 }
 
 ext {
@@ -24,26 +25,6 @@ dependencies {
 
     implementation "org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}"
     implementation project(':libs:datalayout')
-    implementation("org.apache.iceberg:iceberg-bundled-guava") {
-        version {
-            strictly("${icebergVersion}")
-        }
-    }
-    implementation("org.apache.iceberg:iceberg-data") {
-        version {
-            strictly("${icebergVersion}")
-        }
-    }
-    implementation("org.apache.iceberg:iceberg-core") {
-        version {
-            strictly("${icebergVersion}")
-        }
-    }
-    implementation("org.apache.iceberg:iceberg-common") {
-        version {
-            strictly("${icebergVersion}")
-        }
-    }
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
         exclude group: 'org.apache.hadoop', module: 'hadoop-common'

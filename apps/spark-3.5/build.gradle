@@ -2,6 +2,7 @@ plugins {
     // dependency in apps-spark-conventions
     id 'com.github.johnrengelman.shadow' version '7.1.2'
     id 'openhouse.apps-spark-conventions'
+    id 'openhouse.iceberg-conventions-1.5.2'
 }
 
 ext {
@@ -26,10 +27,6 @@ dependencies {
     implementation(project(':libs:datalayout')) {
         exclude group: 'org.apache.iceberg', module: 'iceberg-spark-runtime-3.1_2.12'
     }
-    implementation("org.apache.iceberg:iceberg-bundled-guava:${icebergVersion}")
-    implementation("org.apache.iceberg:iceberg-data:${icebergVersion}")
-    implementation("org.apache.iceberg:iceberg-core:${icebergVersion}")
-    implementation("org.apache.iceberg:iceberg-common:${icebergVersion}")
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
         exclude group: 'org.apache.hadoop', module: 'hadoop-common'
