@@ -7,6 +7,7 @@ services:
       service: openhouse-tables
     volumes:
       - ./:/var/config/
+      - /etc/riddler:/etc/riddler
     depends_on:
       - openhouse-housetables
       - minioS3
@@ -79,6 +80,9 @@ services:
     extends:
       file: ../common/spark-services.yml
       service: spark-master
+    volumes:
+      - ./:/var/config/
+      - /etc/riddler:/etc/riddler
     ports:
       - "5005:5005"
     environment:
@@ -89,6 +93,8 @@ services:
     extends:
       file: ../common/spark-services.yml
       service: spark-worker-a
+    volumes:
+      - ./:/var/config/
     depends_on:
       - spark-master
 

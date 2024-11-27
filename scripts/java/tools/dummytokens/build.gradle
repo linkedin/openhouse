@@ -35,3 +35,7 @@ task generateTokens(type: Exec) {
 }
 
 tasks.named("build") { finalizedBy("generateTokens") }
+
+tasks.named('jar') {
+    dependsOn ':cluster:configs:jar'
+}

@@ -44,4 +44,4 @@ RUN mkdir -p /usr/java && ln -sfn /export/apps/jdk/JDK-1_8_0_172 /usr/java/defau
 USER $USER
 
 EXPOSE 8080
-ENTRYPOINT ["sh", "-c", "./run.sh $APP_NAME.jar $@"]
+ENTRYPOINT ["sh", "-c", "./run.sh $APP_NAME.jar --debug $@"]
