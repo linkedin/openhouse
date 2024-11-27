@@ -11,26 +11,40 @@ public class SnapshotRetentionPolicySpecValidator {
 
   protected boolean validate(SnapshotRetention snapshotRetention, TableUri tableUri) {
     if (snapshotRetention != null) {
-      if (snapshotRetention.getGranularity() == null && snapshotRetention.getTimeCount() >= 0
-          || snapshotRetention.getGranularity() != null && snapshotRetention.getTimeCount() < 0) {
+      if (snapshotRetention.getTimeCount() <= 0 && snapshotRetention.getVersionCount() <= 0) {
+        failureMessage =
+            String.format(
+                "Must define either a time based retention or count based retention for snapshots in table %s",
+                tableUri);
+        return false;
+      }
+
+      if (snapshotRetention.getGranularity() == null && snapshotRetention.getTimeCount() > 0
+          || snapshotRetention.getGranularity() != null && snapshotRetention.getTimeCount() <= 0) {
         failureMessage =
             String.format(
                 "Incorrect timeCount specified. snapshotRetention.timeCount must be defined together with snapshotRetention.granularity for table %s",
                 tableUri);
         return false;
       }
-      if (snapshotRetention.getTimeCount() > 0
-          && snapshotRetention.getVersionCount() > 0
-          && snapshotRetention.getLogicalOperator() == null) {
+
+      if ((snapshotRetention.getTimeCount() > 0
+              && snapshotRetention.getVersionCount() > 0
+              && snapshotRetention.getLogicalOperator() == null)
+          || ((snapshotRetention.getTimeCount() <= 0 || snapshotRetention.getVersionCount() <= 0)
+              && snapshotRetention.getLogicalOperator() != null)) {
         failureMessage =
             String.format(
                 "Must define logical operator to describe behavior in combined policies snapshotRetention.timeCount and snapshotRetention.versionCount for table %s",
                 tableUri);
         return false;
       }
+
       if (!validateSnapshotRetentionMaximums(snapshotRetention)) {
         failureMessage =
-            String.format("Snapshot retention for the table [%s] cannot exceed", tableUri);
+            String.format(
+                "Snapshot retention for the table [%s] cannot exceed 3 days or 100 versions maximum",
+                tableUri);
         return false;
       }
     }
@@ -42,12 +56,14 @@ public class SnapshotRetentionPolicySpecValidator {
     TimePartitionSpec.Granularity granularity = snapshotRetention.getGranularity();
     int versionCount = snapshotRetention.getVersionCount();
     boolean isGranularityValid =
-        granularity.equals(TimePartitionSpec.Granularity.HOUR)
+        granularity == null
+            || granularity.equals(TimePartitionSpec.Granularity.HOUR)
             || granularity.equals(TimePartitionSpec.Granularity.DAY);
+
     boolean isTimeCountValid =
-        !(timeCount >= 3 && granularity.equals(TimePartitionSpec.Granularity.DAY)
-            || timeCount >= 72 && granularity.equals(TimePartitionSpec.Granularity.HOUR));
-    boolean isVersionCountValid = versionCount >= 100;
+        !(timeCount > 3 && granularity.equals(TimePartitionSpec.Granularity.DAY)
+            || timeCount > 72 && granularity.equals(TimePartitionSpec.Granularity.HOUR));
+    boolean isVersionCountValid = versionCount <= 100;
     return isGranularityValid && isTimeCountValid && isVersionCountValid;
   }
 

@@ -30,6 +30,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.SnapshotRetention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -1190,6 +1191,54 @@ public class TablesControllerTest {
     Assertions.assertEquals(updatedReplication.get("interval"), "12H");
     Assertions.assertTrue(
         RequestAndValidateHelper.validateCronSchedule(updatedReplication.get("cronSchedule")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testUpdateSucceedsForSnapshotRetentionPolicy() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+
+    LinkedHashMap<String, LinkedHashMap> currentPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    SnapshotRetention snapshotRetention =
+        SnapshotRetention.builder()
+            .timeCount(3)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .build();
+
+    Policies newPolicies = Policies.builder().snapshotRetention(snapshotRetention).build();
+
+    GetTableResponseBody container = GetTableResponseBody.builder().policies(newPolicies).build();
+    GetTableResponseBody addProp = buildGetTableResponseBody(mvcResult, container);
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            addProp.getDatabaseId(),
+                            addProp.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(addProp).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    LinkedHashMap<String, LinkedHashMap> updatedPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    Assertions.assertNotEquals(currentPolicies, updatedPolicies);
+
+    LinkedHashMap<String, String> updatedSnapshotRetention =
+        JsonPath.read(
+            mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[0]");
+
+    Assertions.assertEquals(updatedSnapshotRetention.get("timeCount"), "3");
+    Assertions.assertEquals(updatedSnapshotRetention.get("granularity"), "D");
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }

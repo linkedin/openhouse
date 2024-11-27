@@ -42,5 +42,5 @@ public class SnapshotRetention {
       description =
           "Object that is required when defining both timeCount and versionCount. It specifies the logical operator to be used between the two retention policies",
       example = "AND, OR")
-  LogicalOperator logicalOperator;
+  LogicalOperator.Operator logicalOperator;
 }
