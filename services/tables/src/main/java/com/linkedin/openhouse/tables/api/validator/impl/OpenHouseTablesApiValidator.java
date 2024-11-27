@@ -27,11 +27,13 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
   @Autowired private Validator validator;
 
-  @Autowired private PoliciesSpecValidator policiesSpecValidator;
+  @Autowired private RetentionPolicySpecValidator retentionPolicySpecValidator;
 
   @Autowired private ClusteringSpecValidator clusteringSpecValidator;
 
   @Autowired private ReplicationConfigValidator replicationConfigValidator;
+
+  @Autowired private SnapshotRetentionPolicySpecValidator snapshotRetentionPolicySpecValidator;
 
   @Override
   public void validateGetTable(String databaseId, String tableId) {
@@ -132,7 +134,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
             .clusterId(createUpdateTableRequestBody.getClusterId())
             .databaseId(createUpdateTableRequestBody.getDatabaseId())
             .build();
-    if (!policiesSpecValidator.validate(
+    if (!retentionPolicySpecValidator.validate(
         createUpdateTableRequestBody.getPolicies(),
         createUpdateTableRequestBody.getTimePartitioning(),
         tableUri,
@@ -141,7 +143,8 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
           Arrays.asList(
               String.format(
                   "%s : %s",
-                  policiesSpecValidator.getField(), policiesSpecValidator.getMessage())));
+                  retentionPolicySpecValidator.getField(),
+                  retentionPolicySpecValidator.getMessage())));
     }
     if (createUpdateTableRequestBody.getPolicies() != null
         && createUpdateTableRequestBody.getPolicies().getReplication() != null) {
@@ -153,6 +156,18 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
                     "%s : %s",
                     replicationConfigValidator.getField(),
                     replicationConfigValidator.getMessage())));
+      }
+    }
+    if (createUpdateTableRequestBody.getPolicies() != null
+        && createUpdateTableRequestBody.getPolicies().getSnapshotRetention() != null) {
+      if (!snapshotRetentionPolicySpecValidator.validate(
+          createUpdateTableRequestBody.getPolicies().getSnapshotRetention(), tableUri)) {
+        throw new RequestValidationFailureException(
+            Arrays.asList(
+                String.format(
+                    "%s : %s",
+                    snapshotRetentionPolicySpecValidator.getField(),
+                    snapshotRetentionPolicySpecValidator.getMessage())));
       }
     }
   }

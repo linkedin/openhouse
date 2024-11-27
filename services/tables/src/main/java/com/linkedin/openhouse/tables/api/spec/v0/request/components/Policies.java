@@ -48,4 +48,12 @@ public class Policies {
       example = "{replication:{config:[{destination: clusterA, interval: 12H}]}}")
   @Valid
   Replication replication;
+
+  @Schema(
+      description =
+          "Snapshot retention as required in /tables API request. This field holds the snapshot retention specification.",
+      example =
+          "{snapshotRetention:{timeCount:3, granularity: 'day', versionCount: 5, logicalOperator: 'AND'}}")
+  @Valid
+  SnapshotRetention snapshotRetention;
 }
