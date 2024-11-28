@@ -3,7 +3,11 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.SnapshotRetention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
+@Slf4j
+@Component
 public class SnapshotRetentionPolicySpecValidator {
 
   private String failureMessage = "";
@@ -51,6 +55,13 @@ public class SnapshotRetentionPolicySpecValidator {
     return true;
   }
 
+  /**
+   * Validate that the amount of time to retain snapshots does not exceed either 3 days or 100
+   * versions
+   *
+   * @param snapshotRetention
+   * @return
+   */
   protected boolean validateSnapshotRetentionMaximums(SnapshotRetention snapshotRetention) {
     int timeCount = snapshotRetention.getTimeCount();
     TimePartitionSpec.Granularity granularity = snapshotRetention.getGranularity();

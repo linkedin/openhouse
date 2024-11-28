@@ -40,6 +40,12 @@ public class PoliciesSpecMapperTest {
     Assertions.assertEquals(
         JsonPath.read(policiesSpec, "$.replication.config[0].interval"),
         TableModelConstants.TABLE_POLICIES.getReplication().getConfig().get(0).getInterval());
+    Assertions.assertEquals(
+        (Integer) JsonPath.read(policiesSpec, "$.snapshotRetention.timeCount"),
+        TABLE_POLICIES.getSnapshotRetention().getTimeCount());
+    Assertions.assertEquals(
+        JsonPath.read(policiesSpec, "$.snapshotRetention.logicalOperator"),
+        TABLE_POLICIES.getSnapshotRetention().getLogicalOperator().toString());
   }
 
   @Test
