@@ -57,9 +57,16 @@ allprojects {
     }
   }
 
-  if (it.path != ':integrations:spark:spark-3.5:openhouse-spark-3.5-itest') {
+  def excludedProjects = [
+      ':integrations:spark:spark-3.5:openhouse-spark-3.5-itest',
+      ':apps:openhouse-spark-apps-1.5_2.12'
+  ]
+
+  if (!excludedProjects.contains(it.path)) {
     configurations.all {
       resolutionStrategy {
+        force 'com.fasterxml.jackson:jackson-bom:2.13.4'
+        force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
         force 'org.apache.orc:orc-core:1.8.3'
         force 'com.google.guava:guava:31.1-jre'
       }

@@ -51,6 +51,8 @@ dependencies {
     }
 }
 
+// because we depend on project(':apps:openhouse-spark-apps_2.12').sourceSets
+evaluationDependsOn(':apps:openhouse-spark-apps_2.12')
 sourceSets {
     main {
         java {
