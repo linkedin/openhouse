@@ -1057,7 +1057,7 @@ public class TablesControllerTest {
         JsonPath.read(
             mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[0]");
 
-    Assertions.assertEquals(updatedReplication.get("destination"), "clusterA");
+    Assertions.assertEquals(updatedReplication.get("destination"), "CLUSTERA");
     Assertions.assertEquals(updatedReplication.get("interval"), "12H");
     Assertions.assertTrue(
         RequestAndValidateHelper.validateCronSchedule(updatedReplication.get("cronSchedule")));
@@ -1128,7 +1128,7 @@ public class TablesControllerTest {
         JsonPath.read(
             mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[0]");
 
-    Assertions.assertEquals(updatedReplication.get("destination"), "clusterA");
+    Assertions.assertEquals(updatedReplication.get("destination"), "CLUSTERA");
     Assertions.assertEquals(updatedReplication.get("interval"), "1D");
     Assertions.assertTrue(
         RequestAndValidateHelper.validateCronSchedule(updatedReplication.get("cronSchedule")));
@@ -1178,7 +1178,7 @@ public class TablesControllerTest {
         JsonPath.read(
             mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[0]");
 
-    Assertions.assertEquals(updatedReplication.get("destination"), "clusterA");
+    Assertions.assertEquals(updatedReplication.get("destination"), "CLUSTERA");
     Assertions.assertEquals(updatedReplication.get("interval"), "1D");
     Assertions.assertTrue(
         RequestAndValidateHelper.validateCronSchedule(updatedReplication.get("cronSchedule")));
@@ -1186,7 +1186,7 @@ public class TablesControllerTest {
         JsonPath.read(
             mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[1]");
 
-    Assertions.assertEquals(updatedReplication.get("destination"), "clusterB");
+    Assertions.assertEquals(updatedReplication.get("destination"), "CLUSTERB");
     Assertions.assertEquals(updatedReplication.get("interval"), "12H");
     Assertions.assertTrue(
         RequestAndValidateHelper.validateCronSchedule(updatedReplication.get("cronSchedule")));
