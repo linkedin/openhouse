@@ -1234,11 +1234,10 @@ public class TablesControllerTest {
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
 
     LinkedHashMap<String, String> updatedSnapshotRetention =
-        JsonPath.read(
-            mvcResult.getResponse().getContentAsString(), "$.policies.replication.config[0]");
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies.snapshotRetention");
 
-    Assertions.assertEquals(updatedSnapshotRetention.get("timeCount"), "3");
-    Assertions.assertEquals(updatedSnapshotRetention.get("granularity"), "D");
+    Assertions.assertEquals(updatedSnapshotRetention.get("timeCount"), 3);
+    Assertions.assertEquals(updatedSnapshotRetention.get("granularity"), "DAY");
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
