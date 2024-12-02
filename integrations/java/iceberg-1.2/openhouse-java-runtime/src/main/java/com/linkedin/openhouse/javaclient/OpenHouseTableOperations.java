@@ -194,6 +194,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     if (patchUpdatedPolicy.getRetention() != null) {
       policies.setRetention(patchUpdatedPolicy.getRetention());
     }
+
     // Update sharing config
     if (patchUpdatedPolicy.getSharingEnabled() != null) {
       policies.sharingEnabled(patchUpdatedPolicy.getSharingEnabled());
@@ -215,6 +216,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     if (patchUpdatedPolicy.getReplication() != null) {
       policies.replication(patchUpdatedPolicy.getReplication());
     }
+    // Update snapshot retention config
+    if (patchUpdatedPolicy.getSnapshotRetention() != null) {
+      policies.setSnapshotRetention(patchUpdatedPolicy.getSnapshotRetention());
+    }
+
     return policies;
   }
 

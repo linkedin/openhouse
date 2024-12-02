@@ -8,6 +8,7 @@ import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBo
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
+import com.linkedin.openhouse.gen.tables.client.model.SnapshotRetention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -329,5 +330,75 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(
         updatedPolicies.getReplication().getConfig().get(1).getInterval(), "2D");
     Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 2);
+  }
+
+  @Test
+  public void testPoliciesSnapshotRetentionInMetadataNoUpdate() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "policies",
+        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\", \"logicalOperator\": \"OR\"}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertEquals(1, updatedPolicies.getSnapshotRetention().getTimeCount());
+    Assertions.assertEquals(
+        SnapshotRetention.GranularityEnum.DAY,
+        updatedPolicies.getSnapshotRetention().getGranularity());
+    Assertions.assertEquals(2, updatedPolicies.getSnapshotRetention().getVersionCount());
+    Assertions.assertEquals(
+        SnapshotRetention.LogicalOperatorEnum.OR,
+        updatedPolicies.getSnapshotRetention().getLogicalOperator());
+  }
+
+  @Test
+  public void testNoPoliciesSnapshotRetentionExistsButUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "updated.openhouse.policy",
+        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\", \"logicalOperator\": \"AND\"}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertEquals(1, updatedPolicies.getSnapshotRetention().getTimeCount());
+    Assertions.assertEquals(
+        SnapshotRetention.GranularityEnum.DAY,
+        updatedPolicies.getSnapshotRetention().getGranularity());
+    Assertions.assertEquals(2, updatedPolicies.getSnapshotRetention().getVersionCount());
+    Assertions.assertEquals(
+        SnapshotRetention.LogicalOperatorEnum.AND,
+        updatedPolicies.getSnapshotRetention().getLogicalOperator());
+  }
+
+  @Test
+  public void testPoliciesSnapshotRetentionExistsUpdate() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "openhouse.policy",
+        "{\"snapshotRetention\": {\"timeCount\": \"2\", \"granularity\": \"HOUR\", \"versionCount\": \"3\", \"logicalOperator\": \"OR\"}}");
+    props.put(
+        "updated.openhouse.policy",
+        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\", \"logicalOperator\": \"AND\"}, \"sharingEnabled\": true}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertEquals(1, updatedPolicies.getSnapshotRetention().getTimeCount());
+    Assertions.assertEquals(
+        SnapshotRetention.GranularityEnum.DAY,
+        updatedPolicies.getSnapshotRetention().getGranularity());
+    Assertions.assertEquals(2, updatedPolicies.getSnapshotRetention().getVersionCount());
+    Assertions.assertEquals(true, updatedPolicies.getSharingEnabled());
+    Assertions.assertEquals(
+        SnapshotRetention.LogicalOperatorEnum.AND,
+        updatedPolicies.getSnapshotRetention().getLogicalOperator());
   }
 }
