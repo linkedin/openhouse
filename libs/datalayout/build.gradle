@@ -1,7 +1,6 @@
 plugins {
     id 'openhouse.java-conventions'
     id 'openhouse.hadoop-conventions'
-    id 'openhouse.iceberg-conventions-1.2'
     id 'openhouse.maven-publish'
 }
 
@@ -10,10 +9,18 @@ ext {
     sparkVersion = '3.1.1'
     springVersion = '2.7.8'
     hadoopVersion = '2.10.0'
+    sparkVersionSuffix = "3.1"
+    openhouseSparkRuntimeModule = ":integrations:spark:spark-${sparkVersionSuffix}:openhouse-spark-runtime_2.12"
+    tablesTestFixturesModule = ":tables-test-fixtures:tables-test-fixtures_2.12"
 }
 
 dependencies {
-    compileOnly project(':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12')
+    compileOnly project(openhouseSparkRuntimeModule)
+    implementation('org.apache.iceberg:iceberg-bundled-guava:' + icebergVersion)
+    implementation('org.apache.iceberg:iceberg-data:' + icebergVersion)
+    implementation('org.apache.iceberg:iceberg-core:' + icebergVersion)
+    implementation('org.apache.iceberg:iceberg-common:' + icebergVersion)
+    implementation('org.testcontainers:testcontainers:1.19.8')
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
         exclude group: 'org.apache.hadoop', module: 'hadoop-common'
@@ -27,7 +34,7 @@ dependencies {
     implementation 'org.apache.hadoop:hadoop-common:' + hadoopVersion
     implementation 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
 
-    testImplementation (project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
+    testImplementation (project(path: openhouseSparkRuntimeModule, configuration: 'shadow')) {
         exclude group: 'io.netty'
         exclude group: 'org.apache.hadoop', module: 'hadoop-common'
         exclude group: 'org.apache.hadoop', module: 'hadoop-client'
@@ -38,7 +45,7 @@ dependencies {
     testImplementation 'org.mockito:mockito-inline:4.11.0'
     testImplementation 'org.powermock:powermock-module-junit4:2.0.9'
     testImplementation 'org.powermock:powermock-api-mockito2:2.0.9'
-    testImplementation(project(':tables-test-fixtures:tables-test-fixtures_2.12'))
+    testImplementation(project(tablesTestFixturesModule))
     testRuntimeOnly("org.eclipse.jetty:jetty-server:11.0.2")
 }
 

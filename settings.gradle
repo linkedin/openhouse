@@ -25,6 +25,7 @@ pluginManagement {
 rootProject.name = 'openhouse'
 
 include ':apps:spark'
+include ':apps:spark-3.5'
 
 include ':client:common'
 include ':client:hts'
@@ -62,6 +63,7 @@ include ':scripts:java:tools:dummytokens'
 
 project(':integrations:spark:spark-3.1:openhouse-spark-runtime').name = 'openhouse-spark-runtime_2.12'
 project(':apps:spark').name = 'openhouse-spark-apps_2.12'
+project(':apps:spark-3.5').name = 'openhouse-spark-apps-1.5_2.12'
 project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.2').name = 'tables-test-fixtures_2.12'
 
 project(':integrations:java:iceberg-1.5:openhouse-java-runtime').name = 'openhouse-java-iceberg-1.5-runtime'
