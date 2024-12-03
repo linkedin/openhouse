@@ -37,11 +37,4 @@ public class SnapshotRetention {
   @PositiveOrZero(
       message = "Incorrect count specified. retention.versionCount has to be a positive integer")
   int versionCount;
-
-  @Valid
-  @Schema(
-      description =
-          "Object that is required when defining both timeCount and versionCount. It specifies the logical operator to be used between the two retention policies",
-      example = "AND, OR")
-  LogicalOperator.Operator logicalOperator;
 }

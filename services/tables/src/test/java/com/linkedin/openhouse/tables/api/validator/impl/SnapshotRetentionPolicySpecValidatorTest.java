@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.api.validator.impl;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.LogicalOperator;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.SnapshotRetention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import org.junit.jupiter.api.Assertions;
@@ -30,7 +29,6 @@ public class SnapshotRetentionPolicySpecValidatorTest {
         SnapshotRetention.builder()
             .granularity(TimePartitionSpec.Granularity.DAY)
             .versionCount(3)
-            .logicalOperator(LogicalOperator.Operator.AND)
             .build();
 
     Assertions.assertFalse(this.validator.validate(snapshotRetentionWithNoTimeCount, tableUri));
@@ -49,31 +47,6 @@ public class SnapshotRetentionPolicySpecValidatorTest {
   }
 
   @Test
-  void testValidateRejectPolicyLogicalOperators() {
-    SnapshotRetention snapshotRetentionNoOperator =
-        SnapshotRetention.builder()
-            .timeCount(3)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .versionCount(10)
-            .build();
-
-    Assertions.assertFalse(this.validator.validate(snapshotRetentionNoOperator, tableUri));
-    Assertions.assertTrue(
-        this.validator.getMessage().contains("Must define logical operator to describe behavior"));
-
-    SnapshotRetention snapshotRetentionOperatorWithoutBothPolicies =
-        SnapshotRetention.builder()
-            .logicalOperator(LogicalOperator.Operator.AND)
-            .versionCount(10)
-            .build();
-
-    Assertions.assertFalse(
-        this.validator.validate(snapshotRetentionOperatorWithoutBothPolicies, tableUri));
-    Assertions.assertTrue(
-        this.validator.getMessage().contains("Must define logical operator to describe behavior"));
-  }
-
-  @Test
   void testValidateSnapshotRetentionMaximums() {
     // Exceed days
     SnapshotRetention snapshotRetentionDaysExceeded =
@@ -81,7 +54,6 @@ public class SnapshotRetentionPolicySpecValidatorTest {
             .timeCount(4)
             .granularity(TimePartitionSpec.Granularity.DAY)
             .versionCount(10)
-            .logicalOperator(LogicalOperator.Operator.AND)
             .build();
     Assertions.assertFalse(this.validator.validate(snapshotRetentionDaysExceeded, tableUri));
 
@@ -112,7 +84,6 @@ public class SnapshotRetentionPolicySpecValidatorTest {
             .timeCount(100)
             .granularity(TimePartitionSpec.Granularity.HOUR)
             .versionCount(1000)
-            .logicalOperator(LogicalOperator.Operator.AND)
             .build();
     Assertions.assertFalse(this.validator.validate(snapshotRetentionBothExceeded, tableUri));
     Assertions.assertTrue(this.validator.getMessage().contains("cannot exceed"));
@@ -131,11 +102,15 @@ public class SnapshotRetentionPolicySpecValidatorTest {
     snapshotRetention = SnapshotRetention.builder().versionCount(50).build();
     Assertions.assertTrue(this.validator.validate(snapshotRetention, tableUri));
 
+    // Only define versionCount
+    snapshotRetention = SnapshotRetention.builder().versionCount(10).build();
+    Assertions.assertTrue(this.validator.validate(snapshotRetention, tableUri));
+
+    // Define both timecount and version count
     snapshotRetention =
         SnapshotRetention.builder()
             .timeCount(3)
             .granularity(TimePartitionSpec.Granularity.DAY)
-            .logicalOperator(LogicalOperator.Operator.OR)
             .versionCount(10)
             .build();
     Assertions.assertTrue(this.validator.validate(snapshotRetention, tableUri));

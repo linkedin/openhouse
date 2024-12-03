@@ -337,7 +337,7 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "policies",
-        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\", \"logicalOperator\": \"OR\"}}");
+        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\"}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -349,9 +349,6 @@ public class OpenHouseTableOperationsTest {
         SnapshotRetention.GranularityEnum.DAY,
         updatedPolicies.getSnapshotRetention().getGranularity());
     Assertions.assertEquals(2, updatedPolicies.getSnapshotRetention().getVersionCount());
-    Assertions.assertEquals(
-        SnapshotRetention.LogicalOperatorEnum.OR,
-        updatedPolicies.getSnapshotRetention().getLogicalOperator());
   }
 
   @Test
@@ -359,7 +356,7 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "updated.openhouse.policy",
-        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\", \"logicalOperator\": \"AND\"}}");
+        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\"}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -371,9 +368,6 @@ public class OpenHouseTableOperationsTest {
         SnapshotRetention.GranularityEnum.DAY,
         updatedPolicies.getSnapshotRetention().getGranularity());
     Assertions.assertEquals(2, updatedPolicies.getSnapshotRetention().getVersionCount());
-    Assertions.assertEquals(
-        SnapshotRetention.LogicalOperatorEnum.AND,
-        updatedPolicies.getSnapshotRetention().getLogicalOperator());
   }
 
   @Test
@@ -381,10 +375,10 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "openhouse.policy",
-        "{\"snapshotRetention\": {\"timeCount\": \"2\", \"granularity\": \"HOUR\", \"versionCount\": \"3\", \"logicalOperator\": \"OR\"}}");
+        "{\"snapshotRetention\": {\"timeCount\": \"2\", \"granularity\": \"HOUR\", \"versionCount\": \"3\"}}");
     props.put(
         "updated.openhouse.policy",
-        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\", \"logicalOperator\": \"AND\"}, \"sharingEnabled\": true}");
+        "{\"snapshotRetention\": {\"timeCount\": \"1\", \"granularity\": \"DAY\", \"versionCount\": \"2\"}, \"sharingEnabled\": true}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -397,8 +391,5 @@ public class OpenHouseTableOperationsTest {
         updatedPolicies.getSnapshotRetention().getGranularity());
     Assertions.assertEquals(2, updatedPolicies.getSnapshotRetention().getVersionCount());
     Assertions.assertEquals(true, updatedPolicies.getSharingEnabled());
-    Assertions.assertEquals(
-        SnapshotRetention.LogicalOperatorEnum.AND,
-        updatedPolicies.getSnapshotRetention().getLogicalOperator());
   }
 }

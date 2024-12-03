@@ -32,18 +32,6 @@ public class SnapshotRetentionPolicySpecValidator {
         return false;
       }
 
-      if ((snapshotRetention.getTimeCount() > 0
-              && snapshotRetention.getVersionCount() > 0
-              && snapshotRetention.getLogicalOperator() == null)
-          || ((snapshotRetention.getTimeCount() <= 0 || snapshotRetention.getVersionCount() <= 0)
-              && snapshotRetention.getLogicalOperator() != null)) {
-        failureMessage =
-            String.format(
-                "Must define logical operator to describe behavior in combined policies snapshotRetention.timeCount and snapshotRetention.versionCount for table %s",
-                tableUri);
-        return false;
-      }
-
       if (!validateSnapshotRetentionMaximums(snapshotRetention)) {
         failureMessage =
             String.format(

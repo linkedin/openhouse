@@ -8,7 +8,6 @@ import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.LogicalOperator;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
@@ -71,7 +70,6 @@ public final class TableModelConstants {
         SnapshotRetention.builder()
             .timeCount(3)
             .granularity(TimePartitionSpec.Granularity.DAY)
-            .logicalOperator(LogicalOperator.Operator.OR)
             .versionCount(10)
             .build();
     RETENTION_POLICY_WITH_PATTERN =
