@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.SnapshotRetention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -825,6 +826,57 @@ public class TablesValidatorTest {
                                                 .interval("12H")
                                                 .build()))
                                     .build())
+                            .build())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableRequestParamWithValidSnapshotRetentionPoliciesJson() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(ImmutableMap.of())
+                    .timePartitioning(
+                        TimePartitionSpec.builder()
+                            .columnName("timestamp")
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .baseTableVersion("base")
+                    .policies(
+                        Policies.builder().snapshotRetention(SNAPSHOT_RETENTION_POLICY).build())
+                    .build()));
+  }
+
+  @Test
+  public void validateRejectCreateTableRequestParamWithInvalidSnapshotRetentionPolicy() {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(ImmutableMap.of())
+                    .timePartitioning(
+                        TimePartitionSpec.builder()
+                            .columnName("timestamp")
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .policies(
+                        Policies.builder()
+                            .snapshotRetention(SnapshotRetention.builder().build())
                             .build())
                     .baseTableVersion("base")
                     .build()));

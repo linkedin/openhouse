@@ -43,6 +43,12 @@ public class PoliciesSpecMapperTest {
     Assertions.assertEquals(
         (Integer) JsonPath.read(policiesSpec, "$.snapshotRetention.timeCount"),
         TABLE_POLICIES.getSnapshotRetention().getTimeCount());
+    Assertions.assertEquals(
+        JsonPath.read(policiesSpec, "$.snapshotRetention.granularity"),
+        TABLE_POLICIES.getSnapshotRetention().getGranularity().toString());
+    Assertions.assertEquals(
+        (Integer) JsonPath.read(policiesSpec, "$.snapshotRetention.versionCount"),
+        TABLE_POLICIES.getSnapshotRetention().getVersionCount());
   }
 
   @Test

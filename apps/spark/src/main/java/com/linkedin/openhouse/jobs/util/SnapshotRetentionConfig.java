@@ -6,7 +6,10 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 
-/** Table retention config class. This is app side representation of /tables policies->retention */
+/**
+ * Snapshots retention config class. This is app side representation of /tables
+ * policies->snapshotRetention
+ */
 @Builder
 @Getter
 @EqualsAndHashCode
