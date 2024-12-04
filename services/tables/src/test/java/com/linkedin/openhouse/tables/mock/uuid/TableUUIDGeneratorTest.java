@@ -234,8 +234,7 @@ public class TableUUIDGeneratorTest {
                             Collections.singletonList(
                                 getIcebergSnapshot("/tmp/db/t-NOTUUID/maniffest-list")))
                         .build()));
-    Assertions.assertTrue(
-        exception.getMessage().contains("openhouse.tableUUID is missing in properties"));
+    Assertions.assertTrue(exception.getMessage().contains("contains invalid UUID"));
   }
 
   @Test
