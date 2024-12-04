@@ -26,7 +26,7 @@ statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
-  | ALTER TABLE multipartIdentifier SET POLICY '(' versionsRetentionPolicy ')'                         #setVersionsRetentionPolicy
+  | ALTER TABLE multipartIdentifier SET POLICY '(' snapshotRetentionPolicy ')'                         #setSnapshotRetentionPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
@@ -66,11 +66,7 @@ quotedIdentifier
     ;
 
 nonReserved
-<<<<<<< HEAD:integrations/spark/spark-3.1/openhouse-spark-runtime/src/main/antlr/com/linkedin/openhouse/spark/sql/catalyst/parser/extensions/OpenhouseSqlExtensions.g4
-    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | RETAIN_SNAPSHOTS
-=======
-    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | VERSIONS
->>>>>>> 3b7388d (Formatting fix):integrations/spark/openhouse-spark-runtime/src/main/antlr/com/linkedin/openhouse/spark/sql/catalyst/parser/extensions/OpenhouseSqlExtensions.g4
+    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | SNAPSHOT_RETENTION
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     ;
 
@@ -80,10 +76,6 @@ sharingPolicy
 
 BOOLEAN
     : 'TRUE' | 'FALSE'
-    ;
-
-AND_OR_LOGICAL_OPERATOR
-    : 'AND' | 'OR'
     ;
 
 retentionPolicy
@@ -163,13 +155,11 @@ policyTag
     : PII | HC
     ;
 
-versionsRetentionPolicy
-    : VERSIONS versionsTime
-    | VERSIONS versionsCount
-    | VERSIONS versionsTime AND_OR_LOGICAL_OPERATOR versionsCount
+snapshotRetentionPolicy
+    : SNAPSHOT_RETENTION retainTime? versionsCount?
     ;
 
-versionsTime
+retainTime
     : TIME'='duration
     ;
 
@@ -183,6 +173,7 @@ SET: 'SET';
 POLICY: 'POLICY';
 RETENTION: 'RETENTION';
 REPLICATION: 'REPLICATION';
+SNAPSHOT_RETENTION: 'SNAPSHOT_RETENTION';
 SHARING: 'SHARING';
 GRANT: 'GRANT';
 REVOKE: 'REVOKE';
