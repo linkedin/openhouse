@@ -9,11 +9,14 @@ import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import io.opentelemetry.api.metrics.Meter;
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -469,6 +472,65 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(0, result.addedDataFilesCount());
       Assertions.assertEquals(0, result.rewrittenDataFilesCount());
       Assertions.assertEquals(0, result.rewrittenBytesCount());
+    }
+  }
+
+  @Test
+  public void testDataCompactionPartitionedTableWithFilter() throws Exception {
+    final String tableName = "db.test_data_compaction_partitioned_with_filter";
+    final int numInsertsPerPartition = 3;
+    final int numDailyPartitions = 10;
+    final int numCompactedPartitions = 5;
+    final int maxCommits = 5;
+    long fixedTimestampMillis = System.currentTimeMillis();
+    long fixedTimestampSeconds = fixedTimestampMillis / 1000;
+    final String cutOffDate =
+        new SimpleDateFormat("yyyy-MM-dd")
+            .format(
+                new Date(fixedTimestampMillis - TimeUnit.DAYS.toMillis(numCompactedPartitions)));
+
+    BiFunction<Operations, Table, RewriteDataFiles.Result> rewriteFunc =
+        (ops, table) ->
+            ops.rewriteDataFiles(
+                table,
+                1024 * 1024, // 1MB
+                1024, // 1KB
+                1024 * 1024 * 2, // 2MB
+                2,
+                1,
+                false,
+                maxCommits,
+                String.format("ts > TIMESTAMP '%s'", cutOffDate));
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTable(ops, tableName, true);
+      for (int daysLag = 0; daysLag < numDailyPartitions; ++daysLag) {
+        populateTable(ops, tableName, numInsertsPerPartition, daysLag, fixedTimestampSeconds);
+      }
+      log.info("Produced the following data files:");
+      getDataFiles(ops, tableName).forEach(f -> log.info(f.toString()));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+      RewriteDataFiles.Result result = rewriteFunc.apply(ops, table);
+      log.info(
+          "Added {} data files, rewritten {} data files, rewritten {} bytes",
+          result.addedDataFilesCount(),
+          result.rewrittenDataFilesCount(),
+          result.rewrittenBytesCount());
+      Assertions.assertEquals(numCompactedPartitions, result.addedDataFilesCount());
+      Assertions.assertEquals(
+          numInsertsPerPartition * numCompactedPartitions, result.rewrittenDataFilesCount());
+      result
+          .rewriteResults()
+          .forEach(
+              fileGroupRewriteResult -> {
+                log.info(
+                    "File group {} has {} added files, {} rewritten files, {} rewritten bytes",
+                    Operations.groupInfoToString(fileGroupRewriteResult.info()),
+                    fileGroupRewriteResult.addedDataFilesCount(),
+                    fileGroupRewriteResult.rewrittenDataFilesCount(),
+                    fileGroupRewriteResult.rewrittenBytesCount());
+              });
     }
   }
 
