@@ -38,7 +38,7 @@ public class TableUUIDGeneratorTest {
   public void setUp() {
     MockitoAnnotations.openMocks(this);
     // Mock storage and catalog behavior
-    when(storageManager.getStorageFromPath(any(), any(), any(), any())).thenReturn(storage);
+    when(storageManager.getStorageFromPath(any())).thenReturn(storage);
     when(storage.getClient()).thenReturn(storageClient);
     when(storage.isPathValid(any(), any(), any(), any())).thenReturn(true);
     when(storageClient.getRootPrefix()).thenReturn("/tmp");

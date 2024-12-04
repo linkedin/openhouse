@@ -144,9 +144,7 @@ public class TableUUIDGenerator {
     // Scheme is not present for HDFS and Local storages. See:
     // https://github.com/linkedin/openhouse/issues/121
     String tableLocation = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
-    Storage storage =
-        storageManager.getStorageFromPath(
-            dbIdFromProps, tblIdFromProps, tableUUIDProperty, tableLocation);
+    Storage storage = storageManager.getStorageFromPath(tableLocation);
 
     if (TableType.REPLICA_TABLE != tableType
         && !storage.isPathValid(dbIdFromProps, tblIdFromProps, tableUUIDProperty, tableLocation)) {
@@ -202,14 +200,8 @@ public class TableUUIDGenerator {
             tableURI,
             snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
             TBL_LOC_RAW_KEY);
-    String tableUUID =
-        extractFromTblPropsIfExists(
-            tableURI,
-            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
-            TBL_UUID_RAW_KEY);
 
-    Storage storage =
-        storageManager.getStorageFromPath(databaseId, tableId, tableUUID, tableLocation);
+    Storage storage = storageManager.getStorageFromPath(tableLocation);
     java.nio.file.Path databaseDirPath = Paths.get(storage.getClient().getRootPrefix(), databaseId);
     String manifestListKey = "manifest-list";
     java.nio.file.Path manifestListPath;

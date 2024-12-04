@@ -98,19 +98,20 @@ public class StorageManager {
 
   /**
    * Get the storage from the provided path. Iterate over all storages and return the storage which
-   * is configured and its endpoint is the prefix of supplied path. Note: if local storage type is
-   * configured, then return the local storage. This is a workaround for unit tests to work because
-   * hdfs and local storage do not append scheme to the paths. See:
-   * https://github.com/linkedin/openhouse/issues/121
+   * is configured and its endpoint is the prefix of supplied path. Note: This method assumes both
+   * hdfs and local storage are not configured at the same time since both hdfs and local storage do
+   * not append scheme to the paths. See: https://github.com/linkedin/openhouse/issues/121
    *
    * @param path Path that contains the scheme
    * @return the storage
    */
-  public Storage getStorageFromPath(
-      String databaseId, String tableId, String tableUUID, String path) {
+  public Storage getStorageFromPath(String path) {
     for (Storage storage : storages) {
       if (storage.isConfigured()) {
-        if (storage.isPathValid(databaseId, tableId, tableUUID, path)) {
+        if (path.startsWith(storage.getClient().getEndpoint())) {
+          log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
+          return storage;
+        } else if (path.startsWith("/")) {
           log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
           return storage;
         } else if (StorageType.LOCAL.equals(storage.getType())) {

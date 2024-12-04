@@ -48,7 +48,7 @@ public class TableUUIDGeneratorMultiStorageTest {
     when(resolvedStorageClient.getEndpoint()).thenReturn("s3://");
     when(resolvedStorageClient.getRootPrefix()).thenReturn("bucket");
     // storage manager returns resolved storage
-    when(storageManager.getStorageFromPath(any(), any(), any(), any())).thenReturn(resolvedStorage);
+    when(storageManager.getStorageFromPath(any())).thenReturn(resolvedStorage);
 
     UUID expectedUUID = UUID.randomUUID();
     UUID existingUUID =

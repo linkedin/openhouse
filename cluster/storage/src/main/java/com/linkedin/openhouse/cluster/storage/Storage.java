@@ -86,7 +86,7 @@ public interface Storage {
     String tableLocationPrefix = allocateTableLocation(databaseId, tableId, tableUUID, "");
     Preconditions.checkArgument(
         path.startsWith(tableLocationPrefix),
-        String.format("%s is not a prefix of table location %s", path, tableLocationPrefix));
+        String.format("%s is not under table location %s", path, tableLocationPrefix));
     return getClient().exists(path);
   }
 }
