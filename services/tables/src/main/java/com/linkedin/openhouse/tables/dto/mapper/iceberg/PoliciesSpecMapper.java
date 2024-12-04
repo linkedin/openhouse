@@ -18,7 +18,7 @@ import org.mapstruct.Mapper;
 import org.mapstruct.Named;
 
 @Mapper(componentModel = "spring")
-public class PoliciesSpecMapper {
+public class  PoliciesSpecMapper {
 
   /**
    * Given an Iceberg {@link TableDto}, serialize to JsonString format.
@@ -30,7 +30,9 @@ public class PoliciesSpecMapper {
   public String toPoliciesJsonString(TableDto tableDto) throws JsonParseException {
     if (tableDto.getPolicies() != null) {
       try {
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        Gson gson = new GsonBuilder().setPrettyPrinting()
+            .disableHtmlEscaping()
+            .create();
         return gson.toJson(tableDto.getPolicies());
       } catch (JsonParseException e) {
         throw new JsonParseException("Malformed policies json");
@@ -47,7 +49,9 @@ public class PoliciesSpecMapper {
   public Policies toPoliciesObject(String policiesString) throws JsonParseException {
     if (policiesString.length() != 0) {
       try {
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        Gson gson = new GsonBuilder().setPrettyPrinting()
+            .disableHtmlEscaping()
+            .create();
         return gson.fromJson(policiesString, Policies.class);
       } catch (JsonParseException e) {
         throw new JsonParseException(

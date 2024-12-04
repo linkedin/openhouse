@@ -43,6 +43,20 @@ public class PoliciesSpecMapperTest {
   }
 
   @Test
+  public void testFromPoliciesSpecJsonEscapedUnicode() {
+    TableDto tableDto =
+        TableModelConstants.buildTableDto(
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
+                .policies(TableModelConstants.TABLE_POLICIES_COMPLEX)
+                .build());
+    String policiesSpec = policiesMapper.toPoliciesJsonString(tableDto);
+    Assertions.assertEquals(
+        (String) JsonPath.read(policiesSpec, "$.retention.columnPattern.pattern"),
+        TableModelConstants.TABLE_POLICIES_COMPLEX.getRetention().getCount());
+  }
+
+  @Test
   public void testToPoliciesSpecJsonWithNullPolicies() {
     TableDto tableDtoWithNullPolicies =
         TableModelConstants.buildTableDto(
