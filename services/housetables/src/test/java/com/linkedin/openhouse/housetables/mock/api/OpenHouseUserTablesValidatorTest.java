@@ -33,16 +33,42 @@ public class OpenHouseUserTablesValidatorTest {
   }
 
   @Test
-  public void validateGetAllEntitiesSuccess() {
-    UserTable userTable = UserTable.builder().tableId("tb1").databaseId("db1").build();
+  public void validateGetAllEntitiesSuccessEmptyParams() {
+    UserTable userTable = UserTable.builder().build();
     assertDoesNotThrow(() -> userTablesHtsApiValidator.validateGetEntities(userTable));
   }
 
   @Test
-  public void validateInValidGetAllEntities() {
-    UserTable userTable = UserTable.builder().databaseId("db??").build();
+  public void validateGetAllEntitiesSuccessTablePattern() {
+    UserTable userTable = UserTable.builder().tableId("%tb%").databaseId("db1").build();
+    assertDoesNotThrow(() -> userTablesHtsApiValidator.validateGetEntities(userTable));
+  }
 
-    // Invalid databaseId and empty tableId.
+  @Test
+  public void validateInValidGetAllEntitiesBadDatabaseId() {
+    UserTable userTable = UserTable.builder().databaseId("db%").build();
+
+    // Invalid databaseId
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesHtsApiValidator.validateGetEntities(userTable));
+  }
+
+  @Test
+  public void validateInValidGetAllEntitiesTableIdWithoutDatabaseId() {
+    UserTable userTable = UserTable.builder().tableId("tb").build();
+
+    // Provide tableId without databaseId
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesHtsApiValidator.validateGetEntities(userTable));
+  }
+
+  @Test
+  public void validateInValidGetAllEntitiesUnsupportedField() {
+    UserTable userTable = UserTable.builder().creationTime(1L).build();
+
+    // Search by creationTime not supported.
     assertThrows(
         RequestValidationFailureException.class,
         () -> userTablesHtsApiValidator.validateGetEntities(userTable));

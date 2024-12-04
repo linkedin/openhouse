@@ -4,6 +4,11 @@ public final class ValidatorConstants {
 
   private ValidatorConstants() {}
 
+  public static final String ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_REGEX = "^%?[a-zA-Z0-9_]+%?$";
+
+  public static final String ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_ERROR_MSG =
+      "Only alphanumerics and underscore supported. The wildcard '%' can only be at the beginning or end of the string";
+
   public static final String ALPHA_NUM_UNDERSCORE_REGEX = "^[a-zA-Z0-9_]+$";
   public static final String ALPHA_NUM_UNDERSCORE_ERROR_MSG =
       "Only alphanumerics and underscore supported";
