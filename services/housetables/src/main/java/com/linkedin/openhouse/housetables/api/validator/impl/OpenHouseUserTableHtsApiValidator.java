@@ -67,16 +67,17 @@ public class OpenHouseUserTableHtsApiValidator
               userTable.getDatabaseId(), ALPHA_NUM_UNDERSCORE_ERROR_MSG));
     }
 
-    if (userTable.getTableId() != null
-        && !userTable.getTableId().matches(ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_REGEX)) {
-      validationFailures.add(
-          String.format(
-              "tableId provided: %s, %s",
-              userTable.getTableId(), ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_ERROR_MSG));
-    }
+    if (userTable.getTableId() != null) {
+      if (userTable.getDatabaseId() == null) {
+        validationFailures.add("tableId cannot be provided without databaseId");
+      }
 
-    if (userTable.getDatabaseId() == null && userTable.getTableId() != null) {
-      validationFailures.add("tableId cannot be provided without databaseId");
+      if (!userTable.getTableId().matches(ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_REGEX)) {
+        validationFailures.add(
+            String.format(
+                "tableId provided: %s, %s",
+                userTable.getTableId(), ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_ERROR_MSG));
+      }
     }
 
     if (!validationFailures.isEmpty()) {
