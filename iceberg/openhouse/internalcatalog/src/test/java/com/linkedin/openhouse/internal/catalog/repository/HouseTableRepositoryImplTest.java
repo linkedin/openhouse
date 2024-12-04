@@ -338,9 +338,9 @@ public class HouseTableRepositoryImplTest {
   @Test
   public void testListOfAllTables() {
     List<UserTable> tables = new ArrayList<>();
-    tables.add(houseTableMapper.toUserTable(HOUSE_TABLE));
-    tables.add(houseTableMapper.toUserTable(HOUSE_TABLE_SAME_DB));
-    tables.add(houseTableMapper.toUserTable(HOUSE_TABLE_DIFF_DB));
+    tables.add(houseTableMapper.toUserTableWithDatabaseId(HOUSE_TABLE));
+    tables.add(houseTableMapper.toUserTableWithDatabaseId(HOUSE_TABLE_SAME_DB));
+    tables.add(houseTableMapper.toUserTableWithDatabaseId(HOUSE_TABLE_DIFF_DB));
     GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
 
     Field resultField =
