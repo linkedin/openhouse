@@ -32,6 +32,7 @@ public class TableUUIDGenerator {
   private static final String DB_RAW_KEY = "databaseId";
   private static final String TBL_RAW_KEY = "tableId";
   private static final String TBL_LOC_RAW_KEY = "tableLocation";
+  private static final String TBL_UUID_RAW_KEY = "tableUUID";
 
   @Autowired StorageManager storageManager;
 
@@ -143,9 +144,12 @@ public class TableUUIDGenerator {
     // Scheme is not present for HDFS and Local storages. See:
     // https://github.com/linkedin/openhouse/issues/121
     String tableLocation = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
-    Storage storage = storageManager.getStorageFromPath(tableLocation);
+    Storage storage =
+        storageManager.getStorageFromPath(
+            dbIdFromProps, tblIdFromProps, tableUUIDProperty, tableLocation);
 
-    if (TableType.REPLICA_TABLE != tableType && !storage.getClient().exists(tableLocation)) {
+    if (TableType.REPLICA_TABLE != tableType
+        && !storage.isPathValid(dbIdFromProps, tblIdFromProps, tableUUIDProperty, tableLocation)) {
       log.error("Previous tableLocation: {} doesn't exist", tableLocation);
       throw new RequestValidationFailureException(
           String.format("Provided snapshot is invalid for %s.%s", dbIdFromProps, tblIdFromProps));
@@ -193,12 +197,19 @@ public class TableUUIDGenerator {
     // tableLocation should be the absolute path to the latest metadata file including scheme.
     // Scheme is not present for HDFS and Local storages. See:
     // https://github.com/linkedin/openhouse/issues/121
+    String tableLocation =
+        extractFromTblPropsIfExists(
+            tableURI,
+            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
+            TBL_LOC_RAW_KEY);
+    String tableUUID =
+        extractFromTblPropsIfExists(
+            tableURI,
+            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
+            TBL_UUID_RAW_KEY);
+
     Storage storage =
-        storageManager.getStorageFromPath(
-            extractFromTblPropsIfExists(
-                tableURI,
-                snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
-                TBL_LOC_RAW_KEY));
+        storageManager.getStorageFromPath(databaseId, tableId, tableUUID, tableLocation);
     java.nio.file.Path databaseDirPath = Paths.get(storage.getClient().getRootPrefix(), databaseId);
     String manifestListKey = "manifest-list";
     java.nio.file.Path manifestListPath;

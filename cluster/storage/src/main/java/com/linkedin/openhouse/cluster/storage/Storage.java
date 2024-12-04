@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.cluster.storage;
 
+import com.google.common.base.Preconditions;
 import java.util.Map;
 
 /**
@@ -72,13 +73,20 @@ public interface Storage {
       String databaseId, String tableId, String tableUUID, String tableCreator);
 
   /**
-   * Checks if the provided path is a valid path for this storage type. It defaults to checking if
-   * the path starts with the endpoint (scheme) specified in cluster.yaml
+   * Checks if the provided path is valid for this table. It returns true if the provided path
+   * starts with the table location. Example: Hdfs TableLocation: /root/path/db/table-uuid path:
+   * /root/path/db/table-uuid/metadata/metadata.json - returns true if file exists s3 TableLocation:
+   * s3://bucket/root/path/db/table-uuid path: s3://bucket/root/path/db/table-uuid/data/file.orc -
+   * returns true if file exists
    *
    * @param path path to a file/object
-   * @return true if endpoint is specified in cluster.yaml else false
+   * @return true if it's under the table location directory
    */
-  default boolean isPathValid(String path) {
-    return path.startsWith(getClient().getEndpoint());
+  default boolean isPathValid(String databaseId, String tableId, String tableUUID, String path) {
+    String tableLocationPrefix = allocateTableLocation(databaseId, tableId, tableUUID, "");
+    Preconditions.checkArgument(
+        path.startsWith(tableLocationPrefix),
+        String.format("%s is not a prefix of table location %s", path, tableLocationPrefix));
+    return getClient().exists(path);
   }
 }

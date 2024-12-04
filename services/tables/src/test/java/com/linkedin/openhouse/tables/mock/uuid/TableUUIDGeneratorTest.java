@@ -38,8 +38,9 @@ public class TableUUIDGeneratorTest {
   public void setUp() {
     MockitoAnnotations.openMocks(this);
     // Mock storage and catalog behavior
-    when(storageManager.getStorageFromPath(any())).thenReturn(storage);
+    when(storageManager.getStorageFromPath(any(), any(), any(), any())).thenReturn(storage);
     when(storage.getClient()).thenReturn(storageClient);
+    when(storage.isPathValid(any(), any(), any(), any())).thenReturn(true);
     when(storageClient.getRootPrefix()).thenReturn("/tmp");
     when(storageClient.exists(any())).thenReturn(true);
   }
@@ -233,7 +234,8 @@ public class TableUUIDGeneratorTest {
                             Collections.singletonList(
                                 getIcebergSnapshot("/tmp/db/t-NOTUUID/maniffest-list")))
                         .build()));
-    Assertions.assertTrue(exception.getMessage().contains("contains invalid UUID"));
+    Assertions.assertTrue(
+        exception.getMessage().contains("openhouse.tableUUID is missing in properties"));
   }
 
   @Test

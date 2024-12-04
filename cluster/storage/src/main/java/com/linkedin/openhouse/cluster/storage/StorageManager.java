@@ -106,10 +106,11 @@ public class StorageManager {
    * @param path Path that contains the scheme
    * @return the storage
    */
-  public Storage getStorageFromPath(String path) {
+  public Storage getStorageFromPath(
+      String databaseId, String tableId, String tableUUID, String path) {
     for (Storage storage : storages) {
       if (storage.isConfigured()) {
-        if (storage.isPathValid(path)) {
+        if (storage.isPathValid(databaseId, tableId, tableUUID, path)) {
           log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
           return storage;
         } else if (StorageType.LOCAL.equals(storage.getType())) {
