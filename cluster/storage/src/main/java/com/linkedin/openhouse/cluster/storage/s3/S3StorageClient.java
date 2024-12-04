@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.aws.AwsClientFactories;
 import org.apache.iceberg.aws.AwsClientFactory;
 import org.apache.iceberg.exceptions.ServiceUnavailableException;
@@ -76,14 +77,15 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
         path.startsWith(getEndpoint()), String.format("Invalid S3 URL format %s", path));
     try {
       URI uri = new URI(path);
-      String schemeSpecificPart = uri.getSchemeSpecificPart();
-      int firstSlash = schemeSpecificPart.indexOf('/');
-      if (firstSlash == -1) {
+      String bucket = uri.getHost();
+      String pathFromURI = uri.getPath();
+      if (StringUtils.isEmpty(bucket) || StringUtils.isEmpty(pathFromURI)) {
         throw new IllegalArgumentException(
-            String.format("S3 URL must contain a bucket and key: %s", path));
+            String.format("S3 URL must contain bucket name and path: %s", path));
       }
-      String bucket = schemeSpecificPart.substring(0, firstSlash);
-      String key = schemeSpecificPart.substring(firstSlash + 1);
+
+      String key = pathFromURI.startsWith("/") ? pathFromURI.substring(1) : pathFromURI;
+      log.info("Checking object existence for bucket {} and path {}", bucket, key);
 
       HeadObjectRequest headObjectRequest =
           HeadObjectRequest.builder().bucket(bucket).key(key).build();
