@@ -82,7 +82,7 @@ public interface Storage {
    * @param path path to a file/object
    * @return true if it's under the table location directory
    */
-  default boolean isPathValid(String databaseId, String tableId, String tableUUID, String path) {
+  default boolean isPathValid(String path, String databaseId, String tableId, String tableUUID) {
     String tableLocationPrefix = allocateTableLocation(databaseId, tableId, tableUUID, "");
     Preconditions.checkArgument(
         path.startsWith(tableLocationPrefix),
