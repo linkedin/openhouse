@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.mock.mapper;
 
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 
-import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
@@ -50,10 +50,36 @@ public class PoliciesSpecMapperTest {
                 .toBuilder()
                 .policies(TableModelConstants.TABLE_POLICIES_COMPLEX)
                 .build());
+
     String policiesSpec = policiesMapper.toPoliciesJsonString(tableDto);
     Assertions.assertEquals(
-        (String) JsonPath.read(policiesSpec, "$.retention.columnPattern.pattern"),
-        TableModelConstants.TABLE_POLICIES_COMPLEX.getRetention().getCount());
+        policiesSpec.toCharArray().length, TABLE_POLICIES_COMPLEX_STRING.toCharArray().length);
+    Assertions.assertArrayEquals(
+        policiesSpec.toCharArray(), TABLE_POLICIES_COMPLEX_STRING.toCharArray());
+
+    Policies policies = policiesMapper.toPoliciesObject(TABLE_POLICIES_COMPLEX_STRING);
+    Assertions.assertEquals(policies, TableModelConstants.TABLE_POLICIES_COMPLEX);
+  }
+
+  @Test
+  public void testToPolicyObjectFromJsonEscapedUnicode() {
+    Policies policies = policiesMapper.toPoliciesObject(TABLE_POLICIES_COMPLEX_STRING);
+    Assertions.assertEquals(policies, TableModelConstants.TABLE_POLICIES_COMPLEX);
+    Assertions.assertEquals(
+        policies.getRetention().getCount(),
+        GET_TABLE_RESPONSE_BODY.getPolicies().getRetention().getCount());
+
+    // Backwards compatibility, deserializing without the disableHtmlEscaping() gson option
+    String policyWithEscapedChars =
+        new GsonBuilder()
+            .setPrettyPrinting()
+            .create()
+            .toJson(TableModelConstants.TABLE_POLICIES_COMPLEX);
+    policies = policiesMapper.toPoliciesObject(policyWithEscapedChars);
+    Assertions.assertEquals(policies, TableModelConstants.TABLE_POLICIES_COMPLEX);
+    Assertions.assertEquals(
+        policies.getRetention().getCount(),
+        GET_TABLE_RESPONSE_BODY.getPolicies().getRetention().getCount());
   }
 
   @Test
@@ -89,9 +115,8 @@ public class PoliciesSpecMapperTest {
 
   @Test
   public void testToPolicyObjectFromJson() {
-    Policies policies =
-        policiesMapper.toPoliciesObject(new Gson().toJson(TableModelConstants.TABLE_POLICIES));
-    Assertions.assertEquals(policies, TableModelConstants.TABLE_POLICIES);
+    Policies policies = policiesMapper.toPoliciesObject(TABLE_POLICIES_COMPLEX_STRING);
+    Assertions.assertEquals(policies, TABLE_POLICIES_COMPLEX);
     Assertions.assertEquals(
         policies.getRetention().getCount(),
         GET_TABLE_RESPONSE_BODY.getPolicies().getRetention().getCount());
