@@ -15,15 +15,15 @@ import lombok.NoArgsConstructor;
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class SnapshotRetention {
+public class History {
   @Schema(
       description =
           "time period in count <granularity> for which the retention on table will be applied",
       example = "3,4,5")
   @PositiveOrZero(
-      message = "Incorrect count specified. retention.timeCount has to be a positive integer")
+      message = "Incorrect count specified. retention.maxAge has to be a positive integer")
   @Valid
-  int timeCount;
+  int maxAge;
 
   @Schema(
       description = "time period granularity for which the retention on table will be applied",
@@ -35,6 +35,6 @@ public class SnapshotRetention {
       description = "minimum number of snapshots to keep within history for the table",
       example = "3,4,5")
   @PositiveOrZero(
-      message = "Incorrect count specified. retention.versionCount has to be a positive integer")
-  int versionCount;
+      message = "Incorrect count specified. retention.minVersions has to be a positive integer")
+  int minVersions;
 }

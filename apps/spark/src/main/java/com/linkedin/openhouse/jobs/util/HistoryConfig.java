@@ -6,17 +6,13 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 
-/**
- * Snapshots retention config class. This is app side representation of /tables
- * policies->snapshotRetention
- */
+/** History config class. This is app side representation of /tables policies->history */
 @Builder
 @Getter
 @EqualsAndHashCode
 @ToString
-public class SnapshotRetentionConfig {
-  private final String columnName;
-  private final String columnPattern;
+public class HistoryConfig {
   private final Retention.GranularityEnum granularity;
-  private final int count;
+  private final int maxAge;
+  private final int minVersions;
 }

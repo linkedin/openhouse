@@ -217,8 +217,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       policies.replication(patchUpdatedPolicy.getReplication());
     }
     // Update snapshot retention config
-    if (patchUpdatedPolicy.getSnapshotRetention() != null) {
-      policies.setSnapshotRetention(patchUpdatedPolicy.getSnapshotRetention());
+    if (patchUpdatedPolicy.getHistory() != null) {
+      policies.setHistory(patchUpdatedPolicy.getHistory());
     }
 
     return policies;

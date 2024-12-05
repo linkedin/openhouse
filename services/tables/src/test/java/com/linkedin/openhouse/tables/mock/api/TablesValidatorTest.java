@@ -10,12 +10,12 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.SnapshotRetention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -832,7 +832,7 @@ public class TablesValidatorTest {
   }
 
   @Test
-  public void validateCreateTableRequestParamWithValidSnapshotRetentionPoliciesJson() {
+  public void validateCreateTableRequestParamWithValidHistoryPoliciesJson() {
     assertDoesNotThrow(
         () ->
             tablesApiValidator.validateCreateTable(
@@ -850,13 +850,12 @@ public class TablesValidatorTest {
                             .granularity(TimePartitionSpec.Granularity.HOUR)
                             .build())
                     .baseTableVersion("base")
-                    .policies(
-                        Policies.builder().snapshotRetention(SNAPSHOT_RETENTION_POLICY).build())
+                    .policies(Policies.builder().history(SNAPSHOT_RETENTION_POLICY).build())
                     .build()));
   }
 
   @Test
-  public void validateRejectCreateTableRequestParamWithInvalidSnapshotRetentionPolicy() {
+  public void validateRejectCreateTableRequestParamWithInvalidHistoryPolicy() {
     assertThrows(
         RequestValidationFailureException.class,
         () ->
@@ -874,10 +873,7 @@ public class TablesValidatorTest {
                             .columnName("timestamp")
                             .granularity(TimePartitionSpec.Granularity.HOUR)
                             .build())
-                    .policies(
-                        Policies.builder()
-                            .snapshotRetention(SnapshotRetention.builder().build())
-                            .build())
+                    .policies(Policies.builder().history(History.builder().build()).build())
                     .baseTableVersion("base")
                     .build()));
   }

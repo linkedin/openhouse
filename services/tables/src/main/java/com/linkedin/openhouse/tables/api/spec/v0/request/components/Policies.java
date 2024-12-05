@@ -51,8 +51,8 @@ public class Policies {
 
   @Schema(
       description =
-          "Snapshot retention as required in /tables API request. This field holds the snapshot retention specification.",
-      example = "{snapshotRetention:{timeCount:3, granularity: 'day', versionCount: 5}}")
+          "History as required in /tables API request. This field holds the snapshot retention specification.",
+      example = "{history:{maxAge:3, granularity: 'day', minVersions: 5}}")
   @Valid
-  SnapshotRetention snapshotRetention;
+  History history;
 }

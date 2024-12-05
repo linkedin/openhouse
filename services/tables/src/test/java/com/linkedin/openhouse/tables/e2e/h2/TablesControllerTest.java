@@ -24,13 +24,13 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.SnapshotRetention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -1196,7 +1196,7 @@ public class TablesControllerTest {
   }
 
   @Test
-  public void testUpdateSucceedsForSnapshotRetentionPolicy() throws Exception {
+  public void testUpdateSucceedsForHistoryPolicy() throws Exception {
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
             GET_TABLE_RESPONSE_BODY, mvc, storageManager);
@@ -1204,13 +1204,10 @@ public class TablesControllerTest {
     LinkedHashMap<String, LinkedHashMap> currentPolicies =
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
-    SnapshotRetention snapshotRetention =
-        SnapshotRetention.builder()
-            .timeCount(3)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .build();
+    History history =
+        History.builder().maxAge(3).granularity(TimePartitionSpec.Granularity.DAY).build();
 
-    Policies newPolicies = Policies.builder().snapshotRetention(snapshotRetention).build();
+    Policies newPolicies = Policies.builder().history(history).build();
 
     GetTableResponseBody container = GetTableResponseBody.builder().policies(newPolicies).build();
     GetTableResponseBody addProp = buildGetTableResponseBody(mvcResult, container);
@@ -1233,11 +1230,11 @@ public class TablesControllerTest {
 
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
 
-    LinkedHashMap<String, String> updatedSnapshotRetention =
-        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies.snapshotRetention");
+    LinkedHashMap<String, String> updatedHistory =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies.history");
 
-    Assertions.assertEquals(updatedSnapshotRetention.get("timeCount"), 3);
-    Assertions.assertEquals(updatedSnapshotRetention.get("granularity"), "DAY");
+    Assertions.assertEquals(updatedHistory.get("maxAge"), "3");
+    Assertions.assertEquals(updatedHistory.get("granularity"), "DAY");
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }

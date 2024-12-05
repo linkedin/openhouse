@@ -8,12 +8,12 @@ import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.SnapshotRetention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -44,7 +44,7 @@ public final class TableModelConstants {
   public static RetentionColumnPattern COL_PAT;
   public static Retention RETENTION_POLICY;
   public static Replication REPLICATION_POLICY;
-  public static SnapshotRetention SNAPSHOT_RETENTION_POLICY;
+  public static History SNAPSHOT_RETENTION_POLICY;
 
   public static final Retention RETENTION_POLICY_WITH_PATTERN;
   public static final Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
@@ -67,10 +67,10 @@ public final class TableModelConstants {
     configs.add(ReplicationConfig.builder().destination("cluster1").interval("12H").build());
     REPLICATION_POLICY = Replication.builder().config(configs).build();
     SNAPSHOT_RETENTION_POLICY =
-        SnapshotRetention.builder()
-            .timeCount(3)
+        History.builder()
+            .maxAge(3)
             .granularity(TimePartitionSpec.Granularity.DAY)
-            .versionCount(10)
+            .minVersions(10)
             .build();
     RETENTION_POLICY_WITH_PATTERN =
         Retention.builder()
@@ -89,7 +89,7 @@ public final class TableModelConstants {
         Policies.builder()
             .retention(RETENTION_POLICY)
             .replication(REPLICATION_POLICY)
-            .snapshotRetention(SNAPSHOT_RETENTION_POLICY)
+            .history(SNAPSHOT_RETENTION_POLICY)
             .build();
     TABLE_POLICIES_COMPLEX = Policies.builder().retention(RETENTION_POLICY_WITH_PATTERN).build();
     SHARED_TABLE_POLICIES =
