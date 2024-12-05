@@ -2,7 +2,7 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, SetSnapshotsRetentionPolicy, ShowGrantsStatement}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
@@ -163,18 +163,21 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     (granularity, count)
   }
 
-  override def visitSetSnapshotRetentionPolicy(ctx: SetSnapshotRetentionPolicyContext): SetSnapshotsRetentionPolicy = {
+  override def visitSetHistoryPolicy(ctx: SetHistoryPolicyContext): SetHistoryPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val (granularity, timeCount, count) = typedVisit[(Option[String], Int, Int)](ctx.snapshotRetentionPolicy())
-    SetSnapshotsRetentionPolicy(tableName, granularity, timeCount, count)
+    val (granularity, timeCount, count) = typedVisit[(Option[String], Int, Int)](ctx.historyPolicy())
+    SetHistoryPolicy(tableName, granularity, timeCount, count)
   }
-  override def visitSnapshotRetentionPolicy(ctx: SnapshotRetentionPolicyContext): (Option[String], Int, Int) = {
+  override def visitHistoryPolicy(ctx: HistoryPolicyContext): (Option[String], Int, Int) = {
     val timePolicy = if (ctx.retainTime() != null)
         typedVisit[(String, Int)](ctx.retainTime().duration())
       else (null, -1)
     val countPolicy = if (ctx.versionsCount() != null)
         typedVisit[Int](ctx.versionsCount())
       else -1
+    if (timePolicy._2 == -1 && countPolicy == -1) {
+      throw new OpenhouseParseException("Either TIME or VERSIONS must be specified in HISTORY policy", ctx.start.getLine, ctx.start.getCharPositionInLine)
+    }
     (Option(timePolicy._1), timePolicy._2, countPolicy)
   }
 

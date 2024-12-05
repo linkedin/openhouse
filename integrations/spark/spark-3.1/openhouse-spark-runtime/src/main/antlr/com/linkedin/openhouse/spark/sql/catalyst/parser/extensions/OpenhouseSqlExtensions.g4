@@ -26,7 +26,7 @@ statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
-  | ALTER TABLE multipartIdentifier SET POLICY '(' snapshotRetentionPolicy ')'                         #setSnapshotRetentionPolicy
+  | ALTER TABLE multipartIdentifier SET POLICY '(' historyPolicy ')'                                   #setHistoryPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
@@ -66,7 +66,7 @@ quotedIdentifier
     ;
 
 nonReserved
-    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | SNAPSHOT_RETENTION
+    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     ;
 
@@ -155,8 +155,8 @@ policyTag
     : PII | HC
     ;
 
-snapshotRetentionPolicy
-    : SNAPSHOT_RETENTION retainTime? versionsCount?
+historyPolicy
+    : HISTORY retainTime? versionsCount?
     ;
 
 retainTime
@@ -173,7 +173,7 @@ SET: 'SET';
 POLICY: 'POLICY';
 RETENTION: 'RETENTION';
 REPLICATION: 'REPLICATION';
-SNAPSHOT_RETENTION: 'SNAPSHOT_RETENTION';
+HISTORY: 'HISTORY';
 SHARING: 'SHARING';
 GRANT: 'GRANT';
 REVOKE: 'REVOKE';
