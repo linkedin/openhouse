@@ -361,6 +361,21 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
         exception, errorResponseBody, headers, HttpStatus.BAD_REQUEST, request);
   }
 
+  @Hidden
+  @ExceptionHandler(IllegalArgumentException.class)
+  protected ResponseEntity<ErrorResponseBody> handleIllegalArgumentException(
+      IllegalArgumentException illegalArgumentException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.BAD_REQUEST)
+            .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+            .message(illegalArgumentException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(illegalArgumentException))
+            .cause(getExceptionCause(illegalArgumentException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
   /**
    * Handles all other exceptions either not defined above or are runtime exceptions. With this
    * method, we handle all exceptions occurred in the controller properly limiting our response path

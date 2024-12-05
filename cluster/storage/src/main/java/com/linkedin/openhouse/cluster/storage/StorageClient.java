@@ -47,4 +47,16 @@ public interface StorageClient<T> {
    * @return the root prefix for OpenHouse on the storage system
    */
   String getRootPrefix();
+
+  /**
+   * Checks if the path exists on the backend storage. Path is the absolute path to file/object
+   * which may or may not include scheme. Scheme is not specified in the path for local and hdfs
+   * storage. See: https://github.com/linkedin/openhouse/issues/121 Example: For Hdfs and local file
+   * system, the path would be /rootPath/db/table/file. For S3, the path would be
+   * s3://rootPath/db/table/file
+   *
+   * @param path path to a file
+   * @return true if path exists else false
+   */
+  boolean exists(String path);
 }

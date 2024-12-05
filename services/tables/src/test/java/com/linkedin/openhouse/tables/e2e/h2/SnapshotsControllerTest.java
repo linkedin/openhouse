@@ -8,6 +8,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import com.google.common.collect.ImmutableList;
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -63,6 +64,8 @@ public class SnapshotsControllerTest {
 
   @Autowired StorageManager storageManager;
 
+  @Autowired LocalStorage localStorage;
+
   /** For now starting with a naive object feeder. */
   private static Stream<GetTableResponseBody> responseBodyFeeder() {
     return Stream.of(GET_TABLE_RESPONSE_BODY);
@@ -113,7 +116,8 @@ public class SnapshotsControllerTest {
                 getTableResponseBody
                     .toBuilder()
                     .tableVersion(INITIAL_TABLE_VERSION)
-                    .tableProperties(tablePropsHelperForResponseBody(getTableResponseBody))
+                    .tableProperties(
+                        tablePropsHelperForResponseBody(getTableResponseBody, beforeUUID))
                     .tableUUID(beforeUUID)
                     .build()));
     Map<String, String> snapshotRefs =
@@ -126,7 +130,8 @@ public class SnapshotsControllerTest {
                 buildCreateUpdateTableRequestBody(getTableResponseBody)
                     .toBuilder()
                     .baseTableVersion(INITIAL_TABLE_VERSION)
-                    .tableProperties(tablePropsHelperForResponseBody(getTableResponseBody))
+                    .tableProperties(
+                        tablePropsHelperForResponseBody(getTableResponseBody, beforeUUID))
                     .build())
             .jsonSnapshots(jsonSnapshots)
             .snapshotRefs(snapshotRefs)
@@ -237,9 +242,18 @@ public class SnapshotsControllerTest {
     String dataFilePath2 =
         storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data2.orc";
     Map<String, String> propsMap = new HashMap<>();
-    propsMap.put("openhouse.tableUUID", "cee3c6a3-a824-443a-832a-d4a1271e1e3e");
+    String uuid = "cee3c6a3-a824-443a-832a-d4a1271e1e3e";
+    propsMap.put("openhouse.tableUUID", uuid);
     propsMap.put("openhouse.databaseId", getTableResponseBody.getDatabaseId());
     propsMap.put("openhouse.tableId", getTableResponseBody.getTableId());
+    propsMap.put(
+        "openhouse.tableLocation",
+        String.format(
+            "%s/%s/%s-%s/metadata.json",
+            localStorage.getClient().getRootPrefix(),
+            getTableResponseBody.getDatabaseId(),
+            getTableResponseBody.getTableId(),
+            uuid));
 
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
@@ -336,12 +350,22 @@ public class SnapshotsControllerTest {
 
   /**
    * For mock responseBody, ensure they are equipped with correct properties that are critical for
-   * casing contract.
+   * casing contract and ctas.
    */
-  private Map<String, String> tablePropsHelperForResponseBody(GetTableResponseBody responseBody) {
-    Map<String, String> originalProps = responseBody.getTableProperties();
+  private Map<String, String> tablePropsHelperForResponseBody(
+      GetTableResponseBody responseBody, String uuid) {
+    Map<String, String> originalProps = new HashMap<>(responseBody.getTableProperties());
     originalProps.put("openhouse.databaseId", responseBody.getDatabaseId());
     originalProps.put("openhouse.tableId", responseBody.getTableId());
+    originalProps.put("openhouse.tableUUID", uuid);
+    originalProps.put(
+        "openhouse.tableLocation",
+        String.format(
+            "%s/%s/%s-%s/metadata.json",
+            localStorage.getClient().getRootPrefix(),
+            responseBody.getDatabaseId(),
+            responseBody.getTableId(),
+            uuid));
     return originalProps;
   }
 }

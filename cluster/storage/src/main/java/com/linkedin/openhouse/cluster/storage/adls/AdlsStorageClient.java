@@ -64,4 +64,10 @@ public class AdlsStorageClient extends BaseStorageClient<DataLakeFileClient> {
   public StorageType.Type getStorageType() {
     return ADLS_TYPE;
   }
+
+  @Override
+  public boolean exists(String path) {
+    // TODO: Support pathExists on ADLS
+    throw new UnsupportedOperationException("Path existence check not implemented yet");
+  }
 }

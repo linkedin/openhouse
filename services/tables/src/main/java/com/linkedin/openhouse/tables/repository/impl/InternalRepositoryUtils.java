@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.cluster.storage.Storage;
-import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -13,7 +12,6 @@ import com.linkedin.openhouse.tables.dto.mapper.iceberg.TableTypeMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import java.net.URI;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,16 +32,6 @@ public final class InternalRepositoryUtils {
 
   private InternalRepositoryUtils() {
     // Utils' class constructor, noop
-  }
-
-  public static java.nio.file.Path constructTablePath(
-      StorageManager storageManager, String databaseID, String tableId, String tableUUID) {
-    // TODO: Default storage is used here. Support for non-default storage type per table needs to
-    // be added.
-    return Paths.get(
-        storageManager.getDefaultStorage().getClient().getRootPrefix(),
-        databaseID,
-        tableId + "-" + tableUUID);
   }
 
   /**

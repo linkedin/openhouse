@@ -7,6 +7,8 @@ import java.io.IOException;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -47,5 +49,23 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
   @Override
   public StorageType.Type getStorageType() {
     return HDFS_TYPE;
+  }
+
+  /**
+   * Checks if the path exists on the hdfs. Scheme is not specified in the path for local and hdfs
+   * storage. See: https://github.com/linkedin/openhouse/issues/121 Example: For Hdfs and local file
+   * system, the path would be /rootPath/db/table/file.
+   *
+   * @param path path to a file
+   * @return true if path exists else false
+   */
+  @Override
+  public boolean exists(String path) {
+    try {
+      return fs.exists(new Path(path));
+    } catch (IOException e) {
+      throw new ServiceUnavailableException(
+          "Exception checking path existence " + e.getMessage(), e);
+    }
   }
 }

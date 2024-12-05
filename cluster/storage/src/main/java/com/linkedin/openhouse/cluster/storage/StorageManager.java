@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -17,6 +18,7 @@ import org.springframework.util.StringUtils;
  * The StorageManager class is responsible for managing the storage types and providing the
  * appropriate storage implementation based on the configuration.
  */
+@Slf4j
 @Component
 public class StorageManager {
 
@@ -92,5 +94,33 @@ public class StorageManager {
     }
     throw new IllegalArgumentException(
         "No configured storage found for type: " + storageType.getValue());
+  }
+
+  /**
+   * Get the storage from the provided path. Iterate over all storages and return the storage which
+   * is configured and its endpoint is the prefix of supplied path. Note: This method assumes both
+   * hdfs and local storage are not configured at the same time since both hdfs and local storage do
+   * not append scheme to the paths. See: https://github.com/linkedin/openhouse/issues/121
+   *
+   * @param path Path that contains the scheme
+   * @return the storage
+   */
+  public Storage getStorageFromPath(String path) {
+    for (Storage storage : storages) {
+      if (storage.isConfigured()) {
+        if (path.startsWith(storage.getClient().getEndpoint())) {
+          log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
+          return storage;
+        } else if (StorageType.HDFS.equals(storage.getType()) && path.startsWith("/")) {
+          log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
+          return storage;
+        } else if (StorageType.LOCAL.equals(storage.getType())) {
+          log.info("Resolved to local storage for path {}", path);
+          return storage;
+        }
+      }
+    }
+
+    throw new IllegalArgumentException("Unable to determine storage for path: " + path);
   }
 }
