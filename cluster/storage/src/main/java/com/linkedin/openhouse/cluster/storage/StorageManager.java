@@ -111,7 +111,7 @@ public class StorageManager {
         if (path.startsWith(storage.getClient().getEndpoint())) {
           log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
           return storage;
-        } else if (path.startsWith("/")) {
+        } else if (StorageType.HDFS.equals(storage.getType()) && path.startsWith("/")) {
           log.info("Resolved to {} storage for path {}", storage.getType().toString(), path);
           return storage;
         } else if (StorageType.LOCAL.equals(storage.getType())) {
