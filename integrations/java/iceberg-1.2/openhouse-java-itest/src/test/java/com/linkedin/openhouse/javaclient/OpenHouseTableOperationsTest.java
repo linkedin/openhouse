@@ -9,6 +9,7 @@ import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
@@ -109,11 +110,20 @@ public class OpenHouseTableOperationsTest {
         .thenReturn(Mono.error(mock(WebClientRequestException.class)));
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
+    WebClientResponseException exception40x =
+        mock(WebClientResponseException.MethodNotAllowed.class);
+    when(exception40x.getStatusCode()).thenReturn(HttpStatus.METHOD_NOT_ALLOWED);
     when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(mock(WebClientResponseException.class)));
+        .thenReturn(Mono.error(exception40x));
     Assertions.assertThrows(
         WebClientWithMessageException.class,
         () -> openHouseTableOperations.doCommit(base, metadata));
+    WebClientResponseException exception50x = mock(WebClientResponseException.BadGateway.class);
+    when(exception50x.getStatusCode()).thenReturn(HttpStatus.BAD_GATEWAY);
+    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.error(exception50x));
+    Assertions.assertThrows(
+        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
   }
 
   @Test

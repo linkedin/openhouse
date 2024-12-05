@@ -299,7 +299,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       return Mono.error(
           new BadRequestException(
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
-    } else if (e instanceof WebClientResponseException) {
+    } else if (e instanceof WebClientResponseException
+        && ((WebClientResponseException) e).getStatusCode().is4xxClientError()) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
     } else {
       /**
