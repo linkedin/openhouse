@@ -120,7 +120,7 @@ public class PoliciesSpecMapper {
           replicationPolicy.getConfig().stream()
               .map(
                   replication -> {
-                    if (replication == null || replication.getDestination() == null) {
+                    if (replication == null || StringUtils.isEmpty(replication.getDestination())) {
                       return null;
                     }
                     String destination = replication.getDestination().toUpperCase();
@@ -130,7 +130,7 @@ public class PoliciesSpecMapper {
                     if (StringUtils.isEmpty(interval)) {
                       interval = ReplicationInterval.DEFAULT.getInterval();
                     }
-                    if (cronSchedule == null) {
+                    if (StringUtils.isEmpty(cronSchedule)) {
                       cronSchedule = IntervalToCronConverter.generateCronExpression(interval);
                     }
                     return replication
