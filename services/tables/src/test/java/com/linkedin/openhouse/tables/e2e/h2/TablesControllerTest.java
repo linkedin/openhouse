@@ -24,6 +24,7 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
@@ -1192,5 +1193,75 @@ public class TablesControllerTest {
         RequestAndValidateHelper.validateCronSchedule(updatedReplication.get("cronSchedule")));
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testUpdateSucceedsForHistoryPolicy() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+
+    LinkedHashMap<String, LinkedHashMap> currentPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    History history =
+        History.builder().maxAge(3).granularity(TimePartitionSpec.Granularity.DAY).build();
+
+    Policies newPolicies = Policies.builder().history(history).build();
+
+    GetTableResponseBody container = GetTableResponseBody.builder().policies(newPolicies).build();
+    GetTableResponseBody addProp = buildGetTableResponseBody(mvcResult, container);
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            addProp.getDatabaseId(),
+                            addProp.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(addProp).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    LinkedHashMap<String, LinkedHashMap> updatedPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+
+    Assertions.assertNotEquals(currentPolicies, updatedPolicies);
+
+    Assertions.assertEquals(updatedPolicies.get("history").get("maxAge"), 3);
+    Assertions.assertEquals(updatedPolicies.get("history").get("granularity"), "DAY");
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testCreateRequestFailsWithInvalidHistoryPolicy() throws Exception {
+    History history = History.builder().granularity(TimePartitionSpec.Granularity.DAY).build();
+    GetTableResponseBody responseBodyWithNullPolicies =
+        TableModelConstants.buildGetTableResponseBodyWithPolicy(
+            GET_TABLE_RESPONSE_BODY, Policies.builder().history(history).build());
+
+    ResultActions rs =
+        mvc.perform(
+            MockMvcRequestBuilders.put(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s",
+                        responseBodyWithNullPolicies.getDatabaseId(),
+                        responseBodyWithNullPolicies.getTableId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(buildCreateUpdateTableRequestBody(responseBodyWithNullPolicies).toJson())
+                .accept(MediaType.APPLICATION_JSON));
+
+    rs.andExpect(jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.BAD_REQUEST.name()))))
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString(
+                    "Must define either a time based retention or count based retention for snapshots in table")))
+        .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))))
+        .andReturn();
   }
 }

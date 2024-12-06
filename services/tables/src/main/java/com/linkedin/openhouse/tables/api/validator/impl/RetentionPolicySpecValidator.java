@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Slf4j
-public class PoliciesSpecValidator {
+public class RetentionPolicySpecValidator {
 
   private String failureMessage = "";
 

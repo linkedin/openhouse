@@ -8,6 +8,7 @@ import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
@@ -43,6 +44,7 @@ public final class TableModelConstants {
   public static RetentionColumnPattern COL_PAT;
   public static Retention RETENTION_POLICY;
   public static Replication REPLICATION_POLICY;
+  public static History SNAPSHOT_RETENTION_POLICY;
 
   public static final Retention RETENTION_POLICY_WITH_PATTERN;
   public static final Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
@@ -64,7 +66,12 @@ public final class TableModelConstants {
     ArrayList<ReplicationConfig> configs = new ArrayList<>();
     configs.add(ReplicationConfig.builder().destination("CLUSTER1").interval("12H").build());
     REPLICATION_POLICY = Replication.builder().config(configs).build();
-
+    SNAPSHOT_RETENTION_POLICY =
+        History.builder()
+            .maxAge(3)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .minVersions(10)
+            .build();
     RETENTION_POLICY_WITH_PATTERN =
         Retention.builder()
             .count(3)
@@ -79,7 +86,11 @@ public final class TableModelConstants {
             .build();
 
     TABLE_POLICIES =
-        Policies.builder().retention(RETENTION_POLICY).replication(REPLICATION_POLICY).build();
+        Policies.builder()
+            .retention(RETENTION_POLICY)
+            .replication(REPLICATION_POLICY)
+            .history(SNAPSHOT_RETENTION_POLICY)
+            .build();
     TABLE_POLICIES_COMPLEX = Policies.builder().retention(RETENTION_POLICY_WITH_PATTERN).build();
     SHARED_TABLE_POLICIES =
         Policies.builder().retention(RETENTION_POLICY).sharingEnabled(true).build();
