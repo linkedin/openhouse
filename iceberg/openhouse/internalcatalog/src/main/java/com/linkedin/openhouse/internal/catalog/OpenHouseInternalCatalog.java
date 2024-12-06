@@ -84,8 +84,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     }
     if (namespace.isEmpty()) {
       return StreamSupport.stream(houseTableRepository.findAll().spliterator(), false)
-          .map(
-              houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
+          .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"))
           .collect(Collectors.toList());
     }
     return houseTableRepository.findAllByDatabaseId(namespace.toString()).stream()
