@@ -299,17 +299,21 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       return Mono.error(
           new BadRequestException(
               casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
-    } else if (e instanceof WebClientResponseException) {
+    } else if (e instanceof WebClientResponseException
+        && ((WebClientResponseException) e).getStatusCode().is4xxClientError()) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
-    } else if (e instanceof WebClientRequestException) {
-      return Mono.error(new WebClientRequestWithMessageException((WebClientRequestException) e));
     } else {
       /**
        * This serves as a catch-all for any unexpected exceptions that could occur during doCommit,
        * (i.e) exceptions that are not WebClientResponseException. This is a conservative approach
        * to skip any unexpected cleanup that could occur when a commit aborts at the caller, thus
-       * avoiding any potential data loss.
+       * avoiding any potential data loss. {@link WebClientRequestException} is caught here.
        */
+      log.error(
+          String.format(
+              "Unexpected exception occurred during doCommit: %s, with stacktrace: ",
+              e.getClass().getSimpleName()),
+          e);
       return Mono.error(new CommitStateUnknownException(e));
     }
   }
