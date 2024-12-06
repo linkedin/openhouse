@@ -1233,7 +1233,7 @@ public class TablesControllerTest {
     LinkedHashMap<String, String> updatedHistory =
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies.history");
 
-    Assertions.assertEquals(updatedHistory.get("maxAge"), "3");
+    Assertions.assertEquals(updatedHistory.get("maxAge"), 3);
     Assertions.assertEquals(updatedHistory.get("granularity"), "DAY");
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
