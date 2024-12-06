@@ -120,8 +120,8 @@ public class PoliciesSpecMapper {
           replicationPolicy.getConfig().stream()
               .map(
                   replication -> {
-                    if (replication.getDestination() == null) {
-                      return replication;
+                    if (replication == null || replication.getDestination() == null) {
+                      return null;
                     }
                     String destination = replication.getDestination().toUpperCase();
                     String interval = replication.getInterval();
