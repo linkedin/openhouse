@@ -1,7 +1,9 @@
 package com.linkedin.openhouse.housetables.services;
 
+import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
+import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
@@ -29,6 +31,9 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Autowired UserTablesMapper userTablesMapper;
 
+  private static final MetricsReporter METRICS_REPORTER =
+      MetricsReporter.of(MetricsConstant.HOUSETABLES_SERVICE);
+
   @Override
   public UserTableDto getUserTable(String databaseId, String tableId) {
     UserTableRow userTableRow;
@@ -49,39 +54,13 @@ public class UserTablesServiceImpl implements UserTablesService {
   @Override
   public List<UserTableDto> getAllUserTables(UserTable userTable) {
     if (isListDatabases(userTable)) {
-      // list databases
-      return StreamSupport.stream(
-              htsJdbcRepository.findAllDistinctDatabaseIds().spliterator(), false)
-          .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build())
-          .collect(Collectors.toList());
+      return listDatabases();
     } else if (isListTables(userTable)) {
-      // list tables in a database
-      return StreamSupport.stream(
-              htsJdbcRepository
-                  .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId())
-                  .spliterator(),
-              false)
-          .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
-          .collect(Collectors.toList());
+      return listTables(userTable);
     } else if (isListTablesWithPattern(userTable)) {
-      // list tables with tableId or with pattern in a database
-      return StreamSupport.stream(
-              htsJdbcRepository
-                  .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                      userTable.getDatabaseId(), userTable.getTableId())
-                  .spliterator(),
-              false)
-          .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
-          .collect(Collectors.toList());
+      return listTablesWithPattern(userTable);
     } else {
-      // general search
-      log.warn(
-          "Reaching general search for user table which is not expected: {}", userTable.toJson());
-      UserTableDto targetUserTableDto = userTablesMapper.fromUserTable(userTable);
-      return StreamSupport.stream(htsJdbcRepository.findAll().spliterator(), false)
-          .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
-          .filter(x -> x.match(targetUserTableDto))
-          .collect(Collectors.toList());
+      return searchTables(userTable);
     }
   }
 
@@ -126,6 +105,44 @@ public class UserTablesServiceImpl implements UserTablesService {
 
     htsJdbcRepository.deleteById(
         UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+  }
+
+  private List<UserTableDto> listDatabases() {
+    return StreamSupport.stream(htsJdbcRepository.findAllDistinctDatabaseIds().spliterator(), false)
+        .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build())
+        .collect(Collectors.toList());
+  }
+
+  private List<UserTableDto> listTables(UserTable userTable) {
+    return StreamSupport.stream(
+            htsJdbcRepository
+                .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId())
+                .spliterator(),
+            false)
+        .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
+        .collect(Collectors.toList());
+  }
+
+  private List<UserTableDto> listTablesWithPattern(UserTable userTable) {
+    return StreamSupport.stream(
+            htsJdbcRepository
+                .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                    userTable.getDatabaseId(), userTable.getTableId())
+                .spliterator(),
+            false)
+        .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
+        .collect(Collectors.toList());
+  }
+
+  private List<UserTableDto> searchTables(UserTable userTable) {
+    METRICS_REPORTER.count(MetricsConstant.HTS_GENERAL_SEARCH_REQUEST);
+    log.warn(
+        "Reaching general search for user table which is not expected: {}", userTable.toJson());
+    UserTableDto targetUserTableDto = userTablesMapper.fromUserTable(userTable);
+    return StreamSupport.stream(htsJdbcRepository.findAll().spliterator(), false)
+        .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
+        .filter(x -> x.match(targetUserTableDto))
+        .collect(Collectors.toList());
   }
 
   private boolean isListDatabases(UserTable userTable) {
