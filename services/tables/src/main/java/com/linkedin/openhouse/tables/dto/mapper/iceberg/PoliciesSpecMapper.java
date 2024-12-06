@@ -13,6 +13,7 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.utils.IntervalToCronConverter;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
 import org.mapstruct.Mapper;
 import org.mapstruct.Named;
 
@@ -119,24 +120,25 @@ public class PoliciesSpecMapper {
           replicationPolicy.getConfig().stream()
               .map(
                   replication -> {
-                    if (replication.getInterval() == null || replication.getInterval().isEmpty()) {
-                      return replication
-                          .toBuilder()
-                          .interval(ReplicationInterval.DEFAULT.getInterval())
-                          .cronSchedule(
-                              IntervalToCronConverter.generateCronExpression(
-                                  ReplicationInterval.DEFAULT.getInterval()))
-                          .build();
+                    if (replication == null || StringUtils.isEmpty(replication.getDestination())) {
+                      return null;
                     }
-                    if (replication.getCronSchedule() == null) {
-                      return replication
-                          .toBuilder()
-                          .cronSchedule(
-                              IntervalToCronConverter.generateCronExpression(
-                                  replication.getInterval()))
-                          .build();
+                    String destination = replication.getDestination().toUpperCase();
+                    String interval = replication.getInterval();
+                    String cronSchedule = replication.getCronSchedule();
+
+                    if (StringUtils.isEmpty(interval)) {
+                      interval = ReplicationInterval.DEFAULT.getInterval();
                     }
-                    return replication;
+                    if (StringUtils.isEmpty(cronSchedule)) {
+                      cronSchedule = IntervalToCronConverter.generateCronExpression(interval);
+                    }
+                    return replication
+                        .toBuilder()
+                        .destination(destination)
+                        .interval(interval)
+                        .cronSchedule(cronSchedule)
+                        .build();
                   })
               .collect(Collectors.toList());
       return replicationPolicy.toBuilder().config(replicationConfig).build();
