@@ -52,7 +52,8 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             config.getMinInputFiles(),
             config.getMaxConcurrentFileGroupRewrites(),
             config.isPartialProgressEnabled(),
-            config.getPartialProgressMaxCommits());
+            config.getPartialProgressMaxCommits(),
+            false);
     log.info(
         "Added {} data files, rewritten {} data files, rewritten {} bytes",
         result.addedDataFilesCount(),

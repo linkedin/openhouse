@@ -23,7 +23,7 @@ public class OpenHouseSparkITest {
    *
    * <p>Do not {@link SparkSession#close()} a created SparkSession.
    */
-  protected static synchronized SparkSession getSparkSession() throws Exception {
+  protected synchronized SparkSession getSparkSession() throws Exception {
     if (openHouseLocalServer == null) {
       openHouseLocalServer = new OpenHouseLocalServer();
       openHouseLocalServer.start();
@@ -33,7 +33,7 @@ public class OpenHouseSparkITest {
   }
 
   /** @return the {@link URI} of the standalone embedded OH server running locally. */
-  protected static URI getOpenHouseLocalServerURI() {
+  protected URI getOpenHouseLocalServerURI() {
     if (openHouseLocalServer == null) {
       throw new RuntimeException(
           "OH server is not running locally. Start it by calling getSparkSession() method.");
