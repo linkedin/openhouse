@@ -344,10 +344,10 @@ public class OpenHouseTableOperationsTest {
     when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
     Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
     Assertions.assertNotNull(updatedPolicies);
-    Assertions.assertEquals(1, updatedPolicies.getHistory().getmaxAge());
+    Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
     Assertions.assertEquals(
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
-    Assertions.assertEquals(2, updatedPolicies.getHistory().getminVersions());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getMinVersions());
   }
 
   @Test
@@ -362,10 +362,10 @@ public class OpenHouseTableOperationsTest {
     when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
     Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
     Assertions.assertNotNull(updatedPolicies);
-    Assertions.assertEquals(1, updatedPolicies.getHistory().getmaxAge());
+    Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
     Assertions.assertEquals(
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
-    Assertions.assertEquals(2, updatedPolicies.getHistory().getminVersions());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getMinVersions());
   }
 
   @Test
@@ -383,10 +383,10 @@ public class OpenHouseTableOperationsTest {
     when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
     Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
     Assertions.assertNotNull(updatedPolicies);
-    Assertions.assertEquals(1, updatedPolicies.getHistory().getmaxAge());
+    Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
     Assertions.assertEquals(
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
-    Assertions.assertEquals(2, updatedPolicies.getHistory().getminVersions());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getMinVersions());
     Assertions.assertEquals(true, updatedPolicies.getSharingEnabled());
   }
 }
