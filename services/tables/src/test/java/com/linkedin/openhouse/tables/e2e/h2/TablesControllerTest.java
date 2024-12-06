@@ -1230,12 +1230,38 @@ public class TablesControllerTest {
 
     Assertions.assertNotEquals(currentPolicies, updatedPolicies);
 
-    LinkedHashMap<String, String> updatedHistory =
-        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies.history");
-
-    Assertions.assertEquals(updatedHistory.get("maxAge"), 3);
-    Assertions.assertEquals(updatedHistory.get("granularity"), "DAY");
+    Assertions.assertEquals(updatedPolicies.get("history").get("maxAge"), 3);
+    Assertions.assertEquals(updatedPolicies.get("history").get("granularity"), "DAY");
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void testCreateRequestFailsWithInvalidHistoryPolicy() throws Exception {
+    History history = History.builder().granularity(TimePartitionSpec.Granularity.DAY).build();
+    GetTableResponseBody responseBodyWithNullPolicies =
+        TableModelConstants.buildGetTableResponseBodyWithPolicy(
+            GET_TABLE_RESPONSE_BODY, Policies.builder().history(history).build());
+
+    ResultActions rs =
+        mvc.perform(
+            MockMvcRequestBuilders.put(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s",
+                        responseBodyWithNullPolicies.getDatabaseId(),
+                        responseBodyWithNullPolicies.getTableId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(buildCreateUpdateTableRequestBody(responseBodyWithNullPolicies).toJson())
+                .accept(MediaType.APPLICATION_JSON));
+
+    rs.andExpect(jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.BAD_REQUEST.name()))))
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString(
+                    "Must define either a time based retention or count based retention for snapshots in table")))
+        .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))))
+        .andReturn();
   }
 }
