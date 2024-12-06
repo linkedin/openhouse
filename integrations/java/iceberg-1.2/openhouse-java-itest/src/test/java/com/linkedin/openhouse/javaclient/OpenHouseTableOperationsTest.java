@@ -107,6 +107,11 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
     when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.error(mock(WebClientResponseException.NotImplemented.class)));
+    Assertions.assertThrows(
+        WebClientWithMessageException.class,
+        () -> openHouseTableOperations.doCommit(base, metadata));
+    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientRequestException.class)));
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
