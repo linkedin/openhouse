@@ -50,6 +50,7 @@ public final class TableModelConstants {
   public static final Policies TABLE_POLICIES;
 
   public static final Policies TABLE_POLICIES_COMPLEX;
+  public static final String TABLE_POLICIES_COMPLEX_STRING;
   public static final Policies SHARED_TABLE_POLICIES;
   public static final String TEST_USER;
 
@@ -57,7 +58,7 @@ public final class TableModelConstants {
   public static final String CLUSTER_NAME;
 
   static {
-    COL_PAT = RetentionColumnPattern.builder().columnName("name").pattern("yyyy").build();
+    COL_PAT = RetentionColumnPattern.builder().columnName("name").pattern("'yyyy'").build();
 
     RETENTION_POLICY =
         Retention.builder().count(3).granularity(TimePartitionSpec.Granularity.HOUR).build();
@@ -81,6 +82,18 @@ public final class TableModelConstants {
     TABLE_POLICIES =
         Policies.builder().retention(RETENTION_POLICY).replication(REPLICATION_POLICY).build();
     TABLE_POLICIES_COMPLEX = Policies.builder().retention(RETENTION_POLICY_WITH_PATTERN).build();
+    TABLE_POLICIES_COMPLEX_STRING =
+        "{\n"
+            + "  \"retention\": {\n"
+            + "    \"count\": 3,\n"
+            + "    \"granularity\": \"HOUR\",\n"
+            + "    \"columnPattern\": {\n"
+            + "      \"columnName\": \"name\",\n"
+            + "      \"pattern\": \"'yyyy'\"\n"
+            + "    }\n"
+            + "  },\n"
+            + "  \"sharingEnabled\": false\n"
+            + "}";
     SHARED_TABLE_POLICIES =
         Policies.builder().retention(RETENTION_POLICY).sharingEnabled(true).build();
     TABLE_POLICIES_WITH_EMPTY_PATTERN =
