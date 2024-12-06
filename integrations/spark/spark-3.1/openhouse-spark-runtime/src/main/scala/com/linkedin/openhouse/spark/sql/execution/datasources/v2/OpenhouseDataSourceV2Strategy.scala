@@ -17,8 +17,8 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
       SetRetentionPolicyExec(catalog, ident, granularity, count, colName, colPattern) :: Nil
     case SetReplicationPolicy(CatalogAndIdentifierExtractor(catalog, ident), replicationPolicies) =>
       SetReplicationPolicyExec(catalog, ident, replicationPolicies) :: Nil
-    case SetHistoryPolicy(CatalogAndIdentifierExtractor(catalog, ident), granularity, timeCount, count) =>
-      SetHistoryPolicyExec(catalog, ident, granularity, timeCount, count) :: Nil
+    case SetHistoryPolicy(CatalogAndIdentifierExtractor(catalog, ident), granularity, maxAge, minVersions) =>
+      SetHistoryPolicyExec(catalog, ident, granularity, maxAge, minVersions) :: Nil
     case SetSharingPolicy(CatalogAndIdentifierExtractor(catalog, ident), sharing) =>
       SetSharingPolicyExec(catalog, ident, sharing) :: Nil
     case SetColumnPolicyTag(CatalogAndIdentifierExtractor(catalog, ident), policyTag, cols) =>

@@ -41,14 +41,15 @@ public class SetHistoryPolicyStatementTest {
   @Test
   public void testSetHistoryPolicyGood() {
     // Validate setting only time setting
-    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY TIME=24H)");
+    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=24H)");
     assert isPlanValid(ds, "db.table", Optional.of("24"), Optional.of("HOUR"), Optional.empty());
 
-    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY COUNT=10)");
+    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MIN_VERSIONS=10)");
     assert isPlanValid(ds, "db.table", Optional.empty(), Optional.empty(), Optional.of("10"));
 
     // Validate both time and count setting
-    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY TIME=2D COUNT=20)");
+    ds =
+        spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=2D MIN_VERSIONS=20)");
     assert isPlanValid(ds, "db.table", Optional.of("2"), Optional.of("DAY"), Optional.of("20"));
   }
 
@@ -57,14 +58,15 @@ public class SetHistoryPolicyStatementTest {
     // No time granularity
     Assertions.assertThrows(
         OpenhouseParseException.class,
-        () -> spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY TIME=24)").show());
+        () -> spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=24)").show());
 
     // Count before time
     Assertions.assertThrows(
         OpenhouseParseException.class,
         () ->
             spark
-                .sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY COUNT=10 TIME=24H)")
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (HISTORY MIN_VERSIONS=10 MAX_AGE=24H)")
                 .show());
 
     // No time or count
@@ -100,13 +102,13 @@ public class SetHistoryPolicyStatementTest {
   private boolean isPlanValid(
       Dataset<Row> dataframe,
       String dbTable,
-      Optional<String> timeCount,
+      Optional<String> maxAge,
       Optional<String> granularity,
-      Optional<String> versionCount) {
+      Optional<String> minVersions) {
     String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
     return queryStr.contains(dbTable)
-        && (!timeCount.isPresent() || queryStr.contains(timeCount.get()))
+        && (!maxAge.isPresent() || queryStr.contains(maxAge.get()))
         && (!granularity.isPresent() || queryStr.contains(granularity.get()))
-        && (!versionCount.isPresent() || queryStr.contains(versionCount.get()));
+        && (!minVersions.isPresent() || queryStr.contains(minVersions.get()));
   }
 }

@@ -10,8 +10,8 @@ case class SetHistoryPolicyExec(
                                             catalog: TableCatalog,
                                             ident: Identifier,
                                             granularity: Option[String],
-                                            timeCount: Int,
-                                            count: Int
+                                            maxAge: Int,
+                                            minVersions: Int
 ) extends V2CommandExec {
 
   override lazy val output: Seq[Attribute] = Nil
@@ -21,10 +21,10 @@ case class SetHistoryPolicyExec(
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
         val key = "updated.openhouse.policy"
         val value = {
-          (timeCount, count) match {
-            case ttlOnly if count == -1 => s"""{"history":{"timeCount":${timeCount},"granularity":"${granularity.get}"}}"""
-            case countOnly if timeCount == -1 => s"""{"history":{"count":${count}}}"""
-            case _ => s"""{"history":{"timeCount":${timeCount},"granularity":"${granularity.get}","count":${count}}}"""
+          (maxAge, minVersions) match {
+            case maxAgeOnly if minVersions == -1 => s"""{"history":{"maxAge":${maxAge},"granularity":"${granularity.get}"}}"""
+            case minVersionsOnly if maxAge == -1 => s"""{"history":{"minVersions":${minVersions}}}"""
+            case _ => s"""{"history":{"maxAge":${maxAge},"granularity":"${granularity.get}","minVersions":${minVersions}}}"""
           }
         }
 
@@ -40,6 +40,6 @@ case class SetHistoryPolicyExec(
   }
 
   override def simpleString(maxFields: Int): String = {
-    s"SetHistoryPolicyExec: ${catalog} ${ident} ${if (timeCount > 0) timeCount else ""} ${granularity.getOrElse("")} count ${if (count > 0) count else ""}"
+    s"SetHistoryPolicyExec: ${catalog} ${ident} MAX_AGE=${if (maxAge > 0) maxAge else ""}${granularity.getOrElse("")} MIN_VERSIONS=${if (minVersions > 0) minVersions else ""}"
   }
 }

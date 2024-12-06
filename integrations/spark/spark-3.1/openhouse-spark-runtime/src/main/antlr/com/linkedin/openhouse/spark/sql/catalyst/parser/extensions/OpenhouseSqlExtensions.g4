@@ -156,15 +156,15 @@ policyTag
     ;
 
 historyPolicy
-    : HISTORY retainTime? versionsCount?
+    : HISTORY maxAge? minVersions?
     ;
 
-retainTime
-    : TIME'='duration
+maxAge
+    : MAX_AGE'='duration
     ;
 
-versionsCount
-    : COUNT'='POSITIVE_INTEGER
+minVersions
+    : MIN_VERSIONS'='POSITIVE_INTEGER
     ;
 
 ALTER: 'ALTER';
@@ -197,9 +197,8 @@ HC: 'HC';
 MODIFY: 'MODIFY';
 TAG: 'TAG';
 NONE: 'NONE';
-VERSIONS: 'VERSIONS';
-TIME: 'TIME';
-COUNT: 'COUNT';
+MIN_VERSIONS: 'MIN_VERSIONS';
+MAX_AGE: 'MAX_AGE';
 
 POSITIVE_INTEGER
     : DIGIT+
