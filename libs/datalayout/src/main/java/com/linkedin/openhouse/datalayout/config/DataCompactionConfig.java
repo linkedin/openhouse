@@ -23,6 +23,9 @@ public final class DataCompactionConfig {
   public static final long MAX_FILE_GROUP_SIZE_BYTES_DEFAULT =
       RewriteDataFiles.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT;
 
+  public static final long DELETE_FILE_THRESHOLD_DEFAULT =
+      BinPackStrategy.DELETE_FILE_THRESHOLD_DEFAULT;
+
   @Builder.Default private long targetByteSize = TARGET_BYTE_SIZE_DEFAULT;
   @Builder.Default private double minByteSizeRatio = MIN_BYTE_SIZE_RATIO_DEFAULT;
   @Builder.Default private double maxByteSizeRatio = MAX_BYTE_SIZE_RATIO_DEFAULT;
@@ -34,4 +37,5 @@ public final class DataCompactionConfig {
   @Builder.Default private boolean partialProgressEnabled = true;
   @Builder.Default private int partialProgressMaxCommits = PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT;
   @Builder.Default private long maxFileGroupSizeBytes = MAX_FILE_GROUP_SIZE_BYTES_DEFAULT;
+  @Builder.Default private long deleteFileThreshold = DELETE_FILE_THRESHOLD_DEFAULT;
 }
