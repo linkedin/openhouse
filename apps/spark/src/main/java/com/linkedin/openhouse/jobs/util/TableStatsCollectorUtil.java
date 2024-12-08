@@ -20,6 +20,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Snapshot;
@@ -27,6 +28,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.spark.SparkTableUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
@@ -48,19 +50,35 @@ public final class TableStatsCollectorUtil {
     long totalMetadataFilesCount =
         referencedManifestFilesCount + referencedManifestListFilesCount + metadataFilesCount;
 
-    // TODO: turn these longs into attributes of a class and use the class as a schema which spark
-    // will use as an
-    // encoding when serializing the table into the spark dataframe
-    Dataset<Row> allDataFiles = getFileMetadataTable(table, spark, MetadataTableType.ALL_FILES);
+    Map<Integer, DataFilesSummary> allDataFilesSummary =
+        getFileMetadataTable(table, spark, MetadataTableType.ALL_FILES);
 
-    long countOfDataFiles = getFileMetric(allDataFiles, 0, "file_count");
-    long sumOfDataFileSizeBytes = getFileMetric(allDataFiles, 0, "total_size_bytes");
+    long countOfDataFiles =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfDataFileSizeBytes =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
-    long countOfPositionDeleteFiles = getFileMetric(allDataFiles, 1, "file_count");
-    long sumOfPositionDeleteFileSizeBytes = getFileMetric(allDataFiles, 1, "total_size_bytes");
+    long countOfPositionDeleteFiles =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfPositionDeleteFileSizeBytes =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
-    long countOfEqualityDeleteFiles = getFileMetric(allDataFiles, 2, "file_count");
-    long sumOfEqualityDeleteFilesSizeBytes = getFileMetric(allDataFiles, 2, "total_size_bytes");
+    long countOfEqualityDeleteFiles =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfEqualityDeleteFilesSizeBytes =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
     log.info(
         "Table: {}, Count of metadata files: {}, Manifest files: {}, Manifest list files: {}, Metadata files: {},"
@@ -100,19 +118,35 @@ public final class TableStatsCollectorUtil {
     // TODO: turn these longs into attributes of a class and use the class as a schema which spark
     // will use as an
     //  encoding when serializing the table into the spark dataframe
-    Dataset<Row> currentSnapshotDataFiles =
+    Map<Integer, DataFilesSummary> currentSnapshotDataFilesSummary =
         getFileMetadataTable(table, spark, MetadataTableType.FILES);
 
-    long countOfDataFiles = getFileMetric(currentSnapshotDataFiles, 0, "file_count");
-    long sumOfDataFileSizeBytes = getFileMetric(currentSnapshotDataFiles, 0, "total_size_bytes");
+    long countOfDataFiles =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfDataFileSizeBytes =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
-    long countOfPositionDeleteFiles = getFileMetric(currentSnapshotDataFiles, 1, "file_count");
+    long countOfPositionDeleteFiles =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
     long sumOfPositionDeleteFileSizeBytes =
-        getFileMetric(currentSnapshotDataFiles, 1, "total_size_bytes");
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
-    long countOfEqualityDeleteFiles = getFileMetric(currentSnapshotDataFiles, 2, "file_count");
+    long countOfEqualityDeleteFiles =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
     long sumOfEqualityDeleteFilesSizeBytes =
-        getFileMetric(currentSnapshotDataFiles, 2, "total_size_bytes");
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
     Long currentSnapshotId =
         Optional.ofNullable(table.currentSnapshot()).map(Snapshot::snapshotId).orElse(null);
@@ -123,10 +157,17 @@ public final class TableStatsCollectorUtil {
     String earliestPartitionDate = getEarliestPartitionDate(table, spark, getTablePolicies(table));
 
     log.info(
-        "Table: {}, Count of total Data files: {}, Sum of file sizes in bytes: {}, Earliest partition date: {}, for snapshot: {}",
+        "Table: {}, Count of total Data files in snapshot: {}, Sum of file sizes in bytes: {}"
+            + ", Position delete files: {}, Sum of position delete file sizes in bytes: {}"
+            + ", Equality delete files: {}, Sum of equality delete file sizes in bytes: {}"
+            + ", Earliest partition date: {}, for snapshot: {}",
         fqtn,
         countOfDataFiles,
         sumOfDataFileSizeBytes,
+        countOfPositionDeleteFiles,
+        sumOfPositionDeleteFileSizeBytes,
+        countOfEqualityDeleteFiles,
+        sumOfEqualityDeleteFilesSizeBytes,
         currentSnapshotId,
         earliestPartitionDate);
 
@@ -223,22 +264,23 @@ public final class TableStatsCollectorUtil {
   }
 
   /** Get all data files count depending on metadata type to query. */
-  private static Dataset<Row> getFileMetadataTable(
+  private static Map<Integer, DataFilesSummary> getFileMetadataTable(
       Table table, SparkSession spark, MetadataTableType metadataTableType) {
-    return SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
+    Encoder<DataFilesSummary> dataFilesSummaryEncoder = DataFilesSummary.getEncoder();
+    Map<Integer, DataFilesSummary> result = new HashMap<>();
+    SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
         .groupBy("content")
-        .agg(count("*").as("file_count"), sum("file_size_in_bytes").as("total_size_bytes"));
-  }
-
-  private static long getSumOfFileSizeBytes(Dataset<Row> allDataFiles) {
-    if (allDataFiles.isEmpty()) {
-      return 0;
-    }
-
-    return allDataFiles
-        .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
-        .first()
-        .getLong(0);
+        .agg(count("*").as("totalFileCount"), sum("file_size_in_bytes").as("sumOfFileSizeBytes"))
+        .as(dataFilesSummaryEncoder)
+        .collectAsList()
+        .forEach(
+            row -> {
+              int content = row.getContent();
+              long totalSizeBytes = row.getSumOfFileSizeBytes();
+              long fileCount = row.getTotalFileCount();
+              result.put(content, new DataFilesSummary(content, totalSizeBytes, fileCount));
+            });
+    return result;
   }
 
   private static String getEarliestPartitionDate(
@@ -317,17 +359,5 @@ public final class TableStatsCollectorUtil {
         map.put(entry.getKey(), entry.getValue().getAsString());
       }
     }
-  }
-
-  private static Dataset<Row> filterByContentType(Dataset<Row> dataset, int contentType) {
-    return dataset.filter("content = " + contentType);
-  }
-
-  private static long getFileMetric(Dataset<Row> dataFiles, int contentType, String columnName) {
-    Dataset<Row> contentDataFiles = filterByContentType(dataFiles, contentType);
-    if (contentDataFiles.isEmpty()) {
-      return 0;
-    }
-    return contentDataFiles.select(columnName).first().getLong(0);
   }
 }
