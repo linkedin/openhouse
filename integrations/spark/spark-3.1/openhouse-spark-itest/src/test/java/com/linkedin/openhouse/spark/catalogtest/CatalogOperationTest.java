@@ -83,7 +83,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
               Types.NestedField.required(3, "c", Types.StringType.get()));
 
       // Field ids reassigned (Status quo)
-      TableIdentifier tableIdentifier = TableIdentifier.of("db", "t1");
+      TableIdentifier tableIdentifier = TableIdentifier.of("replication_test", "t1");
       Map<String, String> props = new HashMap<>();
       Table table = icebergCatalog.createTable(tableIdentifier, schema, null, props);
       Schema schemaAfterCreation = table.schema();
@@ -99,7 +99,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(5, table.schema().findField("a.e").fieldId());
 
       // Field ids not reassigned (new changes)
-      tableIdentifier = TableIdentifier.of("db", "t2");
+      tableIdentifier = TableIdentifier.of("replication_test", "t2");
       props.put("client.table.schema", SchemaParser.toJson(schema));
       table = icebergCatalog.createTable(tableIdentifier, schema, null, props);
       schemaAfterCreation = table.schema();
@@ -131,7 +131,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).identity("c").build();
 
       // Field ids reassigned (Status quo)
-      TableIdentifier tableIdentifier = TableIdentifier.of("db", "t3");
+      TableIdentifier tableIdentifier = TableIdentifier.of("replication_test", "t3");
       Map<String, String> props = new HashMap<>();
       Table table = icebergCatalog.createTable(tableIdentifier, schema, partitionSpec, props);
       Schema schemaAfterCreation = table.schema();
@@ -150,7 +150,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(5, table.schema().findField("a.e").fieldId());
 
       // Field ids not reassigned (new changes)
-      tableIdentifier = TableIdentifier.of("db", "t4");
+      tableIdentifier = TableIdentifier.of("replication_test", "t4");
       props.put("client.table.schema", SchemaParser.toJson(schema));
       table = icebergCatalog.createTable(tableIdentifier, schema, partitionSpec, props);
       schemaAfterCreation = table.schema();
