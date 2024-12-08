@@ -22,8 +22,6 @@ pluginManagement {
   }
 }
 
-rootProject.name = 'openhouse'
-
 include ':apps:spark'
 include ':apps:spark-3.5'
 

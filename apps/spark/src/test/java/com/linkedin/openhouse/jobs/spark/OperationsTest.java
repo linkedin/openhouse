@@ -348,7 +348,8 @@ public class OperationsTest extends OpenHouseSparkITest {
                 2,
                 1,
                 true,
-                10);
+                10,
+                0);
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
@@ -406,7 +407,8 @@ public class OperationsTest extends OpenHouseSparkITest {
                 2,
                 1,
                 true,
-                maxCommits);
+                maxCommits,
+                0);
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName, true);

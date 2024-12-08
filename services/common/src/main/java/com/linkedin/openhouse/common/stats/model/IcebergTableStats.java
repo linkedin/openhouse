@@ -36,5 +36,21 @@ public class IcebergTableStats extends BaseTableMetadata {
 
   private Long numReferencedManifestLists;
 
+  private Long numPositionDeleteFiles;
+
+  private Long totalPositionDeleteFileSizeInBytes;
+
+  private Long numEqualityDeleteFiles;
+
+  private Long totalEqualityDeleteFileSizeInBytes;
+
+  private Long numCurrentSnapshotPositionDeleteFiles;
+
+  private Long totalCurrentSnapshotPositionDeleteFileSizeInBytes;
+
+  private Long numCurrentSnapshotEqualityDeleteFiles;
+
+  private Long totalCurrentSnapshotEqualityDeleteFileSizeInBytes;
+
   private String earliestPartitionDate;
 }
