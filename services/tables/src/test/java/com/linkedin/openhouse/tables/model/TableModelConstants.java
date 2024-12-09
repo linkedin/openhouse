@@ -44,7 +44,7 @@ public final class TableModelConstants {
   public static RetentionColumnPattern COL_PAT;
   public static Retention RETENTION_POLICY;
   public static Replication REPLICATION_POLICY;
-  public static History SNAPSHOT_RETENTION_POLICY;
+  public static History HISTORY_POLICY;
 
   public static final Retention RETENTION_POLICY_WITH_PATTERN;
   public static final Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
@@ -66,7 +66,7 @@ public final class TableModelConstants {
     ArrayList<ReplicationConfig> configs = new ArrayList<>();
     configs.add(ReplicationConfig.builder().destination("cluster1").interval("12H").build());
     REPLICATION_POLICY = Replication.builder().config(configs).build();
-    SNAPSHOT_RETENTION_POLICY =
+    HISTORY_POLICY =
         History.builder()
             .maxAge(3)
             .granularity(TimePartitionSpec.Granularity.DAY)
@@ -89,7 +89,7 @@ public final class TableModelConstants {
         Policies.builder()
             .retention(RETENTION_POLICY)
             .replication(REPLICATION_POLICY)
-            .history(SNAPSHOT_RETENTION_POLICY)
+            .history(HISTORY_POLICY)
             .build();
     TABLE_POLICIES_COMPLEX = Policies.builder().retention(RETENTION_POLICY_WITH_PATTERN).build();
     SHARED_TABLE_POLICIES =
