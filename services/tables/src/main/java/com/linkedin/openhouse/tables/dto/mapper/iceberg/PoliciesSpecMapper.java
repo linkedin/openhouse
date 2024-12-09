@@ -30,7 +30,6 @@ public class PoliciesSpecMapper {
   public String toPoliciesJsonString(TableDto tableDto) throws JsonParseException {
     if (tableDto.getPolicies() != null) {
       try {
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(tableDto.getPolicies());
       } catch (JsonParseException e) {
         throw new JsonParseException("Malformed policies json");
@@ -45,9 +44,8 @@ public class PoliciesSpecMapper {
    */
   @Named("toPoliciesObject")
   public Policies toPoliciesObject(String policiesString) throws JsonParseException {
-    if (policiesString.length() != 0) {
+    if (!policiesString.isEmpty()) {
       try {
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.fromJson(policiesString, Policies.class);
       } catch (JsonParseException e) {
         throw new JsonParseException(
@@ -145,4 +143,6 @@ public class PoliciesSpecMapper {
     }
     return replicationPolicy;
   }
+
+  private static Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 }
