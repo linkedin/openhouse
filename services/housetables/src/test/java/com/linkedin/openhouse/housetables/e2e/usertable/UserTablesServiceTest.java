@@ -128,10 +128,23 @@ public class UserTablesServiceTest {
             .tableVersion(TEST_USER_TABLE_DTO.getMetadataLocation())
             .build());
 
+    // No filter, should return all tables.
+    List<UserTableDto> actual = userTablesService.getAllUserTables(UserTable.builder().build());
+    assertThat(actual.size()).isEqualTo(4);
+
     // Only specify the database ID to find all tables under this database.
-    List<UserTableDto> actual =
+    actual =
         userTablesService.getAllUserTables(
             UserTable.builder().databaseId(TEST_TUPLE_1_0.getDatabaseId()).build());
+    assertThat(results).hasSameElementsAs(actual);
+
+    // Specify the database ID and table ID to find matched tables.
+    actual =
+        userTablesService.getAllUserTables(
+            UserTable.builder()
+                .databaseId(TEST_TUPLE_1_0.getDatabaseId())
+                .tableId("test_table%")
+                .build());
     assertThat(results).hasSameElementsAs(actual);
 
     // Only specify the table Id to find matched tables.

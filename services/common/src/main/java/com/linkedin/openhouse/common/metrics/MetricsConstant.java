@@ -16,6 +16,7 @@ public final class MetricsConstant {
 
   // Components sections
   public static final String JOBS_SERVICE = "jobs";
+  public static final String HOUSETABLES_SERVICE = "housetables";
   public static final String SERVICE_AUDIT = "service_audit";
 
   // Common metric constants section
@@ -26,6 +27,7 @@ public final class MetricsConstant {
   public static final String CREATE = "create";
   public static final String REQUEST_COUNT = "request_count";
   public static final String REQUEST = "request";
+  public static final String HTS_GENERAL_SEARCH_REQUEST = "hts_general_search_request";
 
   // Metrics for auditing
   public static final String FAILED_SERVICE_AUDIT = "failed_service_audit";
