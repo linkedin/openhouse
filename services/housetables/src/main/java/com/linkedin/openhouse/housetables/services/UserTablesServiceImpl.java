@@ -108,9 +108,13 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   private List<UserTableDto> listDatabases() {
-    return StreamSupport.stream(htsJdbcRepository.findAllDistinctDatabaseIds().spliterator(), false)
-        .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build())
-        .collect(Collectors.toList());
+    return METRICS_REPORTER.executeWithStats(
+        () ->
+            StreamSupport.stream(
+                    htsJdbcRepository.findAllDistinctDatabaseIds().spliterator(), false)
+                .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build())
+                .collect(Collectors.toList()),
+        MetricsConstant.HTS_LIST_DATABASES_TIME);
   }
 
   private List<UserTableDto> listTables(UserTable userTable) {

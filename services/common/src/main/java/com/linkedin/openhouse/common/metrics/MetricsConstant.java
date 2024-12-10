@@ -44,4 +44,5 @@ public final class MetricsConstant {
       "repo_tables_search_by_database_time";
   public static final String REPO_TABLE_IDS_FIND_ALL_TIME = "repo_table_ids_find_all_time";
   public static final String REPO_TABLES_FIND_ALL_TIME = "repo_tables_find_all_time";
+  public static final String HTS_LIST_DATABASES_TIME = "hts_list_databases_time";
 }
