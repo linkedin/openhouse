@@ -20,7 +20,7 @@ import org.apache.iceberg.actions.RewriteDataFiles;
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp --tableName
  * db.testTable --targetByteSize 1048576 --maxByteSizeRatio 0.75 --maxByteSizeRatio 1.8
  * --minInputFiles 5 --maxConcurrentFileGroupRewrites 2 --partialProgressEnabled
- * --partialProgressMaxCommits 10
+ * --partialProgressMaxCommits 10 --deleteFileThreshold 0
  *
  * <p>Alternatively, the app accepts {@link
  * com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy} json:
@@ -52,7 +52,8 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             config.getMinInputFiles(),
             config.getMaxConcurrentFileGroupRewrites(),
             config.isPartialProgressEnabled(),
-            config.getPartialProgressMaxCommits());
+            config.getPartialProgressMaxCommits(),
+            config.getDeleteFileThreshold());
     log.info(
         "Added {} data files, rewritten {} data files, rewritten {} bytes",
         result.addedDataFilesCount(),
@@ -143,6 +144,12 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             "partialProgressMaxCommits",
             true,
             "Maximum amount of commits that this rewrite is allowed to produce if partial progress is enabled"));
+    extraOptions.add(
+        new Option(
+            null,
+            "deleteFileThreshold",
+            true,
+            "Minimum number of deletes that needs to be associated with a data file for it to be considered for rewriting"));
 
     CommandLine cmdLine = createCommandLine(args, extraOptions);
 
@@ -186,6 +193,10 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
                   NumberUtils.toInt(
                       cmdLine.getOptionValue("partialProgressMaxCommits"),
                       DataCompactionConfig.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT))
+              .deleteFileThreshold(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("deleteFileThreshold"),
+                      DataCompactionConfig.DELETE_FILE_THRESHOLD_DEFAULT))
               .build();
     }
     return new DataCompactionSparkApp(

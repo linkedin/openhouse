@@ -306,7 +306,8 @@ public final class Operations implements AutoCloseable {
       int minInputFiles,
       int maxConcurrentFileGroupRewrites,
       boolean partialProgressEnabled,
-      int partialProgressMaxCommits) {
+      int partialProgressMaxCommits,
+      int deleteFileThreshold) {
     return SparkActions.get(spark)
         .rewriteDataFiles(table)
         .binPack()
@@ -329,6 +330,7 @@ public final class Operations implements AutoCloseable {
         // files with sizes above this threshold will be considered for rewriting regardless of any
         // other criteria
         .option("max-file-size-bytes", Long.toString(maxByteSize))
+        .option("delete-file-threshold", Integer.toString(deleteFileThreshold))
         .execute();
   }
 

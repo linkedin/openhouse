@@ -49,6 +49,8 @@ client/generated*
 client/bin
 *openapitools.json
 
+**/bin/
+
 # Ignore spark execution file
 */spark/null/
 

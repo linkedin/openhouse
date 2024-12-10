@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.util;
 
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
+import static org.apache.spark.sql.functions.*;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -19,6 +20,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Snapshot;
@@ -26,6 +28,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.spark.SparkTableUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
@@ -47,28 +50,61 @@ public final class TableStatsCollectorUtil {
     long totalMetadataFilesCount =
         referencedManifestFilesCount + referencedManifestListFilesCount + metadataFilesCount;
 
-    Dataset<Row> allDataFiles =
-        getAllDataFilesCount(table, spark, MetadataTableType.ALL_DATA_FILES);
-    long countOfDataFiles = allDataFiles.count();
+    Map<Integer, DataFilesSummary> allDataFilesSummary =
+        getFileMetadataTable(table, spark, MetadataTableType.ALL_FILES);
 
-    // Calculate sum of file sizes in bytes in above allDataFiles
-    long sumOfFileSizeBytes = getSumOfFileSizeBytes(allDataFiles);
+    long countOfDataFiles =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfDataFileSizeBytes =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
+
+    long countOfPositionDeleteFiles =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfPositionDeleteFileSizeBytes =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
+
+    long countOfEqualityDeleteFiles =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfEqualityDeleteFilesSizeBytes =
+        Optional.ofNullable(allDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
     log.info(
         "Table: {}, Count of metadata files: {}, Manifest files: {}, Manifest list files: {}, Metadata files: {},"
-            + "Data files: {}, Sum of file sizes in bytes: {}",
+            + "Data files: {}, Sum of file sizes in bytes: {}"
+            + "Position delete files: {}, Sum of position delete file sizes in bytes: {}"
+            + "Equality delete files: {}, Sum of equality delete file sizes in bytes: {}",
         fqtn,
         totalMetadataFilesCount,
         referencedManifestFilesCount,
         referencedManifestListFilesCount,
         metadataFilesCount,
         countOfDataFiles,
-        sumOfFileSizeBytes);
+        sumOfDataFileSizeBytes,
+        countOfPositionDeleteFiles,
+        sumOfPositionDeleteFileSizeBytes,
+        countOfEqualityDeleteFiles,
+        sumOfEqualityDeleteFilesSizeBytes);
 
     return stats
         .toBuilder()
         .numReferencedDataFiles(countOfDataFiles)
-        .totalReferencedDataFilesSizeInBytes(sumOfFileSizeBytes)
+        .totalReferencedDataFilesSizeInBytes(sumOfDataFileSizeBytes)
+        .numPositionDeleteFiles(countOfPositionDeleteFiles)
+        .totalPositionDeleteFileSizeInBytes(sumOfPositionDeleteFileSizeBytes)
+        .numEqualityDeleteFiles(countOfEqualityDeleteFiles)
+        .totalEqualityDeleteFileSizeInBytes(sumOfEqualityDeleteFilesSizeBytes)
         .numReferencedManifestFiles(referencedManifestFilesCount)
         .numReferencedManifestLists(referencedManifestListFilesCount)
         .numExistingMetadataJsonFiles(metadataFilesCount)
@@ -79,11 +115,35 @@ public final class TableStatsCollectorUtil {
   public static IcebergTableStats populateStatsForSnapshots(
       String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
 
-    Dataset<Row> dataFiles = getAllDataFilesCount(table, spark, MetadataTableType.FILES);
-    long countOfDataFiles = dataFiles.count();
+    Map<Integer, DataFilesSummary> currentSnapshotDataFilesSummary =
+        getFileMetadataTable(table, spark, MetadataTableType.FILES);
 
-    // Calculate sum of file sizes in bytes in above allDataFiles
-    long sumOfFileSizeBytes = getSumOfFileSizeBytes(dataFiles);
+    long countOfDataFiles =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfDataFileSizeBytes =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.DATA.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
+
+    long countOfPositionDeleteFiles =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfPositionDeleteFileSizeBytes =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
+
+    long countOfEqualityDeleteFiles =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getTotalFileCount)
+            .orElse(0L);
+    long sumOfEqualityDeleteFilesSizeBytes =
+        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(DataFilesSummary::getSumOfFileSizeBytes)
+            .orElse(0L);
 
     Long currentSnapshotId =
         Optional.ofNullable(table.currentSnapshot()).map(Snapshot::snapshotId).orElse(null);
@@ -94,10 +154,17 @@ public final class TableStatsCollectorUtil {
     String earliestPartitionDate = getEarliestPartitionDate(table, spark, getTablePolicies(table));
 
     log.info(
-        "Table: {}, Count of total Data files: {}, Sum of file sizes in bytes: {}, Earliest partition date: {}, for snapshot: {}",
+        "Table: {}, Count of total Data files in snapshot: {}, Sum of file sizes in bytes: {}"
+            + ", Position delete files: {}, Sum of position delete file sizes in bytes: {}"
+            + ", Equality delete files: {}, Sum of equality delete file sizes in bytes: {}"
+            + ", Earliest partition date: {}, for snapshot: {}",
         fqtn,
         countOfDataFiles,
-        sumOfFileSizeBytes,
+        sumOfDataFileSizeBytes,
+        countOfPositionDeleteFiles,
+        sumOfPositionDeleteFileSizeBytes,
+        countOfEqualityDeleteFiles,
+        sumOfEqualityDeleteFilesSizeBytes,
         currentSnapshotId,
         earliestPartitionDate);
 
@@ -114,7 +181,11 @@ public final class TableStatsCollectorUtil {
         .currentSnapshotTimestamp(currentSnapshotTimestamp)
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
         .numCurrentSnapshotReferencedDataFiles(countOfDataFiles)
-        .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfFileSizeBytes)
+        .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfDataFileSizeBytes)
+        .numCurrentSnapshotPositionDeleteFiles(countOfPositionDeleteFiles)
+        .totalCurrentSnapshotPositionDeleteFileSizeInBytes(sumOfPositionDeleteFileSizeBytes)
+        .numCurrentSnapshotEqualityDeleteFiles(countOfEqualityDeleteFiles)
+        .totalCurrentSnapshotEqualityDeleteFileSizeInBytes(sumOfEqualityDeleteFilesSizeBytes)
         .earliestPartitionDate(earliestPartitionDate)
         .build();
   }
@@ -189,23 +260,29 @@ public final class TableStatsCollectorUtil {
         .count();
   }
 
-  /** Get all data files count depending on metadata type to query. */
-  private static Dataset<Row> getAllDataFilesCount(
+  /**
+   * Return summary of table files content either from all snapshots or current snapshot depending
+   * on metadataTableType.
+   */
+  private static Map<Integer, DataFilesSummary> getFileMetadataTable(
       Table table, SparkSession spark, MetadataTableType metadataTableType) {
-    return SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
-        .selectExpr(new String[] {"file_path", "file_size_in_bytes"})
-        .dropDuplicates("file_path", "file_size_in_bytes");
-  }
-
-  private static long getSumOfFileSizeBytes(Dataset<Row> allDataFiles) {
-    if (allDataFiles.isEmpty()) {
-      return 0;
-    }
-
-    return allDataFiles
-        .agg(org.apache.spark.sql.functions.sum("file_size_in_bytes"))
-        .first()
-        .getLong(0);
+    Encoder<DataFilesSummary> dataFilesSummaryEncoder = DataFilesSummary.getEncoder();
+    Map<Integer, DataFilesSummary> result = new HashMap<>();
+    SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
+        .select("content", "file_path", "file_size_in_bytes")
+        .dropDuplicates()
+        .groupBy("content")
+        .agg(count("*").as("totalFileCount"), sum("file_size_in_bytes").as("sumOfFileSizeBytes"))
+        .as(dataFilesSummaryEncoder)
+        .collectAsList()
+        .forEach(
+            row -> {
+              int content = row.getContent();
+              long totalSizeBytes = row.getSumOfFileSizeBytes();
+              long fileCount = row.getTotalFileCount();
+              result.put(content, new DataFilesSummary(content, totalSizeBytes, fileCount));
+            });
+    return result;
   }
 
   private static String getEarliestPartitionDate(
