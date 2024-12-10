@@ -320,7 +320,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * @param newSchema
    * @return new partition spec
    */
-  public static PartitionSpec rebuildPartitionSpec(
+  static PartitionSpec rebuildPartitionSpec(
       PartitionSpec originalPspec, Schema originalSchema, Schema newSchema) {
     PartitionSpec.Builder builder = PartitionSpec.builderFor(newSchema);
 
@@ -378,7 +378,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * @param newSchema
    * @return new SortOrder
    */
-  public static SortOrder rebuildSortOrder(SortOrder originalSortOrder, Schema newSchema) {
+  static SortOrder rebuildSortOrder(SortOrder originalSortOrder, Schema newSchema) {
     SortOrder.Builder builder = SortOrder.builderFor(newSchema);
 
     for (SortField field : originalSortOrder.fields()) {

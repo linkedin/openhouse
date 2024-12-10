@@ -17,7 +17,7 @@ public final class CatalogConstants {
 
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
-  public static final String CLIENT_TABLE_SCHEMA = "client.table.schema";
+  static final String CLIENT_TABLE_SCHEMA = "client.table.schema";
 
   private CatalogConstants() {
     // Noop
