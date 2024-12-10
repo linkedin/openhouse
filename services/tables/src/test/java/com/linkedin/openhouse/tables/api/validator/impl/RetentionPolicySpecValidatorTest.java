@@ -15,9 +15,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class PoliciesSpecValidatorTest {
+class RetentionPolicySpecValidatorTest {
 
-  PoliciesSpecValidator validator;
+  RetentionPolicySpecValidator validator;
 
   private Schema dummySchema;
 
@@ -25,7 +25,7 @@ class PoliciesSpecValidatorTest {
 
   @BeforeEach
   public void setup() {
-    this.validator = new PoliciesSpecValidator();
+    this.validator = new RetentionPolicySpecValidator();
     this.dummySchema =
         new Schema(
             required(1, "id", Types.StringType.get()), required(2, "aa", Types.StringType.get()));
@@ -214,7 +214,7 @@ class PoliciesSpecValidatorTest {
 
     Field failedMsg =
         org.springframework.util.ReflectionUtils.findField(
-            PoliciesSpecValidator.class, "failureMessage");
+            RetentionPolicySpecValidator.class, "failureMessage");
     Assertions.assertNotNull(failedMsg);
     org.springframework.util.ReflectionUtils.makeAccessible(failedMsg);
     Assertions.assertTrue(
@@ -237,7 +237,7 @@ class PoliciesSpecValidatorTest {
 
     failedMsg =
         org.springframework.util.ReflectionUtils.findField(
-            PoliciesSpecValidator.class, "failureMessage");
+            RetentionPolicySpecValidator.class, "failureMessage");
     Assertions.assertNotNull(failedMsg);
     org.springframework.util.ReflectionUtils.makeAccessible(failedMsg);
     Assertions.assertTrue(
