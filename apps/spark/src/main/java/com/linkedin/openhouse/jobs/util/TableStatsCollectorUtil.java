@@ -115,9 +115,6 @@ public final class TableStatsCollectorUtil {
   public static IcebergTableStats populateStatsForSnapshots(
       String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
 
-    // TODO: turn these longs into attributes of a class and use the class as a schema which spark
-    // will use as an
-    //  encoding when serializing the table into the spark dataframe
     Map<Integer, DataFilesSummary> currentSnapshotDataFilesSummary =
         getFileMetadataTable(table, spark, MetadataTableType.FILES);
 
@@ -263,12 +260,17 @@ public final class TableStatsCollectorUtil {
         .count();
   }
 
-  /** Get all data files count depending on metadata type to query. */
+  /**
+   * Return summary of table files content either from all snapshots or current snapshot depending
+   * on metadataTableType.
+   */
   private static Map<Integer, DataFilesSummary> getFileMetadataTable(
       Table table, SparkSession spark, MetadataTableType metadataTableType) {
     Encoder<DataFilesSummary> dataFilesSummaryEncoder = DataFilesSummary.getEncoder();
     Map<Integer, DataFilesSummary> result = new HashMap<>();
     SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
+        .select("content", "file_path", "file_size_in_bytes")
+        .dropDuplicates()
         .groupBy("content")
         .agg(count("*").as("totalFileCount"), sum("file_size_in_bytes").as("sumOfFileSizeBytes"))
         .as(dataFilesSummaryEncoder)
