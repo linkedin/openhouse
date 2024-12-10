@@ -127,13 +127,18 @@ public class SparkMoRFunctionalTest extends OpenHouseSparkITest {
 
     Table table = ops.getTable(tableName);
 
+    // state of table prior to any compaction
+    IcebergTableStats stats = ops.collectTableStats(tableName);
+    assertThat(stats.getNumPositionDeleteFiles()).isEqualTo(3L);
+    assertThat(stats.getNumCurrentSnapshotPositionDeleteFiles()).isEqualTo(3L);
+
     // first run of compaction
     RewriteDataFiles.Result result = rewriteFunc.apply(ops, table);
     Assertions.assertEquals(1, result.addedDataFilesCount());
     Assertions.assertEquals(1, result.rewrittenDataFilesCount());
 
     // this asserts the dangling delete problem, since compaction did NOT remove the final delete
-    IcebergTableStats stats = ops.collectTableStats(tableName);
+    stats = ops.collectTableStats(tableName);
     assertThat(stats.getNumPositionDeleteFiles()).isEqualTo(3L);
     assertThat(stats.getNumCurrentSnapshotPositionDeleteFiles()).isEqualTo(1L);
 
@@ -168,13 +173,18 @@ public class SparkMoRFunctionalTest extends OpenHouseSparkITest {
     writeEqDeleteRecord(table, "data", "d");
     writeEqDeleteRecord(table, "data", "c");
 
+    // state of table prior to any compaction
+    IcebergTableStats stats = ops.collectTableStats(tableName);
+    assertThat(stats.getNumEqualityDeleteFiles()).isEqualTo(3L);
+    assertThat(stats.getNumCurrentSnapshotEqualityDeleteFiles()).isEqualTo(3L);
+
     // first run of compaction
     RewriteDataFiles.Result result = rewriteFunc.apply(ops, table);
     Assertions.assertEquals(1, result.addedDataFilesCount());
     Assertions.assertEquals(1, result.rewrittenDataFilesCount());
 
     // this asserts the dangling delete problem, since compaction did NOT remove the final delete
-    IcebergTableStats stats = ops.collectTableStats(tableName);
+    stats = ops.collectTableStats(tableName);
     assertThat(stats.getNumEqualityDeleteFiles()).isEqualTo(3L);
     assertThat(stats.getNumCurrentSnapshotEqualityDeleteFiles()).isEqualTo(1L);
 
