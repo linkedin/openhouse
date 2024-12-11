@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    types: [opened, synchronize, reopened]
 
 jobs:
   build-gradle-project:
@@ -15,6 +13,7 @@ jobs:
       - name: Checkout project sources
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: '0'
 
       - name: Set up JDK 17
