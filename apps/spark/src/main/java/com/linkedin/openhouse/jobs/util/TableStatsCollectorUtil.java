@@ -50,34 +50,34 @@ public final class TableStatsCollectorUtil {
     long totalMetadataFilesCount =
         referencedManifestFilesCount + referencedManifestListFilesCount + metadataFilesCount;
 
-    Map<Integer, DataFilesSummary> allDataFilesSummary =
+    Map<Integer, FilesSummary> allFilesSummary =
         getFileMetadataTable(table, spark, MetadataTableType.ALL_FILES);
 
     long countOfDataFiles =
-        Optional.ofNullable(allDataFilesSummary.get(FileContent.DATA.id()))
-            .map(DataFilesSummary::getTotalFileCount)
+        Optional.ofNullable(allFilesSummary.get(FileContent.DATA.id()))
+            .map(FilesSummary::getTotalFileCount)
             .orElse(0L);
     long sumOfDataFileSizeBytes =
-        Optional.ofNullable(allDataFilesSummary.get(FileContent.DATA.id()))
-            .map(DataFilesSummary::getSumOfFileSizeBytes)
+        Optional.ofNullable(allFilesSummary.get(FileContent.DATA.id()))
+            .map(FilesSummary::getSumOfFileSizeBytes)
             .orElse(0L);
 
     long countOfPositionDeleteFiles =
-        Optional.ofNullable(allDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
-            .map(DataFilesSummary::getTotalFileCount)
+        Optional.ofNullable(allFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(FilesSummary::getTotalFileCount)
             .orElse(0L);
     long sumOfPositionDeleteFileSizeBytes =
-        Optional.ofNullable(allDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
-            .map(DataFilesSummary::getSumOfFileSizeBytes)
+        Optional.ofNullable(allFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(FilesSummary::getSumOfFileSizeBytes)
             .orElse(0L);
 
     long countOfEqualityDeleteFiles =
-        Optional.ofNullable(allDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
-            .map(DataFilesSummary::getTotalFileCount)
+        Optional.ofNullable(allFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(FilesSummary::getTotalFileCount)
             .orElse(0L);
     long sumOfEqualityDeleteFilesSizeBytes =
-        Optional.ofNullable(allDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
-            .map(DataFilesSummary::getSumOfFileSizeBytes)
+        Optional.ofNullable(allFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(FilesSummary::getSumOfFileSizeBytes)
             .orElse(0L);
 
     log.info(
@@ -115,34 +115,34 @@ public final class TableStatsCollectorUtil {
   public static IcebergTableStats populateStatsForSnapshots(
       String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
 
-    Map<Integer, DataFilesSummary> currentSnapshotDataFilesSummary =
+    Map<Integer, FilesSummary> currentSnapshotFilesSummary =
         getFileMetadataTable(table, spark, MetadataTableType.FILES);
 
     long countOfDataFiles =
-        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.DATA.id()))
-            .map(DataFilesSummary::getTotalFileCount)
+        Optional.ofNullable(currentSnapshotFilesSummary.get(FileContent.DATA.id()))
+            .map(FilesSummary::getTotalFileCount)
             .orElse(0L);
     long sumOfDataFileSizeBytes =
-        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.DATA.id()))
-            .map(DataFilesSummary::getSumOfFileSizeBytes)
+        Optional.ofNullable(currentSnapshotFilesSummary.get(FileContent.DATA.id()))
+            .map(FilesSummary::getSumOfFileSizeBytes)
             .orElse(0L);
 
     long countOfPositionDeleteFiles =
-        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
-            .map(DataFilesSummary::getTotalFileCount)
+        Optional.ofNullable(currentSnapshotFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(FilesSummary::getTotalFileCount)
             .orElse(0L);
     long sumOfPositionDeleteFileSizeBytes =
-        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.POSITION_DELETES.id()))
-            .map(DataFilesSummary::getSumOfFileSizeBytes)
+        Optional.ofNullable(currentSnapshotFilesSummary.get(FileContent.POSITION_DELETES.id()))
+            .map(FilesSummary::getSumOfFileSizeBytes)
             .orElse(0L);
 
     long countOfEqualityDeleteFiles =
-        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
-            .map(DataFilesSummary::getTotalFileCount)
+        Optional.ofNullable(currentSnapshotFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(FilesSummary::getTotalFileCount)
             .orElse(0L);
     long sumOfEqualityDeleteFilesSizeBytes =
-        Optional.ofNullable(currentSnapshotDataFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
-            .map(DataFilesSummary::getSumOfFileSizeBytes)
+        Optional.ofNullable(currentSnapshotFilesSummary.get(FileContent.EQUALITY_DELETES.id()))
+            .map(FilesSummary::getSumOfFileSizeBytes)
             .orElse(0L);
 
     Long currentSnapshotId =
@@ -264,10 +264,10 @@ public final class TableStatsCollectorUtil {
    * Return summary of table files content either from all snapshots or current snapshot depending
    * on metadataTableType.
    */
-  private static Map<Integer, DataFilesSummary> getFileMetadataTable(
+  private static Map<Integer, FilesSummary> getFileMetadataTable(
       Table table, SparkSession spark, MetadataTableType metadataTableType) {
-    Encoder<DataFilesSummary> dataFilesSummaryEncoder = DataFilesSummary.getEncoder();
-    Map<Integer, DataFilesSummary> result = new HashMap<>();
+    Encoder<FilesSummary> dataFilesSummaryEncoder = FilesSummary.getEncoder();
+    Map<Integer, FilesSummary> result = new HashMap<>();
     SparkTableUtil.loadMetadataTable(spark, table, metadataTableType)
         .select("content", "file_path", "file_size_in_bytes")
         .dropDuplicates()
@@ -280,7 +280,7 @@ public final class TableStatsCollectorUtil {
               int content = row.getContent();
               long totalSizeBytes = row.getSumOfFileSizeBytes();
               long fileCount = row.getTotalFileCount();
-              result.put(content, new DataFilesSummary(content, totalSizeBytes, fileCount));
+              result.put(content, new FilesSummary(content, totalSizeBytes, fileCount));
             });
     return result;
   }

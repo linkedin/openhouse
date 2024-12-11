@@ -14,7 +14,7 @@ import org.apache.spark.sql.Encoders;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class DataFilesSummary {
+public class FilesSummary {
 
   private Integer content;
   private Long sumOfFileSizeBytes;
@@ -27,10 +27,10 @@ public class DataFilesSummary {
    * @return Encoder for DataFilesSummary
    */
   private static class EncoderSingleton {
-    public static final Encoder<DataFilesSummary> instance = Encoders.bean(DataFilesSummary.class);
+    public static final Encoder<FilesSummary> instance = Encoders.bean(FilesSummary.class);
   }
 
-  public static Encoder<DataFilesSummary> getEncoder() {
+  public static Encoder<FilesSummary> getEncoder() {
     return EncoderSingleton.instance;
   }
 }
