@@ -333,41 +333,46 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw new IllegalArgumentException(
             "Field " + fieldName + " does not exist in the new schema");
       }
-
-      // Recreate the transform using the string representation
-      String transformString = field.transform().toString();
-
-      // Add the field to the new PartitionSpec based on the transform type
-      if ("identity".equalsIgnoreCase(transformString)) {
-        builder.identity(fieldName);
-      } else if (transformString.startsWith("bucket[")) {
-        // Extract bucket number from the string (e.g., bucket[16])
-        int numBuckets =
-            Integer.parseInt(
-                transformString.substring(
-                    transformString.indexOf('[') + 1, transformString.indexOf(']')));
-        builder.bucket(fieldName, numBuckets);
-      } else if (transformString.startsWith("truncate[")) {
-        // Extract width from the string (e.g., truncate[10])
-        int width =
-            Integer.parseInt(
-                transformString.substring(
-                    transformString.indexOf('[') + 1, transformString.indexOf(']')));
-        builder.truncate(fieldName, width);
-      } else if ("year".equalsIgnoreCase(transformString)) {
-        builder.year(fieldName);
-      } else if ("month".equalsIgnoreCase(transformString)) {
-        builder.month(fieldName);
-      } else if ("day".equalsIgnoreCase(transformString)) {
-        builder.day(fieldName);
-      } else if ("hour".equalsIgnoreCase(transformString)) {
-        builder.hour(fieldName);
-      } else {
-        throw new UnsupportedOperationException("Unsupported transform: " + transformString);
-      }
+      // build the pspec from transform string representation
+      buildPspecFromTransform(builder, field, fieldName);
     }
 
     return builder.build();
+  }
+
+  static void buildPspecFromTransform(
+      PartitionSpec.Builder builder, PartitionField field, String fieldName) {
+    // Recreate the transform using the string representation
+    String transformString = field.transform().toString();
+
+    // Add the field to the new PartitionSpec based on the transform type
+    if ("identity".equalsIgnoreCase(transformString)) {
+      builder.identity(fieldName);
+    } else if (transformString.startsWith("bucket[")) {
+      // Extract bucket number from the string (e.g., bucket[16])
+      int numBuckets =
+          Integer.parseInt(
+              transformString.substring(
+                  transformString.indexOf('[') + 1, transformString.indexOf(']')));
+      builder.bucket(fieldName, numBuckets);
+    } else if (transformString.startsWith("truncate[")) {
+      // Extract width from the string (e.g., truncate[10])
+      int width =
+          Integer.parseInt(
+              transformString.substring(
+                  transformString.indexOf('[') + 1, transformString.indexOf(']')));
+      builder.truncate(fieldName, width);
+    } else if ("year".equalsIgnoreCase(transformString)) {
+      builder.year(fieldName);
+    } else if ("month".equalsIgnoreCase(transformString)) {
+      builder.month(fieldName);
+    } else if ("day".equalsIgnoreCase(transformString)) {
+      builder.day(fieldName);
+    } else if ("hour".equalsIgnoreCase(transformString)) {
+      builder.hour(fieldName);
+    } else {
+      throw new UnsupportedOperationException("Unsupported transform: " + transformString);
+    }
   }
 
   /**
