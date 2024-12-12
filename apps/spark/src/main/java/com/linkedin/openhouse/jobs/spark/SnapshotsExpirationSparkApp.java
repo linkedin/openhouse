@@ -25,7 +25,8 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
 
   private static final String DEFAULT_GRANULARITY = "days";
 
-  private static final String DEFAULT_MIN_VERSIONS = "100";
+  // Default do not define min versions, only retain snapshots based on max age
+  private static final String DEFAULT_MIN_VERSIONS = "0";
 
   public SnapshotsExpirationSparkApp(
       String jobId,

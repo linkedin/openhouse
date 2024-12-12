@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -207,12 +208,29 @@ public final class Operations implements AutoCloseable {
 
   /** Expire snapshots on a given {@link Table}. */
   public void expireSnapshots(Table table, long expireBeforeTimestampMs, int minVersions) {
-    table
-        .expireSnapshots()
-        .cleanExpiredFiles(false)
-        .expireOlderThan(expireBeforeTimestampMs)
-        .retainLast(minVersions)
-        .commit();
+    // min versions to keep not defined, expire based on timestamp of snapshots
+    if (minVersions == 0) {
+      log.info(
+          "Expiring snapshots for table: {} before timestamp: {}", table, expireBeforeTimestampMs);
+      table
+          .expireSnapshots()
+          .cleanExpiredFiles(false)
+          .expireOlderThan(expireBeforeTimestampMs)
+          .commit();
+    } else if (Iterators.size(table.snapshots().iterator()) > minVersions) {
+      log.info("Expiring snapshots for table: {} beyond last {} versions", table, minVersions);
+      table
+          .expireSnapshots()
+          .cleanExpiredFiles(false)
+          .expireOlderThan(expireBeforeTimestampMs)
+          .retainLast(minVersions)
+          .commit();
+    } else {
+      log.warn(
+          "Table {} has less than {} minimum configured versions, skipping snapshot expiration",
+          table,
+          minVersions);
+    }
   }
 
   /**
