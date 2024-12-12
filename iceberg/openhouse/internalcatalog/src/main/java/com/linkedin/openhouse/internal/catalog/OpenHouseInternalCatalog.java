@@ -82,6 +82,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
       throw new ValidationException(
           "Input namespace has more than one levels " + String.join(".", namespace.levels()));
     }
+    // TODO: Implement SupportsNamespace interface and listNamespaces() method to remove this
+    //  branch. This is anti-pattern and only a temporary solution.
     if (namespace.isEmpty()) {
       return StreamSupport.stream(houseTableRepository.findAll().spliterator(), false)
           .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"))
