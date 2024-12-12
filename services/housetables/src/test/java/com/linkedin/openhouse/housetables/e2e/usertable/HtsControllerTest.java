@@ -58,6 +58,78 @@ public class HtsControllerTest {
   }
 
   @Test
+  public void testFindAllFromDbWithTableId() throws Exception {
+    // TODO: Use rest API to create the table
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+
+    Map<String, List<String>> paramsInternal = new HashMap<>();
+    paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
+    paramsInternal.put("tableId", Collections.singletonList("test_table0"));
+    MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables/query")
+                .params(params)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(
+            content()
+                .json(
+                    GetAllEntityResponseBody.builder()
+                        .results(
+                            Arrays.asList(TEST_USER_TABLE).stream()
+                                .map(
+                                    userTable ->
+                                        userTable
+                                            .toBuilder()
+                                            .tableVersion(userTable.getMetadataLocation())
+                                            .build())
+                                .collect(Collectors.toList()))
+                        .build()
+                        .toJson()));
+  }
+
+  @Test
+  public void testFindAllFromDbWithTablePattern() throws Exception {
+    // TODO: Use rest API to create the table
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+
+    Map<String, List<String>> paramsInternal = new HashMap<>();
+    paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
+    paramsInternal.put("tableId", Collections.singletonList("test_table%"));
+    MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables/query")
+                .params(params)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(
+            content()
+                .json(
+                    GetAllEntityResponseBody.builder()
+                        .results(
+                            Arrays.asList(
+                                    TEST_USER_TABLE,
+                                    TEST_TUPLE_1_0.get_userTable(),
+                                    TEST_TUPLE_2_0.get_userTable())
+                                .stream()
+                                .map(
+                                    userTable ->
+                                        userTable
+                                            .toBuilder()
+                                            .tableVersion(userTable.getMetadataLocation())
+                                            .build())
+                                .collect(Collectors.toList()))
+                        .build()
+                        .toJson()));
+  }
+
+  @Test
   /** Using LIST endpoint to test a partially filled user table object as request body */
   public void testFindAllFromDb() throws Exception {
     // TODO: Use rest API to create the table
@@ -98,13 +170,12 @@ public class HtsControllerTest {
 
   /** Using LIST endpoint to test an empty user table object request body */
   @Test
-  public void testFindAllTables() throws Exception {
+  public void testFindAllDatabases() throws Exception {
     // TODO: Use rest API to create the table
     htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
 
-    // Inserted three tables, combining the one in the setup method there should be 4
     mvc.perform(MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
@@ -114,10 +185,8 @@ public class HtsControllerTest {
                     GetAllEntityResponseBody.builder()
                         .results(
                             Arrays.asList(
-                                    TEST_USER_TABLE,
-                                    TEST_TUPLE_1_0.get_userTable(),
-                                    TEST_TUPLE_2_0.get_userTable(),
-                                    TEST_TUPLE_1_1.get_userTable())
+                                    UserTable.builder().databaseId("test_db0").build(),
+                                    UserTable.builder().databaseId("test_db1").build())
                                 .stream()
                                 .map(
                                     userTable ->

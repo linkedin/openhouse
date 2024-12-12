@@ -199,7 +199,18 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public Iterable<HouseTable> findAll() {
-    return this.findAllByDatabaseId("");
+    return getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .getUserTables(new HashMap<>())
+                    .map(GetAllEntityResponseBodyUserTable::getResults)
+                    .flatMapMany(Flux::fromIterable)
+                    .map(houseTableMapper::toHouseTableWithDatabaseId)
+                    .collectList()
+                    .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
   }
 
   @Override

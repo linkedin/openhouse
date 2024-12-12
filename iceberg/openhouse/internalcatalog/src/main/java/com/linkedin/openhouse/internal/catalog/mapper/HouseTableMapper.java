@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.io.FileIO;
+import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.Mappings;
@@ -28,6 +29,14 @@ public abstract class HouseTableMapper {
   public HouseTable toHouseTable(TableMetadata tableMetadata, FileIO fileIO) {
     return toHouseTable(extractRawHTSFields(tableMetadata.properties()), fileIO);
   }
+
+  @BeanMapping(ignoreByDefault = true)
+  @Mapping(target = "databaseId", source = "userTable.databaseId")
+  public abstract HouseTable toHouseTableWithDatabaseId(UserTable userTable);
+
+  @BeanMapping(ignoreByDefault = true)
+  @Mapping(target = "databaseId", source = "houseTable.databaseId")
+  public abstract UserTable toUserTableWithDatabaseId(HouseTable houseTable);
 
   @Mappings({@Mapping(target = "tableLocation", source = "userTable.metadataLocation")})
   public abstract HouseTable toHouseTable(UserTable userTable);

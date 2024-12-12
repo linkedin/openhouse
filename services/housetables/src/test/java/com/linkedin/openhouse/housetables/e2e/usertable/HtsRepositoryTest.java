@@ -3,12 +3,15 @@ package com.linkedin.openhouse.housetables.e2e.usertable;
 import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants.*;
 import static org.assertj.core.api.Assertions.*;
 
+import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
-import com.linkedin.openhouse.housetables.repository.HtsRepository;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -22,7 +25,7 @@ import org.springframework.test.context.ContextConfiguration;
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 public class HtsRepositoryTest {
 
-  @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
+  @Autowired UserTableHtsJdbcRepository htsRepository;
 
   @AfterEach
   public void tearDown() {
@@ -37,6 +40,55 @@ public class HtsRepositoryTest {
     Assertions.assertEquals(null, testUserTableRow.getVersion());
     // after insertion
     Assertions.assertEquals(0, htsRepository.save(testUserTableRow).getVersion());
+  }
+
+  @Test
+  public void testFindDistinctDatabases() {
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    List<String> result = Lists.newArrayList(htsRepository.findAllDistinctDatabaseIds());
+    Assertions.assertEquals(Lists.newArrayList("test_db0", "test_db1"), result);
+  }
+
+  @Test
+  public void testFindAllByDatabaseId() {
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    List<UserTableRow> result =
+        Lists.newArrayList(htsRepository.findAllByDatabaseIdIgnoreCase("test_db0"));
+    Assertions.assertEquals(
+        Lists.newArrayList("test_table1", "test_table2"),
+        result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
+  }
+
+  @Test
+  public void testFindAllByTableIdPattern() {
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    List<UserTableRow> result =
+        Lists.newArrayList(
+            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                "test_db0", "test_table%"));
+    Assertions.assertEquals(
+        Lists.newArrayList("test_table1", "test_table2"),
+        result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
+  }
+
+  @Test
+  public void testFindAllByTableId() {
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    List<UserTableRow> result =
+        Lists.newArrayList(
+            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                "test_db0", "test_table1"));
+    Assertions.assertEquals(
+        Lists.newArrayList("test_table1"),
+        result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
   }
 
   @Test

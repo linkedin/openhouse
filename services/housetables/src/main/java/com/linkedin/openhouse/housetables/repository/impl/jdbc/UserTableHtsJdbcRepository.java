@@ -6,6 +6,7 @@ import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import java.util.Optional;
 import org.jetbrains.annotations.NotNull;
+import org.springframework.data.jpa.repository.Query;
 
 /**
  * JDBC-backed {@link HtsRepository} for CRUDing {@link UserTableRow}
@@ -32,6 +33,14 @@ public interface UserTableHtsJdbcRepository
   boolean existsByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
 
   void deleteByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
+
+  @Query("SELECT DISTINCT databaseId FROM UserTableRow")
+  Iterable<String> findAllDistinctDatabaseIds();
+
+  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId);
+
+  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      String databaseId, String tableIdPattern);
 
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}
