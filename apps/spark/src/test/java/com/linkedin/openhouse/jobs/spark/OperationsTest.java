@@ -275,7 +275,7 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationMaxAge() throws Exception {
-    final String tableName = "db.test_es_java";
+    final String tableName = "db.test_es_maxage_java";
     final int numInserts = 3;
     List<Long> snapshotIds;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
@@ -301,7 +301,7 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationMinVersions() throws Exception {
-    final String tableName = "db.test_es_java";
+    final String tableName = "db.test_es_minversions_java";
     final int numInserts = 3;
     List<Long> snapshotIds;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
