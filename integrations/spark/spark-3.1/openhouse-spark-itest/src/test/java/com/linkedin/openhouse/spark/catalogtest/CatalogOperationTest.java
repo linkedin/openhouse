@@ -88,7 +88,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       props.put("client.table.schema", SchemaParser.toJson(schema));
       Table table = icebergCatalog.createTable(tableIdentifier, schema, null, props);
       Schema schemaAfterCreation = table.schema();
-      Assertions.assertFalse(schemaAfterCreation.sameSchema(schema));
+      Assertions.assertTrue(schemaAfterCreation.sameSchema(schema));
       Assertions.assertEquals(1, schemaAfterCreation.findField("a").fieldId());
       Assertions.assertNotEquals(3, schemaAfterCreation.findField("a.b").fieldId());
       Assertions.assertNotEquals(2, schemaAfterCreation.findField("c").fieldId());
@@ -116,12 +116,12 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).identity("c").build();
 
       // Field ids not reassigned
-      TableIdentifier tableIdentifier = TableIdentifier.of("replication_test", "t1");
+      TableIdentifier tableIdentifier = TableIdentifier.of("replication_test", "t2");
       Map<String, String> props = new HashMap<>();
       props.put("client.table.schema", SchemaParser.toJson(schema));
       Table table = icebergCatalog.createTable(tableIdentifier, schema, null, props);
       Schema schemaAfterCreation = table.schema();
-      Assertions.assertFalse(schemaAfterCreation.sameSchema(schema));
+      Assertions.assertTrue(schemaAfterCreation.sameSchema(schema));
       Assertions.assertEquals(1, schemaAfterCreation.findField("a").fieldId());
       Assertions.assertNotEquals(3, schemaAfterCreation.findField("a.b").fieldId());
       Assertions.assertNotEquals(2, schemaAfterCreation.findField("c").fieldId());
