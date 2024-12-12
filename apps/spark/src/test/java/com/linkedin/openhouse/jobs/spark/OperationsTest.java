@@ -29,6 +29,8 @@ import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
+import org.joda.time.DurationFieldType;
+import org.joda.time.Hours;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -272,7 +274,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationJavaAPI() throws Exception {
+  public void testSnapshotsExpirationMaxAge() throws Exception {
     final String tableName = "db.test_es_java";
     final int numInserts = 3;
     List<Long> snapshotIds;
@@ -286,7 +288,35 @@ public class OperationsTest extends OpenHouseSparkITest {
           String.format("There must be %d snapshot(s) after inserts", numInserts));
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      ops.expireSnapshots(table, System.currentTimeMillis());
+      ops.expireSnapshots(table, System.currentTimeMillis(), 3);
+      // verify that table object snapshots are updated
+      checkSnapshots(table, snapshotIds.subList(2, snapshotIds.size()));
+    }
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(ops, tableName, snapshotIds.subList(2, snapshotIds.size()));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationMinVersions() throws Exception {
+    final String tableName = "db.test_es_java";
+    final int numInserts = 3;
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      ops.expireSnapshots(
+          table, System.currentTimeMillis() + Hours.ONE.get(DurationFieldType.millis()), 1);
       // verify that table object snapshots are updated
       checkSnapshots(table, snapshotIds.subList(2, snapshotIds.size()));
     }

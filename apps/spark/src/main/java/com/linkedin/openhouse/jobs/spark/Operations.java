@@ -201,16 +201,17 @@ public final class Operations implements AutoCloseable {
   }
 
   /** Expire snapshots on a given fully-qualified table name. */
-  public void expireSnapshots(String fqtn, long expireBeforeTimestampMs) {
-    expireSnapshots(getTable(fqtn), expireBeforeTimestampMs);
+  public void expireSnapshots(String fqtn, long expireBeforeTimestampMs, int minVersions) {
+    expireSnapshots(getTable(fqtn), expireBeforeTimestampMs, minVersions);
   }
 
   /** Expire snapshots on a given {@link Table}. */
-  public void expireSnapshots(Table table, long expireBeforeTimestampMs) {
+  public void expireSnapshots(Table table, long expireBeforeTimestampMs, int minVersions) {
     table
         .expireSnapshots()
         .cleanExpiredFiles(false)
         .expireOlderThan(expireBeforeTimestampMs)
+        .retainLast(minVersions)
         .commit();
   }
 

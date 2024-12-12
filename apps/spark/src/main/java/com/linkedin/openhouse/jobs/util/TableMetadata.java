@@ -24,6 +24,7 @@ public class TableMetadata extends Metadata {
   protected boolean isClustered;
   @Builder.Default protected @NonNull Map<String, String> jobExecutionProperties = new HashMap<>();
   protected @Nullable RetentionConfig retentionConfig;
+  protected @Nullable HistoryConfig historyConfig;
 
   public String fqtn() {
     return String.format("%s.%s", dbName, tableName);
