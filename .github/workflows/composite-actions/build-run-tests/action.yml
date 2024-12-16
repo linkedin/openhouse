@@ -1,8 +1,5 @@
 name: Gradle Build and Run Tests
 
-on:
-  workflow_call: # Can be triggered by other workflows
-
 runs:
   using: 'composite'
   steps:
