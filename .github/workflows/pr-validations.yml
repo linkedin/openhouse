@@ -11,12 +11,5 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-gradle-project:
-    name: Build Latest commit and run tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout project sources using merge commit hash
-        uses: actions/checkout@v4
-
-      - name: Build repository and run tests
-        uses: ./.github/workflows/composite-actions/build-run-tests/action.yml
+  build-run-tests:
+    uses: ./.github/workflows/build-run-tests.yml

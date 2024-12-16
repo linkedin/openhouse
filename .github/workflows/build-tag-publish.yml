@@ -6,7 +6,10 @@ on:
       - main
 
 jobs:
-  build-gradle-project:
+  build-and-run-tests:
+    uses: ./.github/workflows/build-run-tests.yml
+
+  tag-publish-gradle:
     name: Build tagged commit
     runs-on: ubuntu-latest
     steps:
@@ -16,7 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Build and test repository
-        uses: ./.github/workflows/composite-actions/build-run-tests/action.yml
+        uses: ./.github/composite-actions/build-run-tests/action.yml
 
       - name: Bump version and push tag
         if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
