@@ -44,12 +44,11 @@ public class SetHistoryPolicyStatementTest {
     Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=24H)");
     assert isPlanValid(ds, "db.table", Optional.of("24"), Optional.of("HOUR"), Optional.empty());
 
-    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MIN_VERSIONS=10)");
+    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY VERSIONS=10)");
     assert isPlanValid(ds, "db.table", Optional.empty(), Optional.empty(), Optional.of("10"));
 
     // Validate both time and count setting
-    ds =
-        spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=2D MIN_VERSIONS=20)");
+    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=2D VERSIONS=20)");
     assert isPlanValid(ds, "db.table", Optional.of("2"), Optional.of("DAY"), Optional.of("20"));
   }
 
@@ -65,8 +64,7 @@ public class SetHistoryPolicyStatementTest {
         OpenhouseParseException.class,
         () ->
             spark
-                .sql(
-                    "ALTER TABLE openhouse.db.table SET POLICY (HISTORY MIN_VERSIONS=10 MAX_AGE=24H)")
+                .sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY VERSIONS=10 MAX_AGE=24H)")
                 .show());
 
     // No time or count
@@ -104,11 +102,11 @@ public class SetHistoryPolicyStatementTest {
       String dbTable,
       Optional<String> maxAge,
       Optional<String> granularity,
-      Optional<String> minVersions) {
+      Optional<String> versions) {
     String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
     return queryStr.contains(dbTable)
         && (!maxAge.isPresent() || queryStr.contains(maxAge.get()))
         && (!granularity.isPresent() || queryStr.contains(granularity.get()))
-        && (!minVersions.isPresent() || queryStr.contains(minVersions.get()));
+        && (!versions.isPresent() || queryStr.contains(versions.get()));
   }
 }

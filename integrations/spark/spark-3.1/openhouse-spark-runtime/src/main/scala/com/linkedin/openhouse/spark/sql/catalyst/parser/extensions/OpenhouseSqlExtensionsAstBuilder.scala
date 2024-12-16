@@ -165,23 +165,23 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
 
   override def visitSetHistoryPolicy(ctx: SetHistoryPolicyContext): SetHistoryPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val (granularity, maxAge, minVersions) = typedVisit[(Option[String], Int, Int)](ctx.historyPolicy())
-    SetHistoryPolicy(tableName, granularity, maxAge, minVersions)
+    val (granularity, maxAge, versions) = typedVisit[(Option[String], Int, Int)](ctx.historyPolicy())
+    SetHistoryPolicy(tableName, granularity, maxAge, versions)
   }
   override def visitHistoryPolicy(ctx: HistoryPolicyContext): (Option[String], Int, Int) = {
     val maxAgePolicy = if (ctx.maxAge() != null)
         typedVisit[(String, Int)](ctx.maxAge().duration())
       else (null, -1)
-    val minVersionPolicy = if (ctx.minVersions() != null)
-        typedVisit[Int](ctx.minVersions())
+    val versionPolicy = if (ctx.versions() != null)
+        typedVisit[Int](ctx.versions())
       else -1
-    if (maxAgePolicy._2 == -1 && minVersionPolicy == -1) {
-      throw new OpenhouseParseException("Either TIME or VERSIONS must be specified in HISTORY policy", ctx.start.getLine, ctx.start.getCharPositionInLine)
+    if (maxAgePolicy._2 == -1 && versionPolicy == -1) {
+      throw new OpenhouseParseException("Either MAX_AGE or VERSIONS must be specified in HISTORY policy", ctx.start.getLine, ctx.start.getCharPositionInLine)
     }
-    (Option(maxAgePolicy._1), maxAgePolicy._2, minVersionPolicy)
+    (Option(maxAgePolicy._1), maxAgePolicy._2, versionPolicy)
   }
 
-  override def visitMinVersions(ctx: MinVersionsContext): Integer = {
+  override def visitVersions(ctx: VersionsContext): Integer = {
     ctx.POSITIVE_INTEGER().getText.toInt
   }
 
