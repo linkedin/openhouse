@@ -303,6 +303,72 @@ public class TableUUIDGeneratorTest {
                     .build()));
   }
 
+  @Test
+  public void testReplicaTableDoesNotCallIsPathValid() {
+    // Stub behavior for storage
+    when(storageManager.getStorageFromPath(any())).thenReturn(storage);
+    when(storage.getClient()).thenReturn(storageClient);
+    when(storageClient.getRootPrefix()).thenReturn("/tmp");
+
+    UUID expectedUUID = UUID.randomUUID();
+    UUID actualUUID =
+        tableUUIDGenerator.generateUUID(
+            CreateUpdateTableRequestBody.builder()
+                .tableId("t")
+                .databaseId("db")
+                .clusterId(CLUSTER_NAME)
+                .tableType(TableType.REPLICA_TABLE)
+                .tableProperties(
+                    ImmutableMap.of(
+                        "openhouse.tableUUID",
+                        expectedUUID.toString(),
+                        "openhouse.tableId",
+                        "t",
+                        "openhouse.databaseId",
+                        "db",
+                        "openhouse.tableLocation",
+                        String.format("/tmp/db/t-%s/metadata.json", expectedUUID)))
+                .build());
+
+    Assertions.assertEquals(expectedUUID, actualUUID);
+
+    // Verify that isPathValid is not called
+    verify(storage, never()).isPathValid(anyString(), anyString(), anyString(), anyString());
+  }
+
+  @Test
+  public void testPrimaryTableCallsIsPathValid() {
+    // Stub behavior for storage
+    when(storageManager.getStorageFromPath(any())).thenReturn(storage);
+    when(storage.getClient()).thenReturn(storageClient);
+    when(storageClient.getRootPrefix()).thenReturn("/tmp");
+
+    UUID expectedUUID = UUID.randomUUID();
+    UUID actualUUID =
+        tableUUIDGenerator.generateUUID(
+            CreateUpdateTableRequestBody.builder()
+                .tableId("t")
+                .databaseId("db")
+                .clusterId(CLUSTER_NAME)
+                .tableType(TableType.PRIMARY_TABLE)
+                .tableProperties(
+                    ImmutableMap.of(
+                        "openhouse.tableUUID",
+                        expectedUUID.toString(),
+                        "openhouse.tableId",
+                        "t",
+                        "openhouse.databaseId",
+                        "db",
+                        "openhouse.tableLocation",
+                        String.format("/tmp/db/t-%s/metadata.json", expectedUUID)))
+                .build());
+
+    Assertions.assertEquals(expectedUUID, actualUUID);
+
+    // Verify that isPathValid is called
+    verify(storage, times(1)).isPathValid(anyString(), anyString(), anyString(), anyString());
+  }
+
   private String getTableLocation(
       String rootPrefix, String databaseId, String tableId, UUID tableUUID) {
     return String.format("%s/%s/%s-%s", rootPrefix, databaseId, tableId, tableUUID.toString());
