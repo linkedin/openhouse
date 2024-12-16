@@ -47,8 +47,8 @@ public class PoliciesSpecMapperTest {
         JsonPath.read(policiesSpec, "$.history.granularity"),
         TABLE_POLICIES.getHistory().getGranularity().toString());
     Assertions.assertEquals(
-        (Integer) JsonPath.read(policiesSpec, "$.history.minVersions"),
-        TABLE_POLICIES.getHistory().getMinVersions());
+        (Integer) JsonPath.read(policiesSpec, "$.history.versions"),
+        TABLE_POLICIES.getHistory().getVersions());
   }
 
   @Test

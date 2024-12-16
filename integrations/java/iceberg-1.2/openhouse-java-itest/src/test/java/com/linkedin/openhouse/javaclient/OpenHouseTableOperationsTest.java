@@ -337,7 +337,7 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "policies",
-        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"minVersions\": \"2\"}}");
+        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"versions\": \"2\"}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -347,7 +347,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
     Assertions.assertEquals(
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
-    Assertions.assertEquals(2, updatedPolicies.getHistory().getMinVersions());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
   }
 
   @Test
@@ -355,7 +355,7 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "updated.openhouse.policy",
-        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"minVersions\": \"2\"}}");
+        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"versions\": \"2\"}}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -365,7 +365,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
     Assertions.assertEquals(
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
-    Assertions.assertEquals(2, updatedPolicies.getHistory().getMinVersions());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
   }
 
   @Test
@@ -373,10 +373,10 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> props = new HashMap<>();
     props.put(
         "openhouse.policy",
-        "{\"history\": {\"maxAge\": \"2\", \"granularity\": \"HOUR\", \"minVersions\": \"3\"}}");
+        "{\"history\": {\"maxAge\": \"2\", \"granularity\": \"HOUR\", \"versions\": \"3\"}}");
     props.put(
         "updated.openhouse.policy",
-        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"minVersions\": \"2\"}, \"sharingEnabled\": true}");
+        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"versions\": \"2\"}, \"sharingEnabled\": true}");
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(props);
     OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
@@ -386,7 +386,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
     Assertions.assertEquals(
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
-    Assertions.assertEquals(2, updatedPolicies.getHistory().getMinVersions());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
     Assertions.assertEquals(true, updatedPolicies.getSharingEnabled());
   }
 }

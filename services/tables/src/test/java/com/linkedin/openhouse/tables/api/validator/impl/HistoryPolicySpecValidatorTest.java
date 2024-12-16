@@ -25,7 +25,7 @@ public class HistoryPolicySpecValidatorTest {
     Assertions.assertTrue(this.validator.getMessage().contains("Incorrect maxAge specified"));
 
     History historyWithNomaxAge =
-        History.builder().granularity(TimePartitionSpec.Granularity.DAY).minVersions(3).build();
+        History.builder().granularity(TimePartitionSpec.Granularity.DAY).versions(3).build();
 
     Assertions.assertFalse(this.validator.validate(historyWithNomaxAge, tableUri));
     Assertions.assertTrue(this.validator.getMessage().contains("Incorrect maxAge specified"));
@@ -49,7 +49,7 @@ public class HistoryPolicySpecValidatorTest {
         History.builder()
             .maxAge(4)
             .granularity(TimePartitionSpec.Granularity.DAY)
-            .minVersions(10)
+            .versions(10)
             .build();
     Assertions.assertFalse(this.validator.validate(historyDaysExceeded, tableUri));
 
@@ -64,7 +64,7 @@ public class HistoryPolicySpecValidatorTest {
     Assertions.assertFalse(this.validator.validate(historyGranularityExceeded, tableUri));
 
     // Exceed version count
-    History historyCountExceeded = History.builder().minVersions(1000).build();
+    History historyCountExceeded = History.builder().versions(1000).build();
     Assertions.assertFalse(this.validator.validate(historyCountExceeded, tableUri));
 
     // Exceed both policies
@@ -72,7 +72,7 @@ public class HistoryPolicySpecValidatorTest {
         History.builder()
             .maxAge(100)
             .granularity(TimePartitionSpec.Granularity.HOUR)
-            .minVersions(1000)
+            .versions(1000)
             .build();
     Assertions.assertFalse(this.validator.validate(historyBothExceeded, tableUri));
     Assertions.assertTrue(this.validator.getMessage().contains("cannot exceed"));
@@ -85,11 +85,11 @@ public class HistoryPolicySpecValidatorTest {
         History.builder().maxAge(36).granularity(TimePartitionSpec.Granularity.HOUR).build();
     Assertions.assertTrue(this.validator.validate(history, tableUri));
 
-    history = History.builder().minVersions(50).build();
+    history = History.builder().versions(50).build();
     Assertions.assertTrue(this.validator.validate(history, tableUri));
 
-    // Only define minVersions
-    history = History.builder().minVersions(10).build();
+    // Only define versions
+    history = History.builder().versions(10).build();
     Assertions.assertTrue(this.validator.validate(history, tableUri));
 
     // Define both maxAge and version count
@@ -97,7 +97,7 @@ public class HistoryPolicySpecValidatorTest {
         History.builder()
             .maxAge(3)
             .granularity(TimePartitionSpec.Granularity.DAY)
-            .minVersions(10)
+            .versions(10)
             .build();
     Assertions.assertTrue(this.validator.validate(history, tableUri));
   }

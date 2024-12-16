@@ -32,6 +32,6 @@ public class History {
       description = "minimum number of snapshots to keep within history for the table",
       example = "3,4,5")
   @PositiveOrZero(
-      message = "Incorrect count specified. history.minVersions has to be a positive integer")
-  int minVersions;
+      message = "Incorrect count specified. history.versions has to be a positive integer")
+  int versions;
 }

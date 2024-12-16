@@ -15,7 +15,7 @@ public class HistoryPolicySpecValidator {
 
   protected boolean validate(History history, TableUri tableUri) {
     if (history != null) {
-      if (history.getMaxAge() <= 0 && history.getMinVersions() <= 0) {
+      if (history.getMaxAge() <= 0 && history.getVersions() <= 0) {
         failureMessage =
             String.format(
                 "Must define either a time based retention or count based retention for snapshots in table %s",
@@ -53,7 +53,7 @@ public class HistoryPolicySpecValidator {
   protected boolean validateHistoryConfigMaximums(History history) {
     int maxAge = history.getMaxAge();
     TimePartitionSpec.Granularity granularity = history.getGranularity();
-    int minVersions = history.getMinVersions();
+    int versions = history.getVersions();
     boolean isGranularityValid =
         granularity == null
             || granularity.equals(TimePartitionSpec.Granularity.HOUR)
@@ -62,8 +62,8 @@ public class HistoryPolicySpecValidator {
     boolean isMaxAgeValid =
         !(maxAge > 3 && granularity.equals(TimePartitionSpec.Granularity.DAY)
             || maxAge > 72 && granularity.equals(TimePartitionSpec.Granularity.HOUR));
-    boolean isMinVersionsValid = minVersions <= 100;
-    return isGranularityValid && isMaxAgeValid && isMinVersionsValid;
+    boolean isversionsValid = versions <= 100;
+    return isGranularityValid && isMaxAgeValid && isversionsValid;
   }
 
   public String getMessage() {

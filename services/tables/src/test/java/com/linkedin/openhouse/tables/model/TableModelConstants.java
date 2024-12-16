@@ -70,7 +70,7 @@ public final class TableModelConstants {
         History.builder()
             .maxAge(3)
             .granularity(TimePartitionSpec.Granularity.DAY)
-            .minVersions(10)
+            .versions(10)
             .build();
     RETENTION_POLICY_WITH_PATTERN =
         Retention.builder()

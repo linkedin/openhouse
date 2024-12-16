@@ -14,5 +14,5 @@ import lombok.ToString;
 public class HistoryConfig {
   private final Retention.GranularityEnum granularity;
   private final int maxAge;
-  private final int minVersions;
+  private final int versions;
 }
