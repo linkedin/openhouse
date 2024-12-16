@@ -1,6 +1,7 @@
-name: Gradle Build and Test Pull Requests to OpenHouse
+name: Gradle Build and Run Tests
 
 on:
+  workflow_call: # Can be triggered by other workflows
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
@@ -11,13 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-gradle-project:
-    name: Build Latest commit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout project sources using merge commit hash
-        uses: actions/checkout@v4
-
+  run-tests:
       - name: Set up JDK 17
         uses: actions/setup-java@v1
         with:
