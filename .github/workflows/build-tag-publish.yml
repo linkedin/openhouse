@@ -18,9 +18,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build and test repository
-        uses: ./.github/composite-actions/build-run-tests/action.yml
-
       - name: Bump version and push tag
         if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         uses: anothrNick/github-tag-action@1.69.0
