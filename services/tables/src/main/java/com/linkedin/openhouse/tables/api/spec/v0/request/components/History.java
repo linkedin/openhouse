@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class History {
   @Schema(
-      description = "time period in count <granularity> to keep the snapshot history on the table",
+      description = "Time period in count <granularity> to keep the snapshot history on the table",
       example = "3,4,5")
   @PositiveOrZero(
       message = "Incorrect count specified. retention.maxAge has to be a positive integer")
@@ -29,7 +29,8 @@ public class History {
   TimePartitionSpec.Granularity granularity;
 
   @Schema(
-      description = "minimum number of snapshots to keep within history for the table",
+      description =
+          "Number of snapshots to keep within history for the table after snapshot expiration",
       example = "3,4,5")
   @PositiveOrZero(
       message = "Incorrect count specified. history.versions has to be a positive integer")
