@@ -139,18 +139,21 @@ public class TableUUIDGenerator {
     String tableURI = String.format("%s.%s", databaseId, tableId);
     String dbIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, DB_RAW_KEY);
     String tblIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_RAW_KEY);
-    // Extract tableLocation from table properties (openhouse.tableLocation)
-    // tableLocation should be the absolute path to the latest metadata file including scheme.
-    // Scheme is not present for HDFS and Local storages. See:
-    // https://github.com/linkedin/openhouse/issues/121
-    String tableLocation = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
-    Storage storage = storageManager.getStorageFromPath(tableLocation);
 
-    if (TableType.REPLICA_TABLE != tableType
-        && !storage.isPathValid(tableLocation, dbIdFromProps, tblIdFromProps, tableUUIDProperty)) {
-      log.error("Previous tableLocation: {} doesn't exist", tableLocation);
-      throw new RequestValidationFailureException(
-          String.format("Provided snapshot is invalid for %s.%s", dbIdFromProps, tblIdFromProps));
+    if (TableType.REPLICA_TABLE != tableType) {
+      // Extract tableLocation from table properties (openhouse.tableLocation)
+      // tableLocation should be the absolute path to the latest metadata file including scheme.
+      // Scheme is not present for HDFS and Local storages. See:
+      // https://github.com/linkedin/openhouse/issues/121
+      String tableLocation =
+          extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
+      Storage storage = storageManager.getStorageFromPath(tableLocation);
+
+      if (!storage.isPathValid(tableLocation, dbIdFromProps, tblIdFromProps, tableUUIDProperty)) {
+        log.error("Previous tableLocation: {} doesn't exist", tableLocation);
+        throw new RequestValidationFailureException(
+            String.format("Provided snapshot is invalid for %s.%s", dbIdFromProps, tblIdFromProps));
+      }
     }
   }
 
