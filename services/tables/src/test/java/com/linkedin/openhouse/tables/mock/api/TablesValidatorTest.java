@@ -16,6 +16,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -184,7 +185,7 @@ public class TablesValidatorTest {
                     .timePartitioning(
                         TimePartitionSpec.builder()
                             .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .granularity(TimeGranularity.HOUR)
                             .build())
                     .baseTableVersion("base")
                     .policies(Policies.builder().retention(RETENTION_POLICY).build())
@@ -208,7 +209,7 @@ public class TablesValidatorTest {
                     .timePartitioning(
                         TimePartitionSpec.builder()
                             .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .granularity(TimeGranularity.HOUR)
                             .build())
                     .policies(Policies.builder().retention(Retention.builder().build()).build())
                     .baseTableVersion("base")
@@ -232,7 +233,7 @@ public class TablesValidatorTest {
                     .timePartitioning(
                         TimePartitionSpec.builder()
                             .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .granularity(TimeGranularity.HOUR)
                             .build())
                     .policies(
                         Policies.builder()
@@ -269,7 +270,7 @@ public class TablesValidatorTest {
                       .tableProperties(ImmutableMap.of())
                       .timePartitioning(
                           TimePartitionSpec.builder()
-                              .granularity(TimePartitionSpec.Granularity.DAY)
+                              .granularity(TimeGranularity.DAY)
                               .columnName("timestamp")
                               .build())
                       .policies(
@@ -277,7 +278,7 @@ public class TablesValidatorTest {
                               .retention(
                                   Retention.builder()
                                       .count(d)
-                                      .granularity(TimePartitionSpec.Granularity.DAY)
+                                      .granularity(TimeGranularity.DAY)
                                       .build())
                               .build())
                       .baseTableVersion("base")
@@ -813,7 +814,7 @@ public class TablesValidatorTest {
                     .timePartitioning(
                         TimePartitionSpec.builder()
                             .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .granularity(TimeGranularity.HOUR)
                             .build())
                     .policies(
                         Policies.builder()
@@ -847,7 +848,7 @@ public class TablesValidatorTest {
                     .timePartitioning(
                         TimePartitionSpec.builder()
                             .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .granularity(TimeGranularity.HOUR)
                             .build())
                     .baseTableVersion("base")
                     .policies(Policies.builder().history(HISTORY_POLICY).build())
@@ -871,7 +872,7 @@ public class TablesValidatorTest {
                     .timePartitioning(
                         TimePartitionSpec.builder()
                             .columnName("timestamp")
-                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .granularity(TimeGranularity.HOUR)
                             .build())
                     .policies(Policies.builder().history(History.builder().build()).build())
                     .baseTableVersion("base")

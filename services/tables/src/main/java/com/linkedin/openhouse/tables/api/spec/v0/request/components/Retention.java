@@ -31,7 +31,7 @@ public class Retention {
       example = "hour, day, month, year")
   @NotNull(message = "Incorrect granularity specified. retention.granularity cannot be null")
   @Valid
-  TimePartitionSpec.Granularity granularity;
+  TimeGranularity granularity;
 
   @Valid
   @Schema(

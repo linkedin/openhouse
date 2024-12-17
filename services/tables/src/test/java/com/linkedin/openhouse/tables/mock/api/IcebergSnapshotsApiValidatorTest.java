@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.validator.IcebergSnapshotsApiValidator;
 import java.util.Collections;
@@ -28,7 +29,7 @@ public class IcebergSnapshotsApiValidatorTest {
           .policies(TABLE_POLICIES)
           .timePartitioning(
               TimePartitionSpec.builder()
-                  .granularity(TimePartitionSpec.Granularity.HOUR)
+                  .granularity(TimeGranularity.HOUR)
                   .columnName("timestamp")
                   .build())
           .tableProperties(ImmutableMap.of())

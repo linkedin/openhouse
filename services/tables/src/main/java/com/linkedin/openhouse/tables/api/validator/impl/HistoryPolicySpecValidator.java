@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -32,11 +32,16 @@ public class HistoryPolicySpecValidator {
         return false;
       }
 
-      if (!validateHistoryConfigMaximums(history)) {
+      if (!validateHistoryConfigMaxAgeWithinBounds(history)) {
         failureMessage =
             String.format(
-                "History for the table [%s] cannot exceed 3 days or 100 versions maximum",
-                tableUri);
+                "History for the table [%s] max age must be between 1 to 3 days", tableUri);
+        return false;
+      }
+
+      if (!validateHistoryConfigVersionsWithinBounds(history)) {
+        failureMessage =
+            String.format("History for the table [%s] must be between 2 to 100 versions", tableUri);
         return false;
       }
     }
@@ -44,26 +49,33 @@ public class HistoryPolicySpecValidator {
   }
 
   /**
-   * Validate that the amount of time to retain snapshots does not exceed either 3 days or 100
+   * Validate that the amount of time to retain history of table snapshots is between 1 to 3 days
    * versions
    *
    * @param history
    * @return
    */
-  protected boolean validateHistoryConfigMaximums(History history) {
+  protected boolean validateHistoryConfigMaxAgeWithinBounds(History history) {
     int maxAge = history.getMaxAge();
-    TimePartitionSpec.Granularity granularity = history.getGranularity();
-    int versions = history.getVersions();
+    TimeGranularity granularity = history.getGranularity();
     boolean isGranularityValid =
         granularity == null
-            || granularity.equals(TimePartitionSpec.Granularity.HOUR)
-            || granularity.equals(TimePartitionSpec.Granularity.DAY);
+            || granularity.equals(TimeGranularity.HOUR)
+            || granularity.equals(TimeGranularity.DAY);
 
     boolean isMaxAgeValid =
-        !(maxAge > 3 && granularity.equals(TimePartitionSpec.Granularity.DAY)
-            || maxAge > 72 && granularity.equals(TimePartitionSpec.Granularity.HOUR));
-    boolean isversionsValid = versions <= 100;
-    return isGranularityValid && isMaxAgeValid && isversionsValid;
+        granularity != null
+            && (maxAge < 3 && granularity.equals(TimeGranularity.DAY)
+                || maxAge < 72 && granularity.equals(TimeGranularity.HOUR))
+            && (maxAge > 1 && granularity.equals(TimeGranularity.DAY)
+                || maxAge > 24 && granularity.equals(TimeGranularity.HOUR));
+
+    return isGranularityValid && isMaxAgeValid;
+  }
+
+  protected boolean validateHistoryConfigVersionsWithinBounds(History history) {
+    int versions = history.getVersions();
+    return versions >= 2 && versions <= 100;
   }
 
   public String getMessage() {

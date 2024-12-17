@@ -33,7 +33,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
   @Autowired private ReplicationConfigValidator replicationConfigValidator;
 
-  @Autowired private HistoryPolicySpecValidator _historyPolicySpecValidator;
+  @Autowired private HistoryPolicySpecValidator historyPolicySpecValidator;
 
   @Override
   public void validateGetTable(String databaseId, String tableId) {
@@ -160,14 +160,14 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
     if (createUpdateTableRequestBody.getPolicies() != null
         && createUpdateTableRequestBody.getPolicies().getHistory() != null) {
-      if (!_historyPolicySpecValidator.validate(
+      if (!historyPolicySpecValidator.validate(
           createUpdateTableRequestBody.getPolicies().getHistory(), tableUri)) {
         throw new RequestValidationFailureException(
             Arrays.asList(
                 String.format(
                     "%s : %s",
-                    _historyPolicySpecValidator.getField(),
-                    _historyPolicySpecValidator.getMessage())));
+                    historyPolicySpecValidator.getField(),
+                    historyPolicySpecValidator.getMessage())));
       }
     }
   }

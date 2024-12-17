@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -33,10 +34,7 @@ public class TablesMapperTest {
           .clusterId(CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST.getClusterId())
           .tableProperties(ImmutableMap.of("oldk", "oldv"))
           .timePartitioning(
-              TimePartitionSpec.builder()
-                  .columnName("ts")
-                  .granularity(TimePartitionSpec.Granularity.DAY)
-                  .build())
+              TimePartitionSpec.builder().columnName("ts").granularity(TimeGranularity.DAY).build())
           .tableVersion("v1")
           .schema("schema")
           .build();
@@ -125,7 +123,7 @@ public class TablesMapperTest {
                         .retention(
                             RETENTION_POLICY_WITH_EMPTY_PATTERN
                                 .toBuilder()
-                                .granularity(TimePartitionSpec.Granularity.DAY)
+                                .granularity(TimeGranularity.DAY)
                                 .build())
                         .build())
                 .build());

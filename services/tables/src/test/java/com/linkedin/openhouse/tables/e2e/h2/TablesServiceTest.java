@@ -14,6 +14,7 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -288,7 +289,7 @@ public class TablesServiceTest {
             putRequest,
             TimePartitionSpec.builder()
                 .columnName("timestampCol")
-                .granularity(TimePartitionSpec.Granularity.DAY)
+                .granularity(TimeGranularity.DAY)
                 .build()),
         null,
         true);
@@ -300,7 +301,7 @@ public class TablesServiceTest {
             putRequest,
             TimePartitionSpec.builder()
                 .columnName("complexType2.nestedTimestampCol")
-                .granularity(TimePartitionSpec.Granularity.HOUR)
+                .granularity(TimeGranularity.HOUR)
                 .build()),
         null,
         true);
@@ -322,7 +323,7 @@ public class TablesServiceTest {
                 putRequest,
                 TimePartitionSpec.builder()
                     .columnName("timestampCol")
-                    .granularity(TimePartitionSpec.Granularity.DAY)
+                    .granularity(TimeGranularity.DAY)
                     .build()),
             null,
             true);
@@ -342,7 +343,7 @@ public class TablesServiceTest {
                             putTableDto, getSchemaJsonFromSchema(evolvedSchema)),
                         TimePartitionSpec.builder()
                             .columnName("timestampCol2")
-                            .granularity(TimePartitionSpec.Granularity.DAY)
+                            .granularity(TimeGranularity.DAY)
                             .build())),
                 null,
                 false));
@@ -362,7 +363,7 @@ public class TablesServiceTest {
                             putTableDto, getSchemaJsonFromSchema(evolvedSchema2)),
                         TimePartitionSpec.builder()
                             .columnName("timestampCol")
-                            .granularity(TimePartitionSpec.Granularity.DAY)
+                            .granularity(TimeGranularity.DAY)
                             .build())),
                 null,
                 false));
