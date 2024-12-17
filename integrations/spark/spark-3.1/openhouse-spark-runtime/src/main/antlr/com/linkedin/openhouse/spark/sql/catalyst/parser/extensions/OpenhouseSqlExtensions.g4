@@ -26,10 +26,11 @@ statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
+  | ALTER TABLE multipartIdentifier SET POLICY '(' historyPolicy ')'                                   #setHistoryPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
-  | SHOW GRANTS ON grantableResource       #showGrantsStatement
+  | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
   ;
 
 multipartIdentifier
@@ -65,7 +66,7 @@ quotedIdentifier
     ;
 
 nonReserved
-    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION
+    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     ;
 
@@ -76,6 +77,7 @@ sharingPolicy
 BOOLEAN
     : 'TRUE' | 'FALSE'
     ;
+
 retentionPolicy
     : RETENTION '=' duration
     ;
@@ -153,12 +155,25 @@ policyTag
     : PII | HC
     ;
 
+historyPolicy
+    : HISTORY maxAge? versions?
+    ;
+
+maxAge
+    : MAX_AGE'='duration
+    ;
+
+versions
+    : VERSIONS'='POSITIVE_INTEGER
+    ;
+
 ALTER: 'ALTER';
 TABLE: 'TABLE';
 SET: 'SET';
 POLICY: 'POLICY';
 RETENTION: 'RETENTION';
 REPLICATION: 'REPLICATION';
+HISTORY: 'HISTORY';
 SHARING: 'SHARING';
 GRANT: 'GRANT';
 REVOKE: 'REVOKE';
@@ -182,6 +197,8 @@ HC: 'HC';
 MODIFY: 'MODIFY';
 TAG: 'TAG';
 NONE: 'NONE';
+VERSIONS: 'VERSIONS';
+MAX_AGE: 'MAX_AGE';
 
 POSITIVE_INTEGER
     : DIGIT+

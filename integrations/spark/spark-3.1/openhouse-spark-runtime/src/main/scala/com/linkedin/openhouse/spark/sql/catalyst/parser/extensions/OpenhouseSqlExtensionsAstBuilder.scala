@@ -2,7 +2,7 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
@@ -22,7 +22,7 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     val (granularity, count) = typedVisit[(String, Int)](ctx.retentionPolicy())
     val (colName, colPattern) =
       if (ctx.columnRetentionPolicy() != null)
-      typedVisit[(String, String)](ctx.columnRetentionPolicy())
+        typedVisit[(String, String)](ctx.columnRetentionPolicy())
       else (null, null)
     SetRetentionPolicy(tableName, granularity, count, Option(colName), Option(colPattern))
   }
@@ -128,8 +128,8 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     }
   }
 
-  override def visitColumnRetentionPolicyPatternClause(ctx: ColumnRetentionPolicyPatternClauseContext): (String) = {
-    (ctx.retentionColumnPatternClause().STRING().getText)
+  override def visitColumnRetentionPolicyPatternClause(ctx: ColumnRetentionPolicyPatternClauseContext): String = {
+    ctx.retentionColumnPatternClause().STRING().getText
   }
 
   override def visitSharingPolicy(ctx: SharingPolicyContext): String = {
@@ -149,7 +149,7 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   }
 
   override def visitDuration(ctx: DurationContext): (String, Int) = {
-    val granularity = if (ctx.RETENTION_DAY != null) {
+    val granularity: String = if (ctx.RETENTION_DAY != null) {
       TimePartitionSpec.GranularityEnum.DAY.getValue()
     } else if (ctx.RETENTION_YEAR() != null) {
       TimePartitionSpec.GranularityEnum.YEAR.getValue()
@@ -158,13 +158,36 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     } else {
       TimePartitionSpec.GranularityEnum.HOUR.getValue()
     }
-
     val count = ctx.getText.substring(0, ctx.getText.length - 1).toInt
     (granularity, count)
   }
 
+  override def visitSetHistoryPolicy(ctx: SetHistoryPolicyContext): SetHistoryPolicy = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val (granularity, maxAge, versions) = typedVisit[(Option[String], Int, Int)](ctx.historyPolicy())
+    SetHistoryPolicy(tableName, granularity, maxAge, versions)
+  }
+  override def visitHistoryPolicy(ctx: HistoryPolicyContext): (Option[String], Int, Int) = {
+    val maxAgePolicy = if (ctx.maxAge() != null)
+        typedVisit[(String, Int)](ctx.maxAge().duration())
+      else (null, -1)
+    val versionPolicy = if (ctx.versions() != null)
+        typedVisit[Int](ctx.versions())
+      else -1
+    if (maxAgePolicy._2 == -1 && versionPolicy == -1) {
+      throw new OpenhouseParseException("At least one of MAX_AGE or VERSIONS must be specified in HISTORY policy, e.g. " +
+        "ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=2D) or ALTER TABLE openhouse.db.table SET POLICY (HISTORY VERSIONS=3)",
+        ctx.start.getLine, ctx.start.getCharPositionInLine)
+    }
+    (Option(maxAgePolicy._1), maxAgePolicy._2, versionPolicy)
+  }
+
+  override def visitVersions(ctx: VersionsContext): Integer = {
+    ctx.POSITIVE_INTEGER().getText.toInt
+  }
+
   private def toBuffer[T](list: java.util.List[T]) = list.asScala
-  private def toSeq[T](list: java.util.List[T]): Seq[T] = toBuffer(list).toSeq
+  private def toSeq[T](list: java.util.List[T]) = toBuffer(list).toSeq
 
   private def typedVisit[T](ctx: ParseTree): T = {
     ctx.accept(this).asInstanceOf[T]
