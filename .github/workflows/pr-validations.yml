@@ -1,0 +1,15 @@
+name: Pull Request Validations
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-run-tests:
+    uses: ./.github/workflows/build-run-tests.yml
