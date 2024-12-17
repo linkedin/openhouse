@@ -19,8 +19,7 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
 
   override def visitSetRetentionPolicy(ctx: SetRetentionPolicyContext): SetRetentionPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val retentionPolicy = ctx.retentionPolicy()
-    val (granularity, count) = typedVisit[(String, Int)](retentionPolicy)
+    val (granularity, count) = typedVisit[(String, Int)](ctx.retentionPolicy())
     val (colName, colPattern) =
       if (ctx.columnRetentionPolicy() != null)
         typedVisit[(String, String)](ctx.columnRetentionPolicy())
@@ -176,7 +175,9 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
         typedVisit[Int](ctx.versions())
       else -1
     if (maxAgePolicy._2 == -1 && versionPolicy == -1) {
-      throw new OpenhouseParseException("Either MAX_AGE or VERSIONS must be specified in HISTORY policy", ctx.start.getLine, ctx.start.getCharPositionInLine)
+      throw new OpenhouseParseException("At least one of MAX_AGE or VERSIONS must be specified in HISTORY policy, e.g. " +
+        "ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=2D) or ALTER TABLE openhouse.db.table SET POLICY (HISTORY VERSIONS=3)",
+        ctx.start.getLine, ctx.start.getCharPositionInLine)
     }
     (Option(maxAgePolicy._1), maxAgePolicy._2, versionPolicy)
   }
