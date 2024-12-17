@@ -30,16 +30,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.iceberg.BaseMetastoreTableOperations;
-import org.apache.iceberg.PartitionField;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SnapshotSummary;
-import org.apache.iceberg.SortDirection;
-import org.apache.iceberg.SortField;
-import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableProperties;
@@ -47,8 +40,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
-import org.apache.iceberg.expressions.Expressions;
-import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
 import org.springframework.data.util.Pair;
@@ -177,26 +168,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   @SuppressWarnings("checkstyle:MissingSwitchDefault")
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
-
-    /**
-     * During table creation, the table metadata object that arrives here has the field-ids
-     * reassigned from the client supplied schema.This code block creates a new table metadata
-     * object using the client supplied schema by preserving its field-ids.
-     */
-    if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
-      Schema clientSchema =
-          SchemaParser.fromJson(metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA));
-      metadata =
-          TableMetadata.buildFromEmpty()
-              .setLocation(metadata.location())
-              .setCurrentSchema(clientSchema, metadata.lastColumnId())
-              .addPartitionSpec(
-                  rebuildPartitionSpec(metadata.spec(), metadata.schema(), clientSchema))
-              .addSortOrder(rebuildSortOrder(metadata.sortOrder(), clientSchema))
-              .setProperties(metadata.properties())
-              .build();
-    }
-
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
 
@@ -309,103 +280,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           break; /*should never happen, kept to silence SpotBugs*/
       }
     }
-  }
-
-  /**
-   * Build a new partition spec with new schema from original pspec. The new pspec has the same
-   * partition fields as the original pspec with source ids from the new schema
-   *
-   * @param originalPspec
-   * @param originalSchema
-   * @param newSchema
-   * @return new partition spec
-   */
-  static PartitionSpec rebuildPartitionSpec(
-      PartitionSpec originalPspec, Schema originalSchema, Schema newSchema) {
-    PartitionSpec.Builder builder = PartitionSpec.builderFor(newSchema);
-
-    for (PartitionField field : originalPspec.fields()) {
-      // get field name from original schema using source id of partition field
-      // because Pspec appends _bucket and _trunc to field name for bucket and truncate fields
-      String fieldName = originalSchema.findField(field.sourceId()).name();
-      // Check if the partition field is present in new schema
-      if (newSchema.findField(fieldName) == null) {
-        throw new IllegalArgumentException(
-            "Field " + fieldName + " does not exist in the new schema");
-      }
-      // build the pspec from transform string representation
-      buildPspecFromTransform(builder, field, fieldName);
-    }
-
-    return builder.build();
-  }
-
-  static void buildPspecFromTransform(
-      PartitionSpec.Builder builder, PartitionField field, String fieldName) {
-    // Recreate the transform using the string representation
-    String transformString = field.transform().toString();
-
-    // Add the field to the new PartitionSpec based on the transform type
-    if ("identity".equalsIgnoreCase(transformString)) {
-      builder.identity(fieldName);
-    } else if (transformString.startsWith("bucket[")) {
-      // Extract bucket number from the string (e.g., bucket[16])
-      int numBuckets =
-          Integer.parseInt(
-              transformString.substring(
-                  transformString.indexOf('[') + 1, transformString.indexOf(']')));
-      builder.bucket(fieldName, numBuckets);
-    } else if (transformString.startsWith("truncate[")) {
-      // Extract width from the string (e.g., truncate[10])
-      int width =
-          Integer.parseInt(
-              transformString.substring(
-                  transformString.indexOf('[') + 1, transformString.indexOf(']')));
-      builder.truncate(fieldName, width);
-    } else if ("year".equalsIgnoreCase(transformString)) {
-      builder.year(fieldName);
-    } else if ("month".equalsIgnoreCase(transformString)) {
-      builder.month(fieldName);
-    } else if ("day".equalsIgnoreCase(transformString)) {
-      builder.day(fieldName);
-    } else if ("hour".equalsIgnoreCase(transformString)) {
-      builder.hour(fieldName);
-    } else {
-      throw new UnsupportedOperationException("Unsupported transform: " + transformString);
-    }
-  }
-
-  /**
-   * Build a new sort order with new schema from original sort order. The new sort order has the
-   * same fields as the original sort order with source ids from the new schema
-   *
-   * @param originalSortOrder
-   * @param newSchema
-   * @return new SortOrder
-   */
-  static SortOrder rebuildSortOrder(SortOrder originalSortOrder, Schema newSchema) {
-    SortOrder.Builder builder = SortOrder.builderFor(newSchema);
-
-    for (SortField field : originalSortOrder.fields()) {
-      // Find the field name in the original schema based on the sourceId
-      String fieldName = originalSortOrder.schema().findField(field.sourceId()).name();
-      // Check if the sortorder field is present in new schema
-      if (newSchema.findField(fieldName) == null) {
-        throw new IllegalArgumentException(
-            "Field " + fieldName + " does not exist in the new schema");
-      }
-      // Create a new SortField with the updated sourceId and original direction and null order
-      Term term = Expressions.ref(fieldName);
-
-      // Apply sort direction and null ordering with the updated sourceId
-      if (field.direction() == SortDirection.ASC) {
-        builder.asc(term, field.nullOrder());
-      } else {
-        builder.desc(term, field.nullOrder());
-      }
-    }
-
-    return builder.build();
   }
 
   /**
