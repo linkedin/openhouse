@@ -20,7 +20,8 @@ public class History {
       description = "Time period in count <granularity> to keep the snapshot history on the table",
       example = "3,4,5")
   @PositiveOrZero(
-      message = "Incorrect count specified. retention.maxAge has to be a positive integer")
+      message =
+          "Incorrect count specified. retention.maxAge has to be a positive integer or zero if undefined")
   @Valid
   int maxAge;
 
@@ -33,6 +34,7 @@ public class History {
           "Number of snapshots to keep within history for the table after snapshot expiration",
       example = "3,4,5")
   @PositiveOrZero(
-      message = "Incorrect count specified. history.versions has to be a positive integer")
+      message =
+          "Incorrect count specified. history.versions has to be a positive integer or zero if undefined")
   int versions;
 }
