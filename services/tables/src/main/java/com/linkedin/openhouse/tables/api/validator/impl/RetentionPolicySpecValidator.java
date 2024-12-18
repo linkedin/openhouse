@@ -13,8 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * PoliciesSpecValidator is a custom validator to validate the input values for period in retention
- * policy. This custom validator can be used to add validators for fields in policies
+ * RetentionPolicySpecValidator is a custom validator to validate the input values for period in
+ * retention policy.
  */
 @Component
 @Slf4j

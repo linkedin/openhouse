@@ -49,8 +49,7 @@ public class HistoryPolicySpecValidator {
   }
 
   /**
-   * Validate that the amount of time to retain history of table snapshots is between 1 to 3 days
-   * versions
+   * Validate that the amount of time to retain history of table snapshots is between 1 and 3 days
    *
    * @param history
    * @return
@@ -58,6 +57,10 @@ public class HistoryPolicySpecValidator {
   protected boolean validateHistoryConfigMaxAgeWithinBounds(History history) {
     int maxAge = history.getMaxAge();
     TimeGranularity granularity = history.getGranularity();
+    if (maxAge == 0) { // maxAge is 0 then consider it undefined and refer to default for snapshot
+      // expiration
+      return true;
+    }
     boolean isGranularityValid =
         granularity == null
             || granularity.equals(TimeGranularity.HOUR)
@@ -65,15 +68,24 @@ public class HistoryPolicySpecValidator {
 
     boolean isMaxAgeValid =
         granularity != null
-            && (maxAge < 3 && granularity.equals(TimeGranularity.DAY)
-                || maxAge < 72 && granularity.equals(TimeGranularity.HOUR))
-            && (maxAge > 1 && granularity.equals(TimeGranularity.DAY)
-                || maxAge > 24 && granularity.equals(TimeGranularity.HOUR));
+            && (maxAge <= 3 && granularity.equals(TimeGranularity.DAY)
+                || maxAge <= 72 && granularity.equals(TimeGranularity.HOUR))
+            && (maxAge >= 1 && granularity.equals(TimeGranularity.DAY)
+                || maxAge >= 24 && granularity.equals(TimeGranularity.HOUR));
 
     return isGranularityValid && isMaxAgeValid;
   }
 
+  /*
+   * Validate that the number of versions to retain history of table snapshots is between 2 and 100
+   * We want at least 2 versions so that users can always rollback to at least 1 version before a commit
+   */
   protected boolean validateHistoryConfigVersionsWithinBounds(History history) {
+    if (history.getVersions()
+        == 0) { // versions is 0 then consider it undefined and refer to default for snapshot
+      // expiration
+      return true;
+    }
     int versions = history.getVersions();
     return versions >= 2 && versions <= 100;
   }
