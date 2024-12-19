@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.gen.tables.client.model.History;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
@@ -343,5 +344,63 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(
         updatedPolicies.getReplication().getConfig().get(1).getInterval(), "2D");
     Assertions.assertEquals(updatedPolicies.getReplication().getConfig().size(), 2);
+  }
+
+  @Test
+  public void testPoliciesHistoryInMetadataNoUpdate() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "policies",
+        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"versions\": \"2\"}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
+    Assertions.assertEquals(
+        History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
+  }
+
+  @Test
+  public void testNoPoliciesHistoryExistsButUpdateExists() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "updated.openhouse.policy",
+        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"versions\": \"2\"}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
+    Assertions.assertEquals(
+        History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
+  }
+
+  @Test
+  public void testPoliciesHistoryExistsUpdate() {
+    Map<String, String> props = new HashMap<>();
+    props.put(
+        "openhouse.policy",
+        "{\"history\": {\"maxAge\": \"2\", \"granularity\": \"HOUR\", \"versions\": \"3\"}}");
+    props.put(
+        "updated.openhouse.policy",
+        "{\"history\": {\"maxAge\": \"1\", \"granularity\": \"DAY\", \"versions\": \"2\"}, \"sharingEnabled\": true}");
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(props);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    Policies updatedPolicies = openHouseTableOperations.buildUpdatedPolicies(metadata);
+    Assertions.assertNotNull(updatedPolicies);
+    Assertions.assertEquals(1, updatedPolicies.getHistory().getMaxAge());
+    Assertions.assertEquals(
+        History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
+    Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
+    Assertions.assertEquals(true, updatedPolicies.getSharingEnabled());
   }
 }

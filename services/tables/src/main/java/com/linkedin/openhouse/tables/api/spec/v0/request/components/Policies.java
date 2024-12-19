@@ -48,4 +48,11 @@ public class Policies {
       example = "{replication:{config:[{destination: clusterA, interval: 12H}]}}")
   @Valid
   Replication replication;
+
+  @Schema(
+      description =
+          "Holds the history configuration for snapshots of the table, which can be configured by maxAge by time and/or number of versions",
+      example = "{history:{maxAge:3, granularity: 'day', versions: 5}}")
+  @Valid
+  History history;
 }

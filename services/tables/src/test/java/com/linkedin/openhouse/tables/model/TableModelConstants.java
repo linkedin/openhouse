@@ -8,11 +8,13 @@ import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -43,6 +45,7 @@ public final class TableModelConstants {
   public static RetentionColumnPattern COL_PAT;
   public static Retention RETENTION_POLICY;
   public static Replication REPLICATION_POLICY;
+  public static History HISTORY_POLICY;
 
   public static final Retention RETENTION_POLICY_WITH_PATTERN;
   public static final Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
@@ -60,16 +63,16 @@ public final class TableModelConstants {
   static {
     COL_PAT = RetentionColumnPattern.builder().columnName("name").pattern("'yyyy'").build();
 
-    RETENTION_POLICY =
-        Retention.builder().count(3).granularity(TimePartitionSpec.Granularity.HOUR).build();
+    RETENTION_POLICY = Retention.builder().count(3).granularity(TimeGranularity.HOUR).build();
     ArrayList<ReplicationConfig> configs = new ArrayList<>();
     configs.add(ReplicationConfig.builder().destination("CLUSTER1").interval("12H").build());
     REPLICATION_POLICY = Replication.builder().config(configs).build();
-
+    HISTORY_POLICY =
+        History.builder().maxAge(3).granularity(TimeGranularity.DAY).versions(10).build();
     RETENTION_POLICY_WITH_PATTERN =
         Retention.builder()
             .count(3)
-            .granularity(TimePartitionSpec.Granularity.HOUR)
+            .granularity(TimeGranularity.HOUR)
             .columnPattern(COL_PAT)
             .build();
 
@@ -80,7 +83,11 @@ public final class TableModelConstants {
             .build();
 
     TABLE_POLICIES =
-        Policies.builder().retention(RETENTION_POLICY).replication(REPLICATION_POLICY).build();
+        Policies.builder()
+            .retention(RETENTION_POLICY)
+            .replication(REPLICATION_POLICY)
+            .history(HISTORY_POLICY)
+            .build();
     TABLE_POLICIES_COMPLEX = Policies.builder().retention(RETENTION_POLICY_WITH_PATTERN).build();
     TABLE_POLICIES_COMPLEX_STRING =
         "{\n"
@@ -197,7 +204,7 @@ public final class TableModelConstants {
           .timePartitioning(
               TimePartitionSpec.builder()
                   .columnName("timestampCol")
-                  .granularity(TimePartitionSpec.Granularity.HOUR)
+                  .granularity(TimeGranularity.HOUR)
                   .build())
           .clustering(
               Arrays.asList(
@@ -228,7 +235,7 @@ public final class TableModelConstants {
           .timePartitioning(
               TimePartitionSpec.builder()
                   .columnName("timestampCol")
-                  .granularity(TimePartitionSpec.Granularity.HOUR)
+                  .granularity(TimeGranularity.HOUR)
                   .build())
           .clustering(
               Arrays.asList(
@@ -270,7 +277,7 @@ public final class TableModelConstants {
           .timePartitioning(
               TimePartitionSpec.builder()
                   .columnName("timestampCol")
-                  .granularity(TimePartitionSpec.Granularity.HOUR)
+                  .granularity(TimeGranularity.HOUR)
                   .build())
           .clustering(
               Arrays.asList(
@@ -315,7 +322,7 @@ public final class TableModelConstants {
           .timePartitioning(
               TimePartitionSpec.builder()
                   .columnName("timestampCol")
-                  .granularity(TimePartitionSpec.Granularity.HOUR)
+                  .granularity(TimeGranularity.HOUR)
                   .build())
           .clustering(
               Arrays.asList(
@@ -344,7 +351,7 @@ public final class TableModelConstants {
           .timePartitioning(
               TimePartitionSpec.builder()
                   .columnName("timestampCol")
-                  .granularity(TimePartitionSpec.Granularity.HOUR)
+                  .granularity(TimeGranularity.HOUR)
                   .build())
           .clustering(
               Arrays.asList(
@@ -372,7 +379,7 @@ public final class TableModelConstants {
               .timePartitioning(
                   TimePartitionSpec.builder()
                       .columnName("ts")
-                      .granularity(TimePartitionSpec.Granularity.DAY)
+                      .granularity(TimeGranularity.DAY)
                       .build())
               .clustering(
                   Arrays.asList(
@@ -434,7 +441,7 @@ public final class TableModelConstants {
         .timePartitioning(
             TimePartitionSpec.builder()
                 .columnName("timestampCol")
-                .granularity(TimePartitionSpec.Granularity.HOUR)
+                .granularity(TimeGranularity.HOUR)
                 .build())
         .clustering(
             Arrays.asList(
