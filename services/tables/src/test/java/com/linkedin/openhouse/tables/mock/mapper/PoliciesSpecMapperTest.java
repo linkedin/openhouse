@@ -40,6 +40,15 @@ public class PoliciesSpecMapperTest {
     Assertions.assertEquals(
         JsonPath.read(policiesSpec, "$.replication.config[0].interval"),
         TableModelConstants.TABLE_POLICIES.getReplication().getConfig().get(0).getInterval());
+    Assertions.assertEquals(
+        (Integer) JsonPath.read(policiesSpec, "$.history.maxAge"),
+        TABLE_POLICIES.getHistory().getMaxAge());
+    Assertions.assertEquals(
+        JsonPath.read(policiesSpec, "$.history.granularity"),
+        TABLE_POLICIES.getHistory().getGranularity().toString());
+    Assertions.assertEquals(
+        (Integer) JsonPath.read(policiesSpec, "$.history.versions"),
+        TABLE_POLICIES.getHistory().getVersions());
   }
 
   @Test

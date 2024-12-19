@@ -7,6 +7,7 @@ import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import java.lang.reflect.Field;
 import org.apache.iceberg.Schema;
@@ -15,9 +16,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class PoliciesSpecValidatorTest {
+class RetentionPolicySpecValidatorTest {
 
-  PoliciesSpecValidator validator;
+  RetentionPolicySpecValidator validator;
 
   private Schema dummySchema;
 
@@ -25,7 +26,7 @@ class PoliciesSpecValidatorTest {
 
   @BeforeEach
   public void setup() {
-    this.validator = new PoliciesSpecValidator();
+    this.validator = new RetentionPolicySpecValidator();
     this.dummySchema =
         new Schema(
             required(1, "id", Types.StringType.get()), required(2, "aa", Types.StringType.get()));
@@ -47,7 +48,7 @@ class PoliciesSpecValidatorTest {
         Retention.builder()
             .columnPattern(pattern)
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .build();
 
     Assertions.assertTrue(
@@ -56,11 +57,7 @@ class PoliciesSpecValidatorTest {
 
     // Without Pattern
     Retention retention2 =
-        Retention.builder()
-            .columnPattern(null)
-            .count(10)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .build();
+        Retention.builder().columnPattern(null).count(10).granularity(TimeGranularity.DAY).build();
     Assertions.assertTrue(
         validator.validatePatternIfPresent(
             retention2, TableUri.builder().build(), getSchemaJsonFromSchema(dummySchema)));
@@ -72,7 +69,7 @@ class PoliciesSpecValidatorTest {
         Retention.builder()
             .columnPattern(pattern)
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .build();
     Assertions.assertTrue(
         validator.validatePatternIfPresent(
@@ -84,7 +81,7 @@ class PoliciesSpecValidatorTest {
         Retention.builder()
             .columnPattern(pattern)
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .build();
     Assertions.assertTrue(
         validator.validatePatternIfPresent(
@@ -99,7 +96,7 @@ class PoliciesSpecValidatorTest {
         Retention.builder()
             .columnPattern(malformedPattern)
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .build();
     Assertions.assertFalse(
         validator.validatePatternIfPresent(
@@ -117,7 +114,7 @@ class PoliciesSpecValidatorTest {
     Retention retention0 =
         Retention.builder()
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .columnPattern(pattern0)
             .build();
     Policies policies0 = Policies.builder().retention(retention0).build();
@@ -133,7 +130,7 @@ class PoliciesSpecValidatorTest {
     retention0 =
         Retention.builder()
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .columnPattern(pattern0)
             .build();
     policies0 = Policies.builder().retention(retention0).build();
@@ -149,7 +146,7 @@ class PoliciesSpecValidatorTest {
     retention0 =
         Retention.builder()
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .columnPattern(pattern0)
             .build();
     policies0 = Policies.builder().retention(retention0).build();
@@ -158,8 +155,7 @@ class PoliciesSpecValidatorTest {
             policies0, null, TableUri.builder().build(), getSchemaJsonFromSchema(nestedSchema)));
 
     // Negative: Missing timepartitionspec AND pattern
-    Retention retention1 =
-        Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build();
+    Retention retention1 = Retention.builder().count(1).granularity(TimeGranularity.DAY).build();
     Policies policies1 = Policies.builder().retention(retention1).build();
     Assertions.assertFalse(
         validator.validate(
@@ -178,17 +174,14 @@ class PoliciesSpecValidatorTest {
     Retention retention3 =
         Retention.builder()
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .columnPattern(pattern)
             .build();
     Policies policies3 = Policies.builder().retention(retention3).build();
     Assertions.assertFalse(
         validator.validate(
             policies3,
-            TimePartitionSpec.builder()
-                .columnName("ts")
-                .granularity(TimePartitionSpec.Granularity.DAY)
-                .build(),
+            TimePartitionSpec.builder().columnName("ts").granularity(TimeGranularity.DAY).build(),
             TableUri.builder().build(),
             getSchemaJsonFromSchema(dummySchema)));
 
@@ -198,23 +191,20 @@ class PoliciesSpecValidatorTest {
     Retention retention4 =
         Retention.builder()
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
+            .granularity(TimeGranularity.DAY)
             .columnPattern(malformedPattern)
             .build();
     Policies policies4 = Policies.builder().retention(retention4).build();
     Assertions.assertFalse(
         validator.validate(
             policies4,
-            TimePartitionSpec.builder()
-                .columnName("ts")
-                .granularity(TimePartitionSpec.Granularity.DAY)
-                .build(),
+            TimePartitionSpec.builder().columnName("ts").granularity(TimeGranularity.DAY).build(),
             TableUri.builder().build(),
             getSchemaJsonFromSchema(dummySchema)));
 
     Field failedMsg =
         org.springframework.util.ReflectionUtils.findField(
-            PoliciesSpecValidator.class, "failureMessage");
+            RetentionPolicySpecValidator.class, "failureMessage");
     Assertions.assertNotNull(failedMsg);
     org.springframework.util.ReflectionUtils.makeAccessible(failedMsg);
     Assertions.assertTrue(
@@ -227,7 +217,7 @@ class PoliciesSpecValidatorTest {
     Retention retention5 =
         Retention.builder()
             .count(1)
-            .granularity(TimePartitionSpec.Granularity.MONTH)
+            .granularity(TimeGranularity.MONTH)
             .columnPattern(defaultPattern)
             .build();
     Policies policies5 = Policies.builder().retention(retention5).build();
@@ -237,7 +227,7 @@ class PoliciesSpecValidatorTest {
 
     failedMsg =
         org.springframework.util.ReflectionUtils.findField(
-            PoliciesSpecValidator.class, "failureMessage");
+            RetentionPolicySpecValidator.class, "failureMessage");
     Assertions.assertNotNull(failedMsg);
     org.springframework.util.ReflectionUtils.makeAccessible(failedMsg);
     Assertions.assertTrue(
