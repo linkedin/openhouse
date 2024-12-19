@@ -21,7 +21,7 @@ public class History {
       example = "3,4,5")
   @PositiveOrZero(
       message =
-          "Incorrect count specified. retention.maxAge has to be a positive integer or zero if undefined")
+          "Incorrect count specified. history.maxAge has to be a positive integer or zero if undefined")
   @Valid
   int maxAge;
 

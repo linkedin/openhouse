@@ -57,23 +57,19 @@ public class HistoryPolicySpecValidator {
   protected boolean validateHistoryConfigMaxAgeWithinBounds(History history) {
     int maxAge = history.getMaxAge();
     TimeGranularity granularity = history.getGranularity();
-    if (maxAge == 0) { // maxAge is 0 then consider it undefined and refer to default for snapshot
-      // expiration
+    // if maxAge is 0 then consider it undefined and refer to default for snapshot expiration
+    if (maxAge == 0) {
       return true;
     }
-    boolean isGranularityValid =
-        granularity == null
-            || granularity.equals(TimeGranularity.HOUR)
-            || granularity.equals(TimeGranularity.DAY);
 
-    boolean isMaxAgeValid =
-        granularity != null
-            && (maxAge <= 3 && granularity.equals(TimeGranularity.DAY)
-                || maxAge <= 72 && granularity.equals(TimeGranularity.HOUR))
-            && (maxAge >= 1 && granularity.equals(TimeGranularity.DAY)
-                || maxAge >= 24 && granularity.equals(TimeGranularity.HOUR));
+    if (granularity.equals(TimeGranularity.HOUR) || granularity.equals(TimeGranularity.DAY)) {
+      return (maxAge <= 3 && granularity.equals(TimeGranularity.DAY)
+              || maxAge <= 72 && granularity.equals(TimeGranularity.HOUR))
+          && (maxAge >= 1 && granularity.equals(TimeGranularity.DAY)
+              || maxAge >= 24 && granularity.equals(TimeGranularity.HOUR));
+    }
 
-    return isGranularityValid && isMaxAgeValid;
+    return false;
   }
 
   /*
