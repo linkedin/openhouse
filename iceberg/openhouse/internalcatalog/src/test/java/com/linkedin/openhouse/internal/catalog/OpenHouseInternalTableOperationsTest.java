@@ -31,6 +31,8 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SortDirection;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -631,5 +633,192 @@ public class OpenHouseInternalTableOperationsTest {
           null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
+  }
+
+  @Test
+  void testRebuildPartitionSpecUnpartitioned() {
+    Schema originalSchema =
+        new Schema(Types.NestedField.optional(1, "field1", Types.StringType.get()));
+
+    PartitionSpec originalSpec = PartitionSpec.unpartitioned();
+    PartitionSpec rebuiltSpec =
+        OpenHouseInternalTableOperations.rebuildPartitionSpec(
+            originalSpec, originalSchema, originalSchema);
+
+    Assertions.assertNotNull(rebuiltSpec);
+    Assertions.assertTrue(rebuiltSpec.isUnpartitioned());
+  }
+
+  @Test
+  void testRebuildPartitionSpec_NewSchemaSameFieldIds() {
+    Schema originalSchema =
+        new Schema(
+            Types.NestedField.optional(1, "field1", Types.StringType.get()),
+            Types.NestedField.optional(2, "field2", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "field3", Types.LongType.get()),
+            Types.NestedField.optional(4, "field4", Types.LongType.get()));
+
+    PartitionSpec originalSpec =
+        PartitionSpec.builderFor(originalSchema)
+            .identity("field1")
+            .bucket("field2", 10)
+            .truncate("field3", 20)
+            .build();
+
+    PartitionSpec rebuiltSpec =
+        OpenHouseInternalTableOperations.rebuildPartitionSpec(
+            originalSpec, originalSchema, originalSchema);
+
+    Assertions.assertNotNull(rebuiltSpec);
+    Assertions.assertEquals(0, rebuiltSpec.specId());
+    Assertions.assertEquals(3, rebuiltSpec.fields().size());
+    Assertions.assertEquals("field1", rebuiltSpec.fields().get(0).name());
+    Assertions.assertEquals("identity", rebuiltSpec.fields().get(0).transform().toString());
+    // field id in table schema should match sourceid in partition spec
+    Assertions.assertEquals(1, rebuiltSpec.fields().get(0).sourceId());
+    // Iceberg internally appends _bucket to partition field name
+    Assertions.assertEquals("field2_bucket", rebuiltSpec.fields().get(1).name());
+    Assertions.assertEquals("bucket[10]", rebuiltSpec.fields().get(1).transform().toString());
+    Assertions.assertEquals(2, rebuiltSpec.fields().get(1).sourceId());
+    // Iceberg internally appends _trunc to partition field name
+    Assertions.assertEquals("field3_trunc", rebuiltSpec.fields().get(2).name());
+    Assertions.assertEquals("truncate[20]", rebuiltSpec.fields().get(2).transform().toString());
+    Assertions.assertEquals(3, rebuiltSpec.fields().get(2).sourceId());
+  }
+
+  @Test
+  void testRebuildPartitionSpec_NewSchemaDifferentFieldIds() {
+    Schema originalSchema =
+        new Schema(
+            Types.NestedField.optional(1, "field1", Types.StringType.get()),
+            Types.NestedField.optional(2, "field2", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "field3", Types.LongType.get()),
+            Types.NestedField.optional(4, "field4", Types.LongType.get()));
+
+    PartitionSpec originalSpec =
+        PartitionSpec.builderFor(originalSchema)
+            .identity("field1")
+            .bucket("field2", 10)
+            .truncate("field3", 20)
+            .build();
+
+    // field2 and field3 have different fieldids compared to original schema
+    Schema newSchema =
+        new Schema(
+            Types.NestedField.optional(1, "field1", Types.StringType.get()),
+            Types.NestedField.optional(3, "field2", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "field3", Types.LongType.get()),
+            Types.NestedField.optional(4, "field4", Types.LongType.get()));
+
+    PartitionSpec rebuiltSpec =
+        OpenHouseInternalTableOperations.rebuildPartitionSpec(
+            originalSpec, originalSchema, newSchema);
+
+    Assertions.assertNotNull(rebuiltSpec);
+    Assertions.assertEquals(0, rebuiltSpec.specId());
+    Assertions.assertEquals(3, rebuiltSpec.fields().size());
+    Assertions.assertEquals("field1", rebuiltSpec.fields().get(0).name());
+    Assertions.assertEquals("identity", rebuiltSpec.fields().get(0).transform().toString());
+    // field id in table schema should match sourceid in partition spec
+    Assertions.assertEquals(1, rebuiltSpec.fields().get(0).sourceId());
+    // Iceberg internally appends _bucket to partition field name
+    Assertions.assertEquals("field2_bucket", rebuiltSpec.fields().get(1).name());
+    Assertions.assertEquals("bucket[10]", rebuiltSpec.fields().get(1).transform().toString());
+    Assertions.assertEquals(3, rebuiltSpec.fields().get(1).sourceId());
+    // Iceberg internally appends _trunc to partition field name
+    Assertions.assertEquals("field3_trunc", rebuiltSpec.fields().get(2).name());
+    Assertions.assertEquals("truncate[20]", rebuiltSpec.fields().get(2).transform().toString());
+    Assertions.assertEquals(2, rebuiltSpec.fields().get(2).sourceId());
+  }
+
+  @Test
+  void testRebuildPartitionSpec_fieldMissingInNewSchema() {
+    Schema originalSchema =
+        new Schema(Types.NestedField.optional(1, "field1", Types.StringType.get()));
+
+    PartitionSpec originalSpec =
+        PartitionSpec.builderFor(originalSchema).identity("field1").build();
+
+    Schema newSchema = new Schema(Types.NestedField.optional(2, "field2", Types.IntegerType.get()));
+
+    IllegalArgumentException exception =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                OpenHouseInternalTableOperations.rebuildPartitionSpec(
+                    originalSpec, originalSchema, newSchema));
+
+    Assertions.assertEquals(
+        "Field field1 does not exist in the new schema", exception.getMessage());
+  }
+
+  @Test
+  void testRebuildSortOrder_NewSchemaSameFieldIds() {
+    Schema originalSchema =
+        new Schema(
+            Types.NestedField.optional(1, "field1", Types.StringType.get()),
+            Types.NestedField.optional(2, "field2", Types.IntegerType.get()));
+
+    SortOrder originalSortOrder =
+        SortOrder.builderFor(originalSchema).asc("field1").desc("field2").build();
+
+    Schema newSchema =
+        new Schema(
+            Types.NestedField.optional(1, "field1", Types.StringType.get()),
+            Types.NestedField.optional(2, "field2", Types.IntegerType.get()));
+
+    SortOrder rebuiltSortOrder =
+        OpenHouseInternalTableOperations.rebuildSortOrder(originalSortOrder, newSchema);
+
+    Assertions.assertNotNull(rebuiltSortOrder);
+    Assertions.assertEquals(2, rebuiltSortOrder.fields().size());
+    Assertions.assertEquals(SortDirection.ASC, rebuiltSortOrder.fields().get(0).direction());
+    Assertions.assertEquals(1, rebuiltSortOrder.fields().get(0).sourceId());
+    Assertions.assertEquals(SortDirection.DESC, rebuiltSortOrder.fields().get(1).direction());
+    Assertions.assertEquals(2, rebuiltSortOrder.fields().get(1).sourceId());
+  }
+
+  @Test
+  void testRebuildSortOrder_NewSchemaDifferentFieldIds() {
+    Schema originalSchema =
+        new Schema(
+            Types.NestedField.optional(1, "field1", Types.StringType.get()),
+            Types.NestedField.optional(2, "field2", Types.IntegerType.get()));
+
+    SortOrder originalSortOrder =
+        SortOrder.builderFor(originalSchema).asc("field1").desc("field2").build();
+
+    Schema newSchema =
+        new Schema(
+            Types.NestedField.optional(2, "field1", Types.StringType.get()),
+            Types.NestedField.optional(1, "field2", Types.IntegerType.get()));
+
+    SortOrder rebuiltSortOrder =
+        OpenHouseInternalTableOperations.rebuildSortOrder(originalSortOrder, newSchema);
+
+    Assertions.assertNotNull(rebuiltSortOrder);
+    Assertions.assertEquals(2, rebuiltSortOrder.fields().size());
+    Assertions.assertEquals(SortDirection.ASC, rebuiltSortOrder.fields().get(0).direction());
+    Assertions.assertEquals(2, rebuiltSortOrder.fields().get(0).sourceId());
+    Assertions.assertEquals(SortDirection.DESC, rebuiltSortOrder.fields().get(1).direction());
+    Assertions.assertEquals(1, rebuiltSortOrder.fields().get(1).sourceId());
+  }
+
+  @Test
+  void testRebuildSortOrder_fieldMissingInNewSchema() {
+    Schema originalSchema =
+        new Schema(Types.NestedField.optional(1, "field1", Types.StringType.get()));
+
+    SortOrder originalSortOrder = SortOrder.builderFor(originalSchema).asc("field1").build();
+
+    Schema newSchema = new Schema(Types.NestedField.optional(2, "field2", Types.IntegerType.get()));
+
+    IllegalArgumentException exception =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> OpenHouseInternalTableOperations.rebuildSortOrder(originalSortOrder, newSchema));
+
+    Assertions.assertEquals(
+        "Field field1 does not exist in the new schema", exception.getMessage());
   }
 }
