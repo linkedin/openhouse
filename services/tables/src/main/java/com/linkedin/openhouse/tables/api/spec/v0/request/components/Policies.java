@@ -51,7 +51,7 @@ public class Policies {
 
   @Schema(
       description =
-          "Holds the history configuration for snapshots of the table, which can be configured by maxAge by time and/or number of versions",
+          "History as required in /tables API request. This field holds the snapshot retention specification.",
       example = "{history:{maxAge:3, granularity: 'day', versions: 5}}")
   @Valid
   History history;

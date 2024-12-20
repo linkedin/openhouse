@@ -29,5 +29,19 @@ public class TimePartitionSpec {
 
   @Schema(description = "Granularity of the time partition.")
   @NotNull(message = "granularity cannot be null")
-  TimeGranularity granularity;
+  Granularity granularity;
+
+  @Getter
+  public enum Granularity {
+    HOUR("H"),
+    DAY("D"),
+    MONTH("M"),
+    YEAR("Y");
+
+    private final String granularity;
+
+    Granularity(String granularity) {
+      this.granularity = granularity;
+    }
+  }
 }

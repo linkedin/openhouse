@@ -27,7 +27,7 @@ public class History {
 
   @Schema(description = "time period granularity for the snapshot history", example = "hour, day")
   @Valid
-  TimeGranularity granularity;
+  TimePartitionSpec.Granularity granularity;
 
   @Schema(
       description =

@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.tables.mock.mapper;
 
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
-import static com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity.*;
+import static com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec.Granularity.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
@@ -9,7 +9,6 @@ import static org.hamcrest.Matchers.*;
 import com.google.common.collect.ImmutableList;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -225,7 +224,7 @@ public class PartitionSpecMapperTest {
 
   @Test
   public void testToPartitionSpecTimePartitioningAndClustering() {
-    for (TimeGranularity granularity : ImmutableList.of(DAY, MONTH, YEAR, HOUR)) {
+    for (TimePartitionSpec.Granularity granularity : ImmutableList.of(DAY, MONTH, YEAR, HOUR)) {
       TableDto tableDto =
           TableModelConstants.buildTableDto(
               GET_TABLE_RESPONSE_BODY

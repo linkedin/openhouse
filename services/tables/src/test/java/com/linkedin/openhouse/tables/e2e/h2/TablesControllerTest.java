@@ -31,7 +31,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -425,7 +424,7 @@ public class TablesControllerTest {
     TimePartitionSpec timePartitionSpec =
         TimePartitionSpec.builder()
             .columnName("timestampCol")
-            .granularity(TimeGranularity.HOUR)
+            .granularity(TimePartitionSpec.Granularity.HOUR)
             .build();
     GetTableResponseBody getTableResponseBodyWithPartitioning =
         GET_TABLE_RESPONSE_BODY
@@ -460,7 +459,7 @@ public class TablesControllerTest {
             .timePartitioning(
                 TimePartitionSpec.builder()
                     // null columnName
-                    .granularity(TimeGranularity.HOUR)
+                    .granularity(TimePartitionSpec.Granularity.HOUR)
                     .build())
             .build();
 
@@ -599,7 +598,7 @@ public class TablesControllerTest {
     Retention retention =
         Retention.builder()
             .count(4)
-            .granularity(TimeGranularity.HOUR)
+            .granularity(TimePartitionSpec.Granularity.HOUR)
             .columnPattern(
                 RetentionColumnPattern.builder()
                     .pattern("yyyy-MM-dd-HH")
@@ -702,7 +701,8 @@ public class TablesControllerTest {
 
   @Test
   public void testCreateRequestFailsForWithNullCountInRetentionObject() throws Exception {
-    Retention retention = Retention.builder().granularity(TimeGranularity.DAY).build();
+    Retention retention =
+        Retention.builder().granularity(TimePartitionSpec.Granularity.DAY).build();
     GetTableResponseBody responseBodyWithNullPolicies =
         TableModelConstants.buildGetTableResponseBodyWithPolicy(
             GET_TABLE_RESPONSE_BODY, Policies.builder().retention(retention).build());
@@ -732,7 +732,8 @@ public class TablesControllerTest {
   @Test
   public void testCreateRequestFailsForWithGranularityDifferentFromTimePartitionSpec()
       throws Exception {
-    Retention retention = Retention.builder().granularity(TimeGranularity.YEAR).count(4).build();
+    Retention retention =
+        Retention.builder().granularity(TimePartitionSpec.Granularity.YEAR).count(4).build();
     GetTableResponseBody responseBodyWithPolicies =
         TableModelConstants.buildGetTableResponseBodyWithPolicy(
             GET_TABLE_RESPONSE_BODY, Policies.builder().retention(retention).build());
@@ -1087,7 +1088,7 @@ public class TablesControllerTest {
     Retention retention =
         Retention.builder()
             .count(4)
-            .granularity(TimeGranularity.HOUR)
+            .granularity(TimePartitionSpec.Granularity.HOUR)
             .columnPattern(
                 RetentionColumnPattern.builder()
                     .pattern("yyyy-MM-dd")
@@ -1203,7 +1204,8 @@ public class TablesControllerTest {
     LinkedHashMap<String, LinkedHashMap> currentPolicies =
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
 
-    History history = History.builder().maxAge(3).granularity(TimeGranularity.DAY).build();
+    History history =
+        History.builder().maxAge(3).granularity(TimePartitionSpec.Granularity.DAY).build();
 
     Policies newPolicies = Policies.builder().history(history).build();
 
@@ -1236,7 +1238,7 @@ public class TablesControllerTest {
 
   @Test
   public void testCreateRequestFailsWithInvalidHistoryPolicy() throws Exception {
-    History history = History.builder().granularity(TimeGranularity.DAY).build();
+    History history = History.builder().granularity(TimePartitionSpec.Granularity.DAY).build();
     GetTableResponseBody responseBodyWithNullPolicies =
         TableModelConstants.buildGetTableResponseBodyWithPolicy(
             GET_TABLE_RESPONSE_BODY, Policies.builder().history(history).build());

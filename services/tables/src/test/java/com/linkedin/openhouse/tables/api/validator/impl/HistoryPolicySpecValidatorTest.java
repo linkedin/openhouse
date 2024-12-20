@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,7 @@ public class HistoryPolicySpecValidatorTest {
     Assertions.assertTrue(this.validator.getMessage().contains("Incorrect maxAge specified"));
 
     History historyWithNomaxAge =
-        History.builder().granularity(TimeGranularity.DAY).versions(3).build();
+        History.builder().granularity(TimePartitionSpec.Granularity.DAY).versions(3).build();
 
     Assertions.assertFalse(this.validator.validate(historyWithNomaxAge, tableUri));
     Assertions.assertTrue(this.validator.getMessage().contains("Incorrect maxAge specified"));
@@ -46,17 +46,21 @@ public class HistoryPolicySpecValidatorTest {
   void testValidateHistoryMaximums() {
     // Exceed days
     History historyDaysExceeded =
-        History.builder().maxAge(4).granularity(TimeGranularity.DAY).versions(10).build();
+        History.builder()
+            .maxAge(4)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .versions(10)
+            .build();
     Assertions.assertFalse(this.validator.validate(historyDaysExceeded, tableUri));
 
     // Exceed days in hours
     History historyHoursExceeded =
-        History.builder().maxAge(100).granularity(TimeGranularity.HOUR).build();
+        History.builder().maxAge(100).granularity(TimePartitionSpec.Granularity.HOUR).build();
     Assertions.assertFalse(this.validator.validate(historyHoursExceeded, tableUri));
 
     // Exceed Granularity
     History historyGranularityExceeded =
-        History.builder().maxAge(2).granularity(TimeGranularity.MONTH).build();
+        History.builder().maxAge(2).granularity(TimePartitionSpec.Granularity.MONTH).build();
     Assertions.assertFalse(this.validator.validate(historyGranularityExceeded, tableUri));
 
     // Exceed version count
@@ -65,7 +69,11 @@ public class HistoryPolicySpecValidatorTest {
 
     // Exceed both policies
     History historyBothExceeded =
-        History.builder().maxAge(100).granularity(TimeGranularity.HOUR).versions(1000).build();
+        History.builder()
+            .maxAge(100)
+            .granularity(TimePartitionSpec.Granularity.HOUR)
+            .versions(1000)
+            .build();
     Assertions.assertFalse(this.validator.validate(historyBothExceeded, tableUri));
     Assertions.assertTrue(this.validator.getMessage().contains("must be between"));
   }
@@ -73,7 +81,8 @@ public class HistoryPolicySpecValidatorTest {
   @Test
   void testValidateHistoryMinimums() {
     // Less than minimum number of hours
-    History historyHoursMin = History.builder().maxAge(1).granularity(TimeGranularity.HOUR).build();
+    History historyHoursMin =
+        History.builder().maxAge(1).granularity(TimePartitionSpec.Granularity.HOUR).build();
     Assertions.assertFalse(this.validator.validate(historyHoursMin, tableUri));
 
     // Less than 2 versions
@@ -81,12 +90,17 @@ public class HistoryPolicySpecValidatorTest {
     Assertions.assertFalse(this.validator.validate(historyVersionsMin, tableUri));
 
     // Less than minimum number of days
-    History historyDaysMin = History.builder().maxAge(0).granularity(TimeGranularity.DAY).build();
+    History historyDaysMin =
+        History.builder().maxAge(0).granularity(TimePartitionSpec.Granularity.DAY).build();
     Assertions.assertFalse(this.validator.validate(historyDaysMin, tableUri));
 
     // Less than both policies
     History historyPolicyMin =
-        History.builder().maxAge(5).granularity(TimeGranularity.HOUR).versions(1).build();
+        History.builder()
+            .maxAge(5)
+            .granularity(TimePartitionSpec.Granularity.HOUR)
+            .versions(1)
+            .build();
     Assertions.assertFalse(this.validator.validate(historyPolicyMin, tableUri));
     Assertions.assertTrue(this.validator.getMessage().contains("must be between"));
   }
@@ -94,7 +108,8 @@ public class HistoryPolicySpecValidatorTest {
   @Test
   void testValidatePoliciesPositive() {
     // Only define maxAge
-    History history = History.builder().maxAge(36).granularity(TimeGranularity.HOUR).build();
+    History history =
+        History.builder().maxAge(36).granularity(TimePartitionSpec.Granularity.HOUR).build();
     Assertions.assertTrue(this.validator.validate(history, tableUri));
 
     history = History.builder().versions(50).build();
@@ -105,7 +120,12 @@ public class HistoryPolicySpecValidatorTest {
     Assertions.assertTrue(this.validator.validate(history, tableUri));
 
     // Define both maxAge and version count
-    history = History.builder().maxAge(3).granularity(TimeGranularity.DAY).versions(10).build();
+    history =
+        History.builder()
+            .maxAge(3)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .versions(10)
+            .build();
     Assertions.assertTrue(this.validator.validate(history, tableUri));
   }
 }

@@ -5,7 +5,6 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Transform;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -237,21 +236,21 @@ public class PartitionSpecMapper {
    * @param partitionField partitionField
    * @return optional.empty() or optional.of(granularity)
    */
-  private Optional<TimeGranularity> toGranularity(PartitionField partitionField) {
+  private Optional<TimePartitionSpec.Granularity> toGranularity(PartitionField partitionField) {
     /* String based comparison is necessary as the classes are package-private */
-    TimeGranularity granularity = null;
+    TimePartitionSpec.Granularity granularity = null;
     switch (partitionField.transform().toString()) {
       case "year":
-        granularity = TimeGranularity.YEAR;
+        granularity = TimePartitionSpec.Granularity.YEAR;
         break;
       case "month":
-        granularity = TimeGranularity.MONTH;
+        granularity = TimePartitionSpec.Granularity.MONTH;
         break;
       case "hour":
-        granularity = TimeGranularity.HOUR;
+        granularity = TimePartitionSpec.Granularity.HOUR;
         break;
       case "day":
-        granularity = TimeGranularity.DAY;
+        granularity = TimePartitionSpec.Granularity.DAY;
         break;
       default:
         break;

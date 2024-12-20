@@ -13,7 +13,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -256,7 +255,7 @@ public class RepositoryTest {
             .timePartitioning(
                 TimePartitionSpec.builder()
                     .columnName("timestampCol")
-                    .granularity(TimeGranularity.DAY)
+                    .granularity(TimePartitionSpec.Granularity.DAY)
                     .build())
             .tableVersion(tableDto.getTableLocation())
             .build();

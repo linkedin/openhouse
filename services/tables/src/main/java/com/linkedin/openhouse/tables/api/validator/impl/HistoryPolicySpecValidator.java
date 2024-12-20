@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimeGranularity;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -56,17 +56,18 @@ public class HistoryPolicySpecValidator {
    */
   protected boolean validateHistoryConfigMaxAgeWithinBounds(History history) {
     int maxAge = history.getMaxAge();
-    TimeGranularity granularity = history.getGranularity();
+    TimePartitionSpec.Granularity granularity = history.getGranularity();
     // if maxAge is 0 then consider it undefined and refer to default for snapshot expiration
     if (maxAge == 0) {
       return true;
     }
 
-    if (granularity.equals(TimeGranularity.HOUR) || granularity.equals(TimeGranularity.DAY)) {
-      return (maxAge <= 3 && granularity.equals(TimeGranularity.DAY)
-              || maxAge <= 72 && granularity.equals(TimeGranularity.HOUR))
-          && (maxAge >= 1 && granularity.equals(TimeGranularity.DAY)
-              || maxAge >= 24 && granularity.equals(TimeGranularity.HOUR));
+    if (granularity.equals(TimePartitionSpec.Granularity.HOUR)
+        || granularity.equals(TimePartitionSpec.Granularity.DAY)) {
+      return (maxAge <= 3 && granularity.equals(TimePartitionSpec.Granularity.DAY)
+              || maxAge <= 72 && granularity.equals(TimePartitionSpec.Granularity.HOUR))
+          && (maxAge >= 1 && granularity.equals(TimePartitionSpec.Granularity.DAY)
+              || maxAge >= 24 && granularity.equals(TimePartitionSpec.Granularity.HOUR));
     }
 
     return false;
