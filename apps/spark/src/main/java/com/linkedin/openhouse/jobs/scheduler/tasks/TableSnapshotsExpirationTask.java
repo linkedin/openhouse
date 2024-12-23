@@ -38,8 +38,8 @@ public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetada
               "--maxAge", Integer.toString(config.getMaxAge()),
               "--granularity", config.getGranularity().getValue()));
     }
-    if (config.getMinVersions() > 0) {
-      jobArgs.addAll(Arrays.asList("--minVersions", Integer.toString(config.getMinVersions())));
+    if (config.getVersions() > 0) {
+      jobArgs.addAll(Arrays.asList("--versions", Integer.toString(config.getVersions())));
     }
     return jobArgs;
   }

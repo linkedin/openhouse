@@ -29,8 +29,6 @@ import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
-import org.joda.time.DurationFieldType;
-import org.joda.time.Hours;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -275,8 +273,13 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationMaxAge() throws Exception {
-    final String tableName = "db.test_es_maxage_java";
+    final String tableName = "db.test_es_maxage_noop_java";
     final int numInserts = 3;
+    final int maxAge = 0;
+    // Not a realistic time setting that is accepted by the SQL, but tests that other snapshots are
+    // deleted
+    final String timeGranularity = "DAYS";
+
     List<Long> snapshotIds;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
@@ -288,21 +291,26 @@ public class OperationsTest extends OpenHouseSparkITest {
           String.format("There must be %d snapshot(s) after inserts", numInserts));
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      ops.expireSnapshots(table, System.currentTimeMillis(), 3);
-      // verify that table object snapshots are updated
-      checkSnapshots(table, snapshotIds.subList(2, snapshotIds.size()));
+
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0);
+      // No snapshots should be cleaned up as they are all within the max age
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
     }
     // restart the app to reload catalog cache
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       // verify that new apps see snapshots correctly
-      checkSnapshots(ops, tableName, snapshotIds.subList(2, snapshotIds.size()));
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
     }
   }
 
   @Test
-  public void testSnapshotsExpirationMinVersions() throws Exception {
-    final String tableName = "db.test_es_minversions_java";
+  public void testSnapshotsExpirationMaxAgeNoop() throws Exception {
+    final String tableName = "db.test_es_maxage_java";
     final int numInserts = 3;
+    final int maxAge = 3;
+    final String timeGranularity = "DAYS";
+
     List<Long> snapshotIds;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
@@ -315,15 +323,80 @@ public class OperationsTest extends OpenHouseSparkITest {
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
 
-      ops.expireSnapshots(
-          table, System.currentTimeMillis() + Hours.ONE.get(DurationFieldType.millis()), 1);
-      // verify that table object snapshots are updated
-      checkSnapshots(table, snapshotIds.subList(2, snapshotIds.size()));
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0);
+      // No snapshots should be cleaned up as they are all within the max age
+      checkSnapshots(table, snapshotIds);
     }
     // restart the app to reload catalog cache
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       // verify that new apps see snapshots correctly
-      checkSnapshots(ops, tableName, snapshotIds.subList(2, snapshotIds.size()));
+      checkSnapshots(ops, tableName, snapshotIds);
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationVersions() throws Exception {
+    final String tableName = "db.test_es_versions_java";
+    final int numInserts = 3;
+    final int versionsToKeep = 2;
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      ops.expireSnapshots(table, 0, "", versionsToKeep);
+      // verify that table object snapshots are updated
+      checkSnapshots(
+          table, snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
+    }
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(
+          ops,
+          tableName,
+          snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationBothAgeAndVersions() throws Exception {
+    final String tableName = "db.test_es_age_and_versions_java";
+    final int numInserts = 3;
+    final int maxAge = 3;
+    final String timeGranularity = "DAYS";
+    final int versionsToKeep = 1;
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      ops.expireSnapshots(table, maxAge, timeGranularity, versionsToKeep);
+      // verify that table object snapshots are updated
+      checkSnapshots(
+          table, snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
+    }
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(
+          ops,
+          tableName,
+          snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
     }
   }
 

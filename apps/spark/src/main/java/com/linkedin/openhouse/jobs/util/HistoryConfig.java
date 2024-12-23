@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.util;
 
-import com.linkedin.openhouse.tables.client.model.Retention;
+import com.linkedin.openhouse.tables.client.model.History;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -13,6 +13,6 @@ import lombok.ToString;
 @ToString
 public class HistoryConfig {
   private final int maxAge;
-  private final int minVersions;
-  private final Retention.GranularityEnum granularity;
+  private final int versions;
+  private final History.GranularityEnum granularity;
 }

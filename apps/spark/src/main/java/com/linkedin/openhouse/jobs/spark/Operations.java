@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -21,6 +20,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.ExpireSnapshots;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -202,34 +202,35 @@ public final class Operations implements AutoCloseable {
   }
 
   /** Expire snapshots on a given fully-qualified table name. */
-  public void expireSnapshots(String fqtn, long expireBeforeTimestampMs, int minVersions) {
-    expireSnapshots(getTable(fqtn), expireBeforeTimestampMs, minVersions);
+  public void expireSnapshots(String fqtn, int maxAge, String granularity, int versions) {
+    expireSnapshots(getTable(fqtn), maxAge, granularity, versions);
   }
 
-  /** Expire snapshots on a given {@link Table}. */
-  public void expireSnapshots(Table table, long expireBeforeTimestampMs, int minVersions) {
-    // min versions to keep not defined, expire based on timestamp of snapshots
-    if (minVersions == 0) {
-      log.info(
-          "Expiring snapshots for table: {} before timestamp: {}", table, expireBeforeTimestampMs);
-      table
-          .expireSnapshots()
-          .cleanExpiredFiles(false)
-          .expireOlderThan(expireBeforeTimestampMs)
+  /**
+   * Expire snapshots on a given {@link Table}. If maxAge is provided, it will expire snapshots
+   * older than maxAge milliseconds. If versions is provided, it will retain the last versions
+   * snapshots. If both are provided, it will prioritize maxAge - only retain up to versions number
+   * of snapshots younger than the maxAge
+   */
+  public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
+    ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
+
+    // maxAge is always defined with granularity
+    if (!granularity.isEmpty()) {
+      TimeUnit timeUnitGranularity = TimeUnit.valueOf(granularity.toUpperCase());
+      long expireBeforeTimestampMs =
+          System.currentTimeMillis() - timeUnitGranularity.toMillis(maxAge);
+      log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
+      expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
+    }
+    if (versions > 0) {
+      log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
+      // Note: retainLast keeps the last N snapshots that WOULD be expired, hence expireOlderThan
+      // currentTime
+      expireSnapshotsCommand
+          .expireOlderThan(System.currentTimeMillis())
+          .retainLast(versions)
           .commit();
-    } else if (Iterators.size(table.snapshots().iterator()) > minVersions) {
-      log.info("Expiring snapshots for table: {} beyond last {} versions", table, minVersions);
-      table
-          .expireSnapshots()
-          .cleanExpiredFiles(false)
-          .expireOlderThan(expireBeforeTimestampMs)
-          .retainLast(minVersions)
-          .commit();
-    } else {
-      log.warn(
-          "Table {} has less than {} minimum configured versions, skipping snapshot expiration",
-          table,
-          minVersions);
     }
   }
 

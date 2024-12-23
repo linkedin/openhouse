@@ -3,7 +3,6 @@ package com.linkedin.openhouse.jobs.spark;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -19,14 +18,18 @@ import org.apache.commons.cli.Option;
 public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   private final String granularity;
   private final int maxAge;
-  private final int minVersions;
+  private final int versions;
 
-  private static final String DEFAULT_MAX_AGE = "3";
+  public static class DEFAULT_CONFIGURATION {
+    public static final String MAX_AGE = "3";
+    public static final String GRANULARITY = "DAYS";
+    public static final String VERSIONS = "0";
+  }
 
-  private static final String DEFAULT_GRANULARITY = "days";
+  private static final String DEFAULT_GRANULARITY = "";
 
-  // Default do not define min versions, only retain snapshots based on max age
-  private static final String DEFAULT_MIN_VERSIONS = "0";
+  // By default do not define versions, and only retain snapshots based on max age
+  private static final String DEFAULT_VERSIONS = "0";
 
   public SnapshotsExpirationSparkApp(
       String jobId,
@@ -34,11 +37,17 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
       String fqtn,
       int maxAge,
       String granularity,
-      int minVersions) {
+      int versions) {
     super(jobId, stateManager, fqtn);
-    this.granularity = granularity;
-    this.maxAge = maxAge;
-    this.minVersions = minVersions;
+    if (maxAge == 0 && versions == 0) {
+      this.maxAge = Integer.parseInt(DEFAULT_CONFIGURATION.MAX_AGE);
+      this.granularity = DEFAULT_CONFIGURATION.GRANULARITY;
+      this.versions = Integer.parseInt(DEFAULT_CONFIGURATION.VERSIONS);
+    } else {
+      this.granularity = granularity;
+      this.maxAge = maxAge;
+      this.versions = versions;
+    }
   }
 
   @Override
@@ -48,10 +57,8 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
         fqtn,
         maxAge,
         granularity,
-        minVersions);
-    long expireBeforeTimestampMs = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(maxAge);
-    log.info("Expire snapshots before timestamp ms {}", expireBeforeTimestampMs);
-    ops.expireSnapshots(fqtn, expireBeforeTimestampMs, minVersions);
+        versions);
+    ops.expireSnapshots(fqtn, maxAge, granularity, versions);
   }
 
   public static void main(String[] args) {
@@ -60,16 +67,18 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
     extraOptions.add(
         new Option("a", "maxAge", true, "Delete snapshots older than <maxAge> <granularity>s"));
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day"));
-    extraOptions.add(new Option("v", "minVersions", true, "Minimum number of versions to keep"));
+    extraOptions.add(
+        new Option("v", "versions", true, "Number of versions to keep after snapshot expiration"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
+
     SnapshotsExpirationSparkApp app =
         new SnapshotsExpirationSparkApp(
             getJobId(cmdLine),
             createStateManager(cmdLine),
             cmdLine.getOptionValue("tableName"),
-            Integer.parseInt(cmdLine.getOptionValue("maxAge", DEFAULT_MAX_AGE)),
-            cmdLine.getOptionValue("granularity", DEFAULT_GRANULARITY),
-            Integer.parseInt(cmdLine.getOptionValue("minVersions", DEFAULT_MIN_VERSIONS)));
+            Integer.parseInt(cmdLine.getOptionValue("maxAge", "0")),
+            cmdLine.getOptionValue("granularity", ""),
+            Integer.parseInt(cmdLine.getOptionValue("minVersions", "0")));
     app.run();
   }
 }
