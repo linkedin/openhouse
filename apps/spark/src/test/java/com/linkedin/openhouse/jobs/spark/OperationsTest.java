@@ -277,7 +277,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int numInserts = 3;
     final int maxAge = 0;
     // Not a realistic time setting that is accepted by the SQL, but tests that other snapshots are
-    // deleted
+    // deleted by the time history policy
     final String timeGranularity = "DAYS";
 
     List<Long> snapshotIds;
@@ -293,7 +293,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       log.info("Loaded table {}, location {}", table.name(), table.location());
 
       ops.expireSnapshots(table, maxAge, timeGranularity, 0);
-      // No snapshots should be cleaned up as they are all within the max age
+      // Only retain the last snapshot
       checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
     }
     // restart the app to reload catalog cache

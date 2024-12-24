@@ -208,9 +208,9 @@ public final class Operations implements AutoCloseable {
 
   /**
    * Expire snapshots on a given {@link Table}. If maxAge is provided, it will expire snapshots
-   * older than maxAge milliseconds. If versions is provided, it will retain the last versions
-   * snapshots. If both are provided, it will prioritize maxAge - only retain up to versions number
-   * of snapshots younger than the maxAge
+   * older than maxAge in granularity timeunit. If versions is provided, it will retain the last
+   * versions snapshots. If both are provided, it will prioritize maxAge; only retain up to versions
+   * number of snapshots younger than the maxAge
    */
   public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
     ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
