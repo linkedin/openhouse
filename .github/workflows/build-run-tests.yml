@@ -6,7 +6,7 @@ on:
 jobs:
   build-and-run-tests:
     name: Build and Run Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout project sources
         uses: actions/checkout@v4
@@ -27,7 +27,7 @@ jobs:
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
 
       - name: Wait for Docker Containers to start
-        run: sleep 60
+        run: sleep 30
 
       - name: Set up Python
         uses: actions/setup-python@v5
