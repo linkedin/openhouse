@@ -6,7 +6,7 @@ import data.privileges
 # Not authorized by default
 default allow := false
 
-allow {
+allow if {
   # Get requested resource
   current_db := data.user_roles[input.db_id]
   current_tbl := current_db[input.tbl_id]
@@ -23,7 +23,7 @@ allow {
   privilege == input.privilege_to_check
 }
 
-allow {
+allow if {
   # Get requested resource
   current_db := data.user_roles[input.db_id]
 
@@ -40,11 +40,11 @@ allow {
 }
 
 # Granting all access for default user
-allow {
+allow if {
   input.user == "DUMMY_ANONYMOUS_USER"
 }
 
 # openhouse is granted all access
-allow {
+allow if {
   input.user == "openhouse"
 }
