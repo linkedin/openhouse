@@ -335,6 +335,34 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testSnapshotsExpirationVersionsNoop() throws Exception {
+    final String tableName = "db.test_es_versions_noop_java";
+    final int numInserts = 3;
+    final int versionsToKeep = 5; // Should keep all versions given that there are fewer versions
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      ops.expireSnapshots(table, 0, "", versionsToKeep);
+      // verify that table object snapshots are updated
+      checkSnapshots(table, snapshotIds);
+    }
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(ops, tableName, snapshotIds);
+    }
+  }
+
+  @Test
   public void testSnapshotsExpirationVersions() throws Exception {
     final String tableName = "db.test_es_versions_java";
     final int numInserts = 3;
@@ -397,6 +425,47 @@ public class OperationsTest extends OpenHouseSparkITest {
           ops,
           tableName,
           snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationPrioritizeAge() throws Exception {
+    final String tableName = "db.test_es_age_prioritization_java";
+    final int numInserts = 3;
+    final int maxAge = 20;
+    final String timeGranularity =
+        "SECONDS"; // Not a realistic user configuration, for the sake of testing
+    final int versionsToKeep = 5;
+    final int versionsToKeepAfterExpiration = 2;
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      Thread.sleep(30000); // Sleep for 30 seconds to expire all the snapshots
+      populateTable(ops, tableName, versionsToKeepAfterExpiration);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts + versionsToKeepAfterExpiration,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      ops.expireSnapshots(table, maxAge, timeGranularity, versionsToKeep);
+      // verify that only 2 snapshots are kept instead of 5 due to prioritizing maxAge
+      checkSnapshots(
+          table,
+          snapshotIds.subList(
+              snapshotIds.size() - versionsToKeepAfterExpiration, snapshotIds.size()));
+    }
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(
+          ops,
+          tableName,
+          snapshotIds.subList(
+              snapshotIds.size() - versionsToKeepAfterExpiration, snapshotIds.size()));
     }
   }
 

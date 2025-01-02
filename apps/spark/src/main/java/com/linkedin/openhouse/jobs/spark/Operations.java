@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -223,7 +224,7 @@ public final class Operations implements AutoCloseable {
       log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
       expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
     }
-    if (versions > 0) {
+    if (versions > 0 && Iterators.size(table.snapshots().iterator()) > versions) {
       log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
       // Note: retainLast keeps the last N snapshots that WOULD be expired, hence expireOlderThan
       // currentTime
