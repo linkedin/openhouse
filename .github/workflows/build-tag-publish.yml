@@ -12,6 +12,7 @@ jobs:
   tag-publish-gradle:
     name: Build tagged commit
     runs-on: ubuntu-latest
+    needs: build-and-run-tests
     steps:
       - name: Checkout project sources
         uses: actions/checkout@v4
