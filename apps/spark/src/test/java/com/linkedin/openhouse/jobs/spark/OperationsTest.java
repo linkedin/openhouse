@@ -273,7 +273,7 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationMaxAge() throws Exception {
-    final String tableName = "db.test_es_maxage_noop_java";
+    final String tableName = "db.test_es_maxage_java";
     final int numInserts = 3;
     final int maxAge = 0;
     // Not a realistic time setting that is accepted by the SQL, but tests that other snapshots are
@@ -306,7 +306,7 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationMaxAgeNoop() throws Exception {
-    final String tableName = "db.test_es_maxage_java";
+    final String tableName = "db.test_es_maxage_noop_java";
     final int numInserts = 3;
     final int maxAge = 3;
     final String timeGranularity = "DAYS";
