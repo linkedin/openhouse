@@ -21,9 +21,9 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   private final int versions;
 
   public static class DEFAULT_CONFIGURATION {
-    public static final String MAX_AGE = "3";
+    public static final int MAX_AGE = 3;
     public static final String GRANULARITY = "DAYS";
-    public static final String VERSIONS = "0";
+    public static final int VERSIONS = 0;
   }
 
   private static final String DEFAULT_GRANULARITY = "";
@@ -40,9 +40,9 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
       int versions) {
     super(jobId, stateManager, fqtn);
     if (maxAge == 0 && versions == 0) {
-      this.maxAge = Integer.parseInt(DEFAULT_CONFIGURATION.MAX_AGE);
+      this.maxAge = DEFAULT_CONFIGURATION.MAX_AGE;
       this.granularity = DEFAULT_CONFIGURATION.GRANULARITY;
-      this.versions = Integer.parseInt(DEFAULT_CONFIGURATION.VERSIONS);
+      this.versions = DEFAULT_CONFIGURATION.VERSIONS;
     } else {
       this.granularity = granularity;
       this.maxAge = maxAge;
