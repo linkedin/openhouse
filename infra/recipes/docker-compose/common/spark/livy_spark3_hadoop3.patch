@@ -7,7 +7,7 @@ index d2e535a..2a3718f 100644
    <properties>
      <asynchttpclient.version>2.10.1</asynchttpclient.version>
 -    <hadoop.version>2.7.3</hadoop.version>
-+    <hadoop.version>3.2.1</hadoop.version>
++    <hadoop.version>2.8.0</hadoop.version>
      <hadoop.scope>compile</hadoop.scope>
      <spark.scala-2.11.version>2.4.5</spark.scala-2.11.version>
 -    <spark.scala-2.12.version>2.4.5</spark.scala-2.12.version>
@@ -51,10 +51,10 @@ index d2e535a..2a3718f 100644
      <spark.home>${execution.root}/dev/spark</spark.home>
      <spark.bin.download.url>
 -      https://archive.apache.org/dist/spark/spark-2.4.5/spark-2.4.5-bin-hadoop2.7.tgz
-+      https://archive.apache.org/dist/spark/spark-3.1.2/spark-3.1.2-bin-hadoop3.2.tgz
++      https://archive.apache.org/dist/spark/spark-3.1.1/spark-3.1.1-bin-hadoop2.7.tgz
      </spark.bin.download.url>
 -    <spark.bin.name>spark-2.4.5-bin-hadoop2.7</spark.bin.name>
-+    <spark.bin.name>spark-3.1.2-bin-hadoop3.3</spark.bin.name>
++    <spark.bin.name>spark-3.1.1-bin-hadoop2.7</spark.bin.name>
      <!--  used for testing, NCSARequestLog use it for access log  -->
      <livy.log.dir>${basedir}/target</livy.log.dir>
  
@@ -80,7 +80,7 @@ index d2e535a..2a3718f 100644
        </activation>
        <properties>
 -        <spark.scala-2.12.version>3.0.0</spark.scala-2.12.version>
-+        <spark.scala-2.12.version>3.1.2</spark.scala-2.12.version>
++        <spark.scala-2.12.version>3.1.1</spark.scala-2.12.version>
          <spark.scala-2.11.version>2.4.5</spark.scala-2.11.version>
 -        <spark.version>${spark.scala-2.11.version}</spark.version>
 +        <spark.version>${spark.scala-2.12.version}</spark.version>
@@ -96,10 +96,10 @@ index d2e535a..2a3718f 100644
 +        <json4s.version>${json4s.spark-2.12.version}</json4s.version>
          <spark.bin.download.url>
 -          https://archive.apache.org/dist/spark/spark-3.0.0/spark-3.0.0-bin-hadoop2.7.tgz
-+          https://archive.apache.org/dist/spark/spark-3.1.2/spark-3.1.2-bin-hadoop3.2.tgz
++          https://archive.apache.org/dist/spark/spark-3.1.1/spark-3.1.1-bin-hadoop2.7.tgz
          </spark.bin.download.url>
 -        <spark.bin.name>spark-3.0.0-bin-hadoop2.7</spark.bin.name>
-+        <spark.bin.name>spark-3.1.1-bin-hadoop3.2</spark.bin.name>
++        <spark.bin.name>spark-3.1.1-bin-hadoop2.7</spark.bin.name>
        </properties>
      </profile>
  
