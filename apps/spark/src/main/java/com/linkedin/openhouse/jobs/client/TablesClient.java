@@ -4,6 +4,7 @@ import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
+import com.linkedin.openhouse.jobs.util.ReplicationConfig;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
@@ -15,6 +16,7 @@ import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
+import com.linkedin.openhouse.tables.client.model.Replication;
 import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -84,6 +86,31 @@ public class TablesClient {
             .count(policies.getRetention().getCount())
             .granularity(policies.getRetention().getGranularity())
             .build());
+  }
+
+  private Optional<List<ReplicationConfig>> getTableReplication(GetTableResponseBody response) {
+    // At least one replication config must be present
+    if (response == null
+        || response.getPolicies() == null
+        || response.getPolicies().getReplication() == null
+        || response.getPolicies().getReplication().getConfig().size() <= 0) {
+      return Optional.empty();
+    }
+    List<ReplicationConfig> replicationConfigList = new ArrayList<>();
+    Replication conf = response.getPolicies().getReplication();
+    List<com.linkedin.openhouse.tables.client.model.ReplicationConfig> replicationConfig =
+        conf.getConfig();
+
+    replicationConfig.forEach(
+        rc ->
+            replicationConfigList.add(
+                ReplicationConfig.builder()
+                    .cluster(rc.getDestination())
+                    .proxyUser(response.getTableCreator())
+                    .schedule(rc.getCronSchedule())
+                    .build()));
+    // since replicationConfigList is initialized, it cannot be null.
+    return Optional.of(replicationConfigList);
   }
 
   protected GetTableResponseBody getTable(TableMetadata tableMetadata) {
@@ -281,6 +308,7 @@ public class TablesClient {
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
+            .replicationConfig(getTableReplication(tableResponseBody).orElse(null))
             .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
     builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     return Optional.of(builder.build());
