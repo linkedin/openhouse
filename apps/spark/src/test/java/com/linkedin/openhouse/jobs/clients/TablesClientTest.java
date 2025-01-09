@@ -436,7 +436,7 @@ public class TablesClientTest {
         com.linkedin.openhouse.jobs.util.ReplicationConfig.builder()
             .schedule("schedule")
             .cluster("cluster")
-            .proxyUser("")
+            .tableOwner("")
             .build();
     replicationConfigs.add(replicationConfig);
     Assertions.assertEquals(replicationConfigs, result.orElse(null));

@@ -111,7 +111,7 @@ public class TablesClient {
             replicationConfigList.add(
                 ReplicationConfig.builder()
                     .cluster(rc.getDestination())
-                    .proxyUser(response.getTableCreator())
+                    .tableOwner(response.getTableCreator())
                     .schedule(rc.getCronSchedule())
                     .build()));
     // since replicationConfigList is initialized, it cannot be null.

@@ -12,6 +12,6 @@ import lombok.ToString;
 @ToString
 public class ReplicationConfig {
   private final String schedule;
-  private final String proxyUser;
+  private final String tableOwner;
   private final String cluster;
 }
