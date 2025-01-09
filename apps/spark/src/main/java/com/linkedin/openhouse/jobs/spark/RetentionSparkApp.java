@@ -8,7 +8,7 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 
 /**
- * Class with main entry point to run as a table replication job. The table doesn't have to be time
+ * Class with main entry point to run as a table retention job. The table doesn't have to be time
  * partitioned, but the retention column must be a time column.
  *
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.RetentionSparkApp --columnName

@@ -58,6 +58,11 @@ public class TablesClient {
     return getTableRetention(response);
   }
 
+  public Optional<List<ReplicationConfig>> getTableReplication(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return getTableReplication(response);
+  }
+
   private Optional<RetentionConfig> getTableRetention(GetTableResponseBody response) {
     // timePartitionSpec or retention.ColumnPattern should be present to run Retention job on a
     // table.
