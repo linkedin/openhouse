@@ -295,13 +295,6 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
-            .longOpt("tableTypeFilter")
-            .desc("Option for filtering tables based on tableType. Defaults to None")
-            .build());
-    options.addOption(
-        Option.builder(null)
-            .required(false)
-            .hasArg()
             .longOpt("tableMinAgeThresholdHours")
             .desc("Time in hour for filtering older tables, defaults to 72")
             .build());

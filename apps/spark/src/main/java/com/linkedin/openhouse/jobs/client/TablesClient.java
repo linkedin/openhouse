@@ -97,9 +97,9 @@ public class TablesClient {
       return Optional.empty();
     }
     List<ReplicationConfig> replicationConfigList = new ArrayList<>();
-    Replication conf = response.getPolicies().getReplication();
+    Replication replication = response.getPolicies().getReplication();
     List<com.linkedin.openhouse.tables.client.model.ReplicationConfig> replicationConfig =
-        conf.getConfig();
+        replication.getConfig();
 
     replicationConfig.forEach(
         rc ->
