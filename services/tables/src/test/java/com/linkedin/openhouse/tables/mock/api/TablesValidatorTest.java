@@ -10,6 +10,7 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
@@ -826,6 +827,53 @@ public class TablesValidatorTest {
                                                 .build()))
                                     .build())
                             .build())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableRequestParamWithValidHistoryPoliciesJson() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(ImmutableMap.of())
+                    .timePartitioning(
+                        TimePartitionSpec.builder()
+                            .columnName("timestamp")
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .baseTableVersion("base")
+                    .policies(Policies.builder().history(HISTORY_POLICY).build())
+                    .build()));
+  }
+
+  @Test
+  public void validateRejectCreateTableRequestParamWithInvalidHistoryPolicy() {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(ImmutableMap.of())
+                    .timePartitioning(
+                        TimePartitionSpec.builder()
+                            .columnName("timestamp")
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .policies(Policies.builder().history(History.builder().build()).build())
                     .baseTableVersion("base")
                     .build()));
   }
