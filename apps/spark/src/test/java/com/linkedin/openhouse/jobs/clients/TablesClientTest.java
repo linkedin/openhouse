@@ -18,6 +18,8 @@ import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
+import com.linkedin.openhouse.tables.client.model.Replication;
+import com.linkedin.openhouse.tables.client.model.ReplicationConfig;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
@@ -416,6 +418,33 @@ public class TablesClientTest {
   }
 
   @Test
+  void testPrimaryTableWithReplicationConfig() {
+    GetTableResponseBody primaryTableWithReplicationConfigResponseBodyMock =
+        createPrimaryTableWithReplicationPolicyResponseBodyMock(
+            testDbName, testTableName, "schedule", "interval", "cluster");
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class)))
+        .thenReturn(primaryTableWithReplicationConfigResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
+    Optional<List<com.linkedin.openhouse.jobs.util.ReplicationConfig>> result =
+        client.getTableReplication(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build());
+    Assertions.assertTrue(
+        result.isPresent(), "Retention config must be present for a test partitioned table");
+    List<com.linkedin.openhouse.jobs.util.ReplicationConfig> replicationConfigs = new ArrayList<>();
+    com.linkedin.openhouse.jobs.util.ReplicationConfig replicationConfig =
+        com.linkedin.openhouse.jobs.util.ReplicationConfig.builder()
+            .schedule("schedule")
+            .cluster("cluster")
+            .tableOwner("")
+            .build();
+    replicationConfigs.add(replicationConfig);
+    Assertions.assertEquals(replicationConfigs, result.orElse(null));
+    Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
+    Mockito.verify(apiMock, Mockito.times(1)).getTableV1(testDbName, testTableName);
+  }
+
+  @Test
   void getDatabases() {
     GetAllDatabasesResponseBody allDatabasesResponseBodyMock =
         Mockito.mock(GetAllDatabasesResponseBody.class);
@@ -532,6 +561,24 @@ public class TablesClientTest {
     Mockito.when(retention.getColumnPattern()).thenReturn(retentionColumnPattern);
     Mockito.when(retentionColumnPattern.getPattern()).thenReturn(columnPattern);
     Mockito.when(retentionColumnPattern.getColumnName()).thenReturn(columnNameForPattern);
+    return setUpResponseBodyMock(dbName, tableName, null, policies);
+  }
+
+  private GetTableResponseBody createPrimaryTableWithReplicationPolicyResponseBodyMock(
+      String dbName, String tableName, String schedule, String interval, String cluster) {
+    Policies policies = Mockito.mock(Policies.class);
+    Replication replication = Mockito.mock(Replication.class);
+    List<ReplicationConfig> replicationConfigs = new ArrayList<>();
+    ReplicationConfig replicationConfig = Mockito.mock(ReplicationConfig.class);
+    replicationConfigs.add(replicationConfig);
+    replication.setConfig(replicationConfigs);
+
+    policies.setReplication(replication);
+    Mockito.when(replication.getConfig()).thenReturn(replicationConfigs);
+    Mockito.when(policies.getReplication()).thenReturn(replication);
+    Mockito.when(replicationConfig.getCronSchedule()).thenReturn(schedule);
+    Mockito.when(replicationConfig.getDestination()).thenReturn(cluster);
+    Mockito.when(replicationConfig.getInterval()).thenReturn(interval);
     return setUpResponseBodyMock(dbName, tableName, null, policies);
   }
 

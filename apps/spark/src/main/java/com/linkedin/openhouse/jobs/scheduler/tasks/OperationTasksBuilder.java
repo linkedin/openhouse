@@ -48,6 +48,19 @@ public class OperationTasksBuilder {
     return processMetadataList(tableMetadataList, jobType);
   }
 
+  private List<OperationTask<?>> prepareReplicationOperationTaskList(JobConf.JobTypeEnum jobType) {
+    List<TableMetadata> replicationSetupTableMetadataList = tablesClient.getTableMetadataList();
+    // filters tables which are primary and hava replication config defined
+    replicationSetupTableMetadataList =
+        replicationSetupTableMetadataList.stream()
+            .filter(m -> m.isPrimary() && (m.getReplicationConfig() != null))
+            .collect(Collectors.toList());
+    log.info(
+        "Fetched metadata for {} tables for replication setup task",
+        replicationSetupTableMetadataList.size());
+    return processMetadataList(replicationSetupTableMetadataList, jobType);
+  }
+
   private List<OperationTask<?>> prepareTableDirectoryOperationTaskList(
       JobConf.JobTypeEnum jobType) {
     List<DirectoryMetadata> directoryMetadataList = tablesClient.getOrphanTableDirectories();
@@ -152,6 +165,8 @@ public class OperationTasksBuilder {
       case STAGED_FILES_DELETION:
       case DATA_LAYOUT_STRATEGY_GENERATION:
         return prepareTableOperationTaskList(jobType);
+      case REPLICATION:
+        return prepareReplicationOperationTaskList(jobType);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
         return prepareDataLayoutOperationTaskList(jobType, properties, meter);
       case ORPHAN_DIRECTORY_DELETION:

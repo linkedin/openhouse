@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.util;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 import lombok.Builder;
@@ -25,6 +26,7 @@ public class TableMetadata extends Metadata {
   @Builder.Default protected @NonNull Map<String, String> jobExecutionProperties = new HashMap<>();
   protected @Nullable RetentionConfig retentionConfig;
   protected @Nullable HistoryConfig historyConfig;
+  protected @Nullable List<ReplicationConfig> replicationConfig;
 
   public String fqtn() {
     return String.format("%s.%s", dbName, tableName);
