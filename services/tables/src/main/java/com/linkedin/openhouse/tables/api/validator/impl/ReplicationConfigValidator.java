@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.validator.impl;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -11,11 +12,13 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-public class ReplicationConfigValidator {
+public class ReplicationConfigValidator extends PolicySpecValidator {
   private String failureMessage = "";
   private String errorField = "";
 
-  public boolean validate(Replication replication, TableUri tableUri) {
+  public boolean validate(
+      CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
+    Replication replication = createUpdateTableRequestBody.getPolicies().getReplication();
     if (replication != null) {
       log.info(String.format("Table: %s replication: %s\n", tableUri, replication));
     }

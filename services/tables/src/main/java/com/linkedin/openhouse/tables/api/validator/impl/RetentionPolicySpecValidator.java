@@ -3,7 +3,7 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
@@ -18,11 +18,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Slf4j
-public class RetentionPolicySpecValidator {
+public class RetentionPolicySpecValidator extends PolicySpecValidator {
 
-  private String failureMessage = "";
-
-  private String errorField = "";
   /**
    * Invalid cases for retention object 0. retention column not found in the schema object. 1.
    * retention column pattern containing invalid characters. 2. missing retention column pattern in
@@ -30,27 +27,28 @@ public class RetentionPolicySpecValidator {
    * useful) 3(1). when table is time-partitioned: providing retention column type is invalid. 3(2)
    * when table is time-partitioned: Granularity mismatch with retention column is invalid.
    *
-   * @param policies {@link Policies} Policies object that needs to be validated and set. null
-   *     policy object is accepted.
-   * @param timePartitioning {@link TimePartitionSpec} TimePartitionSpec containing the granularity
-   *     against which policies.retention.granularity is validated
-   * @param schema {@link String} Raw schema representation deserialized from wire.
+   * @param createUpdateTableRequestBody {@link CreateUpdateTableRequestBody} API request body for
+   *     creation and updating tables
    * @return Boolean validity of constraint
    */
+  @Override
   public boolean validate(
-      Policies policies, TimePartitionSpec timePartitioning, TableUri tableUri, String schema) {
+      CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
+    Retention retention = createUpdateTableRequestBody.getPolicies().getRetention();
+    TimePartitionSpec timePartitioning = createUpdateTableRequestBody.getTimePartitioning();
+    String schema = createUpdateTableRequestBody.getSchema();
 
-    if (policies != null && policies.getRetention() != null) {
+    if (retention != null) {
       // Two invalid case for timePartitioned table
       if (timePartitioning != null) {
-        if (policies.getRetention().getColumnPattern() != null) {
+        if (retention.getColumnPattern() != null) {
           failureMessage =
               String.format(
                   "You can only specify retention column pattern on non-timestampPartitioned table (table[%s] is time-partitioned by[%s])",
                   tableUri, timePartitioning.getColumnName());
           return false;
         }
-        if (!policies.getRetention().getGranularity().equals(timePartitioning.getGranularity())) {
+        if (!retention.getGranularity().equals(timePartitioning.getGranularity())) {
           failureMessage =
               String.format(
                   "invalid policies retention granularity format for table %s. Policies granularity must be equal to or lesser than"
@@ -62,23 +60,22 @@ public class RetentionPolicySpecValidator {
       }
 
       // invalid cases regarding the integrity of retention object.
-      if (!validateGranularityWithPattern(policies.getRetention())) {
+      if (!validateGranularityWithPattern(retention)) {
         failureMessage =
             String.format(
                 "Provided Retention Granularity[%s] is not supported with default pattern. "
                     + "Please define pattern in retention config or use one of supported granularity: %s",
-                policies.getRetention().getGranularity().name(),
-                Arrays.toString(DefaultColumnPattern.values()));
+                retention.getGranularity().name(), Arrays.toString(DefaultColumnPattern.values()));
         return false;
       }
-      if (!validatePatternIfPresent(policies.getRetention(), tableUri, schema)) {
+      if (!validatePatternIfPresent(retention, tableUri, schema)) {
         failureMessage =
             String.format(
                 "Provided pattern[%s] is not recognizable by OpenHouse for the table[%s]; Also please make sure the declared column is part of table schema.",
-                policies.getRetention().getColumnPattern(), tableUri);
+                retention.getColumnPattern(), tableUri);
         return false;
       }
-      if (timePartitioning == null && policies.getRetention().getColumnPattern() == null) {
+      if (timePartitioning == null && retention.getColumnPattern() == null) {
         failureMessage =
             String.format(
                 "For non timestamp-partitioned table %s, column pattern in retention policy is mandatory",
@@ -134,13 +131,5 @@ public class RetentionPolicySpecValidator {
     }
 
     return true;
-  }
-
-  public String getField() {
-    return errorField;
-  }
-
-  public String getMessage() {
-    return failureMessage;
   }
 }
