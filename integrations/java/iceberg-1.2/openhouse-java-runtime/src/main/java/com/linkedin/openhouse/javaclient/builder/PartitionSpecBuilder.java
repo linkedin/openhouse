@@ -23,7 +23,8 @@ public abstract class PartitionSpecBuilder {
   public static final Set<Type.TypeID> ALLOWED_CLUSTERING_TYPEIDS =
       Collections.unmodifiableSet(
           new HashSet<Type.TypeID>(
-              Arrays.asList(Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG)));
+              Arrays.asList(
+                  Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG, Type.TypeID.DATE)));
   protected static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
   public static final Set<String> SUPPORTED_TRANSFORMS =
       Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));
