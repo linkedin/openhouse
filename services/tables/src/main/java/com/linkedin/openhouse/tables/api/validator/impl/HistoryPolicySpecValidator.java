@@ -11,9 +11,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class HistoryPolicySpecValidator extends PolicySpecValidator {
 
-  private String failureMessage = "";
-  private String errorField = "";
-
   public boolean validate(
       CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
     History history = createUpdateTableRequestBody.getPolicies().getHistory();
@@ -88,13 +85,5 @@ public class HistoryPolicySpecValidator extends PolicySpecValidator {
     }
     int versions = history.getVersions();
     return versions >= 2 && versions <= 100;
-  }
-
-  public String getMessage() {
-    return failureMessage;
-  }
-
-  public String getField() {
-    return errorField;
   }
 }

@@ -13,9 +13,6 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class ReplicationConfigValidator extends PolicySpecValidator {
-  private String failureMessage = "";
-  private String errorField = "";
-
   public boolean validate(
       CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
     Replication replication = createUpdateTableRequestBody.getPolicies().getReplication();
@@ -23,13 +20,5 @@ public class ReplicationConfigValidator extends PolicySpecValidator {
       log.info(String.format("Table: %s replication: %s\n", tableUri, replication));
     }
     return true;
-  }
-
-  public String getMessage() {
-    return failureMessage;
-  }
-
-  public String getField() {
-    return errorField;
   }
 }
