@@ -5,11 +5,15 @@ plugins {
     id 'openhouse.iceberg-conventions-1.5.2'
 }
 
+repositories {
+    mavenLocal()
+}
+
 ext {
     log4jVersion = "2.20.0"
 
     sparkVersion = '3.5.2'
-    icebergVersion = '1.5.2'
+    icebergVersion = '1.6.0-SNAPSHOT'
     sparkVersionSuffix = "3.5"
     openhouseSparkRuntimeModule = ":integrations:spark:spark-${sparkVersionSuffix}:openhouse-spark-3.5-runtime_2.12"
     icebergSparkRuntimeModule = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}"
@@ -19,6 +23,7 @@ ext {
 configurations.all {
     exclude group: 'org.apache.iceberg', module: 'iceberg-data'
 }
+
 dependencies {
     compileOnly (project(path: openhouseSparkRuntimeModule)) {
         exclude group: 'io.netty'

@@ -5,8 +5,12 @@ plugins {
   id 'scala'
 }
 
+repositories {
+  mavenLocal()
+}
+
 ext {
-  icebergVersion = '1.5.2'
+  icebergVersion = '1.6.0-SNAPSHOT'
   sparkVersion = '3.5.2'
 }
 
@@ -26,6 +30,8 @@ sourceSets {
     }
   }
 }
+
+
 
 dependencies {
   compileOnly(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))

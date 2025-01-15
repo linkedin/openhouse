@@ -4,6 +4,10 @@ plugins {
   id 'com.github.johnrengelman.shadow' version '7.1.2'
 }
 
+repositories {
+  mavenLocal()
+}
+
 configurations {
   fatJarPackagedDependencies {
     // Following exclusions are not needed during runtime
@@ -19,7 +23,7 @@ configurations {
 }
 
 ext {
-  icebergVersion = '1.5.2'
+  icebergVersion = '1.6.0-SNAPSHOT'
   sparkVersion = '3.5.2'
   springVersion = '2.7.8'
   hadoopVersion = '2.10.0'

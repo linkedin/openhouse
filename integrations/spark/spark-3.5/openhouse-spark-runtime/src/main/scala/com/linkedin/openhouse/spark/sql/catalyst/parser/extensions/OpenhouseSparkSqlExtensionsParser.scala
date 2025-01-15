@@ -2,13 +2,11 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser.QuotedIdentifierContext
 import org.antlr.v4.runtime.misc.Interval
-import org.antlr.v4.runtime.tree.TerminalNodeImpl
 import org.antlr.v4.runtime.{BaseErrorListener, CharStream, CharStreams, CodePointCharStream, CommonToken, CommonTokenStream, IntStream, ParserRuleContext, RecognitionException, Recognizer, Token}
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.{FunctionIdentifier, TableIdentifier}
 import org.apache.spark.sql.catalyst.parser.ParserInterface
-import org.apache.spark.sql.catalyst.parser.extensions.IcebergSqlExtensionsPostProcessor
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.types.{DataType, StructType}
 
