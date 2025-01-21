@@ -128,46 +128,24 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   private void validatePolicies(CreateUpdateTableRequestBody createUpdateTableRequestBody) {
+    if (createUpdateTableRequestBody.getPolicies() == null) {
+      return;
+    }
+
     TableUri tableUri =
         TableUri.builder()
             .tableId(createUpdateTableRequestBody.getTableId())
             .clusterId(createUpdateTableRequestBody.getClusterId())
             .databaseId(createUpdateTableRequestBody.getDatabaseId())
             .build();
-    if (!retentionPolicySpecValidator.validate(
-        createUpdateTableRequestBody.getPolicies(),
-        createUpdateTableRequestBody.getTimePartitioning(),
-        tableUri,
-        createUpdateTableRequestBody.getSchema())) {
-      throw new RequestValidationFailureException(
-          Arrays.asList(
-              String.format(
-                  "%s : %s",
-                  retentionPolicySpecValidator.getField(),
-                  retentionPolicySpecValidator.getMessage())));
-    }
-    if (createUpdateTableRequestBody.getPolicies() != null
-        && createUpdateTableRequestBody.getPolicies().getReplication() != null) {
-      if (!replicationConfigValidator.validate(
-          createUpdateTableRequestBody.getPolicies().getReplication(), tableUri)) {
+
+    List<PolicySpecValidator> validators =
+        Arrays.asList(
+            retentionPolicySpecValidator, replicationConfigValidator, historyPolicySpecValidator);
+    for (PolicySpecValidator validator : validators) {
+      if (!validator.validate(createUpdateTableRequestBody, tableUri)) {
         throw new RequestValidationFailureException(
-            Arrays.asList(
-                String.format(
-                    "%s : %s",
-                    replicationConfigValidator.getField(),
-                    replicationConfigValidator.getMessage())));
-      }
-    }
-    if (createUpdateTableRequestBody.getPolicies() != null
-        && createUpdateTableRequestBody.getPolicies().getHistory() != null) {
-      if (!historyPolicySpecValidator.validate(
-          createUpdateTableRequestBody.getPolicies().getHistory(), tableUri)) {
-        throw new RequestValidationFailureException(
-            Arrays.asList(
-                String.format(
-                    "%s : %s",
-                    historyPolicySpecValidator.getField(),
-                    historyPolicySpecValidator.getMessage())));
+            Arrays.asList(String.format("%s : %s", validator.getField(), validator.getMessage())));
       }
     }
   }

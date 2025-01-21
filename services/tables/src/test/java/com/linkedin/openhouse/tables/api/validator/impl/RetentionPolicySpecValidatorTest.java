@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import static org.apache.iceberg.types.Types.NestedField.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
@@ -109,108 +110,81 @@ class RetentionPolicySpecValidatorTest {
   @Test
   void testValidate() {
     // Negative: declared retention column not exists
-    RetentionColumnPattern pattern0 =
-        RetentionColumnPattern.builder()
-            .pattern("yyyy-mm-dd-hh")
-            .columnName("bb")
-            .build(); /* dummySchema doesn't have bb*/
-    Retention retention0 =
-        Retention.builder()
-            .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .columnPattern(pattern0)
-            .build();
-    Policies policies0 = Policies.builder().retention(retention0).build();
+    CreateUpdateTableRequestBody requestBodyColumnNotExists =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").columnName("bb").build(),
+            1,
+            TimePartitionSpec.Granularity.DAY,
+            null);
     Assertions.assertFalse(
-        validator.validate(
-            policies0, null, TableUri.builder().build(), getSchemaJsonFromSchema(dummySchema)));
+        validator.validate(requestBodyColumnNotExists, TableUri.builder().build()));
 
-    pattern0 =
-        RetentionColumnPattern.builder()
-            .pattern("yyyy-mm-dd-hh")
-            .columnName("Aa") /* casing matters*/
-            .build();
-    retention0 =
-        Retention.builder()
-            .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .columnPattern(pattern0)
-            .build();
-    policies0 = Policies.builder().retention(retention0).build();
+    CreateUpdateTableRequestBody requestBodyInvalidColumnCasing =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").columnName("Aa").build(),
+            1,
+            TimePartitionSpec.Granularity.DAY,
+            null);
     Assertions.assertFalse(
-        validator.validate(
-            policies0, null, TableUri.builder().build(), getSchemaJsonFromSchema(dummySchema)));
+        validator.validate(requestBodyInvalidColumnCasing, TableUri.builder().build()));
 
-    pattern0 =
-        RetentionColumnPattern.builder()
-            .pattern("yyyy-mm-dd-hh")
-            .columnName("top1.aaa") /* negative case for nested*/
-            .build();
-    retention0 =
-        Retention.builder()
-            .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .columnPattern(pattern0)
-            .build();
-    policies0 = Policies.builder().retention(retention0).build();
+    CreateUpdateTableRequestBody requestBodyNestedColumnNameNotFound =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder()
+                .pattern("yyyy-mm-dd-hh")
+                .columnName("top1.aaa")
+                .build(),
+            1,
+            TimePartitionSpec.Granularity.DAY,
+            null);
     Assertions.assertFalse(
-        validator.validate(
-            policies0, null, TableUri.builder().build(), getSchemaJsonFromSchema(nestedSchema)));
+        validator.validate(requestBodyNestedColumnNameNotFound, TableUri.builder().build()));
 
     // Negative: Missing timepartitionspec AND pattern
-    Retention retention1 =
-        Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build();
-    Policies policies1 = Policies.builder().retention(retention1).build();
+    CreateUpdateTableRequestBody requestBodyMissingPatternAndTimePartitionSpec =
+        createRequestBodyWithRetentionPolicy(null, 1, TimePartitionSpec.Granularity.DAY, null);
     Assertions.assertFalse(
         validator.validate(
-            policies1, null, TableUri.builder().build(), getSchemaJsonFromSchema(dummySchema)));
+            requestBodyMissingPatternAndTimePartitionSpec, TableUri.builder().build()));
 
     // Positive: Only have pattern but no timepartitionSpec
-    RetentionColumnPattern pattern =
-        RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").build();
-    Retention retention2 = retention1.toBuilder().columnPattern(pattern).build();
-    Policies policies2 = Policies.builder().retention(retention2).build();
+    CreateUpdateTableRequestBody requestBodyNoTimePartitionSpec =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").build(),
+            1,
+            TimePartitionSpec.Granularity.DAY,
+            null);
     Assertions.assertTrue(
-        validator.validate(
-            policies2, null, TableUri.builder().build(), getSchemaJsonFromSchema(dummySchema)));
+        validator.validate(requestBodyNoTimePartitionSpec, TableUri.builder().build()));
 
     // Negative: Having both timepartitionspec AND pattern
-    Retention retention3 =
-        Retention.builder()
-            .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .columnPattern(pattern)
-            .build();
-    Policies policies3 = Policies.builder().retention(retention3).build();
-    Assertions.assertFalse(
-        validator.validate(
-            policies3,
+    CreateUpdateTableRequestBody requestBodyBothPatternAndTimePartitionSpec =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").build(),
+            1,
+            TimePartitionSpec.Granularity.DAY,
             TimePartitionSpec.builder()
                 .columnName("ts")
                 .granularity(TimePartitionSpec.Granularity.DAY)
-                .build(),
-            TableUri.builder().build(),
-            getSchemaJsonFromSchema(dummySchema)));
+                .build());
+    Assertions.assertFalse(
+        validator.validate(requestBodyBothPatternAndTimePartitionSpec, TableUri.builder().build()));
 
     // Negative: Having both timepartitionspec AND invalid-pattern
     RetentionColumnPattern malformedPattern =
         RetentionColumnPattern.builder().pattern("random_pattern").columnName("aa").build();
-    Retention retention4 =
-        Retention.builder()
-            .count(1)
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .columnPattern(malformedPattern)
-            .build();
-    Policies policies4 = Policies.builder().retention(retention4).build();
-    Assertions.assertFalse(
-        validator.validate(
-            policies4,
+    CreateUpdateTableRequestBody requestBodyMalformedPattern =
+        createRequestBodyWithRetentionPolicy(
+            malformedPattern,
+            1,
+            TimePartitionSpec.Granularity.DAY,
             TimePartitionSpec.builder()
                 .columnName("ts")
                 .granularity(TimePartitionSpec.Granularity.DAY)
-                .build(),
-            TableUri.builder().build(),
-            getSchemaJsonFromSchema(dummySchema)));
+                .build());
+
+    Assertions.assertFalse(
+        validator.validate(requestBodyMalformedPattern, TableUri.builder().build()));
 
     Field failedMsg =
         org.springframework.util.ReflectionUtils.findField(
@@ -222,18 +196,14 @@ class RetentionPolicySpecValidatorTest {
             .contains("You can only specify retention column pattern on non-timestampPartitioned"));
 
     // Negative: having granularity not supported by defaultColumPattern
-    RetentionColumnPattern defaultPattern =
-        RetentionColumnPattern.builder().columnName("aa").pattern("").build();
-    Retention retention5 =
-        Retention.builder()
-            .count(1)
-            .granularity(TimePartitionSpec.Granularity.MONTH)
-            .columnPattern(defaultPattern)
-            .build();
-    Policies policies5 = Policies.builder().retention(retention5).build();
+    CreateUpdateTableRequestBody requestBodyInvalidGranularity =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder().columnName("aa").pattern("").build(),
+            1,
+            TimePartitionSpec.Granularity.MONTH,
+            null);
     Assertions.assertFalse(
-        validator.validate(
-            policies5, null, TableUri.builder().build(), getSchemaJsonFromSchema(dummySchema)));
+        validator.validate(requestBodyInvalidGranularity, TableUri.builder().build()));
 
     failedMsg =
         org.springframework.util.ReflectionUtils.findField(
@@ -248,5 +218,24 @@ class RetentionPolicySpecValidatorTest {
     // com.linkedin.openhouse.tables.e2e.h2.TablesControllerTest.testCreateRequestFailsForWithGranularityDifferentFromTimePartitionSpec
     // with error message validation
 
+  }
+
+  private CreateUpdateTableRequestBody createRequestBodyWithRetentionPolicy(
+      RetentionColumnPattern pattern,
+      int retentionCount,
+      TimePartitionSpec.Granularity granularity,
+      TimePartitionSpec timePartitioning) {
+    Retention retention =
+        Retention.builder()
+            .count(retentionCount)
+            .granularity(granularity)
+            .columnPattern(pattern)
+            .build();
+    Policies policiesInvalidColumnNameCasing = Policies.builder().retention(retention).build();
+    return CreateUpdateTableRequestBody.builder()
+        .policies(policiesInvalidColumnNameCasing)
+        .schema(getSchemaJsonFromSchema(dummySchema))
+        .timePartitioning(timePartitioning)
+        .build();
   }
 }

@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.validator.impl;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import lombok.extern.slf4j.Slf4j;
@@ -8,12 +9,11 @@ import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
-public class HistoryPolicySpecValidator {
+public class HistoryPolicySpecValidator extends PolicySpecValidator {
 
-  private String failureMessage = "";
-  private String errorField = "";
-
-  protected boolean validate(History history, TableUri tableUri) {
+  public boolean validate(
+      CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
+    History history = createUpdateTableRequestBody.getPolicies().getHistory();
     if (history != null) {
       if (history.getMaxAge() <= 0 && history.getVersions() <= 0) {
         failureMessage =
@@ -85,13 +85,5 @@ public class HistoryPolicySpecValidator {
     }
     int versions = history.getVersions();
     return versions >= 2 && versions <= 100;
-  }
-
-  public String getMessage() {
-    return failureMessage;
-  }
-
-  public String getField() {
-    return errorField;
   }
 }
