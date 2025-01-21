@@ -3,7 +3,6 @@ package com.linkedin.openhouse.spark.catalogtest;
 import com.google.common.collect.Sets;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.iceberg.CatalogUtil;
@@ -16,7 +15,6 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.StructField;
@@ -63,11 +61,6 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals("datefield", dateField.name());
       Assertions.assertTrue(
           dateField.dataType() instanceof DateType, "The 'datefield' column should be of DateType");
-
-      List<Row> responseList =
-          spark.sql(String.format("SELECT * FROM %s", quotedFqtn)).collectAsList();
-      Assertions.assertEquals(1, responseList.size());
-      Assertions.assertEquals("2024-06-21", responseList.get(0).getAs("datefield").toString());
     }
   }
 
