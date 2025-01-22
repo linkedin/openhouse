@@ -5,6 +5,10 @@ plugins {
   id 'openhouse.iceberg-conventions-1.5.2'
 }
 
+repositories {
+  mavenLocal()
+}
+
 import com.github.jengelman.gradle.plugins.shadow.transformers.PropertiesFileTransformer
 
 ext {

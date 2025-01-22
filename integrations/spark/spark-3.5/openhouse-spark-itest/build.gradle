@@ -3,6 +3,10 @@ plugins {
   id 'openhouse.maven-publish'
 }
 
+repositories {
+  mavenLocal()
+}
+
 ext {
   sparkVersion = '3.5.2'
 }

@@ -2,6 +2,10 @@ plugins {
   id 'openhouse.java-minimal-conventions'
 }
 
+repositories {
+  mavenLocal()
+}
+
 ext {
   gsonVersion = '2.8.9'
   micrometerVersion = '1.9.13'
