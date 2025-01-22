@@ -38,7 +38,8 @@ public class PartitionSpecMapper {
   private static final Set<Type.TypeID> ALLOWED_CLUSTERING_TYPEIDS =
       Collections.unmodifiableSet(
           new HashSet<Type.TypeID>(
-              Arrays.asList(Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG)));
+              Arrays.asList(
+                  Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG, Type.TypeID.DATE)));
   private static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
   private static final Set<String> SUPPORTED_TRANSFORMS =
       Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));

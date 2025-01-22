@@ -16,6 +16,9 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.types.DateType;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import scala.collection.JavaConverters;
@@ -35,6 +38,29 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       // ctas but referring with lower-cased name
       spark.sql("CREATE TABLE openhouse.d1.t2 AS SELECT * from openhouse.d1.tt1");
       Assertions.assertEquals(1, spark.sql("SELECT * FROM openhouse.d1.t2").collectAsList().size());
+    }
+  }
+
+  @Test
+  public void testCreateTablePartitionedByDate() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // creating a casing preserving table using backtick
+      String quotedFqtn = "openhouse.d1.tpartionedbydate";
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s (data string) PARTITIONED BY (datefield DATE)", quotedFqtn));
+      spark
+          .sql(String.format("INSERT INTO %s SELECT 'a', to_date('2024-06-21')", quotedFqtn))
+          .show();
+
+      // Get the schema of the table
+      StructType schema = spark.table(quotedFqtn).schema();
+
+      // Assert that the "datefield" column is of DateType
+      StructField dateField = schema.fields()[1]; // Assuming "datefield" is the second column
+      Assertions.assertEquals("datefield", dateField.name());
+      Assertions.assertTrue(
+          dateField.dataType() instanceof DateType, "The 'datefield' column should be of DateType");
     }
   }
 
