@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, SetHistoryPolicy, ShowGrantsStatement}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetReplicationPolicy,
+  SetRetentionPolicy, SetSharingPolicy, SetHistoryPolicy, ShowGrantsStatement, SetWorldReadablePolicy}
 import org.apache.iceberg.spark.{Spark3Util, SparkCatalog, SparkSessionCatalog}
 import org.apache.spark.sql.{SparkSession, Strategy}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
@@ -21,6 +22,8 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
       SetHistoryPolicyExec(catalog, ident, granularity, maxAge, versions) :: Nil
     case SetSharingPolicy(CatalogAndIdentifierExtractor(catalog, ident), sharing) =>
       SetSharingPolicyExec(catalog, ident, sharing) :: Nil
+    case SetWorldReadablePolicy(CatalogAndIdentifierExtractor(catalog, ident), worldReadable) =>
+      SetWorldReadablePolicyExec(catalog, ident, worldReadable) :: Nil
     case SetColumnPolicyTag(CatalogAndIdentifierExtractor(catalog, ident), policyTag, cols) =>
       SetColumnPolicyTagExec(catalog, ident, policyTag, cols) :: Nil
 

@@ -26,6 +26,7 @@ statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
+  | ALTER TABLE multipartIdentifier SET POLICY '(' worldReadablePolicy ')'                             #setWorldReadablePolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' historyPolicy ')'                                   #setHistoryPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
@@ -66,7 +67,7 @@ quotedIdentifier
     ;
 
 nonReserved
-    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
+    : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY | WORLD_READABLE
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     ;
 
@@ -160,11 +161,15 @@ historyPolicy
     ;
 
 maxAge
-    : MAX_AGE'='duration
+    : MAX_AGE '=' duration
     ;
 
 versions
-    : VERSIONS'='POSITIVE_INTEGER
+    : VERSIONS '=' POSITIVE_INTEGER
+    ;
+
+worldReadablePolicy
+    : WORLD_READABLE '=' BOOLEAN
     ;
 
 ALTER: 'ALTER';
@@ -175,6 +180,7 @@ RETENTION: 'RETENTION';
 REPLICATION: 'REPLICATION';
 HISTORY: 'HISTORY';
 SHARING: 'SHARING';
+WORLD_READABLE: 'WORLD_READABLE';
 GRANT: 'GRANT';
 REVOKE: 'REVOKE';
 ON: 'ON';
