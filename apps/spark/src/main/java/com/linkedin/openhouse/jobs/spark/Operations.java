@@ -216,14 +216,13 @@ public final class Operations implements AutoCloseable {
   public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
     ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
 
-    // maxAge is always defined with granularity
-    if (!granularity.isEmpty()) {
-      TimeUnit timeUnitGranularity = TimeUnit.valueOf(granularity.toUpperCase());
-      long expireBeforeTimestampMs =
-          System.currentTimeMillis() - timeUnitGranularity.toMillis(maxAge);
-      log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
-      expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
-    }
+    // maxAge will always be defined
+    TimeUnit timeUnitGranularity = TimeUnit.valueOf(granularity.toUpperCase());
+    long expireBeforeTimestampMs =
+        System.currentTimeMillis() - timeUnitGranularity.toMillis(maxAge);
+    log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
+    expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
+
     if (versions > 0 && Iterators.size(table.snapshots().iterator()) > versions) {
       log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
       // Note: retainLast keeps the last N snapshots that WOULD be expired, hence expireOlderThan
