@@ -20,6 +20,15 @@ public class TableFileStats implements DataSource<FileStat> {
         .map(new FileStatMapper(), Encoders.bean(FileStat.class));
   }
 
+  public Dataset<FileStat> getPartitionFileStats(String partition) {
+    return spark
+        .sql(
+            String.format(
+                "SELECT file_path, file_size_in_bytes FROM %s.data_files where partition = %s",
+                tableName, partition))
+        .map(new FileStatMapper(), Encoders.bean(FileStat.class));
+  }
+
   static class FileStatMapper implements MapFunction<Row, FileStat> {
     @Override
     public FileStat call(Row row) {

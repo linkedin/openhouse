@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.datalayout.persistence;
 
+import static com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps.*;
+
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
@@ -20,8 +22,9 @@ public class StrategiesDaoTablePropsTest extends OpenHouseSparkITest {
       // validate up-to 100 strategies can be saved and loaded
       List<DataLayoutStrategy> strategyList = Collections.nCopies(100, strategy);
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-      dao.save(testTable, strategyList);
-      Assertions.assertEquals(strategyList, dao.load(testTable));
+      dao.save(testTable, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY, strategyList);
+      Assertions.assertEquals(
+          strategyList, dao.load(testTable, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY));
     }
   }
 

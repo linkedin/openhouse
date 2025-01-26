@@ -62,7 +62,7 @@ jobs:
         <<: *apps-defaults
       - type: DATA_LAYOUT_STRATEGY_GENERATION
         class-name: com.linkedin.openhouse.jobs.spark.DataLayoutStrategyGeneratorSparkApp
-        args: ["--outputTableName", "u_openhouse.dlo_strategies"]
+        args: ["--outputTableName", "u_openhouse.dlo_strategies", "--outputPartitionTableName", "u_openhouse.dlo_partition_strategies"]
         <<: *apps-defaults
       - type: DATA_LAYOUT_STRATEGY_EXECUTION
         class-name: com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp
