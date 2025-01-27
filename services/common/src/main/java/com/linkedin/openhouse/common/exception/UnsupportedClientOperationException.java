@@ -18,6 +18,7 @@ public class UnsupportedClientOperationException extends RuntimeException {
     ALTER_RESERVED_TBLPROPS,
     ALTER_RESERVED_ROLES,
     GRANT_ON_UNSHARED_TABLES,
-    ALTER_TABLE_TYPE
+    ALTER_TABLE_TYPE,
+    GRANT_ALL_READS
   }
 }
