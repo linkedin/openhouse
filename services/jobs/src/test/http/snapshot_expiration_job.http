@@ -10,7 +10,7 @@ Content-Type: application/json
     "args": [
       "--tableName", "db.tb",
       "--granularity", "day",
-      "--count", 1
+      "--maxAge", 1
     ]
   }
 }

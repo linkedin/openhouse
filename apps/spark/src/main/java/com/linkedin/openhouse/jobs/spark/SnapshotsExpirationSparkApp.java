@@ -12,7 +12,7 @@ import org.apache.commons.cli.Option;
  * are older than provided count of granularities are deleted. Current snapshot is always preserved.
  *
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
- * --tableName db.testTable --count 7 --granularity day
+ * --tableName db.testTable --maxAge 3 --granularity day --versions 10
  */
 @Slf4j
 public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
@@ -73,7 +73,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
             cmdLine.getOptionValue("tableName"),
             Integer.parseInt(cmdLine.getOptionValue("maxAge", "0")),
             cmdLine.getOptionValue("granularity", ""),
-            Integer.parseInt(cmdLine.getOptionValue("minVersions", "0")));
+            Integer.parseInt(cmdLine.getOptionValue("versions", "0")));
     app.run();
   }
 }
