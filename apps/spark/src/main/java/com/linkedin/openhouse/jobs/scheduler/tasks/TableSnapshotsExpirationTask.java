@@ -8,6 +8,7 @@ import com.linkedin.openhouse.jobs.util.TableMetadata;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A task to expire snapshots from a table.
@@ -31,15 +32,19 @@ public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetada
   @Override
   protected List<String> getArgs() {
     HistoryConfig config = metadata.getHistoryConfig();
-    List<String> jobArgs = new ArrayList<>();
-    if (config.getMaxAge() > 0) {
-      jobArgs.addAll(
-          Arrays.asList(
-              "--maxAge", Integer.toString(config.getMaxAge()),
-              "--granularity", config.getGranularity().getValue()));
-    }
-    if (config.getVersions() > 0) {
-      jobArgs.addAll(Arrays.asList("--versions", Integer.toString(config.getVersions())));
+    List<String> jobArgs = new ArrayList<>(Arrays.asList("--tableName", metadata.fqtn()));
+    if (config != null) {
+      if (config.getMaxAge() > 0) {
+        jobArgs.addAll(
+            Arrays.asList(
+                "--maxAge",
+                Objects.toString(config.getMaxAge()),
+                "--granularity",
+                config.getGranularity().getValue()));
+      }
+      if (config.getVersions() > 0) {
+        jobArgs.addAll(Arrays.asList("--versions", Objects.toString(config.getVersions())));
+      }
     }
     return jobArgs;
   }
