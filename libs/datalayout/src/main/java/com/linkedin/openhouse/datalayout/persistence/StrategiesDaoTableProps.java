@@ -20,25 +20,25 @@ import org.apache.spark.sql.SparkSession;
 @Builder
 public class StrategiesDaoTableProps implements StrategiesDao {
   public static final String DATA_LAYOUT_STRATEGIES_PROPERTY_KEY = "write.data-layout.strategies";
+  public static final String DATA_LAYOUT_PARTITION_STRATEGIES_PROPERTY_KEY =
+      "write.data-layout.partition-strategies";
+  public static final String DATA_LAYOUT_IS_PARTITION_SCOPE_KEY =
+      "write.data-layout.isPartitionScope";
   private final SparkSession spark;
 
   @Override
-  public void save(String fqtn, List<DataLayoutStrategy> strategies) {
+  public void save(String fqtn, String key, List<DataLayoutStrategy> strategies) {
     String propValue = serialize(strategies);
     log.info("Saving strategies {} for table {}", propValue, fqtn);
     spark.sql(
-        String.format(
-            "ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')",
-            fqtn, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY, propValue));
+        String.format("ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')", fqtn, key, propValue));
   }
 
   @Override
-  public List<DataLayoutStrategy> load(String fqtn) {
+  public List<DataLayoutStrategy> load(String fqtn, String key) {
     String propValue =
         spark
-            .sql(
-                String.format(
-                    "SHOW TBLPROPERTIES %s ('%s')", fqtn, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY))
+            .sql(String.format("SHOW TBLPROPERTIES %s ('%s')", fqtn, key))
             .collectAsList()
             .get(0)
             .getString(1);

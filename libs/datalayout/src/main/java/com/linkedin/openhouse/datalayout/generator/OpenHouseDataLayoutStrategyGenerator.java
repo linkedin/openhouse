@@ -2,6 +2,7 @@ package com.linkedin.openhouse.datalayout.generator;
 
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.datasource.FileStat;
+import com.linkedin.openhouse.datalayout.datasource.PartitionStat;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
@@ -35,6 +36,8 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   private static final int REWRITE_PARALLELISM = 900; // number of Spark tasks to run in parallel
   private static final long TARGET_BYTES_SIZE = 2 * FILE_BLOCK_SIZE_BYTES - FILE_BLOCK_MARGIN_BYTES;
   private static final double COMPUTE_STARTUP_COST_GB_HR = 0.5;
+  private static final double TABLE_LEVEL_STRATEGY_COST_THRESHOLD =
+      12 * EXECUTOR_MEMORY_GB + COMPUTE_STARTUP_COST_GB_HR;
   private final TableFileStats tableFileStats;
   private final TablePartitionStats tablePartitionStats;
 
@@ -44,9 +47,19 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    */
   @Override
   public List<DataLayoutStrategy> generate() {
-    return generateCompactionStrategy()
-        .map(Collections::singletonList)
-        .orElse(Collections.emptyList());
+    // Generate table-level strategies for all tables. If the rewrite hour is greater than 12hr,
+    // then generate the partition-level strategies and append them.
+    // TODO: Stop generating table-level strategies if the table size exceeds the threshold.
+    List<DataLayoutStrategy> tableLevelStrategy =
+        generateCompactionStrategy()
+            .map(Collections::singletonList)
+            .orElse(Collections.emptyList());
+    if (!tableLevelStrategy.isEmpty()
+        && tableLevelStrategy.get(0).getCost() > TABLE_LEVEL_STRATEGY_COST_THRESHOLD) {
+      List<DataLayoutStrategy> partitionLevelStrategy = generatePartitionLevelCompactionStrategy();
+      tableLevelStrategy.addAll(partitionLevelStrategy);
+    }
+    return tableLevelStrategy;
   }
 
   /**
@@ -88,13 +101,92 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     long rewriteFileBytes = fileStats._1;
     int rewriteFileCount = fileStats._2;
 
-    DataCompactionConfig.DataCompactionConfigBuilder configBuilder = DataCompactionConfig.builder();
+    long reducedFileCount = estimateReducedFileCount(rewriteFileBytes, rewriteFileCount);
+    double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
+    // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
+    double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
+    DataCompactionConfig config =
+        buildDataCompactionConfig(rewriteFileBytes, tablePartitionStats.get().count());
+    return Optional.of(
+        DataLayoutStrategy.builder()
+            .config(config)
+            .cost(computeGbHr)
+            .gain(reducedFileCount)
+            .score(reducedFileCountPerComputeGbHr)
+            .entropy(computeEntropy(fileSizes))
+            .build());
+  }
 
-    configBuilder.targetByteSize(TARGET_BYTES_SIZE);
+  private List<DataLayoutStrategy> generatePartitionLevelCompactionStrategy() {
+    // Get all partition values
+    Dataset<PartitionStat> partitions = tablePartitionStats.get();
 
+    // For each partition, generate a compaction strategy
+    Dataset<DataLayoutStrategy> strategies =
+        partitions.map(
+            (MapFunction<PartitionStat, DataLayoutStrategy>)
+                partition -> {
+                  // Get the first level partition
+                  String partitionValue = partition.getValues().get(0);
+
+                  // Get files for this specific partition
+                  Dataset<Long> fileSizes =
+                      tableFileStats
+                          .getPartitionFileStats(partitionValue)
+                          .map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
+
+                  Dataset<Long> filteredSizes =
+                      fileSizes.filter(
+                          (FilterFunction<Long>)
+                              size ->
+                                  size
+                                      < TARGET_BYTES_SIZE
+                                          * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+
+                  // Skip if no files need compaction
+                  if (filteredSizes.count() == 0) {
+                    return null;
+                  }
+
+                  // Compute file stats for this partition
+                  Tuple2<Long, Integer> fileStats =
+                      filteredSizes
+                          .map(
+                              (MapFunction<Long, Tuple2<Long, Integer>>)
+                                  size -> new Tuple2<>(size, 1),
+                              Encoders.tuple(Encoders.LONG(), Encoders.INT()))
+                          .reduce(
+                              (ReduceFunction<Tuple2<Long, Integer>>)
+                                  (a, b) -> new Tuple2<>(a._1 + b._1, a._2 + b._2));
+
+                  long rewriteFileBytes = fileStats._1;
+                  int rewriteFileCount = fileStats._2;
+
+                  long reducedFileCount =
+                      estimateReducedFileCount(rewriteFileBytes, rewriteFileCount);
+                  double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
+                  double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
+                  DataCompactionConfig config = buildDataCompactionConfig(rewriteFileBytes, 1L);
+                  return DataLayoutStrategy.builder()
+                      .config(config)
+                      .cost(computeGbHr)
+                      .gain(reducedFileCount)
+                      .score(reducedFileCountPerComputeGbHr)
+                      .entropy(computeEntropy(fileSizes))
+                      .partitionId(partitionValue)
+                      .build();
+                },
+            Encoders.bean(DataLayoutStrategy.class));
+
+    // Return the strategy with the highest score, if any exist
+    return strategies.collectAsList();
+  }
+
+  private DataCompactionConfig buildDataCompactionConfig(
+      long rewriteFileBytes, long partitionCount) {
     long estimatedFileGroupsCount =
         Math.max(
-            tablePartitionStats.get().count(),
+            partitionCount,
             rewriteFileBytes / DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT);
 
     int maxCommitsCount =
@@ -103,32 +195,22 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
                 MAX_NUM_COMMITS,
                 (estimatedFileGroupsCount + NUM_FILE_GROUPS_PER_COMMIT - 1)
                     / NUM_FILE_GROUPS_PER_COMMIT);
-    configBuilder.partialProgressMaxCommits(maxCommitsCount);
 
     int estimatedTasksPerFileGroupCount =
         (int) (DataCompactionConfig.MAX_FILE_GROUP_SIZE_BYTES_DEFAULT / TARGET_BYTES_SIZE);
 
-    configBuilder.maxConcurrentFileGroupRewrites(
+    int maxConcurrentFileGroupRewrites =
         Math.min(
             MAX_CONCURRENT_FILE_GROUP_REWRITES,
             (estimatedTasksPerFileGroupCount + REWRITE_PARALLELISM - 1)
-                / estimatedTasksPerFileGroupCount));
+                / estimatedTasksPerFileGroupCount);
 
-    // don't split large files
-    configBuilder.maxByteSizeRatio(MAX_BYTES_SIZE_RATIO);
-
-    long reducedFileCount = estimateReducedFileCount(rewriteFileBytes, rewriteFileCount);
-    double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
-    // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
-    double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
-    return Optional.of(
-        DataLayoutStrategy.builder()
-            .config(configBuilder.build())
-            .cost(computeGbHr)
-            .gain(reducedFileCount)
-            .score(reducedFileCountPerComputeGbHr)
-            .entropy(computeEntropy(fileSizes))
-            .build());
+    return DataCompactionConfig.builder()
+        .targetByteSize(TARGET_BYTES_SIZE)
+        .partialProgressMaxCommits(maxCommitsCount)
+        .maxConcurrentFileGroupRewrites(maxConcurrentFileGroupRewrites)
+        .maxByteSizeRatio(MAX_BYTES_SIZE_RATIO) // don't split large files
+        .build();
   }
 
   private long estimateReducedFileCount(long rewriteFileBytes, int rewriteFileCount) {

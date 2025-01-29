@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.datalayout.e2e;
 
+import static com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps.*;
+
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
@@ -33,8 +35,9 @@ public class IntegrationTest extends OpenHouseSparkITest {
       List<DataLayoutStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(1, strategies.size());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-      dao.save(testTable, strategies);
-      List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
+      dao.save(testTable, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY, strategies);
+      List<DataLayoutStrategy> retrievedStrategies =
+          dao.load(testTable, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY);
       Assertions.assertEquals(strategies, retrievedStrategies);
     }
   }
@@ -57,8 +60,9 @@ public class IntegrationTest extends OpenHouseSparkITest {
       List<DataLayoutStrategy> strategies = strategyGenerator.generate();
       Assertions.assertEquals(1, strategies.size());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-      dao.save(testTable, strategies);
-      List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
+      dao.save(testTable, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY, strategies);
+      List<DataLayoutStrategy> retrievedStrategies =
+          dao.load(testTable, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY);
       Assertions.assertEquals(strategies, retrievedStrategies);
     }
   }

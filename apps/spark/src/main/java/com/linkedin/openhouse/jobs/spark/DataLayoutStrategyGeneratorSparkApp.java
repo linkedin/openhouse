@@ -19,11 +19,17 @@ import org.apache.spark.sql.SparkSession;
 @Slf4j
 public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
   private @Nullable String outputFqtn;
+  private @Nullable String outputPartitionFqtn;
 
   protected DataLayoutStrategyGeneratorSparkApp(
-      String jobId, StateManager stateManager, String fqtn, @Nullable String outputFqtn) {
+      String jobId,
+      StateManager stateManager,
+      String fqtn,
+      @Nullable String outputFqtn,
+      @Nullable String outputPartitionFqtn) {
     super(jobId, stateManager, fqtn);
     this.outputFqtn = outputFqtn;
+    this.outputPartitionFqtn = outputPartitionFqtn;
   }
 
   @Override
@@ -39,23 +45,48 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             .build();
     log.info("Generating strategies for table {}", fqtn);
     List<DataLayoutStrategy> strategies = strategiesGenerator.generate();
+    List<DataLayoutStrategy> tableStrategies =
+        strategies.isEmpty() ? new ArrayList<>() : strategies.subList(0, 1);
+    List<DataLayoutStrategy> partitionStrategies =
+        strategies.size() > 1 ? new ArrayList<>() : strategies.subList(1, strategies.size());
     log.info(
-        "Generated {} strategies {}",
-        strategies.size(),
-        strategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
+        "Generated {} table strategies {},\nGenerated {} partition strategies {}",
+        tableStrategies.size(),
+        tableStrategies.stream().map(Object::toString).collect(Collectors.joining(", ")),
+        partitionStrategies.size(),
+        partitionStrategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-    dao.save(fqtn, strategies);
-    if (outputFqtn != null && !strategies.isEmpty()) {
+    dao.save(fqtn, StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY, tableStrategies);
+    dao.save(
+        fqtn,
+        StrategiesDaoTableProps.DATA_LAYOUT_PARTITION_STRATEGIES_PROPERTY_KEY,
+        partitionStrategies);
+    if (outputFqtn != null && !tableStrategies.isEmpty()) {
       createTableIfNotExists(spark, outputFqtn);
+      DataLayoutStrategy strategy = tableStrategies.get(0);
+      String row =
+          String.format(
+              "('%s', current_timestamp(), %f, %f, %f)",
+              fqtn, strategy.getCost(), strategy.getGain(), strategy.getEntropy());
+      String strategiesInsertStmt = String.format("INSERT INTO %s VALUES %s", outputFqtn, row);
+      log.info("Running {}", strategiesInsertStmt);
+      spark.sql(strategiesInsertStmt);
+    }
+    if (outputPartitionFqtn != null && !partitionStrategies.isEmpty()) {
+      createTableIfNotExists(spark, outputPartitionFqtn);
       List<String> rows = new ArrayList<>();
       for (DataLayoutStrategy strategy : strategies) {
         rows.add(
             String.format(
-                "('%s', current_timestamp(), %f, %f, %f)",
-                fqtn, strategy.getCost(), strategy.getGain(), strategy.getEntropy()));
+                "('%s', '%s', current_timestamp(), %f, %f, %f)",
+                fqtn,
+                strategy.getPartitionId(),
+                strategy.getCost(),
+                strategy.getGain(),
+                strategy.getEntropy()));
       }
       String strategiesInsertStmt =
-          String.format("INSERT INTO %s VALUES %s", outputFqtn, String.join(", ", rows));
+          String.format("INSERT INTO %s VALUES %s", outputPartitionFqtn, String.join(", ", rows));
       log.info("Running {}", strategiesInsertStmt);
       spark.sql(strategiesInsertStmt);
     }
@@ -87,7 +118,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             getJobId(cmdLine),
             createStateManager(cmdLine),
             cmdLine.getOptionValue("tableName"),
-            cmdLine.getOptionValue("outputTableName"));
+            cmdLine.getOptionValue("outputTableName"),
+            cmdLine.getOptionValue("outputPartitionTableName"));
     app.run();
   }
 }

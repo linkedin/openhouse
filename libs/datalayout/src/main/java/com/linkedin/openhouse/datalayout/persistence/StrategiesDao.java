@@ -5,7 +5,7 @@ import java.util.List;
 
 /** DAO interface for persisting and loading data layout optimization strategies. */
 public interface StrategiesDao {
-  void save(String fqtn, List<DataLayoutStrategy> strategies);
+  void save(String fqtn, String key, List<DataLayoutStrategy> strategies);
 
-  List<DataLayoutStrategy> load(String fqtn);
+  List<DataLayoutStrategy> load(String fqtn, String key);
 }
