@@ -52,8 +52,7 @@ grantableResource
     ;
 
 principal
-    : ALL
-    | identifier
+    : identifier
     ;
 
 identifier
@@ -177,7 +176,6 @@ REPLICATION: 'REPLICATION';
 HISTORY: 'HISTORY';
 SHARING: 'SHARING';
 GRANT: 'GRANT';
-ALL: 'ALL';
 REVOKE: 'REVOKE';
 ON: 'ON';
 TO: 'TO';

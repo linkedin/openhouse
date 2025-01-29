@@ -182,7 +182,6 @@ public class TablesServiceImpl implements TablesService {
 
     switch (updateAclPoliciesRequestBody.getOperation()) {
       case GRANT:
-        // A globally readable table does not need to be marked as sharable
         if (!isTableSharingEnabled(tableDto)) {
           throw new UnsupportedClientOperationException(
               UnsupportedClientOperationException.Operation.GRANT_ON_UNSHARED_TABLES,
