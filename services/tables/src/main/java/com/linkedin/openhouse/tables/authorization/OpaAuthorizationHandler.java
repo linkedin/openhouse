@@ -74,7 +74,8 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
       return;
     }
     try {
-      opaHandler.grantRole(role, principal, databaseDto);
+      String principalToGrant = principal.equals("ALL") ? "*" : principal;
+      opaHandler.grantRole(role, principalToGrant, databaseDto);
     } catch (Exception e) {
       throw new AuthorizationServiceException("Cannot perform Opa grant role", e);
     }

@@ -183,20 +183,7 @@ public class TablesServiceImpl implements TablesService {
     switch (updateAclPoliciesRequestBody.getOperation()) {
       case GRANT:
         // A globally readable table does not need to be marked as sharable
-        if (granteePrincipal.equals("ALL")) {
-          if (!updateAclPoliciesRequestBody.getRole().equals("TABLE_VIEWER")) {
-            throw new UnsupportedClientOperationException(
-                UnsupportedClientOperationException.Operation.GRANT_ALL_READS,
-                "Granting roles other than TABLE_VIEWER to ALL is not permitted");
-          }
-          if (isTableSharingEnabled(tableDto)) {
-            throw new UnsupportedClientOperationException(
-                UnsupportedClientOperationException.Operation.GRANT_ALL_READS,
-                String.format(
-                    "%s.%s granting global reads on a previously shared table is not permitted",
-                    databaseId, tableId));
-          }
-        } else if (!isTableSharingEnabled(tableDto)) {
+        if (!isTableSharingEnabled(tableDto)) {
           throw new UnsupportedClientOperationException(
               UnsupportedClientOperationException.Operation.GRANT_ON_UNSHARED_TABLES,
               String.format("%s.%s is not a shared table", databaseId, tableId));
