@@ -12,7 +12,7 @@ import org.apache.commons.cli.Option;
  * are older than provided count of granularities are deleted. Current snapshot is always preserved.
  *
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
- * --tableName db.testTable --count 7 --granularity day
+ * --tableName db.testTable --maxAge 3 --granularity day --versions 10
  */
 @Slf4j
 public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
@@ -26,11 +26,6 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
     public static final int VERSIONS = 0;
   }
 
-  private static final String DEFAULT_GRANULARITY = "";
-
-  // By default do not define versions, and only retain snapshots based on max age
-  private static final String DEFAULT_VERSIONS = "0";
-
   public SnapshotsExpirationSparkApp(
       String jobId,
       StateManager stateManager,
@@ -39,15 +34,15 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
       String granularity,
       int versions) {
     super(jobId, stateManager, fqtn);
-    if (maxAge == 0 && versions == 0) {
+    // By default, always enforce a time to live for snapshots even if unconfigured
+    if (maxAge == 0) {
       this.maxAge = DEFAULT_CONFIGURATION.MAX_AGE;
       this.granularity = DEFAULT_CONFIGURATION.GRANULARITY;
-      this.versions = DEFAULT_CONFIGURATION.VERSIONS;
     } else {
-      this.granularity = granularity;
       this.maxAge = maxAge;
-      this.versions = versions;
+      this.granularity = granularity;
     }
+    this.versions = versions;
   }
 
   @Override
@@ -78,7 +73,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
             cmdLine.getOptionValue("tableName"),
             Integer.parseInt(cmdLine.getOptionValue("maxAge", "0")),
             cmdLine.getOptionValue("granularity", ""),
-            Integer.parseInt(cmdLine.getOptionValue("minVersions", "0")));
+            Integer.parseInt(cmdLine.getOptionValue("versions", "0")));
     app.run();
   }
 }

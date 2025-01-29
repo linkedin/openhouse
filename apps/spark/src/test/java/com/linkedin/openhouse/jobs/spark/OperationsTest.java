@@ -339,6 +339,8 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_es_versions_noop_java";
     final int numInserts = 3;
     final int versionsToKeep = 5; // Should keep all versions given that there are fewer versions
+    final int maxAge = 3;
+    final String timeGranularity = "DAYS";
     List<Long> snapshotIds;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
@@ -351,7 +353,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
 
-      ops.expireSnapshots(table, 0, "", versionsToKeep);
+      ops.expireSnapshots(table, maxAge, timeGranularity, versionsToKeep);
       // verify that table object snapshots are updated
       checkSnapshots(table, snapshotIds);
     }
@@ -367,6 +369,8 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_es_versions_java";
     final int numInserts = 3;
     final int versionsToKeep = 2;
+    final int maxAge = 3;
+    final String timeGranularity = "DAYS";
     List<Long> snapshotIds;
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
@@ -379,7 +383,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
 
-      ops.expireSnapshots(table, 0, "", versionsToKeep);
+      ops.expireSnapshots(table, maxAge, timeGranularity, versionsToKeep);
       // verify that table object snapshots are updated
       checkSnapshots(
           table, snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
