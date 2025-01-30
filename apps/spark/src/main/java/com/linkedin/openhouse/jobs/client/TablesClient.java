@@ -124,10 +124,6 @@ public class TablesClient {
     return Optional.of(replicationConfigList);
   }
 
-  protected String getTableProperty(String propertyName, Map<String, String> tblProperties) {
-    return tblProperties.getOrDefault(propertyName, null);
-  }
-
   protected GetTableResponseBody getTable(TableMetadata tableMetadata) {
     return getTable(tableMetadata.getDbName(), tableMetadata.getTableName());
   }
