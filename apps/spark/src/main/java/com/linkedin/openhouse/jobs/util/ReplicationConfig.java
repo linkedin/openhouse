@@ -14,4 +14,5 @@ public class ReplicationConfig {
   private final String schedule;
   private final String tableOwner;
   private final String cluster;
+  private final String enableSetup;
 }
