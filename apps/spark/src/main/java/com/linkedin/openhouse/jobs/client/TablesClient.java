@@ -115,8 +115,10 @@ public class TablesClient {
                     .tableOwner(response.getTableCreator())
                     .schedule(rc.getCronSchedule())
                     .enableSetup(
-                        getTableProperty(
-                            AppConstants.REPLICATION_SETUP_KEY, response.getTableProperties()))
+                        Boolean.parseBoolean(
+                            response
+                                .getTableProperties()
+                                .getOrDefault(AppConstants.REPLICATION_SETUP_KEY, null)))
                     .build()));
     // since replicationConfigList is initialized, it cannot be null.
     return Optional.of(replicationConfigList);

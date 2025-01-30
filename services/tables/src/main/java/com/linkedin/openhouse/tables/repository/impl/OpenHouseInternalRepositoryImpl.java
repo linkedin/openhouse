@@ -141,7 +141,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       // check if replicationPolicy has any change. update property replication.setupNeeded
       // accordingly
       if (checkIfReplicationPolicyUpdated(table.properties(), tableDto.getPolicies())) {
-        updateProperties.set(REPLICATION_SETUP_KEY, "true");
+        updateProperties.set(REPLICATION_SETUP_KEY, Boolean.TRUE.toString());
       }
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
@@ -326,7 +326,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     String policiesString = policiesMapper.toPoliciesJsonString(tableDto);
     propertiesMap.put(InternalRepositoryUtils.POLICIES_KEY, policiesString);
     if (tableDto.getPolicies() != null && tableDto.getPolicies().getReplication() != null) {
-      propertiesMap.put(REPLICATION_SETUP_KEY, "true");
+      propertiesMap.put(REPLICATION_SETUP_KEY, Boolean.TRUE.toString());
     }
 
     if (!CollectionUtils.isEmpty(tableDto.getJsonSnapshots())) {

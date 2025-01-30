@@ -470,7 +470,8 @@ public class RepositoryTest {
 
     TableDto createdDTOWithReplicationPolicy =
         openHouseInternalRepository.save(tableDTOWithReplicationPolicy);
-    Assertions.assertTrue(createdDTOWithReplicationPolicy.getTableProperties().containsKey());
+    Assertions.assertTrue(
+        createdDTOWithReplicationPolicy.getTableProperties().containsKey(replicationKey));
     Assertions.assertTrue(
         Boolean.parseBoolean(
             createdDTOWithReplicationPolicy.getTableProperties().get(replicationKey)));
@@ -493,13 +494,31 @@ public class RepositoryTest {
     Assertions.assertFalse(
         Boolean.parseBoolean(createdDTOWithTblProps.getTableProperties().get(replicationKey)));
 
-    // Update replication policy and assert that tblProperty values is set back to true
-    ArrayList<ReplicationConfig> configs = new ArrayList<>();
-    configs.add(ReplicationConfig.builder().destination("CLUSTER1").interval("15H").build());
-    TableDto tableDTOWithUpdatedReplicationPolicy =
+    // Update replication policy to different values and assert that tblProperty values is still set
+    // to False
+    TableDto tableDTOWithUpdatedRetentionPolicy =
         createdDTOWithTblProps
             .toBuilder()
             .tableVersion(createdDTOWithTblProps.getTableLocation())
+            .policies(TABLE_POLICIES.toBuilder().retention(RETENTION_POLICY).build())
+            .build();
+
+    TableDto createdDTOWithUpdatedRetentionPolicy =
+        openHouseInternalRepository.save(tableDTOWithUpdatedRetentionPolicy);
+    Assertions.assertTrue(
+        createdDTOWithUpdatedRetentionPolicy.getTableProperties().containsKey(replicationKey));
+    Assertions.assertFalse(
+        Boolean.parseBoolean(
+            createdDTOWithUpdatedRetentionPolicy.getTableProperties().get(replicationKey)));
+
+    // Update replication policy to different values and assert that tblProperty values is set back
+    // to true
+    ArrayList<ReplicationConfig> configs = new ArrayList<>();
+    configs.add(ReplicationConfig.builder().destination("CLUSTER1").interval("15H").build());
+    TableDto tableDTOWithUpdatedReplicationPolicy =
+        createdDTOWithUpdatedRetentionPolicy
+            .toBuilder()
+            .tableVersion(createdDTOWithUpdatedRetentionPolicy.getTableLocation())
             .policies(
                 TABLE_POLICIES
                     .toBuilder()
@@ -510,7 +529,7 @@ public class RepositoryTest {
     TableDto createdDTOWithUpdatedReplicationPolicy =
         openHouseInternalRepository.save(tableDTOWithUpdatedReplicationPolicy);
     Assertions.assertTrue(
-        createdDTOWithUpdatedReplicationPolicy.getTableProperties().containsKey("replicationKey"));
+        createdDTOWithUpdatedReplicationPolicy.getTableProperties().containsKey(replicationKey));
     Assertions.assertTrue(
         Boolean.parseBoolean(
             createdDTOWithUpdatedReplicationPolicy.getTableProperties().get(replicationKey)));
