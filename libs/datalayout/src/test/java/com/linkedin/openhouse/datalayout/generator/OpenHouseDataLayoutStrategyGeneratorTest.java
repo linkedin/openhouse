@@ -43,7 +43,7 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generateTableLevelStrategies();
       Assertions.assertEquals(1, strategies.size());
       DataLayoutStrategy strategy = strategies.get(0);
       // few groups, expect 1 commit
