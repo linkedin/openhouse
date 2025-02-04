@@ -59,7 +59,9 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     // Retrieve file sizes of all data files.
     Dataset<Long> fileSizes =
         tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
-    Optional<DataLayoutStrategy> strategy = buildDataLayoutStrategy(fileSizes, 1, null);
+    long partitionCount = tablePartitionStats.get().count();
+    Optional<DataLayoutStrategy> strategy =
+        buildDataLayoutStrategy(fileSizes, partitionCount, null);
     return strategy.map(Collections::singletonList).orElse(Collections.emptyList());
   }
 
@@ -85,7 +87,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
                                   .equals(partitionValue))
                   .map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
           Optional<DataLayoutStrategy> strategy =
-              buildDataLayoutStrategy(fileSizes, partitionStatsList.size(), partitionValue);
+              buildDataLayoutStrategy(fileSizes, 1L, partitionValue);
           strategy.ifPresent(strategies::add);
         });
     return strategies;
@@ -103,7 +105,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    * </ul>
    */
   private Optional<DataLayoutStrategy> buildDataLayoutStrategy(
-      Dataset<Long> fileSizes, int partitionCount, String partitionValue) {
+      Dataset<Long> fileSizes, long partitionCount, String partitionValue) {
     Dataset<Long> filteredSizes =
         fileSizes.filter(
             (FilterFunction<Long>)
