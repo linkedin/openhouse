@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITest {
   @Test
-  void testStrategySanityCheck() throws Exception {
+  void testTableLevelStrategySanityCheck() throws Exception {
     final String testTable = "db.test_table_sanity_check";
     try (SparkSession spark = getSparkSession()) {
       spark.sql("USE openhouse");
@@ -46,6 +46,7 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
       List<DataLayoutStrategy> strategies = strategyGenerator.generateTableLevelStrategies();
       Assertions.assertEquals(1, strategies.size());
       DataLayoutStrategy strategy = strategies.get(0);
+      Assertions.assertNull(strategy.getPartitionId());
       // few groups, expect 1 commit
       Assertions.assertEquals(1, strategy.getConfig().getPartialProgressMaxCommits());
       Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());
@@ -94,6 +95,20 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
               .build();
       List<DataLayoutStrategy> strategies = strategyGenerator.generatePartitionLevelStrategies();
       Assertions.assertEquals(2, strategies.size());
+
+      DataLayoutStrategy strategy = strategies.get(0);
+      Assertions.assertTrue(
+          "2025-02-16, data2".equals(strategy.getPartitionId())
+              || "2025-02-15, data1".equals(strategy.getPartitionId()));
+      // few groups, expect 1 commit
+      Assertions.assertEquals(1, strategy.getConfig().getPartialProgressMaxCommits());
+      Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());
+      Assertions.assertTrue(
+          strategy.getGain() == 2, "Gain for 3 files compaction in 1 partitions should be 2");
+      Assertions.assertTrue(
+          strategy.getCost() < 1.0, "Cost for 3 files compaction should be negligible");
+      Assertions.assertTrue(
+          strategy.getScore() < 5.0, "Score for 3 files compaction should be negligible");
     }
   }
 }
