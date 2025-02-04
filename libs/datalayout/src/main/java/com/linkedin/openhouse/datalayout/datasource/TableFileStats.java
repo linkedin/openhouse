@@ -9,6 +9,7 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.types.StructType;
 
 /** Data source implementation for table file statistics. */
 @Builder
@@ -18,11 +19,22 @@ public class TableFileStats implements DataSource<FileStat> {
 
   @Override
   public Dataset<FileStat> get() {
-    return spark
-        .sql(
-            String.format(
-                "SELECT file_path, file_size_in_bytes, partition FROM %s.data_files", tableName))
-        .map(new FileStatMapper(), Encoders.bean(FileStat.class));
+    StructType fileSchema =
+        spark.sql(String.format("SELECT * FROM %s.partitions", tableName)).schema();
+    try {
+      fileSchema.apply("partition");
+      return spark
+          .sql(
+              String.format(
+                  "SELECT file_path, file_size_in_bytes, partition FROM %s.data_files", tableName))
+          .map(new FileStatMapper(), Encoders.bean(FileStat.class));
+    } catch (IllegalArgumentException e) {
+      return spark
+          .sql(
+              String.format(
+                  "SELECT file_path, file_size_in_bytes, null FROM %s.data_files", tableName))
+          .map(new FileStatMapper(), Encoders.bean(FileStat.class));
+    }
   }
 
   static class FileStatMapper implements MapFunction<Row, FileStat> {

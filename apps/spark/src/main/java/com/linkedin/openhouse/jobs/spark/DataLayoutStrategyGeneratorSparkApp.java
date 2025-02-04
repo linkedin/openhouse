@@ -50,14 +50,14 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
   private void runInnerTableScope(
       SparkSession spark, OpenHouseDataLayoutStrategyGenerator strategiesGenerator) {
     log.info("Generating strategies for table {}", fqtn);
-    List<DataLayoutStrategy> strategies = strategiesGenerator.generate();
+    List<DataLayoutStrategy> strategies = strategiesGenerator.generateTableLevelStrategies();
     log.info(
         "Generated {} strategies {}",
         strategies.size(),
         strategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
-    appendToDloTable(spark, outputFqtn, strategies, false);
+    appendToDloStrategiesTable(spark, outputFqtn, strategies, false);
   }
 
   private void runInnerPartitionScope(
@@ -65,10 +65,10 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     log.info("Generating partition-level strategies for table {}", fqtn);
     List<DataLayoutStrategy> strategies = strategiesGenerator.generatePartitionLevelStrategies();
     log.info("Generated {} strategies", strategies.size());
-    appendToDloTable(spark, partitionLevelOutputFqtn, strategies, true);
+    appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true);
   }
 
-  private void appendToDloTable(
+  private void appendToDloStrategiesTable(
       SparkSession spark,
       String outputFqtn,
       List<DataLayoutStrategy> strategies,

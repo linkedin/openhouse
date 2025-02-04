@@ -42,13 +42,25 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
 
   /**
    * Generate a list of data layout optimization strategies based on the table file stats and
-   * historic query patterns.
+   * historic query patterns. For now we only use table-level strategies. TODO: ADD logic to
+   * determine whether to generate table-level or partition-level strategies.
    */
   @Override
   public List<DataLayoutStrategy> generate() {
-    return generateCompactionStrategy()
-        .map(Collections::singletonList)
-        .orElse(Collections.emptyList());
+    return generateTableLevelStrategies();
+  }
+
+  /**
+   * Generate a list of data layout optimization strategies based on the table file stats on the
+   * table level.
+   */
+  @Override
+  public List<DataLayoutStrategy> generateTableLevelStrategies() {
+    // Retrieve file sizes of all data files.
+    Dataset<Long> fileSizes =
+        tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
+    Optional<DataLayoutStrategy> strategy = buildDataLayoutStrategy(fileSizes, 1, null);
+    return strategy.map(Collections::singletonList).orElse(Collections.emptyList());
   }
 
   /**
@@ -57,28 +69,6 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    */
   @Override
   public List<DataLayoutStrategy> generatePartitionLevelStrategies() {
-    return generatePartitionLevelCompactionStrategy();
-  }
-
-  /**
-   * Computes the compaction strategy for a partitioned table. Only files less than the minimum
-   * threshold are considered. The rewrite job parameters are calculated, as well as the following:
-   *
-   * <ul>
-   *   <li>Estimated cost is computed as the GB-hrs spent in performing the compaction
-   *   <li>Estimated gain is computed as the reduction in file count
-   *   <li>Estimated score is computed as gain / cost, the number of files reduced per GB-hr of
-   *       compute, the higher the score, the better the strategy
-   * </ul>
-   */
-  private Optional<DataLayoutStrategy> generateCompactionStrategy() {
-    // Retrieve file sizes of all data files.
-    Dataset<Long> fileSizes =
-        tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
-    return buildDataLayoutStrategy(fileSizes, 1, null);
-  }
-
-  private List<DataLayoutStrategy> generatePartitionLevelCompactionStrategy() {
     List<DataLayoutStrategy> strategies = new ArrayList<>();
     List<PartitionStat> partitionStatsList = tablePartitionStats.get().collectAsList();
     Dataset<FileStat> fileSizesDataset = tableFileStats.get();
@@ -101,6 +91,17 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     return strategies;
   }
 
+  /**
+   * Computes the compaction strategy for a partitioned table. Only files less than the minimum
+   * threshold are considered. The rewrite job parameters are calculated, as well as the following:
+   *
+   * <ul>
+   *   <li>Estimated cost is computed as the GB-hrs spent in performing the compaction
+   *   <li>Estimated gain is computed as the reduction in file count
+   *   <li>Estimated score is computed as gain / cost, the number of files reduced per GB-hr of
+   *       compute, the higher the score, the better the strategy
+   * </ul>
+   */
   private Optional<DataLayoutStrategy> buildDataLayoutStrategy(
       Dataset<Long> fileSizes, int partitionCount, String partitionValue) {
     Dataset<Long> filteredSizes =
