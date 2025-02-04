@@ -58,4 +58,42 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
           strategy.getScore() < 10.0, "Score for 6 files compaction should be negligible");
     }
   }
+
+  @Test
+  void testPartitionLevelStrategySanityCheck() throws Exception {
+    final String testTable = "db_partition.test_table_sanity_check";
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("USE openhouse");
+      spark.sql(
+          String.format(
+              "create table %s (id int, data string, ts timestamp) partitioned by (days(ts), data)",
+              testTable));
+
+      // produce 2 partitions
+      for (int i = 0; i < 3; ++i) {
+        spark.sql(
+            String.format(
+                "insert into %s values (%d, 'data1', cast('2025-02-15 00:1%d:34' as timestamp))",
+                testTable, i, i));
+      }
+      for (int i = 0; i < 3; ++i) {
+        spark.sql(
+            String.format(
+                "insert into %s values (%d, 'data2', cast('2025-02-16 00:1%d:34' as timestamp))",
+                testTable, i, i));
+      }
+
+      TableFileStats tableFileStats =
+          TableFileStats.builder().tableName(testTable).spark(spark).build();
+      TablePartitionStats tablePartitionStats =
+          TablePartitionStats.builder().tableName(testTable).spark(spark).build();
+      OpenHouseDataLayoutStrategyGenerator strategyGenerator =
+          OpenHouseDataLayoutStrategyGenerator.builder()
+              .tableFileStats(tableFileStats)
+              .tablePartitionStats(tablePartitionStats)
+              .build();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generatePartitionLevelStrategies();
+      Assertions.assertEquals(2, strategies.size());
+    }
+  }
 }

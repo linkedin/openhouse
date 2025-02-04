@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.datalayout.datasource;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import lombok.Builder;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.Dataset;
@@ -16,14 +19,27 @@ public class TableFileStats implements DataSource<FileStat> {
   @Override
   public Dataset<FileStat> get() {
     return spark
-        .sql(String.format("SELECT file_path, file_size_in_bytes FROM %s.data_files", tableName))
+        .sql(
+            String.format(
+                "SELECT file_path, file_size_in_bytes, partition FROM %s.data_files", tableName))
         .map(new FileStatMapper(), Encoders.bean(FileStat.class));
   }
 
   static class FileStatMapper implements MapFunction<Row, FileStat> {
     @Override
     public FileStat call(Row row) {
-      return FileStat.builder().path(row.getString(0)).size(row.getLong(1)).build();
+      List<String> partitionValues = new ArrayList<>();
+      Row partition = row.getStruct(2);
+      if (partition != null) {
+        for (int i = 0; i < partition.size(); i++) {
+          partitionValues.add(Objects.toString(partition.get(i)));
+        }
+      }
+      return FileStat.builder()
+          .path(row.getString(0))
+          .size(row.getLong(1))
+          .partitionValues(partitionValues)
+          .build();
     }
   }
 }
