@@ -33,10 +33,9 @@ public class JobsRegistry {
       throw new JobEngineException(String.format("Job %s is not supported", type));
     }
     JobLaunchConf extendedRequestConf = createDefaultLaunchConf(requestConf.getJobType());
-    if (MapUtils.isNotEmpty(requestConf.getExecutionConf())) {
-      populateAllSparkProperties(
-          requestConf.getExecutionConf(), extendedRequestConf.getSparkProperties());
-    }
+    // spark conf
+    populateAllSparkProperties(
+        requestConf.getExecutionConf(), extendedRequestConf.getSparkProperties());
     // required arguments
     List<String> extendedArgs =
         new ArrayList<>(Arrays.asList("--jobId", jobId, "--storageURL", storageUri));
@@ -66,7 +65,9 @@ public class JobsRegistry {
     if (authTokenPath != null) {
       sparkProperties.put("spark.sql.catalog.openhouse.auth-token", getToken(authTokenPath));
     }
-    sparkProperties.putAll(executionConf);
+    if (MapUtils.isNotEmpty(executionConf)) {
+      sparkProperties.putAll(executionConf);
+    }
   }
 
   public static JobsRegistry from(JobsProperties properties, Map<String, String> storageProps) {

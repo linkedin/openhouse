@@ -119,7 +119,16 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(
         new Option(
-            "o", "outputTableName", true, "Fully-qualified table name used to store strategies"));
+            "o",
+            "outputTableName",
+            true,
+            "Fully-qualified table name used to store strategies at table level"));
+    extraOptions.add(
+        new Option(
+            "p",
+            "partitionLevelOutputTableName",
+            true,
+            "Fully-qualified table name used to store strategies at partition level"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     DataLayoutStrategyGeneratorSparkApp app =
         new DataLayoutStrategyGeneratorSparkApp(
