@@ -20,7 +20,7 @@ public class TableFileStats implements DataSource<FileStat> {
   @Override
   public Dataset<FileStat> get() {
     StructType fileSchema =
-        spark.sql(String.format("SELECT * FROM %s.partitions", tableName)).schema();
+        spark.sql(String.format("SELECT * FROM %s.data_files", tableName)).schema();
     try {
       fileSchema.apply("partition");
       return spark

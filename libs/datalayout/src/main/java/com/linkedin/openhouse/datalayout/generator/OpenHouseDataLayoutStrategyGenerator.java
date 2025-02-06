@@ -42,7 +42,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
 
   /**
    * Generate a list of data layout optimization strategies based on the table file stats and
-   * historic query patterns. For now we only use table-level strategies. TODO: ADD logic to
+   * historic query patterns. For now we only use table-level strategies. TODO: add logic to
    * determine whether to generate table-level or partition-level strategies.
    */
   @Override

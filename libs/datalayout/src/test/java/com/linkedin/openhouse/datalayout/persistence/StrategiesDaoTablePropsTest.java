@@ -21,8 +21,6 @@ public class StrategiesDaoTablePropsTest extends OpenHouseSparkITest {
       List<DataLayoutStrategy> strategyList = Collections.nCopies(100, strategy);
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
       dao.save(testTable, strategyList);
-      List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
-      retrievedStrategies.get(0);
       Assertions.assertEquals(strategyList, dao.load(testTable));
     }
   }
