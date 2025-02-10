@@ -61,7 +61,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
         tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
     long partitionCount = tablePartitionStats.get().count();
     Optional<DataLayoutStrategy> strategy =
-        buildDataLayoutStrategy(fileSizes, partitionCount, null);
+        buildDataLayoutStrategy(fileSizes, partitionCount, null, null);
     return strategy.map(Collections::singletonList).orElse(Collections.emptyList());
   }
 
@@ -74,20 +74,21 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     List<DataLayoutStrategy> strategies = new ArrayList<>();
     List<PartitionStat> partitionStatsList = tablePartitionStats.get().collectAsList();
     Dataset<FileStat> fileSizesDataset = tableFileStats.get();
+    String partitionColumns = String.join(", ", tablePartitionStats.getPartitionColumns());
     // For each partition, generate a compaction strategy
     partitionStatsList.forEach(
         partitionStat -> {
-          String partitionValue = String.join(", ", partitionStat.getValues());
+          String partitionValues = String.join(", ", partitionStat.getValues());
           Dataset<Long> fileSizes =
               fileSizesDataset
                   .filter(
                       (FilterFunction<FileStat>)
                           fileStat ->
                               String.join(", ", fileStat.getPartitionValues())
-                                  .equals(partitionValue))
+                                  .equals(partitionValues))
                   .map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
           Optional<DataLayoutStrategy> strategy =
-              buildDataLayoutStrategy(fileSizes, 1L, partitionValue);
+              buildDataLayoutStrategy(fileSizes, 1L, partitionValues, partitionColumns);
           strategy.ifPresent(strategies::add);
         });
     return strategies;
@@ -105,7 +106,10 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    * </ul>
    */
   private Optional<DataLayoutStrategy> buildDataLayoutStrategy(
-      Dataset<Long> fileSizes, long partitionCount, String partitionValue) {
+      Dataset<Long> fileSizes,
+      long partitionCount,
+      String partitionValues,
+      String partitionColumns) {
     Dataset<Long> filteredSizes =
         fileSizes.filter(
             (FilterFunction<Long>)
@@ -139,7 +143,8 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
             .gain(reducedFileCount)
             .score(reducedFileCountPerComputeGbHr)
             .entropy(computeEntropy(fileSizes))
-            .partitionId(partitionValue)
+            .partitionId(partitionValues)
+            .partitionColumns(partitionColumns)
             .build());
   }
 

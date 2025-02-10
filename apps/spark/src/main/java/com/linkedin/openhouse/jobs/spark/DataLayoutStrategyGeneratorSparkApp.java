@@ -80,9 +80,10 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         if (isPartitionScope) {
           rows.add(
               String.format(
-                  "('%s', '%s', current_timestamp(), %f, %f, %f)",
+                  "('%s', '%s', '%s', current_timestamp(), %f, %f, %f)",
                   fqtn,
                   strategy.getPartitionId(),
+                  strategy.getPartitionColumns(),
                   strategy.getCost(),
                   strategy.getGain(),
                   strategy.getEntropy()));

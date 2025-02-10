@@ -17,4 +17,5 @@ public class DataLayoutStrategy {
   private final DataCompactionConfig config;
   // TODO: support sorting config
   private final String partitionId;
+  private final String partitionColumns;
 }

@@ -47,6 +47,7 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
       Assertions.assertEquals(1, strategies.size());
       DataLayoutStrategy strategy = strategies.get(0);
       Assertions.assertNull(strategy.getPartitionId());
+      Assertions.assertNull(strategy.getPartitionColumns());
       // few groups, expect 1 commit
       Assertions.assertEquals(1, strategy.getConfig().getPartialProgressMaxCommits());
       Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());
@@ -100,6 +101,7 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
       Assertions.assertTrue(
           "2025-02-16, data2".equals(strategy.getPartitionId())
               || "2025-02-15, data1".equals(strategy.getPartitionId()));
+      Assertions.assertEquals("ts_day, data", strategy.getPartitionColumns());
       // few groups, expect 1 commit
       Assertions.assertEquals(1, strategy.getConfig().getPartialProgressMaxCommits());
       Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());

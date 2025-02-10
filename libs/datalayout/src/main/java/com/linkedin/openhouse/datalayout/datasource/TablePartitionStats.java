@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.datalayout.datasource;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import lombok.Builder;
@@ -30,6 +32,18 @@ public class TablePartitionStats implements DataSource<PartitionStat> {
       return spark
           .sql(String.format("SELECT null, file_count FROM %s.partitions", tableName))
           .map(new TablePartitionStats.PartitionStatMapper(), Encoders.bean(PartitionStat.class));
+    }
+  }
+
+  public List<String> getPartitionColumns() {
+    StructType partitionSchema =
+        spark.sql(String.format("SELECT * FROM %s.partitions", tableName)).schema();
+    try {
+      String[] partitionColumns =
+          ((StructType) partitionSchema.apply("partition").dataType()).fieldNames();
+      return Arrays.asList(partitionColumns);
+    } catch (IllegalArgumentException e) {
+      return Collections.emptyList();
     }
   }
 
