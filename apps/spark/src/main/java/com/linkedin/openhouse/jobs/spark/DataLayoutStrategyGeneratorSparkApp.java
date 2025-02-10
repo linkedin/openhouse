@@ -19,11 +19,17 @@ import org.apache.spark.sql.SparkSession;
 @Slf4j
 public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
   private @Nullable String outputFqtn;
+  private @Nullable String partitionLevelOutputFqtn;
 
   protected DataLayoutStrategyGeneratorSparkApp(
-      String jobId, StateManager stateManager, String fqtn, @Nullable String outputFqtn) {
+      String jobId,
+      StateManager stateManager,
+      String fqtn,
+      @Nullable String outputFqtn,
+      @Nullable String partitionLevelOutputFqtn) {
     super(jobId, stateManager, fqtn);
     this.outputFqtn = outputFqtn;
+    this.partitionLevelOutputFqtn = partitionLevelOutputFqtn;
   }
 
   @Override
@@ -37,22 +43,56 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             .tableFileStats(tableFileStats)
             .tablePartitionStats(tablePartitionStats)
             .build();
+    runInnerTableScope(spark, strategiesGenerator);
+    runInnerPartitionScope(spark, strategiesGenerator);
+  }
+
+  private void runInnerTableScope(
+      SparkSession spark, OpenHouseDataLayoutStrategyGenerator strategiesGenerator) {
     log.info("Generating strategies for table {}", fqtn);
-    List<DataLayoutStrategy> strategies = strategiesGenerator.generate();
+    List<DataLayoutStrategy> strategies = strategiesGenerator.generateTableLevelStrategies();
     log.info(
         "Generated {} strategies {}",
         strategies.size(),
         strategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
+    appendToDloStrategiesTable(spark, outputFqtn, strategies, false);
+  }
+
+  private void runInnerPartitionScope(
+      SparkSession spark, OpenHouseDataLayoutStrategyGenerator strategiesGenerator) {
+    log.info("Generating partition-level strategies for table {}", fqtn);
+    List<DataLayoutStrategy> strategies = strategiesGenerator.generatePartitionLevelStrategies();
+    log.info("Generated {} strategies", strategies.size());
+    appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true);
+  }
+
+  private void appendToDloStrategiesTable(
+      SparkSession spark,
+      String outputFqtn,
+      List<DataLayoutStrategy> strategies,
+      boolean isPartitionScope) {
     if (outputFqtn != null && !strategies.isEmpty()) {
       createTableIfNotExists(spark, outputFqtn);
       List<String> rows = new ArrayList<>();
       for (DataLayoutStrategy strategy : strategies) {
-        rows.add(
-            String.format(
-                "('%s', current_timestamp(), %f, %f, %f)",
-                fqtn, strategy.getCost(), strategy.getGain(), strategy.getEntropy()));
+        if (isPartitionScope) {
+          rows.add(
+              String.format(
+                  "('%s', '%s', '%s', current_timestamp(), %f, %f, %f)",
+                  fqtn,
+                  strategy.getPartitionId(),
+                  strategy.getPartitionColumns(),
+                  strategy.getCost(),
+                  strategy.getGain(),
+                  strategy.getEntropy()));
+        } else {
+          rows.add(
+              String.format(
+                  "('%s', current_timestamp(), %f, %f, %f)",
+                  fqtn, strategy.getCost(), strategy.getGain(), strategy.getEntropy()));
+        }
       }
       String strategiesInsertStmt =
           String.format("INSERT INTO %s VALUES %s", outputFqtn, String.join(", ", rows));
@@ -80,14 +120,24 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(
         new Option(
-            "o", "outputTableName", true, "Fully-qualified table name used to store strategies"));
+            "o",
+            "outputTableName",
+            true,
+            "Fully-qualified table name used to store strategies at table level"));
+    extraOptions.add(
+        new Option(
+            "p",
+            "partitionLevelOutputTableName",
+            true,
+            "Fully-qualified table name used to store strategies at partition level"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     DataLayoutStrategyGeneratorSparkApp app =
         new DataLayoutStrategyGeneratorSparkApp(
             getJobId(cmdLine),
             createStateManager(cmdLine),
             cmdLine.getOptionValue("tableName"),
-            cmdLine.getOptionValue("outputTableName"));
+            cmdLine.getOptionValue("outputTableName"),
+            cmdLine.getOptionValue("partitionLevelOutputTableName"));
     app.run();
   }
 }

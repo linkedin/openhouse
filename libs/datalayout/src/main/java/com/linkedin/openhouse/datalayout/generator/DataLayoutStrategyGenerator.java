@@ -5,4 +5,8 @@ import java.util.List;
 
 public interface DataLayoutStrategyGenerator {
   List<DataLayoutStrategy> generate();
+
+  List<DataLayoutStrategy> generateTableLevelStrategies();
+
+  List<DataLayoutStrategy> generatePartitionLevelStrategies();
 }
