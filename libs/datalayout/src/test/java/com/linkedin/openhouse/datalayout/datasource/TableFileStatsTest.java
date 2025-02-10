@@ -53,9 +53,11 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
     try (SparkSession spark = getSparkSession()) {
       spark.sql("USE openhouse");
       spark.sql(
-          String.format("CREATE TABLE %s (id INT, data STRING) PARTITIONED BY (id)", testTable));
-      spark.sql(String.format("INSERT INTO %s VALUES (0, '0')", testTable));
-      spark.sql(String.format("INSERT INTO %s VALUES (1, '1')", testTable));
+          String.format(
+              "CREATE TABLE %s (ts TIMESTAMP, id INT, data STRING) PARTITIONED BY (days(ts), id)",
+              testTable));
+      spark.sql(String.format("INSERT INTO %s VALUES (current_timestamp(), 0, '0')", testTable));
+      spark.sql(String.format("INSERT INTO %s VALUES (current_timestamp(), 1, '1')", testTable));
       TableFileStats tableFileStats =
           TableFileStats.builder().spark(spark).tableName(testTable).build();
       List<FileStat> fileStatList = tableFileStats.get().collectAsList();
@@ -70,10 +72,11 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
                       .get(0)
                       .getString(1))
               .getParent();
-      Path dataDirectory = new Path(tableDirectory, "data");
       for (FileStat fileStat : fileStatList) {
-        String folder = "id=" + fileStat.getPartitionValues().get(0);
-        FileStatus fileStatus = fs.listStatus(new Path(dataDirectory, folder))[0];
+        String tsPartitionValue = fileStat.getPartitionValues().get(0);
+        String idPartitionValue = fileStat.getPartitionValues().get(1);
+        String folder = "data" + "/ts_day=" + tsPartitionValue + "/id=" + idPartitionValue;
+        FileStatus fileStatus = fs.listStatus(new Path(tableDirectory, folder))[0];
         Assertions.assertEquals(fileStatus.getLen(), fileStat.getSize());
       }
     }
