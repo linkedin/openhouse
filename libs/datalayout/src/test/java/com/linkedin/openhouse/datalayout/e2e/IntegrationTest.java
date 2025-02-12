@@ -30,7 +30,7 @@ public class IntegrationTest extends OpenHouseSparkITest {
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generateTableLevelStrategies();
       Assertions.assertEquals(1, strategies.size());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
       dao.save(testTable, strategies);
@@ -54,7 +54,7 @@ public class IntegrationTest extends OpenHouseSparkITest {
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
               .build();
-      List<DataLayoutStrategy> strategies = strategyGenerator.generate();
+      List<DataLayoutStrategy> strategies = strategyGenerator.generateTableLevelStrategies();
       Assertions.assertEquals(1, strategies.size());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
       dao.save(testTable, strategies);

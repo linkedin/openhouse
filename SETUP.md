@@ -549,7 +549,8 @@ Build images with jobs scheduler, and run the scheduler separately after all oth
 ```
 docker compose --profile with_jobs_scheduler build
 docker compose --profile with_jobs_scheduler run openhouse-jobs-scheduler - \
-    --type RETENTION --cluster local --tablesURL http://openhouse-tables:8080 --jobsURL http://openhouse-jobs:8080
+    --type RETENTION --cluster local --tablesURL http://openhouse-tables:8080 --jobsURL http://openhouse-jobs:8080 -\
+    --tableMinAgeThresholdHours 0
 ```
 
 > [!NOTE]

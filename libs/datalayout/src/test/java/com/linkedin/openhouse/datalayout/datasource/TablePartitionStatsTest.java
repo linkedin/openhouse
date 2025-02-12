@@ -2,6 +2,7 @@ package com.linkedin.openhouse.datalayout.datasource;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import org.apache.spark.sql.SparkSession;
@@ -62,6 +63,35 @@ public class TablePartitionStatsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(1, stats.size());
       Assertions.assertTrue(stats.get(0).getValues().isEmpty());
       Assertions.assertEquals(2, stats.get(0).getFileCount());
+    }
+  }
+
+  @Test
+  public void testGetPartitionColumnsPartitioned() throws Exception {
+    final String testTable = "db.test_table_partition_cols_partitioned";
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("USE openhouse");
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s (ts TIMESTAMP, id INT, data STRING) PARTITIONED BY (days(ts), id)",
+              testTable));
+      TablePartitionStats tablePartitionStats =
+          TablePartitionStats.builder().spark(spark).tableName(testTable).build();
+      List<String> partitionColumns = tablePartitionStats.getPartitionColumns();
+      List<String> expectedPartitionColumns = Arrays.asList("ts_day", "id");
+      Assertions.assertEquals(expectedPartitionColumns, partitionColumns);
+    }
+  }
+
+  @Test
+  public void testGetPartitionColumnsNonPartitioned() throws Exception {
+    final String testTable = "db.test_table_partition_cols_non_partitioned";
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("USE openhouse");
+      spark.sql(String.format("CREATE TABLE %s (id INT, data STRING)", testTable));
+      TablePartitionStats tablePartitionStats =
+          TablePartitionStats.builder().spark(spark).tableName(testTable).build();
+      Assertions.assertEquals(Collections.emptyList(), tablePartitionStats.getPartitionColumns());
     }
   }
 }
