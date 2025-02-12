@@ -74,7 +74,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
       List<DataLayoutStrategy> strategies,
       boolean isPartitionScope) {
     if (outputFqtn != null && !strategies.isEmpty()) {
-      createTableIfNotExists(spark, outputFqtn);
+      createTableIfNotExists(spark, outputFqtn, isPartitionScope);
       List<String> rows = new ArrayList<>();
       for (DataLayoutStrategy strategy : strategies) {
         if (isPartitionScope) {
@@ -101,18 +101,35 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     }
   }
 
-  private void createTableIfNotExists(SparkSession spark, String outputFqtn) {
-    spark.sql(
-        String.format(
-            "CREATE TABLE IF NOT EXISTS %s ("
-                + "fqtn STRING, "
-                + "timestamp TIMESTAMP, "
-                + "estimated_compute_cost DOUBLE, "
-                + "estimated_file_count_reduction DOUBLE, "
-                + "file_size_entropy DOUBLE "
-                + ") "
-                + "PARTITIONED BY (days(timestamp))",
-            outputFqtn));
+  private void createTableIfNotExists(
+      SparkSession spark, String outputFqtn, boolean isPartitionScope) {
+    if (isPartitionScope) {
+      spark.sql(
+          String.format(
+              "CREATE TABLE IF NOT EXISTS %s ("
+                  + "fqtn STRING, "
+                  + "partition_id STRING, "
+                  + "partition_columns STRING, "
+                  + "timestamp TIMESTAMP, "
+                  + "estimated_compute_cost DOUBLE, "
+                  + "estimated_file_count_reduction DOUBLE, "
+                  + "file_size_entropy DOUBLE "
+                  + ") "
+                  + "PARTITIONED BY (days(timestamp))",
+              outputFqtn));
+    } else {
+      spark.sql(
+          String.format(
+              "CREATE TABLE IF NOT EXISTS %s ("
+                  + "fqtn STRING, "
+                  + "timestamp TIMESTAMP, "
+                  + "estimated_compute_cost DOUBLE, "
+                  + "estimated_file_count_reduction DOUBLE, "
+                  + "file_size_entropy DOUBLE "
+                  + ") "
+                  + "PARTITIONED BY (days(timestamp))",
+              outputFqtn));
+    }
   }
 
   public static void main(String[] args) {
