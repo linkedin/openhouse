@@ -15,6 +15,15 @@ public class TableDataLayoutStrategyExecutionTask
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION;
 
+  public TableDataLayoutStrategyExecutionTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableDataLayoutMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
   protected TableDataLayoutStrategyExecutionTask(
       JobsClient jobsClient, TablesClient tablesClient, TableDataLayoutMetadata metadata) {
     super(jobsClient, tablesClient, metadata);

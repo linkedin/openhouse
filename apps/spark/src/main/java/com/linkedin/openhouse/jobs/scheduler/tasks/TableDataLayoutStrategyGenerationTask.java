@@ -12,9 +12,18 @@ public class TableDataLayoutStrategyGenerationTask extends TableOperationTask<Ta
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION;
 
+  public TableDataLayoutStrategyGenerationTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
   protected TableDataLayoutStrategyGenerationTask(
-      JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
-    super(jobsClient, tablesClient, tableMetadata);
+      JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   @Override

@@ -116,7 +116,14 @@ public class JobsScheduler {
     Properties properties = getAdditionalProperties(cmdLine);
     OperationTaskFactory<? extends OperationTask> tasksFactory =
         new OperationTaskFactory<>(
-            operationTaskCls, getJobsClientFactory(cmdLine), tablesClientFactory);
+            operationTaskCls,
+            getJobsClientFactory(cmdLine),
+            tablesClientFactory,
+            NumberUtils.toLong(
+                cmdLine.getOptionValue("taskPollIntervalMs"),
+                OperationTask.POLL_INTERVAL_MS_DEFAULT),
+            NumberUtils.toLong(
+                cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.TIMEOUT_MS_DEFAULT));
     JobsScheduler app =
         new JobsScheduler(
             Executors.newFixedThreadPool(getNumParallelJobs(cmdLine)),
@@ -206,10 +213,10 @@ public class JobsScheduler {
         emptyStateJobCount);
     executorService.shutdown();
     METER.counterBuilder("scheduler_end_count").build().add(1);
-    reportSchedulerMetrics(jobStateCountMap, taskType, startTimeMillis);
+    reportMetrics(jobStateCountMap, taskType, startTimeMillis);
   }
 
-  void reportSchedulerMetrics(
+  void reportMetrics(
       Map<JobState, Integer> jobStateCountMap, String taskType, long startTimeMillis) {
     LongCounter successfulJobCounter =
         METER.counterBuilder(AppConstants.SUCCESSFUL_JOB_COUNT).build();
@@ -311,6 +318,20 @@ public class JobsScheduler {
             .hasArg()
             .longOpt("tasksWaitHours")
             .desc("Timeout in hours for scheduler")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("taskPollIntervalMs")
+            .desc("Poll interval in milliseconds for an individual task")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("taskTimeoutMs")
+            .desc("Timeout in milliseconds for an individual task")
             .build());
     // TODO: move these to ODD specific config
     options.addOption(

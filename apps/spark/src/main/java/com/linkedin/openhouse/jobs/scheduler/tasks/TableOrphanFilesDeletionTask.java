@@ -17,9 +17,18 @@ public class TableOrphanFilesDeletionTask extends TableOperationTask<TableMetada
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.ORPHAN_FILES_DELETION;
 
+  public TableOrphanFilesDeletionTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
   protected TableOrphanFilesDeletionTask(
-      JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
-    super(jobsClient, tablesClient, tableMetadata);
+      JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   @Override

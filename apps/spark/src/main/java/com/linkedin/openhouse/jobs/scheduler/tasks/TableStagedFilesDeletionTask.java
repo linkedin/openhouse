@@ -12,9 +12,18 @@ public class TableStagedFilesDeletionTask extends TableOperationTask<TableMetada
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.STAGED_FILES_DELETION;
 
+  public TableStagedFilesDeletionTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
   protected TableStagedFilesDeletionTask(
-      JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
-    super(jobsClient, tablesClient, tableMetadata);
+      JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   @Override

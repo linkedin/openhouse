@@ -14,8 +14,17 @@ import lombok.extern.slf4j.Slf4j;
 @Getter
 public abstract class TableDirectoryOperationTask extends OperationTask<DirectoryMetadata> {
   protected TableDirectoryOperationTask(
-      JobsClient jobsClient, TablesClient tablesClient, DirectoryMetadata directoryMetadata) {
-    super(jobsClient, tablesClient, directoryMetadata);
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      DirectoryMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
+  protected TableDirectoryOperationTask(
+      JobsClient jobsClient, TablesClient tablesClient, DirectoryMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   protected boolean launchJob() {

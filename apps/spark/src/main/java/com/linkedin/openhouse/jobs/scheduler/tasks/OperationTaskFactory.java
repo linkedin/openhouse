@@ -14,11 +14,19 @@ public class OperationTaskFactory<T extends OperationTask<?>> {
   private Class<T> cls;
   private JobsClientFactory jobsClientFactory;
   private TablesClientFactory tablesClientFactory;
+  private long pollIntervalMs;
+  private long timeoutMs;
 
   public <S extends Metadata> T create(S metadata)
       throws NoSuchMethodException, InvocationTargetException, InstantiationException,
           IllegalAccessException, IllegalStateException {
-    return cls.getDeclaredConstructor(JobsClient.class, TablesClient.class, metadata.getClass())
-        .newInstance(jobsClientFactory.create(), tablesClientFactory.create(), metadata);
+    return cls.getDeclaredConstructor(
+            JobsClient.class, TablesClient.class, metadata.getClass(), Long.class, Long.class)
+        .newInstance(
+            jobsClientFactory.create(),
+            tablesClientFactory.create(),
+            metadata,
+            pollIntervalMs,
+            timeoutMs);
   }
 }

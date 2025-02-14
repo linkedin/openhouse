@@ -13,9 +13,18 @@ public class TableStatsCollectionTask extends TableOperationTask<TableMetadata> 
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.TABLE_STATS_COLLECTION;
 
+  public TableStatsCollectionTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
   protected TableStatsCollectionTask(
-      JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
-    super(jobsClient, tablesClient, tableMetadata);
+      JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   @Override
