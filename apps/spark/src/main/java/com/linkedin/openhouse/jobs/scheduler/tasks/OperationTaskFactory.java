@@ -21,7 +21,7 @@ public class OperationTaskFactory<T extends OperationTask<?>> {
       throws NoSuchMethodException, InvocationTargetException, InstantiationException,
           IllegalAccessException, IllegalStateException {
     return cls.getDeclaredConstructor(
-            JobsClient.class, TablesClient.class, metadata.getClass(), Long.class, Long.class)
+            JobsClient.class, TablesClient.class, metadata.getClass(), long.class, long.class)
         .newInstance(
             jobsClientFactory.create(),
             tablesClientFactory.create(),
