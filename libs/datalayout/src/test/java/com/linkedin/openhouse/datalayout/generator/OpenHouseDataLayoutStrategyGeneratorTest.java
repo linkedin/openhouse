@@ -50,8 +50,11 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
       Assertions.assertNull(strategy.getPartitionColumns());
       // few groups, expect 1 commit
       Assertions.assertEquals(1, strategy.getConfig().getPartialProgressMaxCommits());
+      Assertions.assertEquals(
+          0, strategy.getPosDeleteFileCount(), "Table should have 0 position delete files");
+      Assertions.assertEquals(
+          0, strategy.getEqDeleteFileCount(), "Table should have 0 equality delete files");
       Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());
-
       Assertions.assertTrue(
           strategy.getGain() == 5, "Gain for 6 files compaction in 2 partitions should be 5");
       Assertions.assertTrue(
@@ -105,6 +108,10 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
       // few groups, expect 1 commit
       Assertions.assertEquals(1, strategy.getConfig().getPartialProgressMaxCommits());
       Assertions.assertTrue(strategy.getConfig().isPartialProgressEnabled());
+      Assertions.assertEquals(
+          0, strategy.getPosDeleteFileCount(), "Table should have 0 position delete files");
+      Assertions.assertEquals(
+          0, strategy.getEqDeleteFileCount(), "Table should have 0 equality delete files");
       Assertions.assertTrue(
           strategy.getGain() == 2, "Gain for 3 files compaction in 1 partitions should be 2");
       Assertions.assertTrue(

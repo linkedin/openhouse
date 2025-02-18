@@ -4,6 +4,7 @@ import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
+import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoInternal;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
@@ -57,7 +58,13 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         strategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
-    appendToDloStrategiesTable(spark, outputFqtn, strategies, false);
+    StrategiesDao internalDao =
+        StrategiesDaoInternal.builder()
+            .spark(spark)
+            .outputFqtn(outputFqtn)
+            .isPartitionScope(true)
+            .build();
+    internalDao.save(fqtn, strategies);
   }
 
   private void runInnerPartitionScope(
@@ -65,71 +72,14 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     log.info("Generating partition-level strategies for table {}", fqtn);
     List<DataLayoutStrategy> strategies = strategiesGenerator.generatePartitionLevelStrategies();
     log.info("Generated {} strategies", strategies.size());
-    appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true);
-  }
-
-  private void appendToDloStrategiesTable(
-      SparkSession spark,
-      String outputFqtn,
-      List<DataLayoutStrategy> strategies,
-      boolean isPartitionScope) {
-    if (outputFqtn != null && !strategies.isEmpty()) {
-      createTableIfNotExists(spark, outputFqtn, isPartitionScope);
-      List<String> rows = new ArrayList<>();
-      for (DataLayoutStrategy strategy : strategies) {
-        if (isPartitionScope) {
-          rows.add(
-              String.format(
-                  "('%s', '%s', '%s', current_timestamp(), %f, %f, %f)",
-                  fqtn,
-                  strategy.getPartitionId(),
-                  strategy.getPartitionColumns(),
-                  strategy.getCost(),
-                  strategy.getGain(),
-                  strategy.getEntropy()));
-        } else {
-          rows.add(
-              String.format(
-                  "('%s', current_timestamp(), %f, %f, %f)",
-                  fqtn, strategy.getCost(), strategy.getGain(), strategy.getEntropy()));
-        }
-      }
-      String strategiesInsertStmt =
-          String.format("INSERT INTO %s VALUES %s", outputFqtn, String.join(", ", rows));
-      log.info("Running {}", strategiesInsertStmt);
-      spark.sql(strategiesInsertStmt);
-    }
-  }
-
-  private void createTableIfNotExists(
-      SparkSession spark, String outputFqtn, boolean isPartitionScope) {
-    if (isPartitionScope) {
-      spark.sql(
-          String.format(
-              "CREATE TABLE IF NOT EXISTS %s ("
-                  + "fqtn STRING, "
-                  + "partition_id STRING, "
-                  + "partition_columns STRING, "
-                  + "timestamp TIMESTAMP, "
-                  + "estimated_compute_cost DOUBLE, "
-                  + "estimated_file_count_reduction DOUBLE, "
-                  + "file_size_entropy DOUBLE "
-                  + ") "
-                  + "PARTITIONED BY (days(timestamp))",
-              outputFqtn));
-    } else {
-      spark.sql(
-          String.format(
-              "CREATE TABLE IF NOT EXISTS %s ("
-                  + "fqtn STRING, "
-                  + "timestamp TIMESTAMP, "
-                  + "estimated_compute_cost DOUBLE, "
-                  + "estimated_file_count_reduction DOUBLE, "
-                  + "file_size_entropy DOUBLE "
-                  + ") "
-                  + "PARTITIONED BY (days(timestamp))",
-              outputFqtn));
-    }
+    // TODO: is StrategiesDaoTableProps supposed to be here?
+    StrategiesDao internalDao =
+        StrategiesDaoInternal.builder()
+            .spark(spark)
+            .outputFqtn(partitionLevelOutputFqtn)
+            .isPartitionScope(true)
+            .build();
+    internalDao.save(fqtn, strategies);
   }
 
   public static void main(String[] args) {
