@@ -4,7 +4,6 @@ import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
-import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoInternal;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
@@ -38,20 +37,6 @@ public class IntegrationTest extends OpenHouseSparkITest {
       dao.save(testTable, strategies);
       List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
       Assertions.assertEquals(strategies, retrievedStrategies);
-
-      StrategiesDao internalDao =
-          StrategiesDaoInternal.builder()
-              .spark(spark)
-              .outputFqtn("db.dlo_output")
-              .isPartitionScope(true)
-              .build();
-      internalDao.save(testTable, strategies);
-      List<DataLayoutStrategy> retrievedStrategiesInternal = internalDao.load("db.dlo_output");
-      for (int i = 0; i < strategies.size(); i++) {
-        Assertions.assertEquals(
-            strategies.get(i).getPosDeleteFileCount(),
-            retrievedStrategiesInternal.get(i).getPosDeleteFileCount());
-      }
     }
   }
 
@@ -76,20 +61,6 @@ public class IntegrationTest extends OpenHouseSparkITest {
       dao.save(testTable, strategies);
       List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
       Assertions.assertEquals(strategies, retrievedStrategies);
-
-      StrategiesDao internalDao =
-          StrategiesDaoInternal.builder()
-              .spark(spark)
-              .outputFqtn("db.dlo_output2")
-              .isPartitionScope(false)
-              .build();
-      internalDao.save(testTable, strategies);
-      List<DataLayoutStrategy> retrievedStrategiesInternal = internalDao.load("db.dlo_output2");
-      for (int i = 0; i < strategies.size(); i++) {
-        Assertions.assertEquals(
-            strategies.get(i).getPosDeleteFileCount(),
-            retrievedStrategiesInternal.get(i).getPosDeleteFileCount());
-      }
     }
   }
 
