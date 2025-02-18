@@ -16,7 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public abstract class TableOperationTask<T extends TableMetadata> extends OperationTask<T> {
-  public TableOperationTask(
+  protected TableOperationTask(
       JobsClient jobsClient,
       TablesClient tablesClient,
       T metadata,

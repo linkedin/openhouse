@@ -21,7 +21,7 @@ public class TableDataLayoutStrategyGenerationTask extends TableOperationTask<Ta
     super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 
-  protected TableDataLayoutStrategyGenerationTask(
+  public TableDataLayoutStrategyGenerationTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
     super(jobsClient, tablesClient, metadata);
   }

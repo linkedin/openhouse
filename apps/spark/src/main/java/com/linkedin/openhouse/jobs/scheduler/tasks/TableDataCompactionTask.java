@@ -26,7 +26,7 @@ public class TableDataCompactionTask extends TableOperationTask<TableMetadata> {
     super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 
-  protected TableDataCompactionTask(
+  public TableDataCompactionTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
     super(jobsClient, tablesClient, metadata);
   }

@@ -28,7 +28,7 @@ public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetada
     super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 
-  protected TableSnapshotsExpirationTask(
+  public TableSnapshotsExpirationTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
     super(jobsClient, tablesClient, metadata);
   }

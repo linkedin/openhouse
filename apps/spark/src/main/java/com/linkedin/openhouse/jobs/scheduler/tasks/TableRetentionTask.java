@@ -24,7 +24,7 @@ public class TableRetentionTask extends TableOperationTask<TableMetadata> {
     super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 
-  protected TableRetentionTask(
+  public TableRetentionTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
     super(jobsClient, tablesClient, metadata);
   }

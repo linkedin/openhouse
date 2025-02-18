@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public abstract class TableDirectoryOperationTask extends OperationTask<DirectoryMetadata> {
-  protected TableDirectoryOperationTask(
+  public TableDirectoryOperationTask(
       JobsClient jobsClient,
       TablesClient tablesClient,
       DirectoryMetadata metadata,
@@ -22,7 +22,7 @@ public abstract class TableDirectoryOperationTask extends OperationTask<Director
     super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 
-  protected TableDirectoryOperationTask(
+  public TableDirectoryOperationTask(
       JobsClient jobsClient, TablesClient tablesClient, DirectoryMetadata metadata) {
     super(jobsClient, tablesClient, metadata);
   }

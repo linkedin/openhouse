@@ -22,7 +22,7 @@ public class TableStatsCollectionTask extends TableOperationTask<TableMetadata> 
     super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 
-  protected TableStatsCollectionTask(
+  public TableStatsCollectionTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
     super(jobsClient, tablesClient, metadata);
   }

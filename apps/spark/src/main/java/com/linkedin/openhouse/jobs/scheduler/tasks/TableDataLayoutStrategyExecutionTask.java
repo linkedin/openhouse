@@ -24,7 +24,7 @@ public class TableDataLayoutStrategyExecutionTask
     super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 
-  protected TableDataLayoutStrategyExecutionTask(
+  public TableDataLayoutStrategyExecutionTask(
       JobsClient jobsClient, TablesClient tablesClient, TableDataLayoutMetadata metadata) {
     super(jobsClient, tablesClient, metadata);
   }
