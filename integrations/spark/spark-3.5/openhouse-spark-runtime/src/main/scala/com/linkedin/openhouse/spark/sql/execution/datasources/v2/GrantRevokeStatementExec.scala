@@ -2,6 +2,7 @@ package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
 
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke
+import com.linkedin.openhouse.spark.sql.catalyst.constants.Principal
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.spark.sql.execution.datasources.v2.mapper.IcebergCatalogMapper
@@ -29,9 +30,9 @@ case class GrantRevokeStatementExec(
       case grantRevokableCatalog: SupportsGrantRevoke =>
         resourceType match {
           case GrantableResourceTypes.TABLE =>
-            grantRevokableCatalog.updateTableAclPolicies(Spark3Util.identifierToTableIdentifier(ident), isGrant, privilege, principal)
+            grantRevokableCatalog.updateTableAclPolicies(Spark3Util.identifierToTableIdentifier(ident), isGrant, privilege, Principal(principal))
           case GrantableResourceTypes.DATABASE =>
-            grantRevokableCatalog.updateDatabaseAclPolicies(toNamespace(ident), isGrant, privilege, principal)
+            grantRevokableCatalog.updateDatabaseAclPolicies(toNamespace(ident), isGrant, privilege, Principal(principal))
         }
       case _ =>
         throw new UnsupportedOperationException(s"Catalog '${catalog.name()}' does not support Grant Revoke Statements")

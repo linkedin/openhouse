@@ -310,6 +310,25 @@ public class GrantRevokeStatementTest {
   }
 
   @Test
+  public void testMultipleShowGrantsForTableWithPublicUser() {
+    GrantRevokeHadoopCatalog.granteeList =
+        ImmutableList.of(
+            new SupportsGrantRevoke.AclPolicyDto("ALTER", "sraikar"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "lesun"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "*"));
+
+    List<SupportsGrantRevoke.AclPolicyDto> expectedGranteeList =
+        ImmutableList.of(
+            new SupportsGrantRevoke.AclPolicyDto("ALTER", "sraikar"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "lesun"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "PUBLIC"));
+    List<SupportsGrantRevoke.AclPolicyDto> granteeList =
+        toAclPolicies(spark.sql("SHOW GRANTS ON TABLE openhouse.db.table"));
+    org.assertj.core.api.Assertions.assertThat(granteeList)
+        .containsExactlyInAnyOrderElementsOf(expectedGranteeList);
+  }
+
+  @Test
   public void testNoShowGrantsForTable() {
     GrantRevokeHadoopCatalog.granteeList = ImmutableList.of();
     List<SupportsGrantRevoke.AclPolicyDto> granteeList =

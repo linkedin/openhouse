@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke
+import com.linkedin.openhouse.spark.sql.catalyst.constants.Principal
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.spark.sql.execution.datasources.v2.mapper.IcebergCatalogMapper
@@ -24,6 +25,7 @@ case class ShowGrantsStatementExec(
 
   override protected def run(): Seq[InternalRow] = {
     /** Extract {@link OpenHouseCatalog}  from {@link TableCatalog} */
+
     IcebergCatalogMapper.toIcebergCatalog(catalog) match {
       /** Call {@link SupportsGrantRevoke#updateTableAclPolicies} or {@link SupportsGrantRevoke#updateDatabaseAclPolicies} */
       case grantRevokableCatalog: SupportsGrantRevoke =>
@@ -33,7 +35,8 @@ case class ShowGrantsStatementExec(
           case GrantableResourceTypes.DATABASE =>
             grantRevokableCatalog.getDatabaseAclPolicies(toNamespace(ident))
         }).asScala.map { aclPolicy =>
-          val row: Array[Any] = Array(UTF8String.fromString(aclPolicy.getPrivilege), UTF8String.fromString(aclPolicy.getPrincipal))
+          val Principal(principal) = aclPolicy.getPrincipal
+          val row: Array[Any] = Array(UTF8String.fromString(aclPolicy.getPrivilege), UTF8String.fromString(principal))
           new GenericInternalRow(row)
         }
       case _ =>
