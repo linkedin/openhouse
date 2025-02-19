@@ -1,18 +1,18 @@
 package com.linkedin.openhouse.spark.sql.catalyst.constants
 
 /**
- * This object is used to represent keyword global user permission "PUBLIC" which maps to the acl policy representation "*"
+ * This object is used to represent keyword global user group "PUBLIC" which maps to the acl policy representation "*"
  */
 object Principal {
-  private val PUBLIC_USER = "PUBLIC"
-  private val PUBLIC_USER_ACL = "*"
+  private val GLOBAL_USER_GROUP = "PUBLIC"
+  private val GLOBAL_USER_GROUP_ACL = "*"
   def apply(principal: String): String = principal match {
-    case PUBLIC_USER => PUBLIC_USER_ACL
+    case GLOBAL_USER_GROUP => GLOBAL_USER_GROUP_ACL
     case _ => principal
   }
 
   def unapply(principalAcl: String): Option[String] = principalAcl match {
-    case PUBLIC_USER_ACL => Some(PUBLIC_USER)
+    case GLOBAL_USER_GROUP_ACL => Some(GLOBAL_USER_GROUP)
     case _ => Some(principalAcl)
   }
 }
