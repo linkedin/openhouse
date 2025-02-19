@@ -15,9 +15,18 @@ import org.apache.commons.lang.StringUtils;
 public class TableRetentionTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE = JobConf.JobTypeEnum.RETENTION;
 
-  protected TableRetentionTask(
-      JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
-    super(jobsClient, tablesClient, tableMetadata);
+  public TableRetentionTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
+  public TableRetentionTask(
+      JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   @Override

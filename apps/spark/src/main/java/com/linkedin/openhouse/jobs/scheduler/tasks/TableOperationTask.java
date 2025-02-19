@@ -16,8 +16,17 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public abstract class TableOperationTask<T extends TableMetadata> extends OperationTask<T> {
-  protected TableOperationTask(JobsClient jobsClient, TablesClient tablesClient, T tableMetadata) {
-    super(jobsClient, tablesClient, tableMetadata);
+  protected TableOperationTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      T metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
+  protected TableOperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   protected boolean launchJob() {

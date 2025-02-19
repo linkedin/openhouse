@@ -29,26 +29,43 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Getter
 public abstract class OperationTask<T extends Metadata> implements Callable<Optional<JobState>> {
-  private static final long POLL_SLEEP_DURATION_MS = TimeUnit.MINUTES.toMillis(5);
-  private static final long JOB_TIMEOUT_DURATION_MS = TimeUnit.HOURS.toMillis(3);
+  public static final long POLL_INTERVAL_MS_DEFAULT = TimeUnit.MINUTES.toMillis(5);
+  public static final long TIMEOUT_MS_DEFAULT = TimeUnit.HOURS.toMillis(3);
   private static final Meter METER = OtelConfig.getMeter(OperationTask.class.getName());
-
-  @Getter(AccessLevel.NONE)
-  protected T metadata;
 
   @Getter(AccessLevel.NONE)
   protected final JobsClient jobsClient;
 
   @Getter(AccessLevel.NONE)
-  protected String jobId;
-
-  @Getter(AccessLevel.NONE)
   protected final TablesClient tablesClient;
 
-  protected OperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {
+  @Getter(AccessLevel.NONE)
+  protected final T metadata;
+
+  @Getter(AccessLevel.NONE)
+  private final long pollIntervalMs;
+
+  @Getter(AccessLevel.NONE)
+  private final long timeoutMs;
+
+  @Getter(AccessLevel.NONE)
+  protected String jobId;
+
+  protected OperationTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      T metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
     this.jobsClient = jobsClient;
     this.tablesClient = tablesClient;
     this.metadata = metadata;
+    this.pollIntervalMs = pollIntervalMs;
+    this.timeoutMs = timeoutMs;
+  }
+
+  protected OperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {
+    this(jobsClient, tablesClient, metadata, POLL_INTERVAL_MS_DEFAULT, TIMEOUT_MS_DEFAULT);
   }
 
   public abstract JobConf.JobTypeEnum getType();
@@ -94,7 +111,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     long startTime = System.currentTimeMillis();
     while (!jobFinished()) {
       long elapsedTime = System.currentTimeMillis() - startTime;
-      if (elapsedTime > JOB_TIMEOUT_DURATION_MS) {
+      if (elapsedTime > timeoutMs) {
         Optional<JobState> job = jobsClient.getState(jobId);
         // Do not cancel job if it is still in running state after 3 hours
         if (job.isPresent() && !job.get().equals(JobState.RUNNING)) {
@@ -111,7 +128,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         }
       }
       try {
-        Thread.sleep(POLL_SLEEP_DURATION_MS);
+        Thread.sleep(pollIntervalMs);
       } catch (InterruptedException e) {
         log.warn(
             String.format(

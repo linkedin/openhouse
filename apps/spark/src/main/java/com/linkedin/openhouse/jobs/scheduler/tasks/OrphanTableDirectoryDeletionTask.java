@@ -12,9 +12,18 @@ public class OrphanTableDirectoryDeletionTask extends TableDirectoryOperationTas
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
       JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION;
 
-  protected OrphanTableDirectoryDeletionTask(
-      JobsClient jobsClient, TablesClient tablesClient, DirectoryMetadata directoryMetadata) {
-    super(jobsClient, tablesClient, directoryMetadata);
+  public OrphanTableDirectoryDeletionTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      DirectoryMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
+  public OrphanTableDirectoryDeletionTask(
+      JobsClient jobsClient, TablesClient tablesClient, DirectoryMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   @Override

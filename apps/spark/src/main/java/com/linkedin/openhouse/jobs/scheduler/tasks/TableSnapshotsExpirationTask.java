@@ -19,9 +19,18 @@ import java.util.Objects;
 public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
 
-  protected TableSnapshotsExpirationTask(
-      JobsClient jobsClient, TablesClient tablesClient, TableMetadata tableMetadata) {
-    super(jobsClient, tablesClient, tableMetadata);
+  public TableSnapshotsExpirationTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      long pollIntervalMs,
+      long timeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+  }
+
+  public TableSnapshotsExpirationTask(
+      JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
+    super(jobsClient, tablesClient, metadata);
   }
 
   @Override
