@@ -47,6 +47,7 @@ public final class AppConstants {
   public static final String JOB_ID = "job_id";
   public static final String QUEUED_TIME = "queued_time";
   public static final String DATABASE_NAME = "database_name";
+  public static final String REPLICATION_SETUP_KEY = "replication.enableSetup";
 
   private AppConstants() {}
 }
