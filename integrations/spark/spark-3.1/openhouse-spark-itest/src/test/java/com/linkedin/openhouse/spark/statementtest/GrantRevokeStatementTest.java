@@ -383,6 +383,7 @@ public class GrantRevokeStatementTest {
     spark =
         SparkSession.builder()
             .master("local[2]")
+            .config("spark.driver.host", "localhost")
             .config(
                 "spark.sql.extensions",
                 ("org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
