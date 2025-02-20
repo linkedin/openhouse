@@ -34,7 +34,7 @@ case class ShowGrantsStatementExec(
           case GrantableResourceTypes.DATABASE =>
             grantRevokableCatalog.getDatabaseAclPolicies(toNamespace(ident))
         }).asScala.map { aclPolicy =>
-          val Principal(principal) = aclPolicy.getPrincipal
+          val principal = Principal.unapply(aclPolicy.getPrincipal).get
           val row: Array[Any] = Array(UTF8String.fromString(aclPolicy.getPrivilege), UTF8String.fromString(principal))
           new GenericInternalRow(row)
         }
