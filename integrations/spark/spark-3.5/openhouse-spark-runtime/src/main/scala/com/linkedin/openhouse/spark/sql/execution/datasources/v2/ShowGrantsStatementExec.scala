@@ -25,7 +25,6 @@ case class ShowGrantsStatementExec(
 
   override protected def run(): Seq[InternalRow] = {
     /** Extract {@link OpenHouseCatalog}  from {@link TableCatalog} */
-
     IcebergCatalogMapper.toIcebergCatalog(catalog) match {
       /** Call {@link SupportsGrantRevoke#updateTableAclPolicies} or {@link SupportsGrantRevoke#updateDatabaseAclPolicies} */
       case grantRevokableCatalog: SupportsGrantRevoke =>
