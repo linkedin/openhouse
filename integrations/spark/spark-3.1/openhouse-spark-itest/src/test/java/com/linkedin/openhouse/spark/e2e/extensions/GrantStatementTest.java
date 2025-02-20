@@ -40,11 +40,16 @@ public class GrantStatementTest {
   }
 
   @Test
-  public void testGrantStatementPublicUser() {
+  public void testGrantStatementPublicUserGroup() {
     mockTableService.setDispatcher(
         assertDispatcher(getUpdateAclPoliciesRequestBody("GRANT", "*", "TABLE_VIEWER")));
-    String ddlWithSchema = "GRANT SELECT ON TABLE openhouse.dgrant.t1 TO PUBLIC";
-    Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
+    String grantStatementUppercase = "GRANT SELECT ON TABLE openhouse.dgrant.t1 TO PUBLIC";
+    Assertions.assertDoesNotThrow(() -> spark.sql(grantStatementUppercase));
+
+    mockTableService.setDispatcher(
+        assertDispatcher(getUpdateAclPoliciesRequestBody("GRANT", "*", "TABLE_VIEWER")));
+    String grantStatementLowercase = "GRANT SELECT ON TABLE openhouse.dgrant.t1 TO public";
+    Assertions.assertDoesNotThrow(() -> spark.sql(grantStatementLowercase));
   }
 
   @Test
@@ -56,11 +61,14 @@ public class GrantStatementTest {
   }
 
   @Test
-  public void testRevokeStatementPublicUser() {
+  public void testRevokeStatementPublicUserGroup() {
     mockTableService.setDispatcher(
         assertDispatcher(getUpdateAclPoliciesRequestBody("REVOKE", "*", "TABLE_VIEWER")));
-    String ddlWithSchema = "REVOKE SELECT ON TABLE openhouse.dgrant.t1 FROM PUBLIC";
-    Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
+    String revokeStatementUppercase = "REVOKE SELECT ON TABLE openhouse.dgrant.t1 FROM PUBLIC";
+    Assertions.assertDoesNotThrow(() -> spark.sql(revokeStatementUppercase));
+
+    String revokeStatementLowercase = "REVOKE SELECT ON TABLE openhouse.dgrant.t1 FROM public";
+    Assertions.assertDoesNotThrow(() -> spark.sql(revokeStatementLowercase));
   }
 
   @Test

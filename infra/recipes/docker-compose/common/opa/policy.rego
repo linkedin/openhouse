@@ -46,15 +46,15 @@ allow if {
 	current_tbl := current_db[input.tbl_id]
 
 	# Check if the global users have permission on the table
-  global_user_roles_on_resource := current_tbl["*"]
+	global_user_roles_on_resource := current_tbl["*"]
   role := global_user_roles_on_resource.roles[_]
 
   # Ensure that global users only have the table viewer permission
   role == "TABLE_VIEWER"
-	role_privileges := data.privileges[role]
+  role_privileges := data.privileges[role]
 
   # Validate that the user is only asking for table viewing privileges
-	input.privilege_to_check in role_privileges
+  input.privilege_to_check in role_privileges
 }
 
 # Granting all access for default user

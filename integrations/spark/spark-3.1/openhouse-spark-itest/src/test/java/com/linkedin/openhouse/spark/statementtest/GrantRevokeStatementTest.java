@@ -158,6 +158,17 @@ public class GrantRevokeStatementTest {
   }
 
   @Test
+  public void testGrantTablePublicGroup() {
+    for (String privilege : ImmutableList.of("SELECT")) {
+      spark.sql(String.format("GRANT %s ON TABLE openhouse.db.table TO PUBLIC", privilege));
+      assertPlanValid(true, "TABLE", "db.table", privilege, "*");
+
+      spark.sql(String.format("GRANT %s ON TABLE openhouse.db.table TO public", privilege));
+      assertPlanValid(true, "TABLE", "db.table", privilege, "*");
+    }
+  }
+
+  @Test
   public void testGrantWithMultiLineComments() {
     List<String> statementsWithComments =
         Lists.newArrayList(
