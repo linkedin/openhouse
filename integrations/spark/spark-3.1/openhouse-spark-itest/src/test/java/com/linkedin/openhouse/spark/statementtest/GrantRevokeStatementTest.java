@@ -158,6 +158,17 @@ public class GrantRevokeStatementTest {
   }
 
   @Test
+  public void testGrantTablePublicGroup() {
+    for (String privilege : ImmutableList.of("SELECT")) {
+      spark.sql(String.format("GRANT %s ON TABLE openhouse.db.table TO PUBLIC", privilege));
+      assertPlanValid(true, "TABLE", "db.table", privilege, "*");
+
+      spark.sql(String.format("GRANT %s ON TABLE openhouse.db.table TO public", privilege));
+      assertPlanValid(true, "TABLE", "db.table", privilege, "*");
+    }
+  }
+
+  @Test
   public void testGrantWithMultiLineComments() {
     List<String> statementsWithComments =
         Lists.newArrayList(
@@ -307,6 +318,25 @@ public class GrantRevokeStatementTest {
         toAclPolicies(spark.sql("SHOW GRANTS ON TABLE db.table"));
     org.assertj.core.api.Assertions.assertThat(granteeList)
         .containsExactlyInAnyOrderElementsOf(GrantRevokeHadoopCatalog.granteeList);
+  }
+
+  @Test
+  public void testMultipleShowGrantsForTableWithPublicUser() {
+    GrantRevokeHadoopCatalog.granteeList =
+        ImmutableList.of(
+            new SupportsGrantRevoke.AclPolicyDto("ALTER", "sraikar"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "lesun"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "*"));
+
+    List<SupportsGrantRevoke.AclPolicyDto> expectedGranteeList =
+        ImmutableList.of(
+            new SupportsGrantRevoke.AclPolicyDto("ALTER", "sraikar"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "lesun"),
+            new SupportsGrantRevoke.AclPolicyDto("SELECT", "PUBLIC"));
+    List<SupportsGrantRevoke.AclPolicyDto> granteeList =
+        toAclPolicies(spark.sql("SHOW GRANTS ON TABLE openhouse.db.table"));
+    org.assertj.core.api.Assertions.assertThat(granteeList)
+        .containsExactlyInAnyOrderElementsOf(expectedGranteeList);
   }
 
   @Test

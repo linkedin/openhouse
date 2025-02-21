@@ -40,11 +40,35 @@ public class GrantStatementTest {
   }
 
   @Test
+  public void testGrantStatementPublicUserGroup() {
+    mockTableService.setDispatcher(
+        assertDispatcher(getUpdateAclPoliciesRequestBody("GRANT", "*", "TABLE_VIEWER")));
+    String grantStatementUppercase = "GRANT SELECT ON TABLE openhouse.dgrant.t1 TO PUBLIC";
+    Assertions.assertDoesNotThrow(() -> spark.sql(grantStatementUppercase));
+
+    mockTableService.setDispatcher(
+        assertDispatcher(getUpdateAclPoliciesRequestBody("GRANT", "*", "TABLE_VIEWER")));
+    String grantStatementLowercase = "GRANT SELECT ON TABLE openhouse.dgrant.t1 TO public";
+    Assertions.assertDoesNotThrow(() -> spark.sql(grantStatementLowercase));
+  }
+
+  @Test
   public void testRevokeStatement() {
     mockTableService.setDispatcher(
         assertDispatcher(getUpdateAclPoliciesRequestBody("REVOKE", "sraikar", "TABLE_VIEWER")));
     String ddlWithSchema = "REVOKE SELECT ON TABLE openhouse.dgrant.t1 FROM sraikar";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
+  }
+
+  @Test
+  public void testRevokeStatementPublicUserGroup() {
+    mockTableService.setDispatcher(
+        assertDispatcher(getUpdateAclPoliciesRequestBody("REVOKE", "*", "TABLE_VIEWER")));
+    String revokeStatementUppercase = "REVOKE SELECT ON TABLE openhouse.dgrant.t1 FROM PUBLIC";
+    Assertions.assertDoesNotThrow(() -> spark.sql(revokeStatementUppercase));
+
+    String revokeStatementLowercase = "REVOKE SELECT ON TABLE openhouse.dgrant.t1 FROM public";
+    Assertions.assertDoesNotThrow(() -> spark.sql(revokeStatementLowercase));
   }
 
   @Test
@@ -138,6 +162,17 @@ public class GrantStatementTest {
             .collect(Collectors.toList());
     Assertions.assertTrue(
         actualRows.containsAll(ImmutableList.of("CREATE TABLE.sraikar", "CREATE TABLE.lesun")));
+  }
+
+  @Test
+  public void testShowGrantsForTablePublicUser() {
+    mockTableService.enqueue(
+        mockResponse(200, mockGetAclPoliciesResponseBody(mockAclPolicy("TABLE_VIEWER", "*"))));
+    List<String> actualRows =
+        spark.sql("SHOW GRANTS ON TABLE openhouse.db.table").collectAsList().stream()
+            .map(row -> row.mkString("."))
+            .collect(Collectors.toList());
+    Assertions.assertTrue(actualRows.containsAll(ImmutableList.of("SELECT.PUBLIC")));
   }
 
   @Test
