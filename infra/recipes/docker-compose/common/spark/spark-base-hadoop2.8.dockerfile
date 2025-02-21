@@ -12,7 +12,7 @@ RUN update-alternatives --install "/usr/bin/python" "python" "$(which python3)" 
 ENV SPARK_VERSION=3.1.1 \
 LIVY_VERSION=0.8.0-incubating-SNAPSHOT \
 LIVY_HOME=/opt/livy \
-HADOOP_VERSION=3.2 \
+HADOOP_VERSION=2.7 \
 SPARK_HOME=/opt/spark \
 MAVEN_VERSION=3.9.4 \
 PYTHONHASHSEED=1
@@ -44,7 +44,7 @@ RUN git clone https://github.com/apache/incubator-livy \
     && rm -rf "/incubator-livy"
 
 
-FROM bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+FROM bde2020/hadoop-namenode:1.2.0-hadoop2.8-java8
 
 ENV LIVY_HOME=/opt/livy \
 SPARK_HOME=/opt/spark
@@ -54,7 +54,7 @@ COPY --from=builder /opt/spark /opt/spark
 
 WORKDIR $SPARK_HOME
 
-ENV HADOOP_HOME=/opt/hadoop-3.2.1
+ENV HADOOP_HOME=/opt/hadoop-2.8.0
 ENV HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
 ENV SPARK_MASTER_PORT=7077 \
 SPARK_MASTER_WEBUI_PORT=8080 \
