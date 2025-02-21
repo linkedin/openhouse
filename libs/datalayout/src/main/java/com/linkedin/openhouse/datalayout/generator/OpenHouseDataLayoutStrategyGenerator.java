@@ -12,6 +12,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import lombok.Builder;
+import org.apache.iceberg.FileContent;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.ReduceFunction;
@@ -57,11 +58,10 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   @Override
   public List<DataLayoutStrategy> generateTableLevelStrategies() {
     // Retrieve file sizes of all data files.
-    Dataset<Long> fileSizes =
-        tableFileStats.get().map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
+    Dataset<FileStat> fileStats = tableFileStats.get();
     long partitionCount = tablePartitionStats.get().count();
     Optional<DataLayoutStrategy> strategy =
-        buildDataLayoutStrategy(fileSizes, partitionCount, null, null);
+        buildDataLayoutStrategy(fileStats, partitionCount, null, null);
     return strategy.map(Collections::singletonList).orElse(Collections.emptyList());
   }
 
@@ -73,22 +73,21 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   public List<DataLayoutStrategy> generatePartitionLevelStrategies() {
     List<DataLayoutStrategy> strategies = new ArrayList<>();
     List<PartitionStat> partitionStatsList = tablePartitionStats.get().collectAsList();
-    Dataset<FileStat> fileSizesDataset = tableFileStats.get();
     String partitionColumns = String.join(", ", tablePartitionStats.getPartitionColumns());
     // For each partition, generate a compaction strategy
     partitionStatsList.forEach(
         partitionStat -> {
           String partitionValues = String.join(", ", partitionStat.getValues());
-          Dataset<Long> fileSizes =
-              fileSizesDataset
+          Dataset<FileStat> fileStats =
+              tableFileStats
+                  .get()
                   .filter(
                       (FilterFunction<FileStat>)
                           fileStat ->
                               String.join(", ", fileStat.getPartitionValues())
-                                  .equals(partitionValues))
-                  .map((MapFunction<FileStat, Long>) FileStat::getSize, Encoders.LONG());
+                                  .equals(partitionValues));
           Optional<DataLayoutStrategy> strategy =
-              buildDataLayoutStrategy(fileSizes, 1L, partitionValues, partitionColumns);
+              buildDataLayoutStrategy(fileStats, 1L, partitionValues, partitionColumns);
           strategy.ifPresent(strategies::add);
         });
     return strategies;
@@ -106,31 +105,36 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    * </ul>
    */
   private Optional<DataLayoutStrategy> buildDataLayoutStrategy(
-      Dataset<Long> fileSizes,
+      Dataset<FileStat> fileStats,
       long partitionCount,
       String partitionValues,
       String partitionColumns) {
-    Dataset<Long> filteredSizes =
-        fileSizes.filter(
-            (FilterFunction<Long>)
-                size ->
-                    size < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+
+    Dataset<FileStat> dataFiles =
+        fileStats.filter((FilterFunction<FileStat>) file -> file.getContent() == FileContent.DATA);
+
+    Dataset<FileStat> filteredDataFiles =
+        dataFiles.filter(
+            (FilterFunction<FileStat>)
+                file ->
+                    file.getSizeInBytes()
+                        < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+
     // Check whether we have anything to map/reduce on for cost computation, this is only the case
     // if we have small files that need to be compacted.
-    if (filteredSizes.count() == 0) {
+    if (filteredDataFiles.count() == 0) {
       return Optional.empty();
     }
-    // Traits computation (cost, gain, and entropy).
-    Tuple2<Long, Integer> fileStats =
-        filteredSizes
-            .map(
-                (MapFunction<Long, Tuple2<Long, Integer>>) size -> new Tuple2<>(size, 1),
-                Encoders.tuple(Encoders.LONG(), Encoders.INT()))
-            .reduce(
-                (ReduceFunction<Tuple2<Long, Integer>>)
-                    (a, b) -> new Tuple2<>(a._1 + b._1, a._2 + b._2));
-    long rewriteFileBytes = fileStats._1;
-    int rewriteFileCount = fileStats._2;
+
+    Tuple2<Long, Integer> filteredDataFileStats =
+        computeFileStats(filteredDataFiles, FileContent.DATA);
+    Tuple2<Long, Integer> posDeleteStats =
+        computeFileStats(fileStats, FileContent.POSITION_DELETES);
+    Tuple2<Long, Integer> eqDeleteStats = computeFileStats(fileStats, FileContent.EQUALITY_DELETES);
+
+    long rewriteFileBytes = filteredDataFileStats._1;
+    int rewriteFileCount = filteredDataFileStats._2;
+
     long reducedFileCount = estimateReducedFileCount(rewriteFileBytes, rewriteFileCount);
     double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
     // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
@@ -142,9 +146,16 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
             .cost(computeGbHr)
             .gain(reducedFileCount)
             .score(reducedFileCountPerComputeGbHr)
-            .entropy(computeEntropy(fileSizes))
+            .entropy(
+                computeEntropy(
+                    dataFiles.map(
+                        (MapFunction<FileStat, Long>) FileStat::getSizeInBytes, Encoders.LONG())))
             .partitionId(partitionValues)
             .partitionColumns(partitionColumns)
+            .posDeleteFileBytes(posDeleteStats._1)
+            .eqDeleteFileBytes(eqDeleteStats._1)
+            .posDeleteFileCount(posDeleteStats._2)
+            .eqDeleteFileCount(eqDeleteStats._2)
             .build());
   }
 
@@ -205,5 +216,23 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     }
     // Normalize.
     return mse / fileSizes.count();
+  }
+
+  private Tuple2<Long, Integer> computeFileStats(Dataset<FileStat> files, FileContent content) {
+    Dataset<FileStat> filesOfContent =
+        files.filter((FilterFunction<FileStat>) file -> file.getContent() == content);
+
+    if (filesOfContent.count() == 0) {
+      return new Tuple2<>(0L, 0);
+    }
+
+    return filesOfContent
+        .map((MapFunction<FileStat, Long>) FileStat::getSizeInBytes, Encoders.LONG())
+        .map(
+            (MapFunction<Long, Tuple2<Long, Integer>>) size -> new Tuple2<>(size, 1),
+            Encoders.tuple(Encoders.LONG(), Encoders.INT()))
+        .reduce(
+            (ReduceFunction<Tuple2<Long, Integer>>)
+                (a, b) -> new Tuple2<>(a._1 + b._1, a._2 + b._2));
   }
 }

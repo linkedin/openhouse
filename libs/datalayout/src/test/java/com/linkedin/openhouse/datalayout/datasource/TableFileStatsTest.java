@@ -26,7 +26,7 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
           TableFileStats.builder().spark(spark).tableName(testTable).build();
       Map<String, Long> stats =
           tableFileStats.get().collectAsList().stream()
-              .collect(Collectors.toMap(FileStat::getPath, FileStat::getSize));
+              .collect(Collectors.toMap(FileStat::getPath, FileStat::getSizeInBytes));
       FileSystem fs = FileSystem.get(spark.sparkContext().hadoopConfiguration());
       Path tableDirectory =
           new Path(
@@ -77,7 +77,7 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
         String idPartitionValue = fileStat.getPartitionValues().get(1);
         String folder = "data" + "/ts_day=" + tsPartitionValue + "/id=" + idPartitionValue;
         FileStatus fileStatus = fs.listStatus(new Path(tableDirectory, folder))[0];
-        Assertions.assertEquals(fileStatus.getLen(), fileStat.getSize());
+        Assertions.assertEquals(fileStatus.getLen(), fileStat.getSizeInBytes());
       }
     }
   }
