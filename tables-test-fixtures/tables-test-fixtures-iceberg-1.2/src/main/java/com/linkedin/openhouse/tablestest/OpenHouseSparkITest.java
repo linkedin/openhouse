@@ -12,7 +12,7 @@ import org.apache.spark.sql.SparkSession;
  */
 public class OpenHouseSparkITest {
   private static final String LOCALHOST = "http://localhost:";
-  private static final String LOCAL_FS = "file:///";
+  protected static final String LOCAL_FS = "file:///";
 
   /** Use a singleton {@link OpenHouseLocalServer} that will shutdown when the JVM exits. */
   private static OpenHouseLocalServer openHouseLocalServer = null;
@@ -24,12 +24,28 @@ public class OpenHouseSparkITest {
    * <p>Do not {@link SparkSession#close()} a created SparkSession.
    */
   protected synchronized SparkSession getSparkSession() throws Exception {
+    return createSparkSession(getBuilder());
+  }
+
+  protected SparkSession.Builder getBuilder() throws Exception {
     if (openHouseLocalServer == null) {
       openHouseLocalServer = new OpenHouseLocalServer();
       openHouseLocalServer.start();
     }
-    return TestSparkSessionUtil.create(
-        "openhouse", getOpenHouseLocalServerURI(), URI.create(LOCAL_FS));
+    SparkSession.Builder builder = TestSparkSessionUtil.getBaseBuilder(URI.create(LOCAL_FS));
+    TestSparkSessionUtil.configureCatalogs(builder, "openhouse", getOpenHouseLocalServerURI());
+    // default_iceberg catalog need to point to the custom one, required by Iceberg maintenance
+    // operations
+    // otherwise, Hive default catalog will be set as per
+    // https://github.com/apache/iceberg/blob/957ea6d1462fa5b494f443f88bff167e4ec11e11/
+    // spark/v3.0/spark/src/main/java/org/apache/iceberg/spark/source/IcebergSource.java#L185
+    TestSparkSessionUtil.configureCatalogs(
+        builder, "default_iceberg", getOpenHouseLocalServerURI());
+    return builder;
+  }
+
+  protected synchronized SparkSession createSparkSession(SparkSession.Builder builder) {
+    return TestSparkSessionUtil.createSparkSession(builder);
   }
 
   /** @return the {@link URI} of the standalone embedded OH server running locally. */
