@@ -8,7 +8,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Test;
 
-public class CTASNonNullTestSpark extends OpenHouseSparkITest {
+public class CTASNonNullTest extends OpenHouseSparkITest {
   @Test
   public void testCTASPreservesNonNull() throws Exception {
     String overrideCatalogName = "opensource_iceberg_spark_catalog";
@@ -45,7 +45,7 @@ public class CTASNonNullTestSpark extends OpenHouseSparkITest {
           spark.conf().get("spark.sql.catalog.opensource_iceberg_spark_catalog"));
 
       // Verify id column is preserved in good catalog, not preserved in bad catalog
-      assertTrue(sourceSchema.apply("id").nullable(), "Source table id column should be required");
+      assertFalse(sourceSchema.apply("id").nullable(), "Source table id column should be required");
       assertTrue(
           targetSchemaBroken.apply("id").nullable(),
           "Target table id column required should not be preserved -- due to 1) the CTAS non-nullable preservation is off by default");

@@ -45,13 +45,13 @@ public class CTASNonNullTestSpark3_5 extends OpenHouseSparkITest {
           spark.conf().get("spark.sql.catalog.opensource_iceberg_spark_catalog"));
 
       // Verify id column is preserved in good catalog, not preserved in bad catalog
-      assertTrue(sourceSchema.apply("id").nullable(), "Source table id column should be required");
+      assertFalse(sourceSchema.apply("id").nullable(), "Source table id column should be required");
       assertTrue(
           targetSchemaBroken.apply("id").nullable(),
           "Target table id column required should not be preserved -- due to 1) the CTAS non-nullable preservation is off by default");
-      assertTrue(
+      assertFalse(
           targetSchemaGood.apply("id").nullable(),
-          "Target table id column required should not be preserved -- due to 2) OS spark3.1 catalyst connector lack of support for non-null CTAS");
+          "Target table id column required should be preserved.");
 
       // Clean up
       spark.sql("DROP TABLE openhouse.ctasNonNull.test_table");
