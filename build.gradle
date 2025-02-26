@@ -86,7 +86,8 @@ allprojects {
       useJUnitPlatform()
 
       testLogging {
-        events "passed" //, "started", "skipped", "failed"
+        // use these options for analyzing results: --console=plain > output.log 2>&1
+        events "passed", "skipped", "failed" //, "started"
         // showStandardStreams = true
       }
 
