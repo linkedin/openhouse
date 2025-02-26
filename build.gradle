@@ -91,9 +91,9 @@ allprojects {
         // showStandardStreams = true
       }
 
-      // beforeTest { descriptor ->
-      //     logger.lifecycle("Running test: ${descriptor.className}.${descriptor.name}")
-      // }
+       beforeTest { descriptor ->
+           logger.lifecycle("Running test: ${descriptor.className}.${descriptor.name}")
+       }
     }
 
     spotless {
