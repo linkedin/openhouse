@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tablestest;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
@@ -16,13 +17,6 @@ public final class TestSparkSessionUtil {
     // Util class constructor noop
   }
 
-  public static SparkSession create(String customCatalogName, URI tablesServiceURI, URI fsURI)
-      throws Exception {
-    SparkSession.Builder builder = getBaseBuilder(fsURI);
-    configureCatalogs(builder, customCatalogName, tablesServiceURI);
-    return createSparkSession(builder);
-  }
-
   public static SparkSession.Builder getBaseBuilder(URI fsURI) {
     return SparkSession.builder()
         .master("local[1]")
@@ -37,25 +31,31 @@ public final class TestSparkSessionUtil {
   }
 
   public static void configureCatalogs(
-      SparkSession.Builder builder, String customCatalogName, URI tablesServiceURI)
-      throws Exception {
+      SparkSession.Builder builder, String catalogName, URI tablesServiceURI) {
+
+    // Set default configurations
     builder
         .config(
-            String.format("spark.sql.catalog.%s", customCatalogName),
-            "org.apache.iceberg.spark.SparkCatalog")
+            String.format("spark.sql.catalog.%s", catalogName),
+            "com.linkedin.openhouse.spark.SparkCatalog")
         .config(
-            String.format("spark.sql.catalog.%s.catalog-impl", customCatalogName),
+            String.format("spark.sql.catalog.%s.catalog-impl", catalogName),
             "com.linkedin.openhouse.spark.OpenHouseCatalog")
-        .config(
-            String.format("spark.sql.catalog.%s.uri", customCatalogName),
-            tablesServiceURI.toString())
-        .config(String.format("spark.sql.catalog.%s.cluster", customCatalogName), "local-cluster")
-        .config(
-            String.format("spark.sql.catalog.%s.auth-token", customCatalogName),
-            IOUtils.toString(
-                Objects.requireNonNull(
-                    TestSparkSessionUtil.class.getClassLoader().getResourceAsStream("dummy.token")),
-                StandardCharsets.UTF_8));
+        .config(String.format("spark.sql.catalog.%s.uri", catalogName), tablesServiceURI.toString())
+        .config(String.format("spark.sql.catalog.%s.cluster", catalogName), "local-cluster");
+
+    try {
+      builder.config(
+          String.format("spark.sql.catalog.%s.auth-token", catalogName),
+          IOUtils.toString(
+              Objects.requireNonNull(
+                  TestSparkSessionUtil.class.getClassLoader().getResourceAsStream("dummy.token")),
+              StandardCharsets.UTF_8));
+    } catch (IOException e) {
+      // Handle the exception by setting a default token or logging
+      builder.config(
+          String.format("spark.sql.catalog.%s.auth-token", catalogName), "default-token");
+    }
   }
 
   public static SparkSession createSparkSession(SparkSession.Builder builder) {
