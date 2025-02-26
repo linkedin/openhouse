@@ -82,8 +82,17 @@ allprojects {
       testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:" + junit_version
     }
 
-    tasks.withType(Test) {
+    tasks.withType(Test).configureEach {
       useJUnitPlatform()
+
+      testLogging {
+        events "passed" //, "started", "skipped", "failed"
+        // showStandardStreams = true
+      }
+
+      // beforeTest { descriptor ->
+      //     logger.lifecycle("Running test: ${descriptor.className}.${descriptor.name}")
+      // }
     }
 
     spotless {

@@ -10,8 +10,7 @@ import org.junit.jupiter.api.Test;
 public class CTASNonNullTest extends OpenHouseSparkITest {
   @Test
   public void testCTASPreservesNonNull() throws Exception {
-    SparkSession.Builder builder = getBuilder();
-    try (SparkSession spark = createSparkSession(builder)) {
+    try (SparkSession spark = getSparkSession()) {
       // Create source table with NOT NULL column
       spark.sql(
           "CREATE TABLE openhouse.ctasNonNull.test_table (id INT NOT NULL, name STRING NOT NULL, value DOUBLE NOT NULL)");
