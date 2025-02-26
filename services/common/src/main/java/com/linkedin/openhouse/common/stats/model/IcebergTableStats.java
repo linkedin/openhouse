@@ -30,6 +30,8 @@ public class IcebergTableStats extends BaseTableMetadata {
 
   private Long oldestSnapshotTimestamp;
 
+  private Long numSnapshots;
+
   private Long numExistingMetadataJsonFiles;
 
   private Long numReferencedManifestFiles;

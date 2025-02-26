@@ -7,10 +7,13 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
+import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
+import com.linkedin.openhouse.jobs.spark.Operations;
 import java.io.IOException;
 import java.lang.reflect.Type;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -175,6 +178,10 @@ public final class TableStatsCollectorUtil {
             .min(Long::compareTo)
             .orElse(null);
 
+    Map<String, Object> policyMap = getTablePolicies(table);
+
+    Long numSnapshots = StreamSupport.stream(table.snapshots().spliterator(), false).count();
+
     return stats
         .toBuilder()
         .currentSnapshotId(currentSnapshotId)
@@ -187,6 +194,8 @@ public final class TableStatsCollectorUtil {
         .numCurrentSnapshotEqualityDeleteFiles(countOfEqualityDeleteFiles)
         .totalCurrentSnapshotEqualityDeleteFileSizeInBytes(sumOfEqualityDeleteFilesSizeBytes)
         .earliestPartitionDate(earliestPartitionDate)
+        .numSnapshots(numSnapshots)
+        .historyPolicy(buildHistoryPolicy(policyMap, currentSnapshotTimestamp))
         .build();
   }
 
@@ -336,6 +345,9 @@ public final class TableStatsCollectorUtil {
       policyMap.put(
           "sharingEnabled", Boolean.valueOf(policiesObject.get("sharingEnabled").getAsString()));
     }
+    if (policiesObject.get("history") != null) {
+      addEntriesToMap(policiesObject.getAsJsonObject("history"), policyMap);
+    }
 
     return policyMap;
   }
@@ -349,6 +361,33 @@ public final class TableStatsCollectorUtil {
         .granularity((String) retentionPolicy.getOrDefault("granularity", null))
         .columnPattern((String) retentionPolicy.getOrDefault("pattern", null))
         .columnName((String) retentionPolicy.getOrDefault("columnName", null))
+        .build();
+  }
+
+  private static HistoryPolicyStatsSchema buildHistoryPolicy(
+      Map<String, Object> historyPolicy, Long currentSnapshotTimestamp) {
+    String granularity = (String) historyPolicy.getOrDefault("granularity", null);
+    Integer maxAge = Integer.valueOf((String) historyPolicy.getOrDefault("maxAge", "0"));
+    Long expectedEarliestSnapshotTimestampMillis = null;
+    if (granularity != null && maxAge != null) {
+      ChronoUnit timeUnitGranularity =
+          Operations.convertGranularityToChrono(granularity.toUpperCase());
+      expectedEarliestSnapshotTimestampMillis =
+          currentSnapshotTimestamp
+              - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
+    } else {
+      // Currently default to 3 days if no history policy is set
+      expectedEarliestSnapshotTimestampMillis =
+          currentSnapshotTimestamp - ChronoUnit.DAYS.getDuration().multipliedBy(3).toMillis();
+    }
+    return HistoryPolicyStatsSchema.builder()
+        .numVersions(
+            historyPolicy.containsKey("versions")
+                ? Integer.parseInt((String) historyPolicy.get("versions"))
+                : 0)
+        .dateGranularity(granularity)
+        .maxAge(maxAge)
+        .expectedEarliestSnapshotTimestampMillis(expectedEarliestSnapshotTimestampMillis)
         .build();
   }
 
