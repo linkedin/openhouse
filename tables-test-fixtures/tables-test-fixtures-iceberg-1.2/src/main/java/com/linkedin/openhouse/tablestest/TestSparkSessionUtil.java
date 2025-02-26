@@ -37,7 +37,7 @@ public final class TestSparkSessionUtil {
     builder
         .config(
             String.format("spark.sql.catalog.%s", catalogName),
-            "com.linkedin.openhouse.spark.SparkCatalog")
+            "org.apache.iceberg.spark.SparkCatalog")
         .config(
             String.format("spark.sql.catalog.%s.catalog-impl", catalogName),
             "com.linkedin.openhouse.spark.OpenHouseCatalog")
