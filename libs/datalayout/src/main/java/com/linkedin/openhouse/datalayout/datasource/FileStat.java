@@ -16,5 +16,6 @@ public final class FileStat {
   private FileContent content;
   private String path;
   private long sizeInBytes;
+  private long recordCount;
   private List<String> partitionValues;
 }

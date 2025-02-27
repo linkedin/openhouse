@@ -27,14 +27,14 @@ public class TableFileStats implements DataSource<FileStat> {
       return spark
           .sql(
               String.format(
-                  "SELECT content, file_path, file_size_in_bytes, partition FROM %s.data_files",
+                  "SELECT content, file_path, file_size_in_bytes, record_count, partition FROM %s.data_files",
                   tableName))
           .map(new FileStatMapper(), Encoders.bean(FileStat.class));
     } catch (IllegalArgumentException e) {
       return spark
           .sql(
               String.format(
-                  "SELECT content, file_path, file_size_in_bytes, null FROM %s.data_files",
+                  "SELECT content, file_path, file_size_in_bytes, record_count, null FROM %s.data_files",
                   tableName))
           .map(new FileStatMapper(), Encoders.bean(FileStat.class));
     }
@@ -44,7 +44,7 @@ public class TableFileStats implements DataSource<FileStat> {
     @Override
     public FileStat call(Row row) {
       List<String> partitionValues = new ArrayList<>();
-      Row partition = row.getStruct(3);
+      Row partition = row.getStruct(4);
       if (partition != null) {
         for (int i = 0; i < partition.size(); i++) {
           partitionValues.add(Objects.toString(partition.get(i)));
@@ -54,6 +54,7 @@ public class TableFileStats implements DataSource<FileStat> {
           .content(fromId(row.getInt(0)))
           .path(row.getString(1))
           .sizeInBytes(row.getLong(2))
+          .recordCount(row.getLong(3))
           .partitionValues(partitionValues)
           .build();
     }
