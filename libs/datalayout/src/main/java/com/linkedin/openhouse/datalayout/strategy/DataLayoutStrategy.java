@@ -18,4 +18,8 @@ public class DataLayoutStrategy {
   // TODO: support sorting config
   private final String partitionId;
   private final String partitionColumns;
+  private final long posDeleteFileCount;
+  private final long eqDeleteFileCount;
+  private final long posDeleteFileBytes;
+  private final long eqDeleteFileBytes;
 }
