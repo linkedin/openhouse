@@ -5,8 +5,11 @@ import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
+import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import io.opentelemetry.api.metrics.Meter;
 import java.io.IOException;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -217,9 +220,11 @@ public final class Operations implements AutoCloseable {
     ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
 
     // maxAge will always be defined
-    TimeUnit timeUnitGranularity = TimeUnit.valueOf(granularity.toUpperCase());
+    ChronoUnit timeUnitGranularity =
+        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
     long expireBeforeTimestampMs =
-        System.currentTimeMillis() - timeUnitGranularity.toMillis(maxAge);
+        System.currentTimeMillis()
+            - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
     log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
     expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
 
@@ -232,6 +237,23 @@ public final class Operations implements AutoCloseable {
           .retainLast(versions)
           .commit();
     }
+  }
+
+  public static ChronoUnit convertGranularityToChrono(String granularity) {
+    if (Arrays.stream(TimePartitionSpec.GranularityEnum.values())
+        .anyMatch(e -> e.name().equals(granularity))) {
+      switch (TimePartitionSpec.GranularityEnum.valueOf(granularity)) {
+        case HOUR:
+          return ChronoUnit.HOURS;
+        case DAY:
+          return ChronoUnit.DAYS;
+        case MONTH:
+          return ChronoUnit.MONTHS;
+        case YEAR:
+          return ChronoUnit.YEARS;
+      }
+    }
+    return ChronoUnit.valueOf(granularity);
   }
 
   /**

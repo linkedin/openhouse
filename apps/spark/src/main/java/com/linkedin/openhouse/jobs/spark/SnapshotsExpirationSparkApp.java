@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +23,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
 
   public static class DEFAULT_CONFIGURATION {
     public static final int MAX_AGE = 3;
-    public static final String GRANULARITY = "DAYS";
+    public static final String GRANULARITY = ChronoUnit.DAYS.toString();
     public static final int VERSIONS = 0;
   }
 

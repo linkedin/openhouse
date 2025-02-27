@@ -7,6 +7,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
+import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import java.io.IOException;
@@ -175,6 +176,10 @@ public final class TableStatsCollectorUtil {
             .min(Long::compareTo)
             .orElse(null);
 
+    Map<String, Object> policyMap = getTablePolicies(table);
+
+    Long numSnapshots = StreamSupport.stream(table.snapshots().spliterator(), false).count();
+
     return stats
         .toBuilder()
         .currentSnapshotId(currentSnapshotId)
@@ -187,6 +192,8 @@ public final class TableStatsCollectorUtil {
         .numCurrentSnapshotEqualityDeleteFiles(countOfEqualityDeleteFiles)
         .totalCurrentSnapshotEqualityDeleteFileSizeInBytes(sumOfEqualityDeleteFilesSizeBytes)
         .earliestPartitionDate(earliestPartitionDate)
+        .numSnapshots(numSnapshots)
+        .historyPolicy(buildHistoryPolicy(policyMap, currentSnapshotTimestamp))
         .build();
   }
 
@@ -336,6 +343,9 @@ public final class TableStatsCollectorUtil {
       policyMap.put(
           "sharingEnabled", Boolean.valueOf(policiesObject.get("sharingEnabled").getAsString()));
     }
+    if (policiesObject.get("history") != null) {
+      addEntriesToMap(policiesObject.getAsJsonObject("history"), policyMap);
+    }
 
     return policyMap;
   }
@@ -349,6 +359,19 @@ public final class TableStatsCollectorUtil {
         .granularity((String) retentionPolicy.getOrDefault("granularity", null))
         .columnPattern((String) retentionPolicy.getOrDefault("pattern", null))
         .columnName((String) retentionPolicy.getOrDefault("columnName", null))
+        .build();
+  }
+
+  private static HistoryPolicyStatsSchema buildHistoryPolicy(
+      Map<String, Object> historyPolicy, Long currentSnapshotTimestamp) {
+    String granularity = (String) historyPolicy.getOrDefault("granularity", null);
+    Integer maxAge = Integer.valueOf((String) historyPolicy.getOrDefault("maxAge", "0"));
+    Integer numVersions = Integer.valueOf((String) historyPolicy.getOrDefault("versions", "0"));
+
+    return HistoryPolicyStatsSchema.builder()
+        .dateGranularity(granularity)
+        .maxAge(maxAge)
+        .numVersions(numVersions)
         .build();
   }
 
