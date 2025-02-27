@@ -12,7 +12,6 @@ import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import io.opentelemetry.api.metrics.Meter;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -908,10 +907,6 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getNumSnapshots(), 2);
       Assertions.assertNotEquals(
           stats.getCurrentSnapshotTimestamp(), stats.getOldestSnapshotTimestamp());
-      Assertions.assertEquals(
-          stats.getHistoryPolicy().getExpectedEarliestSnapshotTimestampMillis(),
-          stats.getCurrentSnapshotTimestamp()
-              - ChronoUnit.DAYS.getDuration().multipliedBy(2).toMillis());
     }
   }
 

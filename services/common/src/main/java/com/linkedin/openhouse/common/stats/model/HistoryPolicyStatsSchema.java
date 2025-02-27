@@ -13,8 +13,6 @@ public class HistoryPolicyStatsSchema {
 
   private Integer numVersions;
 
-  private Long expectedEarliestSnapshotTimestampMillis;
-
   private Integer maxAge;
 
   private String dateGranularity;
