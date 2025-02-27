@@ -18,7 +18,7 @@ import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.ReduceFunction;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
-import scala.Tuple2;
+import scala.Tuple3;
 
 /**
  * Data layout optimization strategies generator for OpenHouse. Generates a list of strategies with
@@ -126,14 +126,15 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
       return Optional.empty();
     }
 
-    Tuple2<Long, Integer> filteredDataFileStats =
+    Tuple3<Long, Integer, Long> filteredDataFileStats =
         computeFileStats(filteredDataFiles, FileContent.DATA);
-    Tuple2<Long, Integer> posDeleteStats =
+    Tuple3<Long, Integer, Long> posDeleteStats =
         computeFileStats(fileStats, FileContent.POSITION_DELETES);
-    Tuple2<Long, Integer> eqDeleteStats = computeFileStats(fileStats, FileContent.EQUALITY_DELETES);
+    Tuple3<Long, Integer, Long> eqDeleteStats =
+        computeFileStats(fileStats, FileContent.EQUALITY_DELETES);
 
-    long rewriteFileBytes = filteredDataFileStats._1;
-    int rewriteFileCount = filteredDataFileStats._2;
+    long rewriteFileBytes = filteredDataFileStats._1();
+    int rewriteFileCount = filteredDataFileStats._2();
 
     long reducedFileCount = estimateReducedFileCount(rewriteFileBytes, rewriteFileCount);
     double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
@@ -152,10 +153,12 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
                         (MapFunction<FileStat, Long>) FileStat::getSizeInBytes, Encoders.LONG())))
             .partitionId(partitionValues)
             .partitionColumns(partitionColumns)
-            .posDeleteFileBytes(posDeleteStats._1)
-            .eqDeleteFileBytes(eqDeleteStats._1)
-            .posDeleteFileCount(posDeleteStats._2)
-            .eqDeleteFileCount(eqDeleteStats._2)
+            .posDeleteFileBytes(posDeleteStats._1())
+            .eqDeleteFileBytes(eqDeleteStats._1())
+            .posDeleteFileCount(posDeleteStats._2())
+            .eqDeleteFileCount(eqDeleteStats._2())
+            .posDeleteRecordCount(posDeleteStats._3())
+            .eqDeleteRecordCount(eqDeleteStats._3())
             .build());
   }
 
@@ -218,21 +221,30 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     return mse / fileSizes.count();
   }
 
-  private Tuple2<Long, Integer> computeFileStats(Dataset<FileStat> files, FileContent content) {
+  /**
+   * Computes statistics for files of a content type, including total bytes, file count, and record
+   * count.
+   *
+   * @param files Dataset of FileStat objects
+   * @param content a type of file in iceberg
+   * @return A Tuple3 containing (totalBytes, fileCount, recordCount)
+   */
+  private Tuple3<Long, Integer, Long> computeFileStats(
+      Dataset<FileStat> files, FileContent content) {
     Dataset<FileStat> filesOfContent =
         files.filter((FilterFunction<FileStat>) file -> file.getContent() == content);
 
     if (filesOfContent.count() == 0) {
-      return new Tuple2<>(0L, 0);
+      return new Tuple3<>(0L, 0, 0L);
     }
 
     return filesOfContent
-        .map((MapFunction<FileStat, Long>) FileStat::getSizeInBytes, Encoders.LONG())
         .map(
-            (MapFunction<Long, Tuple2<Long, Integer>>) size -> new Tuple2<>(size, 1),
-            Encoders.tuple(Encoders.LONG(), Encoders.INT()))
+            (MapFunction<FileStat, Tuple3<Long, Integer, Long>>)
+                file -> new Tuple3<>(file.getSizeInBytes(), 1, file.getRecordCount()),
+            Encoders.tuple(Encoders.LONG(), Encoders.INT(), Encoders.LONG()))
         .reduce(
-            (ReduceFunction<Tuple2<Long, Integer>>)
-                (a, b) -> new Tuple2<>(a._1 + b._1, a._2 + b._2));
+            (ReduceFunction<Tuple3<Long, Integer, Long>>)
+                (a, b) -> new Tuple3<>(a._1() + b._1(), a._2() + b._2(), a._3() + b._3()));
   }
 }

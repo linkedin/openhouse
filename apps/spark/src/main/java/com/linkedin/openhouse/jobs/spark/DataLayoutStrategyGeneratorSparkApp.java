@@ -80,7 +80,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         if (isPartitionScope) {
           rows.add(
               String.format(
-                  "('%s', '%s', '%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d)",
+                  "('%s', '%s', '%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
                   fqtn,
                   strategy.getPartitionId(),
                   strategy.getPartitionColumns(),
@@ -90,11 +90,13 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   strategy.getPosDeleteFileCount(),
                   strategy.getEqDeleteFileCount(),
                   strategy.getPosDeleteFileBytes(),
-                  strategy.getEqDeleteFileBytes()));
+                  strategy.getEqDeleteFileBytes(),
+                  strategy.getPosDeleteRecordCount(),
+                  strategy.getEqDeleteRecordCount()));
         } else {
           rows.add(
               String.format(
-                  "('%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d)",
+                  "('%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
                   fqtn,
                   strategy.getCost(),
                   strategy.getGain(),
@@ -102,7 +104,9 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   strategy.getPosDeleteFileCount(),
                   strategy.getEqDeleteFileCount(),
                   strategy.getPosDeleteFileBytes(),
-                  strategy.getEqDeleteFileBytes()));
+                  strategy.getEqDeleteFileBytes(),
+                  strategy.getPosDeleteRecordCount(),
+                  strategy.getEqDeleteRecordCount()));
         }
       }
       String strategiesInsertStmt =
@@ -128,7 +132,9 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   + "pos_delete_file_count LONG, "
                   + "eq_delete_file_count LONG, "
                   + "pos_delete_file_bytes LONG, "
-                  + "eq_delete_file_bytes LONG"
+                  + "eq_delete_file_bytes LONG,"
+                  + "pos_delete_record_count LONG, "
+                  + "eq_delete_record_count LONG"
                   + ") "
                   + "PARTITIONED BY (days(timestamp))",
               outputFqtn));
@@ -144,7 +150,9 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   + "pos_delete_file_count LONG, "
                   + "eq_delete_file_count LONG, "
                   + "pos_delete_file_bytes LONG, "
-                  + "eq_delete_file_bytes LONG "
+                  + "eq_delete_file_bytes LONG,"
+                  + "pos_delete_record_count LONG, "
+                  + "eq_delete_record_count LONG"
                   + ") "
                   + "PARTITIONED BY (days(timestamp))",
               outputFqtn));

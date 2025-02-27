@@ -112,6 +112,10 @@ public class OpenHouseDataLayoutStrategyGeneratorTest extends OpenHouseSparkITes
           0, strategy.getPosDeleteFileCount(), "Table should have 0 position delete files");
       Assertions.assertEquals(
           0, strategy.getEqDeleteFileCount(), "Table should have 0 equality delete files");
+      Assertions.assertEquals(
+          0, strategy.getPosDeleteRecordCount(), "Table should have 0 position records");
+      Assertions.assertEquals(
+          0, strategy.getEqDeleteRecordCount(), "Table should have 0 equality records");
       Assertions.assertTrue(
           strategy.getGain() == 2, "Gain for 3 files compaction in 1 partitions should be 2");
       Assertions.assertTrue(
