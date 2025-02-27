@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.iceberg.FileContent;
 
 /** Represents the statistics of a file. */
 @Data
@@ -12,7 +13,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public final class FileStat {
+  private FileContent content;
   private String path;
-  private long size;
+  private long sizeInBytes;
+  private long recordCount;
   private List<String> partitionValues;
 }
