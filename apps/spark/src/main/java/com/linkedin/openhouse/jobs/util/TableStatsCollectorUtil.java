@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
+import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -332,7 +333,11 @@ public final class TableStatsCollectorUtil {
     PolicyStats policyStats = new PolicyStats();
     // Set defaults
     HistoryPolicyStatsSchema defaultHistoryPolicy =
-        HistoryPolicyStatsSchema.builder().maxAge(3).granularity("DAYS").versions(0).build();
+        HistoryPolicyStatsSchema.builder()
+            .maxAge(3)
+            .granularity(TimePartitionSpec.GranularityEnum.DAY.toString())
+            .versions(0)
+            .build();
     policyStats.setHistoryPolicy(defaultHistoryPolicy);
     policyStats.setSharingEnabled(false);
     if (jsonObject == null) {

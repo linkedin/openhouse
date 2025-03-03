@@ -277,8 +277,6 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_es_maxage_java";
     final int numInserts = 3;
     final int maxAge = 0;
-    // Not a realistic time setting that is accepted by the SQL, but tests that other snapshots are
-    // deleted by the time history policy
     final String timeGranularity = "DAYS";
 
     List<Long> snapshotIds;
