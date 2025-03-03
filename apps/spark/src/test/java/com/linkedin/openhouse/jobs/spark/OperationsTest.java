@@ -42,7 +42,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   public void testRetentionSparkApp() throws Exception {
     final String tableName = "db.test_retention_sql";
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
-      prepareTableWithPolicies(ops, tableName, "1d", true);
+      prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
       ops.runRetention(tableName, "ts", "", "day", 1);
@@ -475,7 +475,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotExpirationWithDaysMonthsYears() throws Exception {
+  public void testSnapshotExpirationWithHoursDaysMonthsYears() throws Exception {
     final String tableName = "db.test_es_age_policy";
     final int numInserts = 3;
     final int maxAge = 20;
@@ -768,7 +768,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       rowValue.clear();
 
       // Test timestamp format
-      prepareTableWithPolicies(ops, tableName, "30d", false);
+      prepareTableWithRetentionAndSharingPolicies(ops, tableName, "30d", false);
       populateTable(ops, tableName, 1, 2);
       populateTable(ops, tableName, 1, 1);
       populateTable(ops, tableName, 1, 0);
@@ -785,7 +785,7 @@ public class OperationsTest extends OpenHouseSparkITest {
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       // Create table with partition but no data
-      prepareTableWithPolicies(ops, tableName, "30d", true);
+      prepareTableWithRetentionAndSharingPolicies(ops, tableName, "30d", true);
 
       // Collect stats without any data
       IcebergTableStats stats = ops.collectTableStats(tableName);
@@ -808,7 +808,7 @@ public class OperationsTest extends OpenHouseSparkITest {
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       // Test table with both retention and sharing policies
-      prepareTableWithPolicies(ops, tableName, "30d", true);
+      prepareTableWithRetentionAndSharingPolicies(ops, tableName, "30d", true);
       populateTable(ops, tableName, 2, 2);
       IcebergTableStats stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getSharingEnabled(), true);
@@ -846,6 +846,22 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 0);
       Assertions.assertNull(stats.getRetentionPolicies().getColumnName());
       Assertions.assertNull(stats.getRetentionPolicies().getColumnPattern());
+
+      prepareTableWithAllPolicies(
+          ops,
+          tableName,
+          "4M",
+          false,
+          "MAX_AGE=2D VERSIONS=20",
+          "({destination:'a', interval:12H})");
+      IcebergTableStats stats = ops.collectTableStats(tableName);
+      Assertions.assertEquals(stats.getSharingEnabled(), false);
+      Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 4);
+      Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "MONTH");
+      Assertions.assertEquals(stats.getHistoryPolicy().getDateGranularity(), "DAY");
+      Assertions.assertEquals(stats.getHistoryPolicy().getMaxAge(), 2);
+      Assertions.assertEquals(stats.getHistoryPolicy().getNumVersions(), 20);
+      Assertions.assertEquals(stats.getHistoryPolicy().getNumVersions(), 20);
     }
   }
 
@@ -1019,7 +1035,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
   }
 
-  private static void prepareTableWithPolicies(
+  private static void prepareTableWithRetentionAndSharingPolicies(
       Operations ops, String tableName, String retention, boolean sharing) {
     ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
     ops.spark()
@@ -1039,9 +1055,33 @@ public class OperationsTest extends OpenHouseSparkITest {
     ops.spark()
         .sql(
             String.format(
-                "CREATE TABLE %s (data string, ts timestamp) PARTITIONED BY (days(ts))", tableName))
+                "CREATE TABLE %s (data string, datePartition string) PARTITIONED BY (datepartition)",
+                tableName))
         .show();
     ops.spark().sql(String.format("ALTER TABLE %s SET POLICY (SHARING=%s)", tableName, sharing));
+    ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
+  }
+
+  private static void prepareTableWithAllPolicies(
+      Operations ops,
+      String tableName,
+      String retention,
+      boolean sharing,
+      String history,
+      String replication) {
+    ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+    ops.spark()
+        .sql(
+            String.format(
+                "CREATE TABLE %s (data string, ts timestamp) PARTITIONED BY (months(ts))",
+                tableName))
+        .show();
+    ops.spark()
+        .sql(String.format("ALTER TABLE %s SET POLICY (RETENTION=%s)", tableName, retention));
+    ops.spark().sql(String.format("ALTER TABLE %s SET POLICY (SHARING=%s)", tableName, sharing));
+    ops.spark().sql(String.format("ALTER TABLE %s SET POLICY (HISTORY %s)", tableName, history));
+    ops.spark()
+        .sql(String.format("ALTER TABLE %s SET POLICY (REPLICATION = %s)", tableName, replication));
     ops.spark().sql(String.format("DESCRIBE %s", tableName)).show();
   }
 
