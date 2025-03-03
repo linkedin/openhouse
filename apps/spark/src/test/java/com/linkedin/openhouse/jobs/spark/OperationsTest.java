@@ -814,6 +814,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getSharingEnabled(), true);
       Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 30);
       Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "DAY");
+      Assertions.assertEquals(stats.getHistoryPolicy().getMaxAge(), 3);
+      Assertions.assertEquals(stats.getHistoryPolicy().getVersions(), 0);
+      Assertions.assertEquals(stats.getHistoryPolicy().getGranularity(), "DAY");
 
       // Test table with retention policy and sharing set to false
       prepareTableWithPoliciesWithStringPartition(ops, tableName, "16h", false);
@@ -846,7 +849,6 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 0);
       Assertions.assertNull(stats.getRetentionPolicies().getColumnName());
       Assertions.assertNull(stats.getRetentionPolicies().getColumnPattern());
-
       prepareTableWithAllPolicies(
           ops,
           tableName,
@@ -854,14 +856,14 @@ public class OperationsTest extends OpenHouseSparkITest {
           false,
           "MAX_AGE=2D VERSIONS=20",
           "({destination:'a', interval:12H})");
-      IcebergTableStats stats = ops.collectTableStats(tableName);
+      stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getSharingEnabled(), false);
       Assertions.assertEquals(stats.getRetentionPolicies().getCount(), 4);
       Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "MONTH");
-      Assertions.assertEquals(stats.getHistoryPolicy().getDateGranularity(), "DAY");
+      Assertions.assertEquals(stats.getHistoryPolicy().getGranularity(), "DAY");
       Assertions.assertEquals(stats.getHistoryPolicy().getMaxAge(), 2);
-      Assertions.assertEquals(stats.getHistoryPolicy().getNumVersions(), 20);
-      Assertions.assertEquals(stats.getHistoryPolicy().getNumVersions(), 20);
+      Assertions.assertEquals(stats.getHistoryPolicy().getVersions(), 20);
+      Assertions.assertEquals(stats.getHistoryPolicy().getVersions(), 20);
     }
   }
 
@@ -872,7 +874,8 @@ public class OperationsTest extends OpenHouseSparkITest {
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
       prepareTable(ops, tableName);
       IcebergTableStats stats = ops.collectTableStats(tableName);
-
+      // Ensure defaults for setSharingEnabled is set
+      Assertions.assertEquals(stats.getSharingEnabled(), false);
       // Validate empty data files case
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), 0);
       Assertions.assertEquals(stats.getNumExistingMetadataJsonFiles(), 1);
@@ -882,7 +885,6 @@ public class OperationsTest extends OpenHouseSparkITest {
       stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), 1);
       Assertions.assertTrue(stats.getTableLastUpdatedTimestamp() >= modifiedTimeStamp);
-
       // Capture first snapshot timestamp
       Table table = ops.getTable(tableName);
       long oldestSnapshot = table.currentSnapshot().timestampMillis();
@@ -918,8 +920,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       IcebergTableStats stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getSharingEnabled(), false);
       Assertions.assertEquals(stats.getHistoryPolicy().getMaxAge(), 2);
-      Assertions.assertEquals(stats.getHistoryPolicy().getNumVersions(), 20);
-      Assertions.assertEquals(stats.getHistoryPolicy().getDateGranularity(), "DAY");
+      Assertions.assertEquals(stats.getHistoryPolicy().getVersions(), 20);
+      Assertions.assertEquals(stats.getHistoryPolicy().getGranularity(), "DAY");
       Assertions.assertEquals(stats.getNumSnapshots(), 2);
       Assertions.assertNotEquals(
           stats.getCurrentSnapshotTimestamp(), stats.getOldestSnapshotTimestamp());

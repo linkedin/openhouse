@@ -11,9 +11,9 @@ import lombok.experimental.SuperBuilder;
 @SuperBuilder(toBuilder = true)
 public class HistoryPolicyStatsSchema {
 
-  private Integer numVersions;
+  private Integer versions;
 
   private Integer maxAge;
 
-  private String dateGranularity;
+  private String granularity;
 }

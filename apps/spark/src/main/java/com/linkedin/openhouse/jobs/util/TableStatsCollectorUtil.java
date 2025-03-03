@@ -4,15 +4,14 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import static org.apache.spark.sql.functions.*;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonElement;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
@@ -151,8 +150,9 @@ public final class TableStatsCollectorUtil {
 
     Long currentSnapshotTimestamp =
         Optional.ofNullable(table.currentSnapshot()).map(Snapshot::timestampMillis).orElse(null);
-
-    String earliestPartitionDate = getEarliestPartitionDate(table, spark, getTablePolicies(table));
+    PolicyStats policyStats = getTablePolicies(table);
+    String earliestPartitionDate =
+        getEarliestPartitionDate(table, spark, policyStats.getRetentionPolicy());
 
     log.info(
         "Table: {}, Count of total Data files in snapshot: {}, Sum of file sizes in bytes: {}"
@@ -176,8 +176,6 @@ public final class TableStatsCollectorUtil {
             .min(Long::compareTo)
             .orElse(null);
 
-    Map<String, Object> policyMap = getTablePolicies(table);
-
     Long numSnapshots = StreamSupport.stream(table.snapshots().spliterator(), false).count();
 
     return stats
@@ -193,7 +191,7 @@ public final class TableStatsCollectorUtil {
         .totalCurrentSnapshotEqualityDeleteFileSizeInBytes(sumOfEqualityDeleteFilesSizeBytes)
         .earliestPartitionDate(earliestPartitionDate)
         .numSnapshots(numSnapshots)
-        .historyPolicy(buildHistoryPolicy(policyMap, currentSnapshotTimestamp))
+        .historyPolicy(policyStats.getHistoryPolicy())
         .build();
   }
 
@@ -230,7 +228,7 @@ public final class TableStatsCollectorUtil {
 
   /** Collect table metadata for a given table. */
   public static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
-    Map<String, Object> policyMap = getTablePolicies(table);
+    PolicyStats policyStats = getTablePolicies(table);
     return stats
         .toBuilder()
         .recordTimestamp(System.currentTimeMillis())
@@ -249,8 +247,8 @@ public final class TableStatsCollectorUtil {
                 : 0)
         .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
         .tableLocation(table.location())
-        .sharingEnabled(Boolean.valueOf((String) policyMap.getOrDefault("sharingEnabled", "false")))
-        .retentionPolicies(buildRetentionStats(policyMap))
+        .sharingEnabled(policyStats.getSharingEnabled())
+        .retentionPolicies(policyStats.getRetentionPolicy())
         .build();
   }
 
@@ -292,21 +290,15 @@ public final class TableStatsCollectorUtil {
   }
 
   private static String getEarliestPartitionDate(
-      Table table, SparkSession spark, Map<String, Object> policyMap) {
-    Map<String, Object> retentionPolicy = (Map<String, Object>) policyMap.get("retention");
+      Table table, SparkSession spark, RetentionStatsSchema retentionStatsSchema) {
 
-    // Check if retention policy is present by checking if granularity exists
-    if (retentionPolicy == null || !retentionPolicy.containsKey("granularity")) {
+    if (retentionStatsSchema == null) {
       return null;
     }
     String partitionColumnName =
-        retentionPolicy.containsKey("columnPattern")
-            ? (String)
-                ((Map<String, Object>) retentionPolicy.get("columnPattern")).get("columnName")
+        retentionStatsSchema.getColumnName() != null
+            ? retentionStatsSchema.getColumnName()
             : getPartitionColumnName(table);
-    if (partitionColumnName == null) {
-      return null;
-    }
 
     Dataset<Row> partitionData =
         SparkTableUtil.loadMetadataTable(spark, table, MetadataTableType.PARTITIONS);
@@ -330,66 +322,39 @@ public final class TableStatsCollectorUtil {
         .orElse(null);
   }
 
-  private static Map<String, Object> getTablePolicies(Table table) {
+  private static PolicyStats getTablePolicies(Table table) {
     String policies = table.properties().get("policies");
     JsonObject policiesObject = new Gson().fromJson(policies, JsonObject.class);
-    Map<String, Object> policyMap = new HashMap<>();
-    if (policies.isEmpty()) {
-      return policyMap;
-    }
-    policyMap = convertObjectToPolicyMap(policiesObject);
-
-    return policyMap;
+    return convertObjectToPolicyStats(policiesObject);
   }
 
-  private static RetentionStatsSchema buildRetentionStats(Map<String, Object> policyMap) {
-    if (!policyMap.containsKey("retention")) {
-      return RetentionStatsSchema.builder().count(0).build();
+  private static PolicyStats convertObjectToPolicyStats(JsonObject jsonObject) {
+    PolicyStats policyStats = new PolicyStats();
+    // Set defaults
+    HistoryPolicyStatsSchema defaultHistoryPolicy =
+        HistoryPolicyStatsSchema.builder().maxAge(3).granularity("DAYS").versions(0).build();
+    policyStats.setHistoryPolicy(defaultHistoryPolicy);
+    policyStats.setSharingEnabled(false);
+    if (jsonObject == null) {
+      return policyStats;
     }
-    Map<String, Object> retentionPolicy = (Map<String, Object>) policyMap.get("retention");
-    Map<String, Object> columnPattern =
-        retentionPolicy.containsKey("columnPattern")
-            ? (Map<String, Object>) retentionPolicy.get("columnPattern")
-            : new HashMap<>();
-    return RetentionStatsSchema.builder()
-        .count(Integer.parseInt((String) retentionPolicy.getOrDefault("count", "0")))
-        .granularity((String) retentionPolicy.getOrDefault("granularity", null))
-        .columnPattern((String) columnPattern.getOrDefault("pattern", null))
-        .columnName((String) columnPattern.getOrDefault("columnName", null))
-        .build();
-  }
-
-  private static HistoryPolicyStatsSchema buildHistoryPolicy(Map<String, Object> policyMap) {
-    if (!policyMap.containsKey("history")) {
-      return HistoryPolicyStatsSchema.builder()
-          .maxAge(3)
-          .dateGranularity("DAYS")
-          .numVersions(0)
-          .build();
+    if (jsonObject.has("retention")) {
+      GsonBuilder gsonBuilder = new GsonBuilder();
+      gsonBuilder.registerTypeAdapter(
+          RetentionStatsSchema.class, new RetentionStatsSchema.RetentionPolicyDeserializer());
+      RetentionStatsSchema retentionPolicyStats =
+          gsonBuilder.create().fromJson(jsonObject.get("retention"), RetentionStatsSchema.class);
+      policyStats.setRetentionPolicy(retentionPolicyStats);
     }
-    Map<String, Object> historyPolicy = (Map<String, Object>) policyMap.get("history");
-    return HistoryPolicyStatsSchema.builder()
-        .dateGranularity((String) historyPolicy.getOrDefault("granularity", null))
-        .maxAge(Integer.valueOf((String) historyPolicy.getOrDefault("maxAge", "0")))
-        .numVersions(Integer.valueOf((String) historyPolicy.getOrDefault("versions", "0")))
-        .build();
-  }
-
-  private static Map<String, Object> convertObjectToPolicyMap(JsonObject jsonObject) {
-    Map<String, Object> policyMap = new HashMap<>();
-    for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
-      if (entry.getValue().isJsonObject()) {
-        policyMap.put(entry.getKey(), convertObjectToPolicyMap(entry.getValue().getAsJsonObject()));
-      } else if (entry.getValue().isJsonArray()) {
-        List<Object> policyList = new ArrayList<>();
-        for (JsonElement element : entry.getValue().getAsJsonArray()) {
-          policyList.add(convertObjectToPolicyMap(element.getAsJsonObject()));
-        }
-        policyMap.put(entry.getKey(), policyList);
-      } else {
-        policyMap.put(entry.getKey(), entry.getValue().getAsString());
-      }
+    if (jsonObject.has("history")) {
+      Gson gson = new Gson();
+      HistoryPolicyStatsSchema historyPolicyStats =
+          gson.fromJson(jsonObject.get("history"), HistoryPolicyStatsSchema.class);
+      policyStats.setHistoryPolicy(historyPolicyStats);
     }
-    return policyMap;
+    if (jsonObject.has("sharingEnabled")) {
+      policyStats.setSharingEnabled(jsonObject.get("sharingEnabled").getAsBoolean());
+    }
+    return policyStats;
   }
 }
