@@ -293,7 +293,7 @@ public final class TableStatsCollectorUtil {
   private static String getEarliestPartitionDate(
       Table table, SparkSession spark, RetentionStatsSchema retentionStatsSchema) {
 
-    if (retentionStatsSchema == null) {
+    if (retentionStatsSchema.getGranularity() == null) {
       return null;
     }
     String partitionColumnName =
@@ -332,6 +332,8 @@ public final class TableStatsCollectorUtil {
   private static PolicyStats convertObjectToPolicyStats(JsonObject jsonObject) {
     PolicyStats policyStats = new PolicyStats();
     // Set defaults
+    RetentionStatsSchema defaultRetentionPolicy = RetentionStatsSchema.builder().count(0).build();
+    policyStats.setRetentionPolicy(defaultRetentionPolicy);
     HistoryPolicyStatsSchema defaultHistoryPolicy =
         HistoryPolicyStatsSchema.builder()
             .maxAge(3)
