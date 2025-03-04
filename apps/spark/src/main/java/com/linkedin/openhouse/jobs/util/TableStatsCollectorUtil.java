@@ -4,16 +4,19 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import static org.apache.spark.sql.functions.*;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonElement;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import com.google.gson.reflect.TypeToken;
+import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
+import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -150,8 +153,9 @@ public final class TableStatsCollectorUtil {
 
     Long currentSnapshotTimestamp =
         Optional.ofNullable(table.currentSnapshot()).map(Snapshot::timestampMillis).orElse(null);
-
-    String earliestPartitionDate = getEarliestPartitionDate(table, spark, getTablePolicies(table));
+    PolicyStats policyStats = getTablePolicies(table);
+    String earliestPartitionDate =
+        getEarliestPartitionDate(table, spark, policyStats.getRetentionPolicy());
 
     log.info(
         "Table: {}, Count of total Data files in snapshot: {}, Sum of file sizes in bytes: {}"
@@ -168,18 +172,22 @@ public final class TableStatsCollectorUtil {
         currentSnapshotId,
         earliestPartitionDate);
 
-    // Find minimum timestamp of all snapshots where snapshots is iterator
-    Long oldestSnapshotTimestamp =
+    List<Long> snapshotTimestamps =
         StreamSupport.stream(table.snapshots().spliterator(), false)
             .map(Snapshot::timestampMillis)
-            .min(Long::compareTo)
-            .orElse(null);
+            .sorted(Long::compareTo)
+            .collect(Collectors.toList());
+
+    Integer numSnapshots = snapshotTimestamps.size();
+    Long oldestSnapshotTimestamp = numSnapshots > 0 ? snapshotTimestamps.get(0) : null;
+    Long secondOldestSnapshotTimestamp = numSnapshots > 1 ? snapshotTimestamps.get(1) : null;
 
     return stats
         .toBuilder()
         .currentSnapshotId(currentSnapshotId)
         .currentSnapshotTimestamp(currentSnapshotTimestamp)
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
+        .secondOldestSnapshotTimestamp(secondOldestSnapshotTimestamp)
         .numCurrentSnapshotReferencedDataFiles(countOfDataFiles)
         .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfDataFileSizeBytes)
         .numCurrentSnapshotPositionDeleteFiles(countOfPositionDeleteFiles)
@@ -187,6 +195,8 @@ public final class TableStatsCollectorUtil {
         .numCurrentSnapshotEqualityDeleteFiles(countOfEqualityDeleteFiles)
         .totalCurrentSnapshotEqualityDeleteFileSizeInBytes(sumOfEqualityDeleteFilesSizeBytes)
         .earliestPartitionDate(earliestPartitionDate)
+        .numSnapshots(numSnapshots)
+        .historyPolicy(policyStats.getHistoryPolicy())
         .build();
   }
 
@@ -223,7 +233,7 @@ public final class TableStatsCollectorUtil {
 
   /** Collect table metadata for a given table. */
   public static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
-    Map<String, Object> policyMap = getTablePolicies(table);
+    PolicyStats policyStats = getTablePolicies(table);
     return stats
         .toBuilder()
         .recordTimestamp(System.currentTimeMillis())
@@ -242,9 +252,8 @@ public final class TableStatsCollectorUtil {
                 : 0)
         .tableUUID(table.properties().get(getCanonicalFieldName("tableUUID")))
         .tableLocation(table.location())
-        .sharingEnabled(
-            policyMap.containsKey("sharingEnabled") && (Boolean) policyMap.get("sharingEnabled"))
-        .retentionPolicies(buildRetentionStats(policyMap))
+        .sharingEnabled(policyStats.getSharingEnabled())
+        .retentionPolicies(policyStats.getRetentionPolicy())
         .build();
   }
 
@@ -286,15 +295,17 @@ public final class TableStatsCollectorUtil {
   }
 
   private static String getEarliestPartitionDate(
-      Table table, SparkSession spark, Map<String, Object> policyMap) {
+      Table table, SparkSession spark, RetentionStatsSchema retentionStatsSchema) {
+
     // Check if retention policy is present by checking if granularity exists
-    if (!policyMap.containsKey("granularity")) {
+    if (retentionStatsSchema.getGranularity() == null) {
       return null;
     }
     String partitionColumnName =
-        policyMap.containsKey("columnName")
-            ? (String) policyMap.get("columnName")
+        retentionStatsSchema.getColumnName() != null
+            ? retentionStatsSchema.getColumnName()
             : getPartitionColumnName(table);
+    // Table has no partition, we need to avoid AnalysisException
     if (partitionColumnName == null) {
       return null;
     }
@@ -321,45 +332,45 @@ public final class TableStatsCollectorUtil {
         .orElse(null);
   }
 
-  private static Map<String, Object> getTablePolicies(Table table) {
+  private static PolicyStats getTablePolicies(Table table) {
     String policies = table.properties().get("policies");
     JsonObject policiesObject = new Gson().fromJson(policies, JsonObject.class);
-    Map<String, Object> policyMap = new HashMap<>();
-
-    if (policies.isEmpty()) {
-      return policyMap;
-    }
-    if (policiesObject.get("retention") != null) {
-      addEntriesToMap(policiesObject.getAsJsonObject("retention"), policyMap);
-    }
-    if (policiesObject.get("sharingEnabled") != null) {
-      policyMap.put(
-          "sharingEnabled", Boolean.valueOf(policiesObject.get("sharingEnabled").getAsString()));
-    }
-
-    return policyMap;
+    return convertObjectToPolicyStats(policiesObject);
   }
 
-  private static RetentionStatsSchema buildRetentionStats(Map<String, Object> retentionPolicy) {
-    return RetentionStatsSchema.builder()
-        .count(
-            retentionPolicy.containsKey("count")
-                ? Integer.parseInt((String) retentionPolicy.get("count"))
-                : 0)
-        .granularity((String) retentionPolicy.getOrDefault("granularity", null))
-        .columnPattern((String) retentionPolicy.getOrDefault("pattern", null))
-        .columnName((String) retentionPolicy.getOrDefault("columnName", null))
-        .build();
-  }
-
-  private static void addEntriesToMap(JsonObject jsonObject, Map<String, Object> map) {
-    Type type = new TypeToken<Map<String, Object>>() {}.getType();
-    for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
-      if (entry.getValue().isJsonObject()) {
-        map.putAll(new Gson().fromJson(entry.getValue().getAsJsonObject(), type));
-      } else {
-        map.put(entry.getKey(), entry.getValue().getAsString());
-      }
+  private static PolicyStats convertObjectToPolicyStats(JsonObject jsonObject) {
+    PolicyStats policyStats = new PolicyStats();
+    // Set defaults
+    RetentionStatsSchema defaultRetentionPolicy = RetentionStatsSchema.builder().count(0).build();
+    policyStats.setRetentionPolicy(defaultRetentionPolicy);
+    HistoryPolicyStatsSchema defaultHistoryPolicy =
+        HistoryPolicyStatsSchema.builder()
+            .maxAge(3)
+            .granularity(TimePartitionSpec.GranularityEnum.DAY.toString())
+            .versions(0)
+            .build();
+    policyStats.setHistoryPolicy(defaultHistoryPolicy);
+    policyStats.setSharingEnabled(false);
+    if (jsonObject == null) {
+      return policyStats;
     }
+    if (jsonObject.has("retention")) {
+      GsonBuilder gsonBuilder = new GsonBuilder();
+      gsonBuilder.registerTypeAdapter(
+          RetentionStatsSchema.class, new RetentionStatsSchema.RetentionPolicyDeserializer());
+      RetentionStatsSchema retentionPolicyStats =
+          gsonBuilder.create().fromJson(jsonObject.get("retention"), RetentionStatsSchema.class);
+      policyStats.setRetentionPolicy(retentionPolicyStats);
+    }
+    if (jsonObject.has("history")) {
+      Gson gson = new Gson();
+      HistoryPolicyStatsSchema historyPolicyStats =
+          gson.fromJson(jsonObject.get("history"), HistoryPolicyStatsSchema.class);
+      policyStats.setHistoryPolicy(historyPolicyStats);
+    }
+    if (jsonObject.has("sharingEnabled")) {
+      policyStats.setSharingEnabled(jsonObject.get("sharingEnabled").getAsBoolean());
+    }
+    return policyStats;
   }
 }
