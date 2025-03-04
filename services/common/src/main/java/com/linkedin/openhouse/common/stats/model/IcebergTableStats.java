@@ -30,7 +30,10 @@ public class IcebergTableStats extends BaseTableMetadata {
 
   private Long oldestSnapshotTimestamp;
 
-  private Long numSnapshots;
+  // Needed to catch false positives when table writes are very infrequent
+  private Long secondOldestSnapshotTimestamp;
+
+  private Integer numSnapshots;
 
   private Long numExistingMetadataJsonFiles;
 

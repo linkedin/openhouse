@@ -744,9 +744,14 @@ public class OperationsTest extends OpenHouseSparkITest {
     List<String> rowValue = new ArrayList<>();
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
-      // Test table with no partition
+      // Test table with no policy
       prepareTable(ops, tableName);
       IcebergTableStats stats = ops.collectTableStats(tableName);
+      Assertions.assertNull(stats.getEarliestPartitionDate());
+
+      // Test table with no partition
+      prepareTableWithPoliciesWithDateColumn(ops, tableName, "30d", false, false);
+      stats = ops.collectTableStats(tableName);
       Assertions.assertNull(stats.getEarliestPartitionDate());
 
       // Test table has sharing policy but no retention policy
@@ -817,7 +822,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getHistoryPolicy().getGranularity(), "DAY");
 
       // Test table with retention policy and sharing set to false
-      prepareTableWithPoliciesWithStringPartition(ops, tableName, "16h", false);
+      prepareTableWithPoliciesWithDateColumn(ops, tableName, "16h", false, true);
       rowValue.add("202%s-07-16");
       populateTableWithStringColumn(ops, tableName, 1, rowValue);
       stats = ops.collectTableStats(tableName);
@@ -826,6 +831,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getRetentionPolicies().getGranularity(), "HOUR");
       Assertions.assertEquals(stats.getRetentionPolicies().getColumnName(), "datepartition");
       Assertions.assertEquals(stats.getRetentionPolicies().getColumnPattern(), "yyyy-MM-dd-HH");
+      Assertions.assertEquals(
+          stats.getOldestSnapshotTimestamp(), stats.getCurrentSnapshotTimestamp());
       rowValue.clear();
 
       // Test table with retention policy with custom string partition without sharing policy set
@@ -862,6 +869,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getHistoryPolicy().getMaxAge(), 2);
       Assertions.assertEquals(stats.getHistoryPolicy().getVersions(), 20);
       Assertions.assertEquals(stats.getHistoryPolicy().getVersions(), 20);
+      Assertions.assertNull(stats.getOldestSnapshotTimestamp());
+      Assertions.assertNull(stats.getCurrentSnapshotTimestamp());
     }
   }
 
@@ -893,6 +902,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       log.info("Loaded table {}, location {}", table.name(), table.location());
       stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(stats.getCurrentSnapshotId(), table.currentSnapshot().snapshotId());
+      Assertions.assertTrue(
+          stats.getCurrentSnapshotTimestamp() > stats.getSecondOldestSnapshotTimestamp());
+      Assertions.assertTrue(
+          stats.getSecondOldestSnapshotTimestamp() > stats.getOldestSnapshotTimestamp());
       Assertions.assertEquals(stats.getNumReferencedDataFiles(), numInserts + 1);
       Assertions.assertEquals(stats.getNumExistingMetadataJsonFiles(), numInserts + 2);
       Assertions.assertEquals(
@@ -923,6 +936,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(stats.getNumSnapshots(), 2);
       Assertions.assertNotEquals(
           stats.getCurrentSnapshotTimestamp(), stats.getOldestSnapshotTimestamp());
+      Assertions.assertEquals(
+          stats.getCurrentSnapshotTimestamp(), stats.getSecondOldestSnapshotTimestamp());
     }
   }
 
@@ -1092,15 +1107,15 @@ public class OperationsTest extends OpenHouseSparkITest {
     Assertions.assertEquals(expectedSnapshotIds, foundSnapshotIds, "Incorrect list of snapshots");
   }
 
-  private static void prepareTableWithPoliciesWithStringPartition(
-      Operations ops, String tableName, String retention, boolean sharing) {
+  private static void prepareTableWithPoliciesWithDateColumn(
+      Operations ops, String tableName, String retention, boolean sharing, boolean isPartitioned) {
+    String tableCreateStatement =
+        String.format("CREATE TABLE %s (data string, datepartition string)", tableName);
+    if (isPartitioned) {
+      tableCreateStatement += " PARTITIONED BY (datepartition)";
+    }
     ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
-    ops.spark()
-        .sql(
-            String.format(
-                "CREATE TABLE %s (data string, datepartition string) PARTITIONED BY (datepartition)",
-                tableName))
-        .show();
+    ops.spark().sql(tableCreateStatement).show();
     ops.spark()
         .sql(
             String.format(

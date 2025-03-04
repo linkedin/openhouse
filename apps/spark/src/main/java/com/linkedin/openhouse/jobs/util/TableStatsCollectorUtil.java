@@ -13,8 +13,10 @@ import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -170,20 +172,22 @@ public final class TableStatsCollectorUtil {
         currentSnapshotId,
         earliestPartitionDate);
 
-    // Find minimum timestamp of all snapshots where snapshots is iterator
-    Long oldestSnapshotTimestamp =
+    List<Long> snapshotTimestamps =
         StreamSupport.stream(table.snapshots().spliterator(), false)
             .map(Snapshot::timestampMillis)
-            .min(Long::compareTo)
-            .orElse(null);
+            .sorted(Long::compareTo)
+            .collect(Collectors.toList());
 
-    Long numSnapshots = StreamSupport.stream(table.snapshots().spliterator(), false).count();
+    Integer numSnapshots = snapshotTimestamps.size();
+    Long oldestSnapshotTimestamp = numSnapshots > 0 ? snapshotTimestamps.get(0) : null;
+    Long secondOldestSnapshotTimestamp = numSnapshots > 1 ? snapshotTimestamps.get(1) : null;
 
     return stats
         .toBuilder()
         .currentSnapshotId(currentSnapshotId)
         .currentSnapshotTimestamp(currentSnapshotTimestamp)
         .oldestSnapshotTimestamp(oldestSnapshotTimestamp)
+        .secondOldestSnapshotTimestamp(secondOldestSnapshotTimestamp)
         .numCurrentSnapshotReferencedDataFiles(countOfDataFiles)
         .totalCurrentSnapshotReferencedDataFilesSizeInBytes(sumOfDataFileSizeBytes)
         .numCurrentSnapshotPositionDeleteFiles(countOfPositionDeleteFiles)
@@ -293,6 +297,7 @@ public final class TableStatsCollectorUtil {
   private static String getEarliestPartitionDate(
       Table table, SparkSession spark, RetentionStatsSchema retentionStatsSchema) {
 
+    // Check if retention policy is present by checking if granularity exists
     if (retentionStatsSchema.getGranularity() == null) {
       return null;
     }
@@ -300,6 +305,10 @@ public final class TableStatsCollectorUtil {
         retentionStatsSchema.getColumnName() != null
             ? retentionStatsSchema.getColumnName()
             : getPartitionColumnName(table);
+    // Table has no partition, we need to avoid AnalysisException
+    if (partitionColumnName == null) {
+      return null;
+    }
 
     Dataset<Row> partitionData =
         SparkTableUtil.loadMetadataTable(spark, table, MetadataTableType.PARTITIONS);

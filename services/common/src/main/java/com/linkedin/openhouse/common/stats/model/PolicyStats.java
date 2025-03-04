@@ -9,4 +9,10 @@ public class PolicyStats {
   Boolean sharingEnabled;
   RetentionStatsSchema retentionPolicy;
   HistoryPolicyStatsSchema historyPolicy;
+
+  public PolicyStats() {
+    this.sharingEnabled = sharingEnabled;
+    this.retentionPolicy = retentionPolicy;
+    this.historyPolicy = historyPolicy;
+  }
 }
