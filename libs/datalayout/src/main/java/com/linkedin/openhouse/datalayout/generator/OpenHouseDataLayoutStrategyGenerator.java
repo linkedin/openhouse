@@ -232,7 +232,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   private Tuple3<Long, Integer, Long> computeFileStats(
       Dataset<FileStat> files, FileContent content) {
     Dataset<FileStat> filesOfContent =
-        files.filter((FilterFunction<FileStat>) file -> file.getContent() == content);
+        files.filter((FilterFunction<FileStat>) file -> file.getContent().equals(content));
 
     if (filesOfContent.count() == 0) {
       return new Tuple3<>(0L, 0, 0L);
