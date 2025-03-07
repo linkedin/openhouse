@@ -11,11 +11,11 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.Builder;
 import org.apache.iceberg.FileContent;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
-import org.apache.spark.api.java.function.ReduceFunction;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import scala.Tuple3;
@@ -231,20 +231,13 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    */
   private Tuple3<Long, Integer, Long> computeFileStats(
       Dataset<FileStat> files, FileContent content) {
-    Dataset<FileStat> filesOfContent =
-        files.filter((FilterFunction<FileStat>) file -> file.getContent() == content);
-
-    if (filesOfContent.count() == 0) {
-      return new Tuple3<>(0L, 0, 0L);
-    }
+    Stream<FileStat> filesOfContent =
+        files.collectAsList().stream().filter(file -> file.getContent().equals(content));
 
     return filesOfContent
-        .map(
-            (MapFunction<FileStat, Tuple3<Long, Integer, Long>>)
-                file -> new Tuple3<>(file.getSizeInBytes(), 1, file.getRecordCount()),
-            Encoders.tuple(Encoders.LONG(), Encoders.INT(), Encoders.LONG()))
+        .map(file -> new Tuple3<>(file.getSizeInBytes(), 1, file.getRecordCount()))
         .reduce(
-            (ReduceFunction<Tuple3<Long, Integer, Long>>)
-                (a, b) -> new Tuple3<>(a._1() + b._1(), a._2() + b._2(), a._3() + b._3()));
+            new Tuple3<>(0L, 0, 0L), // Default value for empty collection
+            (a, b) -> new Tuple3<>(a._1() + b._1(), a._2() + b._2(), a._3() + b._3()));
   }
 }
