@@ -7,5 +7,9 @@ import java.util.List;
 public interface StrategiesDao {
   void save(String fqtn, List<DataLayoutStrategy> strategies);
 
+  void savePartitionScope(String fqtn, List<DataLayoutStrategy> strategies);
+
   List<DataLayoutStrategy> load(String fqtn);
+
+  List<DataLayoutStrategy> loadPartitionScope(String fqtn);
 }
