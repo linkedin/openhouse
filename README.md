@@ -25,6 +25,7 @@
     </a>
   </div>
 </html>
+
 OpenHouse is an open source control plane designed for efficient management of tables within open data lakehouse
 deployments. The control plane comprises a **declarative catalog** and a suite of **data services**. Users can
 seamlessly define Tables, their schemas, and associated metadata declaratively within the catalog.
