@@ -9,7 +9,6 @@ import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -43,36 +42,43 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             .tableFileStats(tableFileStats)
             .tablePartitionStats(tablePartitionStats)
             .build();
-    runInnerTableScope(spark, strategiesGenerator);
-    runInnerPartitionScope(spark, strategiesGenerator);
+    // Run table scope for unpartitioned table, and run both table and partition scope for
+    // partitioned table
+    boolean isPartitioned = ops.getTable(fqtn).spec().isPartitioned();
+    runInnerTableScope(spark, strategiesGenerator, isPartitioned);
+    if (isPartitioned) {
+      runInnerPartitionScope(spark, strategiesGenerator);
+    }
   }
 
   private void runInnerTableScope(
-      SparkSession spark, OpenHouseDataLayoutStrategyGenerator strategiesGenerator) {
-    log.info("Generating strategies for table {}", fqtn);
+      SparkSession spark,
+      OpenHouseDataLayoutStrategyGenerator strategiesGenerator,
+      boolean isPartitioned) {
+    log.info("Generating table-level strategies for table {}", fqtn);
     List<DataLayoutStrategy> strategies = strategiesGenerator.generateTableLevelStrategies();
-    log.info(
-        "Generated {} strategies {}",
-        strategies.size(),
-        strategies.stream().map(Object::toString).collect(Collectors.joining(", ")));
+    log.info("Generated {} strategies for table {}", strategies.size(), fqtn);
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
-    appendToDloStrategiesTable(spark, outputFqtn, strategies, false);
+    appendToDloStrategiesTable(spark, outputFqtn, strategies, false, isPartitioned);
   }
 
   private void runInnerPartitionScope(
       SparkSession spark, OpenHouseDataLayoutStrategyGenerator strategiesGenerator) {
     log.info("Generating partition-level strategies for table {}", fqtn);
     List<DataLayoutStrategy> strategies = strategiesGenerator.generatePartitionLevelStrategies();
-    log.info("Generated {} strategies", strategies.size());
-    appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true);
+    log.info("Generated {} strategies for table {}", strategies.size(), fqtn);
+    StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
+    dao.savePartitionScope(fqtn, strategies);
+    appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true, true);
   }
 
-  private void appendToDloStrategiesTable(
+  protected void appendToDloStrategiesTable(
       SparkSession spark,
       String outputFqtn,
       List<DataLayoutStrategy> strategies,
-      boolean isPartitionScope) {
+      boolean isPartitionScope,
+      boolean isPartitioned) {
     if (outputFqtn != null && !strategies.isEmpty()) {
       createTableIfNotExists(spark, outputFqtn, isPartitionScope);
       List<String> rows = new ArrayList<>();
@@ -96,8 +102,9 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         } else {
           rows.add(
               String.format(
-                  "('%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
+                  "('%s', %b, current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
                   fqtn,
+                  isPartitioned,
                   strategy.getCost(),
                   strategy.getGain(),
                   strategy.getEntropy(),
@@ -143,6 +150,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
           String.format(
               "CREATE TABLE IF NOT EXISTS %s ("
                   + "fqtn STRING, "
+                  + "isPartitioned BOOLEAN, "
                   + "timestamp TIMESTAMP, "
                   + "estimated_compute_cost DOUBLE, "
                   + "estimated_file_count_reduction DOUBLE, "

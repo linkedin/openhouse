@@ -58,8 +58,8 @@ public class IntegrationTest extends OpenHouseSparkITest {
       List<DataLayoutStrategy> strategies = strategyGenerator.generateTableLevelStrategies();
       Assertions.assertEquals(1, strategies.size());
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-      dao.save(testTable, strategies);
-      List<DataLayoutStrategy> retrievedStrategies = dao.load(testTable);
+      dao.savePartitionScope(testTable, strategies);
+      List<DataLayoutStrategy> retrievedStrategies = dao.loadPartitionScope(testTable);
       Assertions.assertEquals(strategies, retrievedStrategies);
     }
   }
