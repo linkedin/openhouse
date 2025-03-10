@@ -13,7 +13,6 @@ import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.spark.sql.SparkSession;
 
 @Slf4j
@@ -45,7 +44,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             .build();
     // Run table scope for unpartitioned table, and run both table and partition scope for
     // partitioned table
-    boolean isPartitioned = ops.getTable(fqtn).spec() != PartitionSpec.unpartitioned();
+    boolean isPartitioned = ops.getTable(fqtn).spec().isPartitioned();
     runInnerTableScope(spark, strategiesGenerator, isPartitioned);
     if (isPartitioned) {
       runInnerPartitionScope(spark, strategiesGenerator);
@@ -58,7 +57,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
       boolean isPartitioned) {
     log.info("Generating table-level strategies for table {}", fqtn);
     List<DataLayoutStrategy> strategies = strategiesGenerator.generateTableLevelStrategies();
-    log.info("Generated {} strategies", strategies.size());
+    log.info("Generated {} strategies for table {}", strategies.size(), fqtn);
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.save(fqtn, strategies);
     appendToDloStrategiesTable(spark, outputFqtn, strategies, false, isPartitioned);
@@ -68,7 +67,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
       SparkSession spark, OpenHouseDataLayoutStrategyGenerator strategiesGenerator) {
     log.info("Generating partition-level strategies for table {}", fqtn);
     List<DataLayoutStrategy> strategies = strategiesGenerator.generatePartitionLevelStrategies();
-    log.info("Generated {} strategies", strategies.size());
+    log.info("Generated {} strategies for table {}", strategies.size(), fqtn);
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
     dao.savePartitionScope(fqtn, strategies);
     appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true, true);
