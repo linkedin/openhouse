@@ -60,7 +60,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     List<DataLayoutStrategy> strategies = strategiesGenerator.generateTableLevelStrategies();
     log.info("Generated {} strategies", strategies.size());
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-    dao.save(fqtn, strategies, false);
+    dao.save(fqtn, strategies);
     appendToDloStrategiesTable(spark, outputFqtn, strategies, false, isPartitioned);
   }
 
@@ -70,7 +70,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     List<DataLayoutStrategy> strategies = strategiesGenerator.generatePartitionLevelStrategies();
     log.info("Generated {} strategies", strategies.size());
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-    dao.save(fqtn, strategies, true);
+    dao.savePartitionScope(fqtn, strategies);
     appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true, true);
   }
 
@@ -103,7 +103,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         } else {
           rows.add(
               String.format(
-                  "('%s', '%b', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
+                  "('%s', %b, current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
                   fqtn,
                   isPartitioned,
                   strategy.getCost(),

@@ -20,8 +20,8 @@ public class StrategiesDaoTablePropsTest extends OpenHouseSparkITest {
       // validate up-to 100 strategies can be saved and loaded
       List<DataLayoutStrategy> strategyList = Collections.nCopies(100, strategy);
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-      dao.save(testTable, strategyList, false);
-      Assertions.assertEquals(strategyList, dao.load(testTable, false));
+      dao.save(testTable, strategyList);
+      Assertions.assertEquals(strategyList, dao.load(testTable));
     }
   }
 

@@ -26,26 +26,46 @@ public class StrategiesDaoTableProps implements StrategiesDao {
   private final SparkSession spark;
 
   @Override
-  public void save(String fqtn, List<DataLayoutStrategy> strategies, boolean isPartitionScope) {
-    String key =
-        isPartitionScope
-            ? DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY
-            : DATA_LAYOUT_STRATEGIES_PROPERTY_KEY;
+  public void save(String fqtn, List<DataLayoutStrategy> strategies) {
     String propValue = serialize(strategies);
     log.info("Saving strategies {} for table {}", propValue, fqtn);
     spark.sql(
-        String.format("ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')", fqtn, key, propValue));
+        String.format(
+            "ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')",
+            fqtn, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY, propValue));
   }
 
   @Override
-  public List<DataLayoutStrategy> load(String fqtn, boolean isPartitionScope) {
-    String key =
-        isPartitionScope
-            ? DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY
-            : DATA_LAYOUT_STRATEGIES_PROPERTY_KEY;
+  public void savePartitionScope(String fqtn, List<DataLayoutStrategy> strategies) {
+    String propValue = serialize(strategies);
+    log.info("Saving partition level strategies {} for table {}", propValue, fqtn);
+    spark.sql(
+        String.format(
+            "ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')",
+            fqtn, DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY, propValue));
+  }
+
+  @Override
+  public List<DataLayoutStrategy> load(String fqtn) {
     String propValue =
         spark
-            .sql(String.format("SHOW TBLPROPERTIES %s ('%s')", fqtn, key))
+            .sql(
+                String.format(
+                    "SHOW TBLPROPERTIES %s ('%s')", fqtn, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY))
+            .collectAsList()
+            .get(0)
+            .getString(1);
+    return deserializeList(propValue);
+  }
+
+  @Override
+  public List<DataLayoutStrategy> loadPartitionScope(String fqtn) {
+    String propValue =
+        spark
+            .sql(
+                String.format(
+                    "SHOW TBLPROPERTIES %s ('%s')",
+                    fqtn, DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY))
             .collectAsList()
             .get(0)
             .getString(1);
