@@ -25,6 +25,7 @@ singleStatement
 statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
+  | ALTER TABLE multipartIdentifier UNSET POLICY replication                                           #unSetReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' historyPolicy ')'                                   #setHistoryPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
@@ -86,8 +87,12 @@ columnRetentionPolicy
     : ON columnNameClause (columnRetentionPolicyPatternClause)?
     ;
 
+replication
+    : REPLICATION
+    ;
+
 replicationPolicy
-    : REPLICATION '=' tableReplicationPolicy
+    : replication '=' tableReplicationPolicy
     ;
 
 tableReplicationPolicy
@@ -170,6 +175,7 @@ versions
 ALTER: 'ALTER';
 TABLE: 'TABLE';
 SET: 'SET';
+UNSET: 'UNSET';
 POLICY: 'POLICY';
 RETENTION: 'RETENTION';
 REPLICATION: 'REPLICATION';

@@ -1,10 +1,15 @@
 package com.linkedin.openhouse.spark.catalogtest;
 
 import com.google.common.collect.Sets;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -15,6 +20,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.StructField;
@@ -128,6 +134,41 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testAlterTableUnsetReplicationPolicy() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("CREATE TABLE openhouse.d1.`ttt1` (name string)");
+      spark.sql("INSERT INTO openhouse.d1.ttt1 VALUES ('foo')");
+      spark.sql(
+          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (REPLICATION=({destination:'WAR', interval:12h}))");
+      Policies policies = getPoliciesObj("openhouse.d1.ttt1", spark);
+      Assertions.assertNotNull(policies);
+      Assertions.assertEquals(
+          "'WAR'", policies.getReplication().getConfig().get(0).getDestination());
+      // unset replication policy
+      spark.sql("ALTER TABLE openhouse.d1.ttt1 UNSET POLICY REPLICATION");
+      Policies updatedPolicy = getPoliciesObj("openhouse.d1.ttt1", spark);
+      Assertions.assertEquals(updatedPolicy.getReplication().getConfig().size(), 0);
+
+      // assert retention can be set after unsetting replication
+      spark.sql(
+          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (RETENTION = 30D on COLUMN name WHERE pattern = 'yyyy')");
+      Policies policyWithRetention = getPoliciesObj("openhouse.d1.ttt1", spark);
+      Assertions.assertNotNull(policyWithRetention);
+      Assertions.assertEquals(
+          "'yyyy'", policyWithRetention.getRetention().getColumnPattern().getPattern());
+      Assertions.assertEquals(0, policyWithRetention.getReplication().getConfig().size());
+
+      // check replication can be set again after retention policy
+      spark.sql(
+          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (REPLICATION=({destination:'WAR', interval:12h}))");
+      Policies policyWithReplication = getPoliciesObj("openhouse.d1.ttt1", spark);
+      Assertions.assertNotNull(policyWithReplication);
+      Assertions.assertEquals(
+          "'WAR'", policyWithReplication.getReplication().getConfig().get(0).getDestination());
+    }
+  }
+
+  @Test
   public void testCreateReplicaSkipFieldIdReassignmentPartitionedTable() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       Catalog icebergCatalog = getOpenHouseCatalog(spark);
@@ -184,5 +225,14 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
         "openhouse",
         catalogProperties,
         spark.sparkContext().hadoopConfiguration());
+  }
+
+  private Policies getPoliciesObj(String tableName, SparkSession spark) {
+    List<Row> props = spark.sql(String.format("show tblProperties %s", tableName)).collectAsList();
+    Map<String, String> collect =
+        props.stream().collect(Collectors.toMap(r -> r.getString(0), r -> r.getString(1)));
+    String policiesStr = String.valueOf(collect.get("policies"));
+    Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    return gson.fromJson(policiesStr, Policies.class);
   }
 }
