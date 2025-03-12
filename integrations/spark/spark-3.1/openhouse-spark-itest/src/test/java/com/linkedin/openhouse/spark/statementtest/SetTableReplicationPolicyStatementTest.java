@@ -63,7 +63,7 @@ public class SetTableReplicationPolicyStatementTest {
   @Test
   public void testSimpleUnSetReplicationPolicy() {
     String replicationConfigJson = "{replication: null}";
-    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table UNSET POLICY REPLICATION");
+    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table UNSET POLICY (REPLICATION)");
     assert isUnSetPlanValid(ds, replicationConfigJson);
   }
 

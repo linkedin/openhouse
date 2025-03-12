@@ -25,7 +25,7 @@ singleStatement
 statement
   : ALTER TABLE multipartIdentifier SET POLICY '(' retentionPolicy (columnRetentionPolicy)? ')'        #setRetentionPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' replicationPolicy ')'                               #setReplicationPolicy
-  | ALTER TABLE multipartIdentifier UNSET POLICY replication                                           #unSetReplicationPolicy
+  | ALTER TABLE multipartIdentifier UNSET POLICY '(' replication ')'                                   #unSetReplicationPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' historyPolicy ')'                                   #setHistoryPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag

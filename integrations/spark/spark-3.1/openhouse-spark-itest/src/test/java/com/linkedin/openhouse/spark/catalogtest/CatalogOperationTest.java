@@ -145,7 +145,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           "'WAR'", policies.getReplication().getConfig().get(0).getDestination());
       // unset replication policy
-      spark.sql("ALTER TABLE openhouse.d1.ttt1 UNSET POLICY REPLICATION");
+      spark.sql("ALTER TABLE openhouse.d1.ttt1 UNSET POLICY (REPLICATION)");
       Policies updatedPolicy = getPoliciesObj("openhouse.d1.ttt1", spark);
       Assertions.assertEquals(updatedPolicy.getReplication().getConfig().size(), 0);
 
