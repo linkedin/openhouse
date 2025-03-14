@@ -1063,6 +1063,30 @@ public class TablesControllerTest {
     Assertions.assertTrue(
         RequestAndValidateHelper.validateCronSchedule(updatedReplication.get("cronSchedule")));
 
+    Replication nullReplication = Replication.builder().config(new ArrayList<>()).build();
+    Policies newPoliciesNullRepl = Policies.builder().replication(nullReplication).build();
+
+    GetTableResponseBody newContainer =
+        GetTableResponseBody.builder().policies(newPoliciesNullRepl).build();
+    GetTableResponseBody addNullProp = buildGetTableResponseBody(mvcResult, newContainer);
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            addProp.getDatabaseId(),
+                            addProp.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(addNullProp).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    LinkedHashMap<String, String> updatedNullReplication =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies.replication");
+
+    Assertions.assertTrue(updatedNullReplication.containsKey("config"));
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 

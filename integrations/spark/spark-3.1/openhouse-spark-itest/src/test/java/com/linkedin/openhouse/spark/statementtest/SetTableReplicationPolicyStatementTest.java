@@ -61,6 +61,13 @@ public class SetTableReplicationPolicyStatementTest {
   }
 
   @Test
+  public void testSimpleUnSetReplicationPolicy() {
+    String replicationConfigJson = "{replication: null}";
+    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table UNSET POLICY (REPLICATION)");
+    assert isUnSetPlanValid(ds, replicationConfigJson);
+  }
+
+  @Test
   public void testSimpleSetReplicationPolicyOptionalInterval() {
     // Test with optional interval
     String replicationConfigJson = "[{\"destination\":\"a\"}]";
@@ -240,5 +247,12 @@ public class SetTableReplicationPolicyStatementTest {
       }
     }
     return isValid;
+  }
+
+  @SneakyThrows
+  private boolean isUnSetPlanValid(Dataset<Row> dataframe, String replicationConfigJson) {
+    String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
+    JsonObject json = new Gson().fromJson(replicationConfigJson, JsonObject.class);
+    return queryStr.contains("REPLICATION") && json.has("replication");
   }
 }

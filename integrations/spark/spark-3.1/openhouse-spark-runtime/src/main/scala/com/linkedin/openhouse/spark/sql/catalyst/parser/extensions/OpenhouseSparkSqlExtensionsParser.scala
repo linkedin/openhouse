@@ -67,6 +67,7 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
       .trim()
     (normalized.startsWith("alter table") &&
       (normalized.contains("set policy")) ||
+      (normalized.contains("unset policy")) ||
       (normalized.contains("modify column") &&
         normalized.contains("set tag"))) ||
       normalized.startsWith("grant") ||
