@@ -140,14 +140,24 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       spark.sql("INSERT INTO openhouse.d1.ttt1 VALUES ('foo')");
       spark.sql(
           "ALTER TABLE openhouse.d1.ttt1 SET POLICY (REPLICATION=({destination:'WAR', interval:12h}))");
+      spark.sql(
+          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (RETENTION= 30d on column name where pattern='yyyy-MM-dd')");
       Policies policies = getPoliciesObj("openhouse.d1.ttt1", spark);
       Assertions.assertNotNull(policies);
       Assertions.assertEquals(
           "'WAR'", policies.getReplication().getConfig().get(0).getDestination());
+      Assertions.assertNotNull(policies.getRetention());
+      Assertions.assertEquals(
+          "'yyyy-MM-dd'", policies.getRetention().getColumnPattern().getPattern());
+
       // unset replication policy
       spark.sql("ALTER TABLE openhouse.d1.ttt1 UNSET POLICY (REPLICATION)");
       Policies updatedPolicy = getPoliciesObj("openhouse.d1.ttt1", spark);
       Assertions.assertEquals(updatedPolicy.getReplication().getConfig().size(), 0);
+      // assert that other policies, retention is not modified after unsetting replication
+      Assertions.assertNotNull(policies.getRetention());
+      Assertions.assertEquals(
+          "'yyyy-MM-dd'", policies.getRetention().getColumnPattern().getPattern());
 
       // assert retention can be set after unsetting replication
       spark.sql(
