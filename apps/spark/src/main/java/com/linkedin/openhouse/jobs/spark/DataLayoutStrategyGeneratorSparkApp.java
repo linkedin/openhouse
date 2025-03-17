@@ -102,9 +102,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         } else {
           rows.add(
               String.format(
-                  "('%s', %b, current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
+                  "('%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d, %b)",
                   fqtn,
-                  isPartitioned,
                   strategy.getCost(),
                   strategy.getGain(),
                   strategy.getEntropy(),
@@ -113,7 +112,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   strategy.getPosDeleteFileBytes(),
                   strategy.getEqDeleteFileBytes(),
                   strategy.getPosDeleteRecordCount(),
-                  strategy.getEqDeleteRecordCount()));
+                  strategy.getEqDeleteRecordCount(),
+                  isPartitioned));
         }
       }
       String strategiesInsertStmt =
@@ -150,7 +150,6 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
           String.format(
               "CREATE TABLE IF NOT EXISTS %s ("
                   + "fqtn STRING, "
-                  + "isPartitioned BOOLEAN, "
                   + "timestamp TIMESTAMP, "
                   + "estimated_compute_cost DOUBLE, "
                   + "estimated_file_count_reduction DOUBLE, "
@@ -160,7 +159,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   + "pos_delete_file_bytes LONG, "
                   + "eq_delete_file_bytes LONG,"
                   + "pos_delete_record_count LONG, "
-                  + "eq_delete_record_count LONG"
+                  + "eq_delete_record_count LONG, "
+                  + "isPartitioned BOOLEAN"
                   + ") "
                   + "PARTITIONED BY (days(timestamp))",
               outputFqtn));
