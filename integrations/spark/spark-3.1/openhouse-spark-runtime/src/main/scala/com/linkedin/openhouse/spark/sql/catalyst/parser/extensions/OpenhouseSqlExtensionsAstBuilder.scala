@@ -2,7 +2,7 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
@@ -31,6 +31,12 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
     val replicationPolicies = typedVisit[Seq[(String, Option[String])]](ctx.replicationPolicy())
     SetReplicationPolicy(tableName, replicationPolicies)
+  }
+
+  override def visitUnSetReplicationPolicy(ctx: UnSetReplicationPolicyContext): UnSetReplicationPolicy = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val replicationPolicies = typedVisit[String](ctx.replication())
+    UnSetReplicationPolicy(tableName, replicationPolicies)
   }
 
   override def visitSetSharingPolicy(ctx: SetSharingPolicyContext): SetSharingPolicy = {
@@ -131,6 +137,11 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   override def visitColumnRetentionPolicyPatternClause(ctx: ColumnRetentionPolicyPatternClauseContext): String = {
     ctx.retentionColumnPatternClause().STRING().getText
   }
+
+  override def visitReplication(ctx: ReplicationContext): String =
+    {
+      ctx.REPLICATION().getText
+    }
 
   override def visitSharingPolicy(ctx: SharingPolicyContext): String = {
     ctx.BOOLEAN().getText
