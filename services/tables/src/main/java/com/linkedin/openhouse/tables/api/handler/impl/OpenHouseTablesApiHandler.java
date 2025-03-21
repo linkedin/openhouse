@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -139,5 +140,17 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
                         .collect(Collectors.toList()))
                 .build())
         .build();
+  }
+
+  @Override
+  public ApiResponse<Void> updateLockState(
+      String databaseId,
+      String tableId,
+      UpdateLockedStateRequestBody updateLockedStateRequestBody,
+      String tableCreatorUpdator) {
+    tablesApiValidator.validateUpdateLockStatus(databaseId, tableId, updateLockedStateRequestBody);
+    tableService.updateLockStatus(
+        databaseId, tableId, updateLockedStateRequestBody, tableCreatorUpdator);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 }

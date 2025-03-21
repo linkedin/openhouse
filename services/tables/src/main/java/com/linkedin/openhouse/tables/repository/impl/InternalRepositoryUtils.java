@@ -73,11 +73,13 @@ public final class InternalRepositoryUtils {
    * Return only the user defined table properties by excluding preserved keys as well as policies.
    */
   static Map<String, String> getUserTblProps(
-      Map<String, String> rawTableProps, PreservedKeyChecker checker, TableDto tableDto) {
-    Map<String, String> result = new HashMap<>(rawTableProps);
-    rawTableProps.forEach(
+      Map<String, String> existingTableProps,
+      PreservedKeyChecker checker,
+      TableDto providedTableDto) {
+    Map<String, String> result = new HashMap<>(existingTableProps);
+    existingTableProps.forEach(
         (k, v) -> {
-          if (checker.isKeyPreservedForTable(k, tableDto)) {
+          if (checker.isKeyPreservedForTable(k, providedTableDto)) {
             result.remove(k);
           }
         });
@@ -148,6 +150,7 @@ public final class InternalRepositoryUtils {
             .clustering(partitionSpecMapper.toClusteringSpec(table))
             .policies(policiesMapper.toPoliciesObject(megaProps.get("policies")))
             .tableType(tableTypeMapper.toTableType(table))
+            .locked(Boolean.parseBoolean(megaProps.get(getCanonicalFieldName("isLocked"))))
             .jsonSnapshots(null)
             .tableProperties(megaProps)
             .build();

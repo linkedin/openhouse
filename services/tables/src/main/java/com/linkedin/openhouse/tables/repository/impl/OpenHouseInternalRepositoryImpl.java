@@ -62,6 +62,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
+  private static final String IS_LOCKED_KEY = "isLocked";
 
   @Autowired Catalog catalog;
 
@@ -330,6 +331,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     propertiesMap.put(
         TableProperties.FORMAT_VERSION,
         Integer.toString(clusterProperties.getClusterIcebergFormatVersion()));
+    propertiesMap.put(getCanonicalFieldName(IS_LOCKED_KEY), "false");
 
     return propertiesMap;
   }

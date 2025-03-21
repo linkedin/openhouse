@@ -14,6 +14,7 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -620,6 +621,26 @@ public class TablesServiceTest {
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(false);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.deleteTable(
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testUpdateLockedStateForaTable() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+    UpdateLockedStateRequestBody updateLockedStateRequestBody =
+        UpdateLockedStateRequestBody.builder().locked(true).build();
+    tablesService.updateLockStatus(
+        tableDtoCopy.getDatabaseId(),
+        tableDtoCopy.getTableId(),
+        updateLockedStateRequestBody,
+        TEST_USER);
+    TableDto result =
+        tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertTrue(result.getPolicies().getLockState().isLocked());
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(

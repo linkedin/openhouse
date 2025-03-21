@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.dto.mapper.iceberg;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
@@ -100,6 +101,10 @@ public class PoliciesSpecMapper {
               .toBuilder()
               .replication(mapReplicationPolicies(policies.getReplication()))
               .build();
+    }
+    if (policies != null && policies.getLockState() == null) {
+      LockState lockState = LockState.builder().isLocked(false).build();
+      updatedPolicies.toBuilder().lockState(lockState).build();
     }
     return updatedPolicies;
   }

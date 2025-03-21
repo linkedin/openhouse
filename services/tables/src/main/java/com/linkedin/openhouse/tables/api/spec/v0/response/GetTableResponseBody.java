@@ -96,7 +96,7 @@ public class GetTableResponseBody {
 
   @Schema(description = "The type of a table", example = "PRIMARY_TABLE")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
-  private TableType tableType;
+  private TableType tableType;;
 
   public String toJson() {
     return new Gson().toJson(this);

@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -288,6 +289,41 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAclPoliciesResponseBody> apiResponse =
         tablesApiHandler.getAclPoliciesForUserPrincipal(
             databaseId, tableId, extractAuthenticatedUserPrincipal(), principal);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Update locked state for Table",
+      description = "Updates locked state for a table identified by databaseId and tableId",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock PATCH: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock PATCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock PATCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock PATCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND")
+      })
+  @PatchMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/{tableId}/lock",
+        "/v1/databases/{databaseId}/tables/{tableId}/lock"
+      },
+      produces = {"application/json"})
+  public ResponseEntity<Void> updateLockedState(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(
+              description = "Request containing locked state of the Table to be created/updated",
+              required = true,
+              schema = @Schema(implementation = UpdateLockedStateRequestBody.class))
+          @RequestBody
+          UpdateLockedStateRequestBody updateLockedStateRequestBody) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.updateLockState(
+            databaseId, tableId, updateLockedStateRequestBody, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
