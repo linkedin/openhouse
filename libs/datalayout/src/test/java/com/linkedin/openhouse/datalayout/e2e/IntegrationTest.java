@@ -2,6 +2,7 @@ package com.linkedin.openhouse.datalayout.e2e;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
+import com.linkedin.openhouse.datalayout.datasource.TableSnapshotStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
@@ -25,10 +26,13 @@ public class IntegrationTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       TablePartitionStats tablePartitionStats =
           TablePartitionStats.builder().tableName(testTable).spark(spark).build();
+      TableSnapshotStats tableSnapshotStats =
+          TableSnapshotStats.builder().tableName(testTable).spark(spark).build();
       OpenHouseDataLayoutStrategyGenerator strategyGenerator =
           OpenHouseDataLayoutStrategyGenerator.builder()
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
+              .tableSnapshotStats(tableSnapshotStats)
               .build();
       List<DataLayoutStrategy> strategies = strategyGenerator.generatePartitionLevelStrategies();
       Assertions.assertEquals(10, strategies.size());
@@ -50,10 +54,13 @@ public class IntegrationTest extends OpenHouseSparkITest {
           TableFileStats.builder().tableName(testTable).spark(spark).build();
       TablePartitionStats tablePartitionStats =
           TablePartitionStats.builder().tableName(testTable).spark(spark).build();
+      TableSnapshotStats tableSnapshotStats =
+          TableSnapshotStats.builder().tableName(testTable).spark(spark).build();
       OpenHouseDataLayoutStrategyGenerator strategyGenerator =
           OpenHouseDataLayoutStrategyGenerator.builder()
               .tableFileStats(tableFileStats)
               .tablePartitionStats(tablePartitionStats)
+              .tableSnapshotStats(tableSnapshotStats)
               .build();
       List<DataLayoutStrategy> strategies = strategyGenerator.generateTableLevelStrategies();
       Assertions.assertEquals(1, strategies.size());

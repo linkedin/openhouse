@@ -3,14 +3,17 @@ package com.linkedin.openhouse.datalayout.generator;
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.datasource.FileStat;
 import com.linkedin.openhouse.datalayout.datasource.PartitionStat;
+import com.linkedin.openhouse.datalayout.datasource.SnapshotStat;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
+import com.linkedin.openhouse.datalayout.datasource.TableSnapshotStats;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import lombok.Builder;
 import org.apache.iceberg.FileContent;
@@ -38,8 +41,10 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   private static final int REWRITE_PARALLELISM = 900; // number of Spark tasks to run in parallel
   private static final long TARGET_BYTES_SIZE = 2 * FILE_BLOCK_SIZE_BYTES - FILE_BLOCK_MARGIN_BYTES;
   private static final double COMPUTE_STARTUP_COST_GB_HR = 0.5;
+  private static final int LAST_SNAPSHOT_LOOKBACK_DAYS = 7;
   private final TableFileStats tableFileStats;
   private final TablePartitionStats tablePartitionStats;
+  private final TableSnapshotStats tableSnapshotStats;
 
   /**
    * Generate a list of data layout optimization strategies based on the table file stats and
@@ -140,6 +145,14 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     double computeGbHr = estimateComputeGbHr(rewriteFileBytes);
     // computeGbHr >= COMPUTE_STARTUP_COST_GB_HR
     double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
+
+    // don't discount for partitioned tables
+    double fileCountReductionDiscount = 0.0;
+    if (partitionValues == null) {
+      fileCountReductionDiscount =
+          computeFileCountReductionDiscount(tableSnapshotStats.get(), LAST_SNAPSHOT_LOOKBACK_DAYS);
+    }
+
     DataCompactionConfig config = buildDataCompactionConfig(rewriteFileBytes, partitionCount);
     return Optional.of(
         DataLayoutStrategy.builder()
@@ -159,6 +172,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
             .eqDeleteFileCount(eqDeleteStats._2())
             .posDeleteRecordCount(posDeleteStats._3())
             .eqDeleteRecordCount(eqDeleteStats._3())
+            .fileCountReductionDiscount(fileCountReductionDiscount)
             .build());
   }
 
@@ -191,6 +205,22 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
         .maxConcurrentFileGroupRewrites(maxConcurrentFileGroupRewrites)
         .maxByteSizeRatio(MAX_BYTES_SIZE_RATIO) // don't split large files
         .build();
+  }
+
+  private double computeFileCountReductionDiscount(
+      Dataset<SnapshotStat> snapshotStats, int lookbackDays) {
+    long snapshotCount =
+        snapshotStats
+            .filter(
+                (FilterFunction<SnapshotStat>)
+                    snapshotStat ->
+                        snapshotStat.getCommittedAt()
+                            >= System.currentTimeMillis() - TimeUnit.DAYS.toMillis(lookbackDays))
+            .count();
+    // if there are new snapshots committed in the past N days,
+    // then assume file count reduction is 0,
+    // because the table could have been overwritten
+    return snapshotCount == 0 ? 0.0 : 1.0;
   }
 
   private long estimateReducedFileCount(long rewriteFileBytes, int rewriteFileCount) {

@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
+import com.linkedin.openhouse.datalayout.datasource.TableSnapshotStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
@@ -37,10 +38,13 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     TableFileStats tableFileStats = TableFileStats.builder().tableName(fqtn).spark(spark).build();
     TablePartitionStats tablePartitionStats =
         TablePartitionStats.builder().tableName(fqtn).spark(spark).build();
+    TableSnapshotStats tableSnapshotStats =
+        TableSnapshotStats.builder().tableName(fqtn).spark(spark).build();
     OpenHouseDataLayoutStrategyGenerator strategiesGenerator =
         OpenHouseDataLayoutStrategyGenerator.builder()
             .tableFileStats(tableFileStats)
             .tablePartitionStats(tablePartitionStats)
+            .tableSnapshotStats(tableSnapshotStats)
             .build();
     // Run table scope for unpartitioned table, and run both table and partition scope for
     // partitioned table
