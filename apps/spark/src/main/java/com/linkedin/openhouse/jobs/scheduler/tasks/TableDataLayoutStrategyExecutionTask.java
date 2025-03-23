@@ -62,6 +62,6 @@ public class TableDataLayoutStrategyExecutionTask
 
   @Override
   protected boolean shouldRun() {
-    return metadata.isPrimary() && (metadata.isTimePartitioned() || metadata.isClustered());
+    return metadata.isPrimary();
   }
 }

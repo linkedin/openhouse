@@ -75,7 +75,7 @@ public class OperationTasksBuilder {
     // filter out non-primary and non-clustered/time-partitioned tables before ranking
     tableDataLayoutMetadataList =
         tableDataLayoutMetadataList.stream()
-            .filter(m -> m.isPrimary() && (m.isClustered() || m.isTimePartitioned()))
+            .filter(TableMetadata::isPrimary)
             .collect(Collectors.toList());
     log.info("Fetched metadata for {} data layout strategies", tableDataLayoutMetadataList.size());
     List<DataLayoutStrategy> strategies =
