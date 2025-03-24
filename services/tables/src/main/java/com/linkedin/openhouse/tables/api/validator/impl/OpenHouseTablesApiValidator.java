@@ -9,7 +9,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import java.util.ArrayList;
@@ -251,11 +251,9 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   @Override
-  public void validateUpdateLockStatus(
-      String databaseId,
-      String tableId,
-      UpdateLockedStateRequestBody updateLockedStateRequestBody) {
-    return;
+  public void validateUpdateLock(
+      String databaseId, String tableId, UpdateLockRequestBody updateLockRequestBody) {
+    validateGetTable(databaseId, tableId);
   }
 
   private void validateDatabaseId(String databaseId, List<String> validationFailures) {

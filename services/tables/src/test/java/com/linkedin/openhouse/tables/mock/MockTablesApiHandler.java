@@ -12,7 +12,7 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -189,10 +189,10 @@ public class MockTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> updateLockState(
+  public ApiResponse<Void> updateLock(
       String databaseId,
       String tableId,
-      UpdateLockedStateRequestBody updateLockedStateRequestBody,
+      UpdateLockRequestBody updateLockRequestBody,
       String tableCreatorUpdator) {
     switch (databaseId) {
       case "d204":

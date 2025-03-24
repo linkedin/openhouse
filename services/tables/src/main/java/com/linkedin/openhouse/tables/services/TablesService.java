@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -98,12 +98,12 @@ public interface TablesService {
   /**
    * @param databaseId
    * @param tableId
-   * @param updateLockedStateRequestBody
+   * @param updateLockRequestBody
    * @param tableCreatorUpdator
    */
-  void updateLockStatus(
+  void updateLock(
       String databaseId,
       String tableId,
-      UpdateLockedStateRequestBody updateLockedStateRequestBody,
+      UpdateLockRequestBody updateLockRequestBody,
       String tableCreatorUpdator);
 }

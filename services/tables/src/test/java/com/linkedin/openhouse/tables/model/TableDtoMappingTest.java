@@ -25,8 +25,7 @@ public class TableDtoMappingTest {
   private static final Set<String> FIELDS_INTO_SPEC =
       ImmutableSet.of("schema", "timePartitioning", "tableProperties", "clustering");
   private static final Set<String> FIELDS_UNMAPPABLE =
-      ImmutableSet.of(
-          "stageCreate", "jsonSnapshots", "snapshotRefs", "policies", "tableType", "locked");
+      ImmutableSet.of("stageCreate", "jsonSnapshots", "snapshotRefs", "policies", "tableType");
 
   /** Making all fields making it to map is expected, and all expected field are making it there. */
   @Test
@@ -53,7 +52,6 @@ public class TableDtoMappingTest {
             .snapshotRefs(snapshotRefs)
             .schema(HEALTH_SCHEMA_LITERAL)
             .policies(TABLE_POLICIES)
-            .locked(false)
             .tableType(TableType.PRIMARY_TABLE)
             .build();
 

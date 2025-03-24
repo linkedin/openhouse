@@ -150,7 +150,6 @@ public final class InternalRepositoryUtils {
             .clustering(partitionSpecMapper.toClusteringSpec(table))
             .policies(policiesMapper.toPoliciesObject(megaProps.get("policies")))
             .tableType(tableTypeMapper.toTableType(table))
-            .locked(Boolean.parseBoolean(megaProps.get(getCanonicalFieldName("isLocked"))))
             .jsonSnapshots(null)
             .tableProperties(megaProps)
             .build();

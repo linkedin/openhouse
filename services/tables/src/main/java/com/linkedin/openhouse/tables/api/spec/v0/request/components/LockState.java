@@ -18,6 +18,6 @@ public class LockState {
   @Builder.Default
   boolean isLocked = false;
 
-  @Schema(description = "Policy tags", example = "PII, HC")
-  String reason;
+  @Schema(description = "message for locking", example = "")
+  String message;
 }

@@ -9,7 +9,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -233,31 +233,50 @@ public class TablesServiceImpl implements TablesService {
     return authorizationHandler.listAclPolicies(tableDto, userPrincipal);
   }
 
+  /**
+   * Updates the lock state on a table if boolean lock state if different from existing state.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param updateLockRequestBody
+   * @param tableCreatorUpdater
+   */
   @Override
-  public void updateLockStatus(
+  public void updateLock(
       String databaseId,
       String tableId,
-      UpdateLockedStateRequestBody updateLockedStateRequestBody,
+      UpdateLockRequestBody updateLockRequestBody,
       String tableCreatorUpdater) {
     TableDto tableDto =
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    if (tableDto.isLocked() != updateLockedStateRequestBody.isLocked()) {
-      authorizationUtils.checkTableWritePathPrivileges(
-          tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-
-      LockState lockState =
-          LockState.builder().isLocked(updateLockedStateRequestBody.isLocked()).reason("").build();
-      Policies policiesToSave = tableDto.getPolicies().toBuilder().lockState(lockState).build();
-      TableDto tableDtoToSave =
-          tableDto
-              .toBuilder()
-              .policies(policiesToSave)
-              .tableVersion(tableDto.getTableLocation())
-              .build();
-      saveTableDto(tableDtoToSave, Optional.of(tableDto));
+    authorizationUtils.checkTableWritePathPrivileges(
+        tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+    Policies policiesToSave = tableDto.getPolicies();
+    LockState lockState =
+        LockState.builder()
+            .isLocked(updateLockRequestBody.isLocked())
+            .message(updateLockRequestBody.getMessage())
+            .build();
+    if (tableDto.getPolicies() != null) {
+      if (tableDto.getPolicies().getLockState() != null
+          && tableDto.getPolicies().getLockState().isLocked() != updateLockRequestBody.isLocked()) {
+        // should allow updating lock on a table with different reason
+        policiesToSave = tableDto.getPolicies().toBuilder().lockState(lockState).build();
+      } else {
+        policiesToSave = policiesToSave.toBuilder().lockState(lockState).build();
+      }
+    } else {
+      policiesToSave = Policies.builder().lockState(lockState).build();
     }
+    TableDto tableDtoToSave =
+        tableDto
+            .toBuilder()
+            .policies(policiesToSave)
+            .tableVersion(tableDto.getTableLocation())
+            .build();
+    saveTableDto(tableDtoToSave, Optional.of(tableDto));
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */

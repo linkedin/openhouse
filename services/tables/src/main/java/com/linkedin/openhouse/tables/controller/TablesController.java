@@ -5,7 +5,7 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -311,19 +311,19 @@ public class TablesController {
         "/v1/databases/{databaseId}/tables/{tableId}/lock"
       },
       produces = {"application/json"})
-  public ResponseEntity<Void> updateLockedState(
+  public ResponseEntity<Void> updateLock(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
       @Parameter(
               description = "Request containing locked state of the Table to be created/updated",
               required = true,
-              schema = @Schema(implementation = UpdateLockedStateRequestBody.class))
+              schema = @Schema(implementation = UpdateLockRequestBody.class))
           @RequestBody
-          UpdateLockedStateRequestBody updateLockedStateRequestBody) {
+          UpdateLockRequestBody updateLockRequestBody) {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
-        tablesApiHandler.updateLockState(
-            databaseId, tableId, updateLockedStateRequestBody, extractAuthenticatedUserPrincipal());
+        tablesApiHandler.updateLock(
+            databaseId, tableId, updateLockRequestBody, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

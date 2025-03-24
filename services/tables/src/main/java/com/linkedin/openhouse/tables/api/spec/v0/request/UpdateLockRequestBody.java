@@ -16,11 +16,14 @@ import lombok.NoArgsConstructor;
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class UpdateLockedStateRequestBody {
+public class UpdateLockRequestBody {
   @Schema(description = "locked state to be updated for table.")
   @NotEmpty(message = "locked cannot be cannot be empty")
   @NotNull(message = "locked State cannot be null")
   boolean locked;
+
+  @Schema(description = "reason for locking the table")
+  String message;
 
   public String toJson() {
     return new GsonBuilder().serializeNulls().create().toJson(this);

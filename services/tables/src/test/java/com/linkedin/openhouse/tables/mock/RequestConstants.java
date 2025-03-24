@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.mock;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -114,4 +115,7 @@ public final class RequestConstants {
       AclPolicy.builder().principal("TEST_USER").role("TABLE_ADMIN").build();
   public static final GetAclPoliciesResponseBody TEST_GET_ACL_POLICIES_RESPONSE_BODY =
       GetAclPoliciesResponseBody.builder().results(Collections.singletonList(ACL_POLICY)).build();
+
+  public static final UpdateLockRequestBody TEST_UPDATE_LOCK_POLICIES_REQUEST_BODY =
+      UpdateLockRequestBody.builder().locked(true).message("").build();
 }

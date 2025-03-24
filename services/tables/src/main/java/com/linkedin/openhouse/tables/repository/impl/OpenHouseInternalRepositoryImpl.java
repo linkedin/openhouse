@@ -331,7 +331,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     propertiesMap.put(
         TableProperties.FORMAT_VERSION,
         Integer.toString(clusterProperties.getClusterIcebergFormatVersion()));
-    propertiesMap.put(getCanonicalFieldName(IS_LOCKED_KEY), "false");
 
     return propertiesMap;
   }

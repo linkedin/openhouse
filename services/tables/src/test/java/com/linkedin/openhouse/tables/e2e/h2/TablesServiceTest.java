@@ -14,7 +14,7 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockedStateRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -628,19 +628,28 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testUpdateLockedStateForaTable() {
+  public void testUpdateLockForaTable() {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
-    UpdateLockedStateRequestBody updateLockedStateRequestBody =
-        UpdateLockedStateRequestBody.builder().locked(true).build();
-    tablesService.updateLockStatus(
+    // update lock state to true
+    tablesService.updateLock(
         tableDtoCopy.getDatabaseId(),
         tableDtoCopy.getTableId(),
-        updateLockedStateRequestBody,
+        UpdateLockRequestBody.builder().locked(true).build(),
         TEST_USER);
     TableDto result =
         tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
     Assertions.assertTrue(result.getPolicies().getLockState().isLocked());
+    // update lock state to false
+    tablesService.updateLock(
+        tableDtoCopy.getDatabaseId(),
+        tableDtoCopy.getTableId(),
+        UpdateLockRequestBody.builder().locked(false).build(),
+        TEST_USER);
+    TableDto result1 =
+        tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertFalse(result1.getPolicies().getLockState().isLocked());
+
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(
