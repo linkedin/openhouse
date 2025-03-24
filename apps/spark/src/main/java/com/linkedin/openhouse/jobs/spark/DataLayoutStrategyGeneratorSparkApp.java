@@ -40,15 +40,16 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         TablePartitionStats.builder().tableName(fqtn).spark(spark).build();
     TableSnapshotStats tableSnapshotStats =
         TableSnapshotStats.builder().tableName(fqtn).spark(spark).build();
+    boolean isPartitioned = ops.getTable(fqtn).spec().isPartitioned();
     OpenHouseDataLayoutStrategyGenerator strategiesGenerator =
         OpenHouseDataLayoutStrategyGenerator.builder()
             .tableFileStats(tableFileStats)
             .tablePartitionStats(tablePartitionStats)
             .tableSnapshotStats(tableSnapshotStats)
+            .partitioned(isPartitioned)
             .build();
     // Run table scope for unpartitioned table, and run both table and partition scope for
     // partitioned table
-    boolean isPartitioned = ops.getTable(fqtn).spec().isPartitioned();
     runInnerTableScope(spark, strategiesGenerator, isPartitioned);
     if (isPartitioned) {
       runInnerPartitionScope(spark, strategiesGenerator);

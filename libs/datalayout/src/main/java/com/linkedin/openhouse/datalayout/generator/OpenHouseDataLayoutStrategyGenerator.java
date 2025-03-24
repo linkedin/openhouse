@@ -45,6 +45,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   private final TableFileStats tableFileStats;
   private final TablePartitionStats tablePartitionStats;
   private final TableSnapshotStats tableSnapshotStats;
+  private final boolean partitioned;
 
   /**
    * Generate a list of data layout optimization strategies based on the table file stats and
@@ -148,7 +149,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
 
     // don't discount for partitioned tables
     double fileCountReductionDiscount = 0.0;
-    if (partitionValues == null) {
+    if (!partitioned) {
       fileCountReductionDiscount =
           computeFileCountReductionDiscount(tableSnapshotStats.get(), LAST_SNAPSHOT_LOOKBACK_DAYS);
     }

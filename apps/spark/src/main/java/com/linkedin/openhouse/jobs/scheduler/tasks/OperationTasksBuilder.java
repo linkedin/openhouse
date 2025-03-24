@@ -81,6 +81,9 @@ public class OperationTasksBuilder {
     List<DataLayoutStrategy> strategies =
         tableDataLayoutMetadataList.stream()
             .map(TableDataLayoutMetadata::getDataLayoutStrategy)
+            // filter out strategies with no gain/file count reduction
+            // or discounted to 0, e.g. frequently overwritten un-partitioned tables
+            .filter(s -> s.getGain() * (1.0 - s.getFileCountReductionDiscount()) >= 1.0)
             .collect(Collectors.toList());
     DataLayoutStrategyScorer scorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(

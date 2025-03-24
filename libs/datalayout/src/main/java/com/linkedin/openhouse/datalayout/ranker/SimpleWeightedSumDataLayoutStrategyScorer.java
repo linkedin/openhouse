@@ -40,7 +40,8 @@ public class SimpleWeightedSumDataLayoutStrategyScorer implements DataLayoutStra
 
     for (DataLayoutStrategy dataLayoutStrategy : dataLayoutStrategies) {
       double normalizedCost = minMaxNormalize(dataLayoutStrategy.getCost(), minCost, maxCost);
-      double normalizedGain = minMaxNormalize(discountedGain(dataLayoutStrategy), minGain, maxGain);
+      double discountedGain = discountedGain(dataLayoutStrategy);
+      double normalizedGain = minMaxNormalize(discountedGain, minGain, maxGain);
       ScoredDataLayoutStrategy normalizedDataLayoutStrategy =
           ScoredDataLayoutStrategy.builder()
               .dataLayoutStrategy(dataLayoutStrategy)
