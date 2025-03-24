@@ -73,13 +73,11 @@ public final class InternalRepositoryUtils {
    * Return only the user defined table properties by excluding preserved keys as well as policies.
    */
   static Map<String, String> getUserTblProps(
-      Map<String, String> existingTableProps,
-      PreservedKeyChecker checker,
-      TableDto providedTableDto) {
-    Map<String, String> result = new HashMap<>(existingTableProps);
-    existingTableProps.forEach(
+      Map<String, String> rawTableProps, PreservedKeyChecker checker, TableDto tableDto) {
+    Map<String, String> result = new HashMap<>(rawTableProps);
+    rawTableProps.forEach(
         (k, v) -> {
-          if (checker.isKeyPreservedForTable(k, providedTableDto)) {
+          if (checker.isKeyPreservedForTable(k, tableDto)) {
             result.remove(k);
           }
         });
