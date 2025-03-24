@@ -24,5 +24,5 @@ public class DataLayoutStrategy {
   private final long eqDeleteFileBytes;
   private final long posDeleteRecordCount;
   private final long eqDeleteRecordCount;
-  private final double fileCountReductionDiscount;
+  private final double fileCountReductionPenalty;
 }

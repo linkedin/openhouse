@@ -81,7 +81,6 @@ public class SimpleWeightedSumDataLayoutStrategyScorer implements DataLayoutStra
   }
 
   private double discountedGain(DataLayoutStrategy dataLayoutStrategy) {
-    return dataLayoutStrategy.getGain()
-        * (1.0 - dataLayoutStrategy.getFileCountReductionDiscount());
+    return dataLayoutStrategy.getGain() * (1.0 - dataLayoutStrategy.getFileCountReductionPenalty());
   }
 }

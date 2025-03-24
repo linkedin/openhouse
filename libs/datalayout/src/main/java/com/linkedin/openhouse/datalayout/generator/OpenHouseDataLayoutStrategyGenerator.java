@@ -148,10 +148,10 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     double reducedFileCountPerComputeGbHr = reducedFileCount / computeGbHr;
 
     // don't discount for partitioned tables
-    double fileCountReductionDiscount = 0.0;
+    double fileCountReductionPenalty = 0.0;
     if (!partitioned) {
-      fileCountReductionDiscount =
-          computeFileCountReductionDiscount(tableSnapshotStats.get(), LAST_SNAPSHOT_LOOKBACK_DAYS);
+      fileCountReductionPenalty =
+          computeFileCountReductionPenalty(tableSnapshotStats.get(), LAST_SNAPSHOT_LOOKBACK_DAYS);
     }
 
     DataCompactionConfig config = buildDataCompactionConfig(rewriteFileBytes, partitionCount);
@@ -173,7 +173,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
             .eqDeleteFileCount(eqDeleteStats._2())
             .posDeleteRecordCount(posDeleteStats._3())
             .eqDeleteRecordCount(eqDeleteStats._3())
-            .fileCountReductionDiscount(fileCountReductionDiscount)
+            .fileCountReductionPenalty(fileCountReductionPenalty)
             .build());
   }
 
@@ -208,7 +208,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
         .build();
   }
 
-  private double computeFileCountReductionDiscount(
+  private double computeFileCountReductionPenalty(
       Dataset<SnapshotStat> snapshotStats, int lookbackDays) {
     long snapshotCount =
         snapshotStats
