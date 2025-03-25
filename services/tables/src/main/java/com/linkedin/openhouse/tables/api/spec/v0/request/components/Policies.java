@@ -56,7 +56,7 @@ public class Policies {
   @Valid
   History history;
 
-  @Schema(description = "Locking state of table.", example = "{locked: true/false}")
+  @Schema(description = "Locking state of table.", example = "{lockState: {locked: true/false}")
   @Valid
   LockState lockState;
 }

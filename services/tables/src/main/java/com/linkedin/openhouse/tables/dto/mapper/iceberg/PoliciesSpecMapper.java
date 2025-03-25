@@ -103,8 +103,8 @@ public class PoliciesSpecMapper {
               .build();
     }
     if (policies != null && policies.getLockState() == null) {
-      LockState lockState = LockState.builder().isLocked(false).message("").build();
-      updatedPolicies.toBuilder().lockState(lockState).build();
+      LockState lockState = LockState.builder().isLocked(false).message("default").build();
+      updatedPolicies = updatedPolicies.toBuilder().lockState(lockState).build();
     }
     return updatedPolicies;
   }
