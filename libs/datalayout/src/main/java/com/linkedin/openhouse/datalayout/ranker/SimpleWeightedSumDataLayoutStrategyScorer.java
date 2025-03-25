@@ -40,16 +40,11 @@ public class SimpleWeightedSumDataLayoutStrategyScorer implements DataLayoutStra
 
     for (DataLayoutStrategy dataLayoutStrategy : dataLayoutStrategies) {
       double normalizedCost = minMaxNormalize(dataLayoutStrategy.getCost(), minCost, maxCost);
-      double normalizedGain = minMaxNormalize(dataLayoutStrategy.getGain(), minGain, maxGain);
+      double discountedGain = discountedGain(dataLayoutStrategy);
+      double normalizedGain = minMaxNormalize(discountedGain, minGain, maxGain);
       ScoredDataLayoutStrategy normalizedDataLayoutStrategy =
           ScoredDataLayoutStrategy.builder()
-              .dataLayoutStrategy(
-                  DataLayoutStrategy.builder()
-                      .config(dataLayoutStrategy.getConfig())
-                      .entropy(dataLayoutStrategy.getEntropy())
-                      .cost(dataLayoutStrategy.getCost())
-                      .gain(dataLayoutStrategy.getGain())
-                      .build())
+              .dataLayoutStrategy(dataLayoutStrategy)
               .normalizedComputeCost(normalizedCost)
               .normalizedFileCountReduction(normalizedGain)
               .score(
@@ -78,10 +73,14 @@ public class SimpleWeightedSumDataLayoutStrategyScorer implements DataLayoutStra
   }
 
   private double minGain(List<DataLayoutStrategy> dataLayoutStrategies) {
-    return dataLayoutStrategies.stream().mapToDouble(DataLayoutStrategy::getGain).min().orElse(0);
+    return dataLayoutStrategies.stream().mapToDouble(this::discountedGain).min().orElse(0);
   }
 
   private double maxGain(List<DataLayoutStrategy> dataLayoutStrategies) {
-    return dataLayoutStrategies.stream().mapToDouble(DataLayoutStrategy::getGain).max().orElse(0);
+    return dataLayoutStrategies.stream().mapToDouble(this::discountedGain).max().orElse(0);
+  }
+
+  private double discountedGain(DataLayoutStrategy dataLayoutStrategy) {
+    return dataLayoutStrategy.getGain() * (1.0 - dataLayoutStrategy.getFileCountReductionPenalty());
   }
 }

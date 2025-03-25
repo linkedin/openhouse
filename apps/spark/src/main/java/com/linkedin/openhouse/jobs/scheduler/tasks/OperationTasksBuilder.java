@@ -75,12 +75,15 @@ public class OperationTasksBuilder {
     // filter out non-primary and non-clustered/time-partitioned tables before ranking
     tableDataLayoutMetadataList =
         tableDataLayoutMetadataList.stream()
-            .filter(m -> m.isPrimary() && (m.isClustered() || m.isTimePartitioned()))
+            .filter(TableMetadata::isPrimary)
             .collect(Collectors.toList());
     log.info("Fetched metadata for {} data layout strategies", tableDataLayoutMetadataList.size());
     List<DataLayoutStrategy> strategies =
         tableDataLayoutMetadataList.stream()
             .map(TableDataLayoutMetadata::getDataLayoutStrategy)
+            // filter out strategies with no gain/file count reduction
+            // or discounted to 0, e.g. frequently overwritten un-partitioned tables
+            .filter(s -> s.getGain() * (1.0 - s.getFileCountReductionPenalty()) >= 1.0)
             .collect(Collectors.toList());
     DataLayoutStrategyScorer scorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(

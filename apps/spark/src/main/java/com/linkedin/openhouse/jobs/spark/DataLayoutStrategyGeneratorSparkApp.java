@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
+import com.linkedin.openhouse.datalayout.datasource.TableSnapshotStats;
 import com.linkedin.openhouse.datalayout.generator.OpenHouseDataLayoutStrategyGenerator;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
@@ -37,14 +38,18 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     TableFileStats tableFileStats = TableFileStats.builder().tableName(fqtn).spark(spark).build();
     TablePartitionStats tablePartitionStats =
         TablePartitionStats.builder().tableName(fqtn).spark(spark).build();
+    TableSnapshotStats tableSnapshotStats =
+        TableSnapshotStats.builder().tableName(fqtn).spark(spark).build();
+    boolean isPartitioned = ops.getTable(fqtn).spec().isPartitioned();
     OpenHouseDataLayoutStrategyGenerator strategiesGenerator =
         OpenHouseDataLayoutStrategyGenerator.builder()
             .tableFileStats(tableFileStats)
             .tablePartitionStats(tablePartitionStats)
+            .tableSnapshotStats(tableSnapshotStats)
+            .partitioned(isPartitioned)
             .build();
     // Run table scope for unpartitioned table, and run both table and partition scope for
     // partitioned table
-    boolean isPartitioned = ops.getTable(fqtn).spec().isPartitioned();
     runInnerTableScope(spark, strategiesGenerator, isPartitioned);
     if (isPartitioned) {
       runInnerPartitionScope(spark, strategiesGenerator);
@@ -86,7 +91,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
         if (isPartitionScope) {
           rows.add(
               String.format(
-                  "('%s', '%s', '%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d)",
+                  "('%s', '%s', '%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d, %f)",
                   fqtn,
                   strategy.getPartitionId(),
                   strategy.getPartitionColumns(),
@@ -98,11 +103,12 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   strategy.getPosDeleteFileBytes(),
                   strategy.getEqDeleteFileBytes(),
                   strategy.getPosDeleteRecordCount(),
-                  strategy.getEqDeleteRecordCount()));
+                  strategy.getEqDeleteRecordCount(),
+                  strategy.getFileCountReductionPenalty()));
         } else {
           rows.add(
               String.format(
-                  "('%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d, %b)",
+                  "('%s', current_timestamp(), %f, %f, %f, %d, %d, %d, %d, %d, %d, %b, %f)",
                   fqtn,
                   strategy.getCost(),
                   strategy.getGain(),
@@ -113,7 +119,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   strategy.getEqDeleteFileBytes(),
                   strategy.getPosDeleteRecordCount(),
                   strategy.getEqDeleteRecordCount(),
-                  isPartitioned));
+                  isPartitioned,
+                  strategy.getFileCountReductionPenalty()));
         }
       }
       String strategiesInsertStmt =
@@ -141,7 +148,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   + "pos_delete_file_bytes LONG, "
                   + "eq_delete_file_bytes LONG,"
                   + "pos_delete_record_count LONG, "
-                  + "eq_delete_record_count LONG"
+                  + "eq_delete_record_count LONG, "
+                  + "file_count_reduction_penalty DOUBLE"
                   + ") "
                   + "PARTITIONED BY (days(timestamp))",
               outputFqtn));
@@ -160,7 +168,8 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
                   + "eq_delete_file_bytes LONG,"
                   + "pos_delete_record_count LONG, "
                   + "eq_delete_record_count LONG, "
-                  + "isPartitioned BOOLEAN"
+                  + "isPartitioned BOOLEAN, "
+                  + "file_count_reduction_penalty DOUBLE"
                   + ") "
                   + "PARTITIONED BY (days(timestamp))",
               outputFqtn));
