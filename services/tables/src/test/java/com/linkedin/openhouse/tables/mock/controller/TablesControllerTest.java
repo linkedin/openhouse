@@ -418,10 +418,10 @@ public class TablesControllerTest {
   }
 
   @Test
-  public void testUpdateLockPolicyOnTable() throws Exception {
-    for (String db : Arrays.asList("d204", "d400", "d404", "d503", "d422")) {
+  public void testCreateLockPolicyOnTable() throws Exception {
+    for (String db : Arrays.asList("d201", "d400", "d404", "d503", "d422")) {
       mvc.perform(
-              MockMvcRequestBuilders.patch(
+              MockMvcRequestBuilders.post(
                       String.format(
                           CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/tb1/lock", db))
                   .contentType(MediaType.APPLICATION_JSON)

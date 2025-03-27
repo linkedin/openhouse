@@ -16,8 +16,21 @@ import lombok.NoArgsConstructor;
 public class LockState {
   @Schema(description = "locked state of a table, example = false, true")
   @Builder.Default
-  boolean isLocked = false;
+  boolean locked = false;
 
   @Schema(description = "message for locking", example = "")
-  String message;
+  @Builder.Default
+  String message = "Default";
+
+  @Schema(
+      description = "lock creation time measured in UTC milliseconds for a table",
+      example = "1651002318265")
+  @Builder.Default
+  long creationTime = System.currentTimeMillis();
+
+  @Schema(
+      description = "lock expiration time measured in UTC milliseconds for a table",
+      example = "3")
+  @Builder.Default
+  int expirationInDays = -1;
 }

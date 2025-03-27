@@ -10,9 +10,9 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -189,14 +189,14 @@ public class MockTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> updateLock(
+  public ApiResponse<Void> createLock(
       String databaseId,
       String tableId,
-      UpdateLockRequestBody updateLockRequestBody,
+      CreateUpdateLockRequestBody updateLockRequestBody,
       String tableCreatorUpdator) {
     switch (databaseId) {
-      case "d204":
-        return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+      case "d201":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.CREATED).build();
       case "d400":
         throw new RequestValidationFailureException();
       case "d404":

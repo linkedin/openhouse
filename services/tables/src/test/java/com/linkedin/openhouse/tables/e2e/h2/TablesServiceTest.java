@@ -13,8 +13,8 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -627,28 +627,30 @@ public class TablesServiceTest {
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
   }
 
+  /** assert lock is created as policy object on createLock call */
   @Test
-  public void testUpdateLockForaTable() {
+  public void testCreateLockForaTable() {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
-    // update lock state to true
-    tablesService.updateLock(
+    tablesService.createLock(
         tableDtoCopy.getDatabaseId(),
         tableDtoCopy.getTableId(),
-        UpdateLockRequestBody.builder().locked(true).build(),
+        CreateUpdateLockRequestBody.builder().locked(true).expirationInDays(4).build(),
         TEST_USER);
     TableDto result =
         tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
     Assertions.assertTrue(result.getPolicies().getLockState().isLocked());
-    // update lock state to false
-    tablesService.updateLock(
+    Assertions.assertEquals(result.getPolicies().getLockState().getExpirationInDays(), 4);
+    // update lock state to false, assert that lock state does not change since create lock should
+    // only set it to true
+    tablesService.createLock(
         tableDtoCopy.getDatabaseId(),
         tableDtoCopy.getTableId(),
-        UpdateLockRequestBody.builder().locked(false).build(),
+        CreateUpdateLockRequestBody.builder().locked(false).build(),
         TEST_USER);
     TableDto result1 =
         tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
-    Assertions.assertFalse(result1.getPolicies().getLockState().isLocked());
+    Assertions.assertTrue(result1.getPolicies().getLockState().isLocked());
 
     Assertions.assertDoesNotThrow(
         () ->

@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class UpdateLockRequestBody {
+public class CreateUpdateLockRequestBody {
   @Schema(description = "locked state to be updated for table.")
   @NotEmpty(message = "locked cannot be cannot be empty")
   @NotNull(message = "locked State cannot be null")
@@ -24,6 +24,15 @@ public class UpdateLockRequestBody {
 
   @Schema(description = "reason for locking the table")
   String message;
+
+  @Schema(
+      description = "lock creation time measured in UTC milliseconds for a table",
+      example = "1651002318265")
+  @Builder.Default
+  long creationTime = System.currentTimeMillis();
+
+  @Schema(description = "lock expiration time measured in int `n` days", example = "3")
+  int expirationInDays = 0;
 
   public String toJson() {
     return new GsonBuilder().serializeNulls().create().toJson(this);

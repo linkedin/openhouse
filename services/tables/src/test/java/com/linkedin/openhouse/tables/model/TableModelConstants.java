@@ -112,7 +112,7 @@ public final class TableModelConstants {
     TABLE_POLICIES_WITH_EMPTY_PATTERN =
         Policies.builder().retention(RETENTION_POLICY_WITH_EMPTY_PATTERN).build();
     TABLE_POLICIES_WITH_LOCK_STATUS =
-        Policies.builder().lockState(LockState.builder().isLocked(true).build()).build();
+        Policies.builder().lockState(LockState.builder().locked(true).build()).build();
     TEST_USER = "testUser";
     TEST_USER_PRINCIPAL = "testUserPrincipal";
     CLUSTER_NAME = "local-cluster";

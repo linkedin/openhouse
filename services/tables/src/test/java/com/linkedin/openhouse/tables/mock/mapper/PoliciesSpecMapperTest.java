@@ -118,7 +118,7 @@ public class PoliciesSpecMapperTest {
         TableModelConstants.buildTableDto(
             GET_TABLE_RESPONSE_BODY.toBuilder().policies(TABLE_POLICIES_WITH_LOCK_STATUS).build());
     String jsonPolicies = policiesMapper.toPoliciesJsonString(tableDto);
-    Assertions.assertTrue((boolean) JsonPath.read(jsonPolicies, "$.lockState.isLocked"));
+    Assertions.assertTrue((boolean) JsonPath.read(jsonPolicies, "$.lockState.locked"));
   }
 
   @Test

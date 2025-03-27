@@ -7,9 +7,9 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -238,14 +238,14 @@ public class TablesServiceImpl implements TablesService {
    *
    * @param databaseId
    * @param tableId
-   * @param updateLockRequestBody
+   * @param createUpdateLockRequestBody
    * @param tableCreatorUpdater
    */
   @Override
-  public void updateLock(
+  public void createLock(
       String databaseId,
       String tableId,
-      UpdateLockRequestBody updateLockRequestBody,
+      CreateUpdateLockRequestBody createUpdateLockRequestBody,
       String tableCreatorUpdater) {
     TableDto tableDto =
         openHouseInternalRepository
@@ -253,30 +253,31 @@ public class TablesServiceImpl implements TablesService {
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     authorizationUtils.checkTableWritePathPrivileges(
         tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-    Policies policiesToSave = tableDto.getPolicies();
+    // lock state from incoming request
     LockState lockState =
         LockState.builder()
-            .isLocked(updateLockRequestBody.isLocked())
-            .message(updateLockRequestBody.getMessage())
+            .locked(createUpdateLockRequestBody.isLocked())
+            .message(createUpdateLockRequestBody.getMessage())
+            .expirationInDays(createUpdateLockRequestBody.getExpirationInDays())
+            .creationTime(createUpdateLockRequestBody.getCreationTime())
             .build();
-    if (tableDto.getPolicies() != null) {
-      if (tableDto.getPolicies().getLockState() != null
-          && tableDto.getPolicies().getLockState().isLocked() != updateLockRequestBody.isLocked()) {
-        // should allow updating lock on a table with different reason
+    if (createUpdateLockRequestBody.isLocked()) {
+      Policies policies = tableDto.getPolicies();
+      Policies policiesToSave;
+      if (policies != null) {
         policiesToSave = tableDto.getPolicies().toBuilder().lockState(lockState).build();
       } else {
-        policiesToSave = policiesToSave.toBuilder().lockState(lockState).build();
+        policiesToSave = Policies.builder().lockState(lockState).build();
       }
-    } else {
-      policiesToSave = Policies.builder().lockState(lockState).build();
+      // should allow updating lock on a table with different reason
+      TableDto tableDtoToSave =
+          tableDto
+              .toBuilder()
+              .policies(policiesToSave)
+              .tableVersion(tableDto.getTableLocation())
+              .build();
+      saveTableDto(tableDtoToSave, Optional.of(tableDto));
     }
-    TableDto tableDtoToSave =
-        tableDto
-            .toBuilder()
-            .policies(policiesToSave)
-            .tableVersion(tableDto.getTableLocation())
-            .build();
-    saveTableDto(tableDtoToSave, Optional.of(tableDto));
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */

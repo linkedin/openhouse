@@ -3,9 +3,9 @@ package com.linkedin.openhouse.tables.api.handler.impl;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -143,13 +143,13 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> updateLock(
+  public ApiResponse<Void> createLock(
       String databaseId,
       String tableId,
-      UpdateLockRequestBody updateLockRequestBody,
+      CreateUpdateLockRequestBody createUpdateLockRequestBody,
       String tableCreatorUpdator) {
-    tablesApiValidator.validateUpdateLock(databaseId, tableId, updateLockRequestBody);
-    tableService.updateLock(databaseId, tableId, updateLockRequestBody, tableCreatorUpdator);
-    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+    tablesApiValidator.validateCreateLock(databaseId, tableId, createUpdateLockRequestBody);
+    tableService.createLock(databaseId, tableId, createUpdateLockRequestBody, tableCreatorUpdator);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.CREATED).build();
   }
 }
