@@ -21,11 +21,11 @@ import lombok.NonNull;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.SerializationUtils;
 
-@AllArgsConstructor(access = AccessLevel.PRIVATE)
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class JobsRegistry {
   private final String storageUri;
   private final String authTokenPath;
-  private final Map<String, JobLaunchConf> jobLaunchDefaultConfByType;
+  protected final Map<String, JobLaunchConf> jobLaunchDefaultConfByType;
 
   public JobLaunchConf createLaunchConf(String jobId, JobConf requestConf) {
     final String type = requestConf.getJobType().name();
