@@ -172,11 +172,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     return createUpdateTableRequestBody;
   }
 
-  // If request is coming from replication process, createUpdateTableRequestBody.tableType should be
-  // REPLICA_TABLE
-  // Replication process requests are identified based on difference between table types and
-  // cluster_id between base,
-  // metadata
+  /**
+   * If request is coming from replication process, createUpdateTableRequestBody.tableType should be
+   * REPLICA_TABLE Replication process requests are identified based on difference between table
+   * types and cluster_id between base, metadata
+   */
   @VisibleForTesting
   CreateUpdateTableRequestBody.TableTypeEnum getTableType(
       TableMetadata base, TableMetadata metadata) {
@@ -187,6 +187,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       CreateUpdateTableRequestBody.TableTypeEnum metadataTableType =
           CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
               metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
+      // check if commit request is from replication case
       if (baseTableType == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE
           && metadataTableType == CreateUpdateTableRequestBody.TableTypeEnum.PRIMARY_TABLE
           && !base.properties()
