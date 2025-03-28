@@ -25,7 +25,7 @@ import org.apache.commons.lang3.SerializationUtils;
 public class JobsRegistry {
   private final String storageUri;
   private final String authTokenPath;
-  private final Map<String, JobLaunchConf> jobLaunchDefaultConfByType;
+  protected final Map<String, JobLaunchConf> jobLaunchDefaultConfByType;
 
   public JobLaunchConf createLaunchConf(String jobId, JobConf requestConf) {
     final String type = requestConf.getJobType().name();
@@ -98,12 +98,5 @@ public class JobsRegistry {
     } catch (IOException e) {
       throw new RuntimeException(String.format("Could not read token file %s", filePath), e);
     }
-  }
-
-  protected String getCoordinatorTypeForJobType(String jobType) {
-    if (!jobLaunchDefaultConfByType.containsKey(jobType)) {
-      throw new JobEngineException(String.format("Job %s is not supported", jobType));
-    }
-    return jobLaunchDefaultConfByType.get(jobType).getCoordinatorType();
   }
 }
