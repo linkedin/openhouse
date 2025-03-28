@@ -17,12 +17,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CreateUpdateLockRequestBody {
-  @Schema(description = "locked state to be updated for table.")
+  @Schema(description = "locked state to be created/updated for table.")
   @NotEmpty(message = "locked cannot be cannot be empty")
-  @NotNull(message = "locked State cannot be null")
+  @NotNull(message = "locked value cannot be null")
   boolean locked;
 
-  @Schema(description = "reason for locking the table")
+  @Schema(description = "reason for creating/updating the lock on table")
   String message;
 
   @Schema(

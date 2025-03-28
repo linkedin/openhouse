@@ -294,8 +294,8 @@ public class TablesController {
   }
 
   @Operation(
-      summary = "Update locked state for Table",
-      description = "Updates locked state for a table identified by databaseId and tableId",
+      summary = "Create lock on Table",
+      description = "Create lock on a table identified by databaseId and tableId",
       tags = {"Table"})
   @ApiResponses(
       value = {
