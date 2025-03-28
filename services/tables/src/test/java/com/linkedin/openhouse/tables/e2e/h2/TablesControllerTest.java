@@ -22,6 +22,7 @@ import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
@@ -1286,6 +1287,59 @@ public class TablesControllerTest {
                 containsString(
                     "Must define either a time based retention or count based retention for snapshots in table")))
         .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))))
+        .andReturn();
+  }
+
+  @Test
+  public void createSucceedsForLockPolicyOnTable() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+
+    LinkedHashMap<String, LinkedHashMap> currentPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+    Assertions.assertNull(currentPolicies.get("lockState"));
+
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.post(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s/lock",
+                            GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                            GET_TABLE_RESPONSE_BODY.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        CreateUpdateLockRequestBody.builder()
+                            .locked(true)
+                            .message("setting lock")
+                            .build()
+                            .toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+    mvcResult =
+        getTable(GET_TABLE_RESPONSE_BODY.getDatabaseId(), GET_TABLE_RESPONSE_BODY.getTableId());
+
+    LinkedHashMap<String, LinkedHashMap> updatedPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+    Assertions.assertEquals(updatedPolicies.get("lockState").get("locked"), true);
+    Assertions.assertNotNull(updatedPolicies.get("lockState").get("creationTime"));
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  private MvcResult getTable(String databaseId, String tableId) throws Exception {
+    return mvc.perform(
+            MockMvcRequestBuilders.get(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s",
+                        databaseId,
+                        tableId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
         .andReturn();
   }
 }

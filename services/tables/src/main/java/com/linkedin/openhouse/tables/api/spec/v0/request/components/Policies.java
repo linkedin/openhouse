@@ -55,4 +55,8 @@ public class Policies {
       example = "{history:{maxAge:3, granularity: 'day', versions: 5}}")
   @Valid
   History history;
+
+  @Schema(description = "Locking state of table.", example = "{lockState: {locked: true/false}")
+  @Valid
+  LockState lockState;
 }

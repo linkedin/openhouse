@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.handler;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
@@ -108,4 +109,17 @@ public interface TablesApiHandler {
    */
   ApiResponse<GetAclPoliciesResponseBody> getAclPoliciesForUserPrincipal(
       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
+
+  /**
+   * @param databaseId
+   * @param tableId
+   * @param createUpdateLockRequestBody
+   * @param tableCreatorUpdator
+   * @return empty body on successful update
+   */
+  ApiResponse<Void> createLock(
+      String databaseId,
+      String tableId,
+      CreateUpdateLockRequestBody createUpdateLockRequestBody,
+      String tableCreatorUpdator);
 }
