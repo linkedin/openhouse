@@ -614,6 +614,7 @@ public class RepositoryTest {
     existingTblMap.put("openhouse.tableType", TableType.REPLICA_TABLE.toString());
     existingTblMap.put("openhouse.clusterId", replicaClusterId);
     existingTblMap.put("openhouse.tableUri", "replicaClusterURI");
+    existingTblMap.put("policies", SHARED_TABLE_POLICIES.toString());
 
     TableDto tableDto =
         TABLE_DTO
@@ -623,14 +624,17 @@ public class RepositoryTest {
             .tableVersion(INITIAL_TABLE_VERSION)
             .tableType(TableType.REPLICA_TABLE)
             .tableProperties(existingTblMap)
+            .policies(SHARED_TABLE_POLICIES)
             .build();
 
     TableDto savedTblDto = openHouseInternalRepository.save(tableDto);
+    Assertions.assertNull(savedTblDto.getPolicies().getReplication());
 
     Map<String, String> destTblMap = new HashMap<>();
     destTblMap.put("openhouse.tableType", TableType.PRIMARY_TABLE.toString());
     destTblMap.put("openhouse.clusterId", primaryClusterId);
     destTblMap.put("openhouse.tableUri", "primaryClusterURI");
+    destTblMap.put("policies", TABLE_POLICIES.toString());
 
     TableDto newRequestTblDto =
         savedTblDto
@@ -640,6 +644,7 @@ public class RepositoryTest {
             .tableType(TableType.PRIMARY_TABLE)
             .tableVersion(savedTblDto.getTableLocation())
             .tableProperties(destTblMap)
+            .policies(TABLE_POLICIES)
             .build();
     // Demonstrated that the replica table updates are not blocked with table properties from
     // primary table
@@ -647,6 +652,9 @@ public class RepositoryTest {
     Assertions.assertEquals(newTblDTO.getTableId(), tblName);
     Assertions.assertEquals(newTblDTO.getTableType(), TableType.REPLICA_TABLE);
     Assertions.assertEquals(newTblDTO.getClusterId(), replicaClusterId);
+    // assert that replication configs are copied as part of policies copy
+    Assertions.assertEquals(
+        newTblDTO.getPolicies().getReplication().getConfig().get(0).getDestination(), "CLUSTER1");
 
     TableDtoPrimaryKey primaryKey =
         TableDtoPrimaryKey.builder().tableId(tblName).databaseId(TABLE_DTO.getDatabaseId()).build();

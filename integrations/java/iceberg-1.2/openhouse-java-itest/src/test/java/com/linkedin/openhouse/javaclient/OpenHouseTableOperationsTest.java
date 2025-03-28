@@ -347,6 +347,38 @@ public class OpenHouseTableOperationsTest {
   }
 
   @Test
+  public void testTableTypeForReplicationFlow() {
+    Map<String, String> baseProps = new HashMap<>();
+    Map<String, String> metaDataProps = new HashMap<>();
+    baseProps.put("openhouse.tableType", "REPLICA_TABLE");
+    baseProps.put("openhouse.clusterId", "cluster1");
+    baseProps.put(
+        "openhouse.policy",
+        "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"1D\"}, {\"destination\":\"aa\", \"interval\":\"2D\"}]}}");
+
+    TableMetadata base = mock(TableMetadata.class);
+    metaDataProps.put("openhouse.tableType", "PRIMARY_TABLE");
+    metaDataProps.put("openhouse.clusterId", "cluster2");
+    metaDataProps.put(
+        "openhouse.policy",
+        "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"1D\"}, {\"destination\":\"aa\", \"interval\":\"2D\"}]}}");
+    TableMetadata metadata = mock(TableMetadata.class);
+
+    when(base.properties()).thenReturn(baseProps);
+    Schema schema = new Schema();
+    when(base.schema()).thenReturn(schema);
+
+    when(metadata.properties()).thenReturn(metaDataProps);
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+
+    when(openHouseTableOperations.getTableType(base, metadata)).thenCallRealMethod();
+    CreateUpdateTableRequestBody.TableTypeEnum tableType =
+        openHouseTableOperations.getTableType(base, metadata);
+
+    Assertions.assertEquals(tableType, CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE);
+  }
+
+  @Test
   public void testPoliciesHistoryInMetadataNoUpdate() {
     Map<String, String> props = new HashMap<>();
     props.put(
