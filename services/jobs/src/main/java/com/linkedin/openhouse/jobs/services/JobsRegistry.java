@@ -21,7 +21,7 @@ import lombok.NonNull;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.SerializationUtils;
 
-@AllArgsConstructor(access = AccessLevel.PRIVATE)
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class JobsRegistry {
   private final String storageUri;
   private final String authTokenPath;
@@ -98,5 +98,12 @@ public class JobsRegistry {
     } catch (IOException e) {
       throw new RuntimeException(String.format("Could not read token file %s", filePath), e);
     }
+  }
+
+  protected String getCoordinatorTypeForJobType(String jobType) {
+    if (!jobLaunchDefaultConfByType.containsKey(jobType)) {
+      throw new JobEngineException(String.format("Job %s is not supported", jobType));
+    }
+    return jobLaunchDefaultConfByType.get(jobType).getCoordinatorType();
   }
 }
