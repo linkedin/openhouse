@@ -20,5 +20,15 @@ public interface PreservedKeyChecker {
     return isKeyPreserved(key);
   }
 
+  /**
+   * Interface for checking which preserved keys to maintain when creating a table with preserved
+   * keys. This is to allow extension of this class for any read-only keys during table creation.
+   *
+   * @param key
+   * @param tableDto
+   * @return
+   */
+  boolean allowKeyInCreation(String key, TableDto tableDto);
+
   String describePreservedSpace();
 }

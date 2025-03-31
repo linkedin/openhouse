@@ -33,6 +33,18 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
     return isKeyPreserved(key);
   }
 
+  /**
+   * Prevent any keys with prefix "openhouse." from being added during table creation.
+   *
+   * @param key
+   * @param tableDto
+   * @return
+   */
+  @Override
+  public boolean allowKeyInCreation(String key, TableDto tableDto) {
+    return !isKeyPreservedForTable(key, tableDto);
+  }
+
   @Override
   public String describePreservedSpace() {
     return "table properties starting with `openhouse.` cannot be modified";

@@ -66,7 +66,7 @@ public class RepositoryTest {
 
   @Autowired SchemaValidator validator;
 
-  @Autowired PreservedKeyChecker preservedKeyChecker;
+  @SpyBean @Autowired PreservedKeyChecker preservedKeyChecker;
 
   @Test
   void extractReservedProps() {
@@ -311,6 +311,7 @@ public class RepositoryTest {
     offensiveMap.put("openhouse.tableId", "random");
     offensiveMap.put("openhouse.tableVersion", "random");
     offensiveMap.put("openhouse.tableLocation", "random");
+    offensiveMap.put("openhouse.keepReadOnlyProp", "true");
     TableDto offensiveDto =
         TABLE_DTO
             .toBuilder()
@@ -318,13 +319,47 @@ public class RepositoryTest {
             .tableProperties(offensiveMap)
             .tableVersion(INITIAL_TABLE_VERSION)
             .build();
-
+    PreservedKeyChecker spyPreservedKeyChecker = Mockito.spy(preservedKeyChecker);
+    // Test extending the preservedKeyChecker enables allowlisting of properties during table
+    // creation
+    Mockito.doReturn(true)
+        .when(spyPreservedKeyChecker)
+        .allowKeyInCreation(Mockito.eq("openhouse.keepReadOnlyProp"), Mockito.any());
     // Demonstrated the offensive setting doesn't matter.
     TableDto createdDTO = openHouseInternalRepository.save(offensiveDto);
     Assertions.assertEquals(createdDTO.getTableId(), tblName);
+    Map<String, String> createdTableProps = createdDTO.getTableProperties();
+    // Should not be overridden by the user provided value given that these should be filtered on
+    // creation
+    Assertions.assertNotEquals(createdTableProps.get("openhouse.tableVersions"), "random");
+    Assertions.assertNotEquals(createdTableProps.get("openhouse.tableLocation"), "random");
+    Assertions.assertEquals(createdTableProps.get("openhouse.keepReadOnlyProp"), "true");
 
     TableDtoPrimaryKey primaryKey =
         TableDtoPrimaryKey.builder().tableId(tblName).databaseId(TABLE_DTO.getDatabaseId()).build();
+
+    Map<String, String> updatedTableProps = new HashMap<>();
+    updatedTableProps.putAll(createdTableProps);
+    updatedTableProps.put("openhouse.keepReadOnlyProp", "false");
+    TableDto updatedOffensiveDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("offensiveMap")
+            .tableProperties(updatedTableProps)
+            .tableVersion(createdDTO.getTableLocation())
+            .build();
+    // Should fail due to updating preserved keys
+    UnsupportedClientOperationException e =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> openHouseInternalRepository.save(updatedOffensiveDto));
+    Assertions.assertTrue(
+        e.getMessage()
+            .startsWith(
+                "Bad tblproperties provided: Can't add, alter or drop table properties due to the restriction: "
+                    + "[table properties starting with `openhouse.` cannot be modified], diff in existing "
+                    + "& provided table properties: {"));
+
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
   }
