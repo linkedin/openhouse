@@ -69,6 +69,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
 
   private static final String UPDATED_OPENHOUSE_POLICY_KEY = "updated.openhouse.policy";
   private static final String OPENHOUSE_TABLE_TYPE_KEY = "openhouse.tableType";
+  private static final String OPENHOUSE_CLUSTER_ID_KEY = "openhouse.clusterId";
   private static final String POLICIES_KEY = "policies";
   static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
 
@@ -166,11 +167,37 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     // set tableType from incoming metadata to createUpdateTableRequestBody
     if (metadata.properties() != null
         && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
-      createUpdateTableRequestBody.setTableType(
-          CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
-              metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY)));
+      createUpdateTableRequestBody.setTableType(getTableType(base, metadata));
     }
     return createUpdateTableRequestBody;
+  }
+
+  /**
+   * If request is coming from replication process, createUpdateTableRequestBody.tableType should be
+   * REPLICA_TABLE Replication process requests are identified based on difference between table
+   * types and cluster_id between base, metadata
+   */
+  @VisibleForTesting
+  CreateUpdateTableRequestBody.TableTypeEnum getTableType(
+      TableMetadata base, TableMetadata metadata) {
+    if (base != null) {
+      CreateUpdateTableRequestBody.TableTypeEnum baseTableType =
+          CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
+              base.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
+      CreateUpdateTableRequestBody.TableTypeEnum metadataTableType =
+          CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
+              metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
+      // check if commit request is from replication case
+      if (baseTableType == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE
+          && metadataTableType == CreateUpdateTableRequestBody.TableTypeEnum.PRIMARY_TABLE
+          && !base.properties()
+              .get(OPENHOUSE_CLUSTER_ID_KEY)
+              .equals(metadata.properties().get(OPENHOUSE_CLUSTER_ID_KEY))) {
+        return baseTableType;
+      }
+    }
+    return CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
+        metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
   }
 
   @VisibleForTesting
