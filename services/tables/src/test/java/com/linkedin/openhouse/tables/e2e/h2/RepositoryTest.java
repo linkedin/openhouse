@@ -324,7 +324,7 @@ public class RepositoryTest {
     // creation
     Mockito.doReturn(true)
         .when(spyPreservedKeyChecker)
-        .shouldAddKeyDuringTableCreation(Mockito.eq("openhouse.keepReadOnlyProp"), Mockito.any());
+        .allowKeyInCreation(Mockito.eq("openhouse.keepReadOnlyProp"), Mockito.any());
     // Demonstrated the offensive setting doesn't matter.
     TableDto createdDTO = openHouseInternalRepository.save(offensiveDto);
     Assertions.assertEquals(createdDTO.getTableId(), tblName);

@@ -41,7 +41,7 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
    * @return
    */
   @Override
-  public boolean shouldAddKeyDuringTableCreation(String key, TableDto tableDto) {
+  public boolean allowKeyInCreation(String key, TableDto tableDto) {
     return !isKeyPreservedForTable(key, tableDto);
   }
 

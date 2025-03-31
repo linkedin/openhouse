@@ -28,7 +28,7 @@ public interface PreservedKeyChecker {
    * @param tableDto
    * @return
    */
-  boolean shouldAddKeyDuringTableCreation(String key, TableDto tableDto);
+  boolean allowKeyInCreation(String key, TableDto tableDto);
 
   String describePreservedSpace();
 }
