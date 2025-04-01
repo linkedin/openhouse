@@ -29,7 +29,7 @@ public class LockState {
   long creationTime = System.currentTimeMillis();
 
   @Schema(
-      description = "lock expiration time measured in UTC milliseconds for a table",
+      description = "lock expiration time measured in days from creationTime for a table",
       example = "3")
   @Builder.Default
   int expirationInDays = -1;
