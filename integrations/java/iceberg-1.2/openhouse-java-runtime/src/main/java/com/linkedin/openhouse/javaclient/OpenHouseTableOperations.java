@@ -104,10 +104,23 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   public void doCommit(TableMetadata base, TableMetadata metadata) {
     log.info("Calling doCommit for table: {}", tableName());
     boolean metadataUpdated = isMetadataUpdated(base, metadata);
-    if (areSnapshotsUpdated(base, metadata)) {
-      putSnapshots(base, metadata);
-    } else if (metadataUpdated) {
-      createUpdateTable(base, metadata);
+    try {
+      if (areSnapshotsUpdated(base, metadata)) {
+        putSnapshots(base, metadata);
+      } else if (metadataUpdated) {
+        createUpdateTable(base, metadata);
+      }
+    } catch (RuntimeException e) {
+      if (e.getCause() instanceof InterruptedException) {
+        log.error(
+            String.format(
+                "Unexpected runtime error occurred during doCommit: %s, with stacktrace: ",
+                e.getClass().getSimpleName()),
+            e);
+        throw new CommitStateUnknownException(e);
+      } else {
+        throw e;
+      }
     }
     log.debug("Calling doCommit succeeded");
   }
