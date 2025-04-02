@@ -32,5 +32,5 @@ public class LockState {
       description = "lock expiration time measured in days from creationTime for a table",
       example = "3")
   @Builder.Default
-  int expirationInDays = -1;
+  int expirationInDays = 0;
 }
