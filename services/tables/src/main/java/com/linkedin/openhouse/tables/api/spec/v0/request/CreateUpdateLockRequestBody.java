@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CreateUpdateLockRequestBody {
   @Schema(description = "locked state to be created/updated for table.")
-  @NotEmpty(message = "locked cannot be cannot be empty")
+  @NotEmpty(message = "locked cannot be empty")
   @NotNull(message = "locked value cannot be null")
   boolean locked;
 
@@ -26,12 +26,14 @@ public class CreateUpdateLockRequestBody {
   String message;
 
   @Schema(
-      description = "lock creation time measured in UTC milliseconds for a table",
+      description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")
   @Builder.Default
   long creationTime = System.currentTimeMillis();
 
-  @Schema(description = "lock expiration time measured in int `n` days", example = "3")
+  @Schema(
+      description = "lock expiration time for a table is `n` days from creationTime",
+      example = "3")
   int expirationInDays = 0;
 
   public String toJson() {

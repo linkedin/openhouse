@@ -23,13 +23,13 @@ public class LockState {
   String message = "Default";
 
   @Schema(
-      description = "lock creation time measured in UTC milliseconds for a table",
+      description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")
   @Builder.Default
   long creationTime = System.currentTimeMillis();
 
   @Schema(
-      description = "lock expiration time measured in days from creationTime for a table",
+      description = "lock expiration time for a table is `n` days from creationTime",
       example = "3")
   @Builder.Default
   int expirationInDays = 0;

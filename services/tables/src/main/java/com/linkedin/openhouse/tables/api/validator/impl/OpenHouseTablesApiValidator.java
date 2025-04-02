@@ -265,7 +265,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     if (createUpdateLockRequestBody.getExpirationInDays() < 0) {
       String errMsg =
           String.format(
-              "Lock creation time cannot be less that expiration time. Creation Time: %s, expiration time: %sdays",
+              "Lock creation time cannot be less that expiration time. Creation Time: %s, expiration time: %s days",
               createUpdateLockRequestBody.getCreationTime(),
               createUpdateLockRequestBody.getExpirationInDays());
       validationFailures.add(errMsg);
