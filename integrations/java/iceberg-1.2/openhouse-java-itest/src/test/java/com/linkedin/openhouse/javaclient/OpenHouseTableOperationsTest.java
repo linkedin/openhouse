@@ -133,6 +133,50 @@ public class OpenHouseTableOperationsTest {
   }
 
   @Test
+  public void testCreateUpdateTableInterruptedErrorHandle() throws InterruptedException {
+    TableIdentifier id = TableIdentifier.of("a", "b");
+    FileIO mockFileIO = mock(FileIO.class);
+    TableApi mockTableApi = mock(TableApi.class);
+    SnapshotApi mockSnapshotApi = mock(SnapshotApi.class);
+    OpenHouseTableOperationsForTest openHouseTableOperations =
+        new OpenHouseTableOperationsForTest(
+            id, mockFileIO, mockTableApi, mockSnapshotApi, "cluster");
+
+    TableMetadata metadata = mock(TableMetadata.class);
+    TableMetadata base = mock(TableMetadata.class);
+
+    // ensure the metadata-comparison triggers
+    Schema mockSchemaX = mock(Schema.class);
+    Schema mockSchemaY = mock(Schema.class);
+    when(metadata.schema()).thenReturn(mockSchemaX);
+    when(base.schema()).thenReturn(mockSchemaY);
+    Map<String, String> propsBase = ImmutableMap.of();
+    Map<String, String> propsMeta = ImmutableMap.of("a", "b");
+    when(metadata.properties()).thenReturn(propsMeta);
+    when(base.properties()).thenReturn(propsBase);
+
+    // ensure this is a snapshot change
+    List<Snapshot> snapshotList = Lists.newArrayList();
+    List<Snapshot> snapshotList1 = Lists.newArrayList();
+    when(metadata.snapshots()).thenReturn(snapshotList);
+    when(base.snapshots()).thenReturn(snapshotList1);
+
+    // Simulates a long-running operation
+    when(mockTableApi.updateTableV1(anyString(), anyString(), any())).thenReturn(Mono.never());
+
+    // Interrupt the current thread before calling .block()
+    // When .block() is called on response mono from snapshotApi, it detects that the thread is
+    // interrupted
+    // and throws a RuntimeException wrapping an InterruptedException
+    Thread.currentThread().interrupt();
+
+    Assertions.assertThrows(
+        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
+    // ensure that the thread interrupt is cleared for other tests
+    Assertions.assertFalse(Thread.interrupted());
+  }
+
+  @Test
   public void testNoPoliciesInMetadata() {
     TableMetadata metadata = mock(TableMetadata.class);
     when(metadata.properties()).thenReturn(Collections.emptyMap());
