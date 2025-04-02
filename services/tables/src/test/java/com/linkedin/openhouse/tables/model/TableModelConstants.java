@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
@@ -49,6 +50,7 @@ public final class TableModelConstants {
   public static final Retention RETENTION_POLICY_WITH_PATTERN;
   public static final Retention RETENTION_POLICY_WITH_EMPTY_PATTERN;
   public static final Policies TABLE_POLICIES_WITH_EMPTY_PATTERN;
+  public static final Policies TABLE_POLICIES_WITH_LOCK_STATUS;
   public static final Policies TABLE_POLICIES;
 
   public static final Policies TABLE_POLICIES_COMPLEX;
@@ -109,6 +111,8 @@ public final class TableModelConstants {
         Policies.builder().retention(RETENTION_POLICY).sharingEnabled(true).build();
     TABLE_POLICIES_WITH_EMPTY_PATTERN =
         Policies.builder().retention(RETENTION_POLICY_WITH_EMPTY_PATTERN).build();
+    TABLE_POLICIES_WITH_LOCK_STATUS =
+        Policies.builder().lockState(LockState.builder().locked(true).build()).build();
     TEST_USER = "testUser";
     TEST_USER_PRINCIPAL = "testUserPrincipal";
     CLUSTER_NAME = "local-cluster";

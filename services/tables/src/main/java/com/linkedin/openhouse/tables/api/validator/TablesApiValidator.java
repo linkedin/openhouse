@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.api.validator;
 
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 
@@ -86,4 +87,12 @@ public interface TablesApiValidator {
    * @param tableId
    */
   void validateGetAclPolicies(String databaseId, String tableId);
+
+  /**
+   * @param databaseId
+   * @param tableId
+   * @param createUpdateLockRequestBody
+   */
+  void validateCreateLock(
+      String databaseId, String tableId, CreateUpdateLockRequestBody createUpdateLockRequestBody);
 }

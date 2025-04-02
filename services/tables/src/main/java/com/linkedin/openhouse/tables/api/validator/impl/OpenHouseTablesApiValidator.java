@@ -7,6 +7,7 @@ import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -247,6 +248,31 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   public void validateGetAclPolicies(String databaseId, String tableId) {
     // Validation is similar to GetTable.
     validateGetTable(databaseId, tableId);
+  }
+
+  @Override
+  public void validateCreateLock(
+      String databaseId, String tableId, CreateUpdateLockRequestBody createUpdateLockRequestBody) {
+    List<String> validationFailures = new ArrayList<>();
+    validateGetTable(databaseId, tableId);
+    if (!createUpdateLockRequestBody.isLocked()) {
+      String errMsg =
+          String.format(
+              "Locked state on databaseId: %s tableId: %s should be set to true. Provided: false",
+              databaseId, tableId);
+      validationFailures.add(errMsg);
+    }
+    if (createUpdateLockRequestBody.getExpirationInDays() < 0) {
+      String errMsg =
+          String.format(
+              "Lock creation time cannot be less that expiration time. Creation Time: %s, expiration time: %s days",
+              createUpdateLockRequestBody.getCreationTime(),
+              createUpdateLockRequestBody.getExpirationInDays());
+      validationFailures.add(errMsg);
+    }
+    if (validationFailures.size() > 0) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
   }
 
   private void validateDatabaseId(String databaseId, List<String> validationFailures) {

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.controller;
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
@@ -288,6 +289,38 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAclPoliciesResponseBody> apiResponse =
         tablesApiHandler.getAclPoliciesForUserPrincipal(
             databaseId, tableId, extractAuthenticatedUserPrincipal(), principal);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Create lock on Table",
+      description = "Create lock on a table identified by databaseId and tableId",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock PATCH: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock PATCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock PATCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock PATCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND")
+      })
+  @PostMapping(
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},
+      produces = {"application/json"})
+  public ResponseEntity<Void> createLock(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(
+              description = "Request containing locked state of the Table to be created/updated",
+              required = true,
+              schema = @Schema(implementation = CreateUpdateLockRequestBody.class))
+          @RequestBody
+          CreateUpdateLockRequestBody createUpdateLockRequestBody) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.createLock(
+            databaseId, tableId, createUpdateLockRequestBody, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

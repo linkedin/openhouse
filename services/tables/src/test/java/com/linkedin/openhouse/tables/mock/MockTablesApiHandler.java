@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
@@ -182,6 +183,28 @@ public class MockTablesApiHandler implements TablesApiHandler {
         throw new NoSuchUserTableException(databaseId, "");
       case "d503":
         throw new AuthorizationServiceException("Internal authz service not available");
+      default:
+        return null;
+    }
+  }
+
+  @Override
+  public ApiResponse<Void> createLock(
+      String databaseId,
+      String tableId,
+      CreateUpdateLockRequestBody updateLockRequestBody,
+      String tableCreatorUpdator) {
+    switch (databaseId) {
+      case "d201":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.CREATED).build();
+      case "d400":
+        throw new RequestValidationFailureException();
+      case "d404":
+        throw new NoSuchUserTableException(databaseId, tableId);
+      case "d503":
+        throw new AuthorizationServiceException("Internal authz service not available");
+      case "d422":
+        throw new UnprocessableEntityException("Unprocessable entity");
       default:
         return null;
     }

@@ -416,4 +416,19 @@ public class TablesControllerTest {
           .andReturn();
     }
   }
+
+  @Test
+  public void testCreateLockPolicyOnTable() throws Exception {
+    for (String db : Arrays.asList("d201", "d400", "d404", "d503", "d422")) {
+      mvc.perform(
+              MockMvcRequestBuilders.post(
+                      String.format(
+                          CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/tb1/lock", db))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(RequestConstants.TEST_UPDATE_LOCK_POLICIES_REQUEST_BODY.toJson())
+                  .accept(MediaType.APPLICATION_JSON)
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().is(Integer.parseInt(db.substring(1))));
+    }
+  }
 }
