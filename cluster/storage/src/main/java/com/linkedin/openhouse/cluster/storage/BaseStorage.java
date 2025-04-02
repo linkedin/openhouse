@@ -53,7 +53,7 @@ public abstract class BaseStorage implements Storage {
    * @param tableId the table id of the table
    * @param tableUUID the UUID of the table
    * @param tableCreator the creator of the table
-   * @param tableProperties
+   * @param tableProperties properties of the table
    * @return the table location where the table data should be stored
    */
   @Override

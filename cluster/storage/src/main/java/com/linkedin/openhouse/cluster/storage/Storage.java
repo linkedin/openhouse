@@ -68,8 +68,7 @@ public interface Storage {
    * @param tableId the table id of the table
    * @param tableUUID the UUID of the table
    * @param tableCreator the creator of the table
-   * @param tableProperties properties of the table, for storage that need to differentiate based on
-   *     table props
+   * @param tableProperties properties of the table
    * @return the table location after provisioning is done
    */
   String allocateTableLocation(
