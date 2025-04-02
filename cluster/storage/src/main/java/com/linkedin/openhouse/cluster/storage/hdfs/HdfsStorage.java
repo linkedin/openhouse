@@ -4,6 +4,7 @@ import com.linkedin.openhouse.cluster.storage.BaseStorage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import java.nio.file.Paths;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -49,7 +50,11 @@ public class HdfsStorage extends BaseStorage {
    */
   @Override
   public String allocateTableLocation(
-      String databaseId, String tableId, String tableUUID, String tableCreator) {
+      String databaseId,
+      String tableId,
+      String tableUUID,
+      String tableCreator,
+      Map<String, String> tableProperties) {
     return Paths.get(getClient().getRootPrefix(), databaseId, tableId + "-" + tableUUID).toString();
   }
 }

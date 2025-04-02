@@ -95,6 +95,8 @@ public class LocalStorageTest {
     when(localStorageClient.getRootPrefix()).thenReturn("/tmp");
     String expected = "/tmp/db1/table1-uuid1";
     assertEquals(
-        expected, localStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        expected,
+        localStorage.allocateTableLocation(
+            databaseId, tableId, tableUUID, tableCreator, new HashMap<>()));
   }
 }

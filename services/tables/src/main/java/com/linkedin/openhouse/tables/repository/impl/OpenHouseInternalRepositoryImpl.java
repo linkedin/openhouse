@@ -109,6 +109,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           writeSchema,
           partitionSpec);
+      Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       table =
           catalog.createTable(
               tableIdentifier,
@@ -120,8 +121,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                       tableDto.getDatabaseId(),
                       tableDto.getTableId(),
                       tableDto.getTableUUID(),
-                      tableDto.getTableCreator()),
-              computePropsForTableCreation(tableDto));
+                      tableDto.getTableCreator(),
+                      tableProps),
+              tableProps);
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(
           "create for table {} took {} ms",

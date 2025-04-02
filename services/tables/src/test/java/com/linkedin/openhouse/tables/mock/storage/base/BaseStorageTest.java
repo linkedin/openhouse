@@ -9,6 +9,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
+import java.util.HashMap;
 import javax.annotation.PostConstruct;
 import lombok.Setter;
 import org.apache.hadoop.fs.FileSystem;
@@ -59,7 +60,8 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000", "/data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
+        baseStorage.allocateTableLocation(
+            DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR, new HashMap<>()));
   }
 
   @Test
@@ -67,7 +69,8 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "/data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
+        baseStorage.allocateTableLocation(
+            DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR, new HashMap<>()));
   }
 
   @Test
@@ -75,7 +78,8 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "data/openhouse");
     assertEquals(
         "hdfs://localhost:9000/data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
+        baseStorage.allocateTableLocation(
+            DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR, new HashMap<>()));
   }
 
   @Test
@@ -83,7 +87,8 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs://localhost:9000/", "data");
     assertEquals(
         "hdfs://localhost:9000/data/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
+        baseStorage.allocateTableLocation(
+            DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR, new HashMap<>()));
   }
 
   @Test
@@ -91,7 +96,8 @@ public class BaseStorageTest {
     mockStorageProperties("hdfs:///", "data/openhouse");
     assertEquals(
         "hdfs:///data/openhouse/db1/table1-uuid1",
-        baseStorage.allocateTableLocation(DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR));
+        baseStorage.allocateTableLocation(
+            DATABASE_ID, TABLE_ID, TABLE_UUID, TABLE_CREATOR, new HashMap<>()));
   }
 
   void mockStorageProperties(String endpoint, String rootPrefix) {

@@ -53,11 +53,16 @@ public abstract class BaseStorage implements Storage {
    * @param tableId the table id of the table
    * @param tableUUID the UUID of the table
    * @param tableCreator the creator of the table
+   * @param tableProperties properties of the table
    * @return the table location where the table data should be stored
    */
   @Override
   public String allocateTableLocation(
-      String databaseId, String tableId, String tableUUID, String tableCreator) {
+      String databaseId,
+      String tableId,
+      String tableUUID,
+      String tableCreator,
+      Map<String, String> tableProperties) {
     Preconditions.checkArgument(databaseId != null, "Database ID cannot be null");
     Preconditions.checkArgument(tableId != null, "Table ID cannot be null");
     Preconditions.checkArgument(tableUUID != null, "Table UUID cannot be null");

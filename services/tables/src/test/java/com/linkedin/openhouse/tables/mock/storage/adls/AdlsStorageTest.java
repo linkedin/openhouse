@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.adls.AdlsStorage;
 import com.linkedin.openhouse.cluster.storage.adls.AdlsStorageClient;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,6 +77,8 @@ public class AdlsStorageTest {
         .thenReturn("testcontainer@teststorage.dfs.core.windows.net");
     String expected = "abfs://testcontainer@teststorage.dfs.core.windows.net/db1/table1-uuid1";
     assertEquals(
-        expected, adlsStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        expected,
+        adlsStorage.allocateTableLocation(
+            databaseId, tableId, tableUUID, tableCreator, new HashMap<>()));
   }
 }
