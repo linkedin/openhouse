@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.s3.S3Storage;
 import com.linkedin.openhouse.cluster.storage.s3.S3StorageClient;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,6 +77,8 @@ public class S3StorageTest {
     when(s3StorageClient.getRootPrefix()).thenReturn("mybucket");
     String expected = "S3://mybucket/db1/table1-uuid1";
     assertEquals(
-        expected, s3Storage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        expected,
+        s3Storage.allocateTableLocation(
+            databaseId, tableId, tableUUID, tableCreator, new HashMap<>()));
   }
 }

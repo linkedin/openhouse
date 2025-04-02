@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.cluster.storage;
 
 import com.google.common.base.Preconditions;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -67,10 +68,15 @@ public interface Storage {
    * @param tableId the table id of the table
    * @param tableUUID the UUID of the table
    * @param tableCreator the creator of the table
+   * @param tableProperties
    * @return the table location after provisioning is done
    */
   String allocateTableLocation(
-      String databaseId, String tableId, String tableUUID, String tableCreator);
+      String databaseId,
+      String tableId,
+      String tableUUID,
+      String tableCreator,
+      Map<String, String> tableProperties);
 
   /**
    * Checks if the provided path is valid for this table. It returns true if the provided path
@@ -83,7 +89,8 @@ public interface Storage {
    * @return true if it's under the table location directory
    */
   default boolean isPathValid(String path, String databaseId, String tableId, String tableUUID) {
-    String tableLocationPrefix = allocateTableLocation(databaseId, tableId, tableUUID, "");
+    String tableLocationPrefix =
+        allocateTableLocation(databaseId, tableId, tableUUID, "", new HashMap<>());
     Preconditions.checkArgument(
         path.startsWith(tableLocationPrefix),
         String.format("%s is not under table location %s", path, tableLocationPrefix));

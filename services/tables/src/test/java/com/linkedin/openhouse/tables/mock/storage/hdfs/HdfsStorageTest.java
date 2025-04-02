@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorage;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,6 +68,8 @@ public class HdfsStorageTest {
     when(hdfsStorageClient.getRootPrefix()).thenReturn("/data/openhouse");
     String expected = "/data/openhouse/db1/table1-uuid1";
     assertEquals(
-        expected, hdfsStorage.allocateTableLocation(databaseId, tableId, tableUUID, tableCreator));
+        expected,
+        hdfsStorage.allocateTableLocation(
+            databaseId, tableId, tableUUID, tableCreator, new HashMap<>()));
   }
 }
