@@ -152,4 +152,12 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     tableService.createLock(databaseId, tableId, createUpdateLockRequestBody, tableCreatorUpdator);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.CREATED).build();
   }
+
+  @Override
+  public ApiResponse<Void> deleteLock(
+      String databaseId, String tableId, String tableCreatorUpdator) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.deleteLock(databaseId, tableId, tableCreatorUpdator);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.CREATED).build();
+  }
 }

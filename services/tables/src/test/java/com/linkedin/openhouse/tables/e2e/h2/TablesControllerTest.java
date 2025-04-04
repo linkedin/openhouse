@@ -1329,6 +1329,61 @@ public class TablesControllerTest {
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
+  @Test
+  public void deleteSucceedsForLockPolicyOnTable() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+
+    LinkedHashMap<String, LinkedHashMap> currentPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+    Assertions.assertNull(currentPolicies.get("lockState"));
+
+    mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.post(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s/lock",
+                            GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                            GET_TABLE_RESPONSE_BODY.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        CreateUpdateLockRequestBody.builder()
+                            .locked(true)
+                            .message("setting lock")
+                            .build()
+                            .toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+    mvcResult =
+        getTable(GET_TABLE_RESPONSE_BODY.getDatabaseId(), GET_TABLE_RESPONSE_BODY.getTableId());
+
+    LinkedHashMap<String, LinkedHashMap> updatedPolicies =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+    Assertions.assertEquals(updatedPolicies.get("lockState").get("locked"), true);
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s/lock",
+                        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY.getTableId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isCreated())
+        .andReturn();
+    mvcResult =
+        getTable(GET_TABLE_RESPONSE_BODY.getDatabaseId(), GET_TABLE_RESPONSE_BODY.getTableId());
+    LinkedHashMap<String, LinkedHashMap> policiesAfterLockDelete =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
+    Assertions.assertNull(policiesAfterLockDelete.get("lockState"));
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
   private MvcResult getTable(String databaseId, String tableId) throws Exception {
     return mvc.perform(
             MockMvcRequestBuilders.get(
