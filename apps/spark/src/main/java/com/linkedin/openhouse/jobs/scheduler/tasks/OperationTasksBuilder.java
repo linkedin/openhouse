@@ -15,6 +15,7 @@ import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
@@ -32,10 +33,12 @@ import org.apache.commons.lang3.math.NumberUtils;
 public class OperationTasksBuilder {
   public static final String MAX_COST_BUDGET_GB_HRS = "maxCostBudgetGbHrs";
   public static final String MAX_STRATEGIES_COUNT = "maxStrategiesCount";
+  public static final String MAX_COMPUTE_COST_PER_TABLE = "maxComputeCostPerTable";
   private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.3;
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+  private static final int MAX_COMPUTE_COST_PER_TABLE_DEFAULT = 100; // 24 hrs
 
   @Getter(AccessLevel.NONE)
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
@@ -68,10 +71,11 @@ public class OperationTasksBuilder {
     return processMetadataList(directoryMetadataList, jobType);
   }
 
+  /** Rank and select the strategies for data layout execution. */
   private List<OperationTask<?>> prepareDataLayoutOperationTaskList(
-      JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
+      JobConf.JobTypeEnum jobType, Properties properties, Meter meter, boolean isPartitionScope) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
-        tablesClient.getTableDataLayoutMetadataList();
+        tablesClient.getTableDataLayoutMetadataList(isPartitionScope);
     // filter out non-primary and non-clustered/time-partitioned tables before ranking
     tableDataLayoutMetadataList =
         tableDataLayoutMetadataList.stream()
@@ -80,11 +84,12 @@ public class OperationTasksBuilder {
     log.info("Fetched metadata for {} data layout strategies", tableDataLayoutMetadataList.size());
     List<DataLayoutStrategy> strategies =
         tableDataLayoutMetadataList.stream()
-            .map(TableDataLayoutMetadata::getDataLayoutStrategy)
+            .map(metadata -> metadata.getDataLayoutStrategies().get(0))
             // filter out strategies with no gain/file count reduction
             // or discounted to 0, e.g. frequently overwritten un-partitioned tables
             .filter(s -> s.getGain() * (1.0 - s.getFileCountReductionPenalty()) >= 1.0)
             .collect(Collectors.toList());
+    log.info("Collected {} strategies for ranking", strategies.size());
     DataLayoutStrategyScorer scorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(
             COMPACTION_GAIN_WEIGHT_DEFAULT, COMPUTE_COST_WEIGHT_DEFAULT);
@@ -95,12 +100,16 @@ public class OperationTasksBuilder {
     int maxStrategiesCount =
         NumberUtils.toInt(
             properties.getProperty(MAX_STRATEGIES_COUNT), MAX_STRATEGIES_COUNT_DEFAULT);
+    double maxComputeCostPerTable =
+        NumberUtils.toDouble(
+            properties.getProperty(MAX_COMPUTE_COST_PER_TABLE), MAX_COMPUTE_COST_PER_TABLE_DEFAULT);
     log.info(
         "Max compute cost budget: {}, max strategies count: {}",
         maxComputeCost,
         maxStrategiesCount);
     DataLayoutCandidateSelector candidateSelector =
-        new GreedyMaxBudgetCandidateSelector(maxComputeCost, maxStrategiesCount);
+        new GreedyMaxBudgetCandidateSelector(
+            maxComputeCost, maxStrategiesCount, maxComputeCostPerTable, isPartitionScope);
     List<Integer> selectedStrategyIndices = candidateSelector.select(scoredStrategies);
     log.info("Selected {} strategies", selectedStrategyIndices.size());
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
@@ -109,11 +118,11 @@ public class OperationTasksBuilder {
             .collect(Collectors.toList());
     double totalComputeCost =
         selectedTableDataLayoutMetadataList.stream()
-            .map(m -> m.getDataLayoutStrategy().getCost())
+            .map(m -> m.getDataLayoutStrategies().get(0).getCost())
             .reduce(0.0, Double::sum);
     double totalReducedFileCount =
         selectedTableDataLayoutMetadataList.stream()
-            .map(m -> m.getDataLayoutStrategy().getGain())
+            .map(m -> m.getDataLayoutStrategies().get(0).getGain())
             .reduce(0.0, Double::sum);
     log.info(
         "Total estimated compute cost: {}, total estimated reduced file count: {}",
@@ -127,7 +136,31 @@ public class OperationTasksBuilder {
         .counterBuilder("data_layout_optimization_estimated_reduced_file_count")
         .build()
         .add((long) totalReducedFileCount);
-    return processMetadataList(selectedTableDataLayoutMetadataList, jobType);
+    if (isPartitionScope) {
+      // Aggregate the strategies by table
+      return processMetadataList(
+          aggregateTableDataLayoutMetadata(selectedTableDataLayoutMetadataList), jobType);
+    } else {
+      return processMetadataList(selectedTableDataLayoutMetadataList, jobType);
+    }
+  }
+
+  private List<TableDataLayoutMetadata> aggregateTableDataLayoutMetadata(
+      List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList) {
+    Map<String, List<TableDataLayoutMetadata>> groupedTableDataLayoutMetadataMap =
+        selectedTableDataLayoutMetadataList.stream()
+            .collect(Collectors.groupingBy(TableDataLayoutMetadata::fqtn));
+    List<TableDataLayoutMetadata> aggregatedTableDataLayoutMetadataList = new ArrayList<>();
+    for (List<TableDataLayoutMetadata> metadataListPerTable :
+        groupedTableDataLayoutMetadataMap.values()) {
+      List<DataLayoutStrategy> aggregatedStrategies = new ArrayList<>();
+      metadataListPerTable.stream()
+          .map(TableDataLayoutMetadata::getDataLayoutStrategies)
+          .forEach(aggregatedStrategies::addAll);
+      aggregatedTableDataLayoutMetadataList.add(
+          TableDataLayoutMetadata.from(metadataListPerTable.get(0), aggregatedStrategies));
+    }
+    return aggregatedTableDataLayoutMetadataList;
   }
 
   private List<OperationTask<?>> processMetadataList(
@@ -171,7 +204,9 @@ public class OperationTasksBuilder {
       case REPLICATION:
         return prepareReplicationOperationTaskList(jobType);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
-        return prepareDataLayoutOperationTaskList(jobType, properties, meter);
+        return prepareDataLayoutOperationTaskList(jobType, properties, meter, false);
+      case DATA_LAYOUT_PARTITION_STRATEGY_EXECUTION:
+        return prepareDataLayoutOperationTaskList(jobType, properties, meter, true);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType);
       default:

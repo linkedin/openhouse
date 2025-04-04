@@ -35,7 +35,10 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
+import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.execution.datasources.SparkExpressionConverter;
 import scala.collection.JavaConverters;
 
 /**
@@ -349,31 +352,62 @@ public final class Operations implements AutoCloseable {
       int maxConcurrentFileGroupRewrites,
       boolean partialProgressEnabled,
       int partialProgressMaxCommits,
-      int deleteFileThreshold) {
-    return SparkActions.get(spark)
-        .rewriteDataFiles(table)
-        .binPack()
-        // maximum number of file groups to be simultaneously rewritten
-        .option(
-            "max-concurrent-file-group-rewrites", Integer.toString(maxConcurrentFileGroupRewrites))
-        // enable committing groups of files prior to the entire rewrite completing
-        .option("partial-progress.enabled", Boolean.toString(partialProgressEnabled))
-        // maximum amount of commits that this rewrite is allowed to produce if partial progress is
-        // enabled
-        .option("partial-progress.max-commits", Integer.toString(partialProgressMaxCommits))
-        // any file group exceeding this number of files will be rewritten regardless of other
-        // criteria
-        .option("min-input-files", Integer.toString(minInputFiles))
-        // 512MB
-        .option("target-file-size-bytes", Long.toString(targetByteSize))
-        // files under this threshold will be considered for rewriting regardless of any other
-        // criteria
-        .option("min-file-size-bytes", Long.toString(minByteSize))
-        // files with sizes above this threshold will be considered for rewriting regardless of any
-        // other criteria
-        .option("max-file-size-bytes", Long.toString(maxByteSize))
-        .option("delete-file-threshold", Integer.toString(deleteFileThreshold))
-        .execute();
+      int deleteFileThreshold,
+      String partitionColumns,
+      String partitionId) {
+    RewriteDataFiles rewriteAction =
+        SparkActions.get(spark)
+            .rewriteDataFiles(table)
+            .binPack()
+            // maximum number of file groups to be simultaneously rewritten
+            .option(
+                "max-concurrent-file-group-rewrites",
+                Integer.toString(maxConcurrentFileGroupRewrites))
+            // enable committing groups of files prior to the entire rewrite completing
+            .option("partial-progress.enabled", Boolean.toString(partialProgressEnabled))
+            // maximum amount of commits that this rewrite is allowed to produce if partial progress
+            // is enabled
+            .option("partial-progress.max-commits", Integer.toString(partialProgressMaxCommits))
+            // any file group exceeding this number of files will be rewritten regardless of other
+            // criteria
+            .option("min-input-files", Integer.toString(minInputFiles))
+            // 512MB
+            .option("target-file-size-bytes", Long.toString(targetByteSize))
+            // files under this threshold will be considered for rewriting regardless of any other
+            // criteria
+            .option("min-file-size-bytes", Long.toString(minByteSize))
+            // files with sizes above this threshold will be considered for rewriting regardless of
+            // any other criteria
+            .option("max-file-size-bytes", Long.toString(maxByteSize))
+            .option("delete-file-threshold", Integer.toString(deleteFileThreshold));
+
+    // if partitionColumns and partitionId are provided, filter the data to rewrite
+    if (partitionColumns != null) {
+      String where = getWhereClause(partitionColumns, partitionId);
+      Expression expression;
+      try {
+        expression =
+            SparkExpressionConverter.collectResolvedSparkExpression(spark(), table.name(), where);
+      } catch (AnalysisException e) {
+        throw new RuntimeException("Failed to parse filter expression", e);
+      }
+      rewriteAction.filter(SparkExpressionConverter.convertToIcebergExpression(expression));
+    }
+
+    return rewriteAction.execute();
+  }
+
+  private String getWhereClause(String partitionColumns, String partitionId) {
+    if (partitionColumns == null) {
+      return null;
+    }
+    String[] columns = partitionColumns.split(", ");
+    for (String column : columns) {
+      if (column.contains("timestamp")) {
+        return String.format("%s = timestamp '%s'", column, partitionId);
+      }
+    }
+    return String.format("%s = %s", partitionColumns, partitionId);
   }
 
   public void rename(final Path src, final Path dest) throws IOException {
