@@ -234,7 +234,7 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * Updates the lock state on a table if boolean lock state if different from existing state.
+   * Creates lock on a table if lock on table is not already set.
    *
    * @param databaseId
    * @param tableId
@@ -251,7 +251,7 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableWritePathPrivileges(
+    authorizationUtils.checkTableLockPrivileges(
         tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     // lock state from incoming request
     LockState lockState =
@@ -270,6 +270,36 @@ public class TablesServiceImpl implements TablesService {
         policiesToSave = Policies.builder().lockState(lockState).build();
       }
       // should allow updating lock on a table with different reason
+      TableDto tableDtoToSave =
+          tableDto
+              .toBuilder()
+              .policies(policiesToSave)
+              .tableVersion(tableDto.getTableLocation())
+              .build();
+      saveTableDto(tableDtoToSave, Optional.of(tableDto));
+    }
+  }
+
+  /**
+   * unlock the table by setting the lockState policy to null.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal
+   */
+  @Override
+  public void deleteLock(String databaseId, String tableId, String actingPrincipal) {
+    TableDto tableDto =
+        openHouseInternalRepository
+            .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    authorizationUtils.checkTableUnLockPrivileges(
+        tableDto, actingPrincipal, Privileges.UPDATE_TABLE_METADATA);
+    Policies policies = tableDto.getPolicies();
+    if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
+      Policies policiesToSave;
+      // set lockState policy to null
+      policiesToSave = tableDto.getPolicies().toBuilder().lockState(null).build();
       TableDto tableDtoToSave =
           tableDto
               .toBuilder()

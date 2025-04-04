@@ -106,4 +106,14 @@ public interface TablesService {
       String tableId,
       CreateUpdateLockRequestBody createUpdateLockRequestBody,
       String tableCreatorUpdator);
+
+  /**
+   * Delete a table lock represented by databaseId and tableId if actingPrincipal has the right
+   * privilege.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal
+   */
+  void deleteLock(String databaseId, String tableId, String actingPrincipal);
 }

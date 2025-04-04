@@ -210,6 +210,21 @@ public class MockTablesApiHandler implements TablesApiHandler {
     }
   }
 
+  @Override
+  public ApiResponse<Void> deleteLock(
+      String databaseId, String tableId, String extractAuthenticatedUserPrincipal) {
+    switch (databaseId) {
+      case "d204":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+      case "d400":
+        throw new RequestValidationFailureException();
+      case "d404":
+        throw new NoSuchUserTableException(databaseId, tableId);
+      default:
+        return null;
+    }
+  }
+
   private void throwTableException(String tableId) {
     switch (tableId) {
       case "entityconcurrentmodificationexception":
