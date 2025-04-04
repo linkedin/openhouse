@@ -2,11 +2,13 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -32,66 +34,72 @@ import org.apache.iceberg.actions.RewriteDataFiles;
  */
 @Slf4j
 public class DataCompactionSparkApp extends BaseTableSparkApp {
-  private final DataCompactionConfig config;
+  private final List<DataLayoutStrategy> strategies;
 
   protected DataCompactionSparkApp(
-      String jobId, StateManager stateManager, String fqtn, DataCompactionConfig config) {
+      String jobId, StateManager stateManager, String fqtn, List<DataLayoutStrategy> strategies) {
     super(jobId, stateManager, fqtn);
-    this.config = config;
+    this.strategies = strategies;
   }
 
   @Override
   protected void runInner(Operations ops) {
-    log.info("Rewrite data files app start for table {}, config {}", fqtn, config);
-    RewriteDataFiles.Result result =
-        ops.rewriteDataFiles(
-            ops.getTable(fqtn),
-            config.getTargetByteSize(),
-            (long) (config.getTargetByteSize() * config.getMinByteSizeRatio()),
-            (long) (config.getTargetByteSize() * config.getMaxByteSizeRatio()),
-            config.getMinInputFiles(),
-            config.getMaxConcurrentFileGroupRewrites(),
-            config.isPartialProgressEnabled(),
-            config.getPartialProgressMaxCommits(),
-            config.getDeleteFileThreshold());
-    log.info(
-        "Added {} data files, rewritten {} data files, rewritten {} bytes",
-        result.addedDataFilesCount(),
-        result.rewrittenDataFilesCount(),
-        result.rewrittenBytesCount());
-    log.info("Processed {} file groups", result.rewriteResults().size());
-    for (RewriteDataFiles.FileGroupRewriteResult fileGroupRewriteResult : result.rewriteResults()) {
+    for (DataLayoutStrategy strategy : strategies) {
+      DataCompactionConfig config = strategy.getConfig();
+      log.info("Rewrite data files app start for table {}, config {}", fqtn, config);
+      RewriteDataFiles.Result result =
+          ops.rewriteDataFiles(
+              ops.getTable(fqtn),
+              config.getTargetByteSize(),
+              (long) (config.getTargetByteSize() * config.getMinByteSizeRatio()),
+              (long) (config.getTargetByteSize() * config.getMaxByteSizeRatio()),
+              config.getMinInputFiles(),
+              config.getMaxConcurrentFileGroupRewrites(),
+              config.isPartialProgressEnabled(),
+              config.getPartialProgressMaxCommits(),
+              config.getDeleteFileThreshold(),
+              strategy.getPartitionColumns(),
+              strategy.getPartitionId());
       log.info(
-          "File group {} has {} added files, {} rewritten files, {} rewritten bytes",
-          Operations.groupInfoToString(fileGroupRewriteResult.info()),
-          fileGroupRewriteResult.addedDataFilesCount(),
-          fileGroupRewriteResult.rewrittenDataFilesCount(),
-          fileGroupRewriteResult.rewrittenBytesCount());
+          "Added {} data files, rewritten {} data files, rewritten {} bytes",
+          result.addedDataFilesCount(),
+          result.rewrittenDataFilesCount(),
+          result.rewrittenBytesCount());
+      log.info("Processed {} file groups", result.rewriteResults().size());
+      for (RewriteDataFiles.FileGroupRewriteResult fileGroupRewriteResult :
+          result.rewriteResults()) {
+        log.info(
+            "File group {} has {} added files, {} rewritten files, {} rewritten bytes",
+            Operations.groupInfoToString(fileGroupRewriteResult.info()),
+            fileGroupRewriteResult.addedDataFilesCount(),
+            fileGroupRewriteResult.rewrittenDataFilesCount(),
+            fileGroupRewriteResult.rewrittenBytesCount());
+      }
+      METER
+          .counterBuilder(AppConstants.ADDED_DATA_FILE_COUNT)
+          .build()
+          .add(
+              result.addedDataFilesCount(),
+              Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+      METER
+          .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_COUNT)
+          .build()
+          .add(
+              result.rewrittenDataFilesCount(),
+              Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+      METER
+          .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_BYTES)
+          .build()
+          .add(
+              result.rewrittenBytesCount(),
+              Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+      METER
+          .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_GROUP_COUNT)
+          .build()
+          .add(
+              result.rewriteResults().size(),
+              Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
     }
-    METER
-        .counterBuilder(AppConstants.ADDED_DATA_FILE_COUNT)
-        .build()
-        .add(
-            result.addedDataFilesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_COUNT)
-        .build()
-        .add(
-            result.rewrittenDataFilesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_BYTES)
-        .build()
-        .add(
-            result.rewrittenBytesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_GROUP_COUNT)
-        .build()
-        .add(
-            result.rewriteResults().size(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
   }
 
   public static void main(String[] args) {
@@ -105,7 +113,7 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     extraOptions.add(
         new Option(
             null,
-            "strategy",
+            "strategies",
             true,
             "DataLayoutStrategy json, if provided, other arguments that determine compaction behavior are ignored"));
     extraOptions.add(
@@ -153,9 +161,9 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
 
     CommandLine cmdLine = createCommandLine(args, extraOptions);
 
-    DataCompactionConfig config;
-    if (cmdLine.hasOption("strategy")) {
-      config = StrategiesDaoTableProps.deserialize(cmdLine.getOptionValue("strategy")).getConfig();
+    List<DataLayoutStrategy> strategies;
+    if (cmdLine.hasOption("strategies")) {
+      strategies = StrategiesDaoTableProps.deserializeList(cmdLine.getOptionValue("strategies"));
     } else {
       long targetByteSize =
           NumberUtils.toLong(
@@ -175,7 +183,7 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
       if (maxByteSizeRatio <= 1.0) {
         throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
       }
-      config =
+      DataCompactionConfig config =
           DataCompactionConfig.builder()
               .targetByteSize(targetByteSize)
               .minByteSizeRatio(minByteSizeRatio)
@@ -198,11 +206,12 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
                       cmdLine.getOptionValue("deleteFileThreshold"),
                       DataCompactionConfig.DELETE_FILE_THRESHOLD_DEFAULT))
               .build();
+      strategies = Collections.singletonList(DataLayoutStrategy.builder().config(config).build());
     }
     return new DataCompactionSparkApp(
         getJobId(cmdLine),
         createStateManager(cmdLine),
         cmdLine.getOptionValue("tableName"),
-        config);
+        strategies);
   }
 }
