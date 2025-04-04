@@ -128,9 +128,8 @@ public interface TablesApiHandler {
    *
    * @param databaseId
    * @param tableId
-   * @param extractAuthenticatedUserPrincipal
+   * @param tableCreatorUpdator
    * @return empty body on successful delete
    */
-  ApiResponse<Void> deleteLock(
-      String databaseId, String tableId, String extractAuthenticatedUserPrincipal);
+  ApiResponse<Void> deleteLock(String databaseId, String tableId, String tableCreatorUpdator);
 }

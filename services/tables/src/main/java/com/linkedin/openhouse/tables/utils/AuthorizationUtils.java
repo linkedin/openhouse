@@ -72,7 +72,15 @@ public class AuthorizationUtils {
 
   public void checkTableUnLockPrivileges(
       TableDto tableDto, String actingPrincipal, Privileges privilege) {
-    checkTablePrivilege(tableDto, actingPrincipal, Privileges.UNLOCK_ADMIN);
+    if (tableDto.getTableType().equals(TableType.REPLICA_TABLE)) {
+      String errMsg =
+          String.format(
+              "UnLock Operation on Replica table %s.%s is not permitted.",
+              tableDto.getDatabaseId(), tableDto.getTableId());
+      throw new UnsupportedOperationException(errMsg);
+    } else {
+      checkTablePrivilege(tableDto, actingPrincipal, Privileges.UNLOCK_ADMIN);
+    }
   }
 
   /**
