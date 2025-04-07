@@ -34,15 +34,22 @@ import org.apache.spark.sql.SparkSession;
  */
 @Slf4j
 public abstract class BaseSparkApp {
+  private static final long HEARTBEAT_INTERVAL_SECONDS_DEFAULT = 300;
   protected static final Meter METER = OtelConfig.getMeter(BaseSparkApp.class.getName());
   protected final String jobId;
   protected final StateManager stateManager;
+  private final long heartbeatIntervalSeconds;
   private final ScheduledExecutorService scheduledExecutorService =
       Executors.newSingleThreadScheduledExecutor();
 
   protected BaseSparkApp(String jobId, StateManager stateManager) {
+    this(jobId, stateManager, HEARTBEAT_INTERVAL_SECONDS_DEFAULT);
+  }
+
+  protected BaseSparkApp(String jobId, StateManager stateManager, long heartbeatIntervalSeconds) {
     this.jobId = jobId;
     this.stateManager = stateManager;
+    this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
   }
 
   public void run() {
@@ -118,7 +125,8 @@ public abstract class BaseSparkApp {
 
   private void onStarted() {
     log.info("onStarted");
-    scheduledExecutorService.schedule(new HeartBeatTask(jobId, stateManager), 1, TimeUnit.MINUTES);
+    scheduledExecutorService.scheduleAtFixedRate(
+        new HeartBeatTask(jobId, stateManager), 0, heartbeatIntervalSeconds, TimeUnit.SECONDS);
     stateManager.updateStartTime(jobId);
     stateManager.updateState(jobId, JobState.RUNNING);
   }
