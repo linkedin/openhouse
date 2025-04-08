@@ -6,7 +6,9 @@ import com.linkedin.openhouse.common.exception.JobStateConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
+import com.linkedin.openhouse.jobs.config.JobLaunchConf;
 import com.linkedin.openhouse.jobs.dto.mapper.JobsMapper;
+import com.linkedin.openhouse.jobs.model.EngineType;
 import com.linkedin.openhouse.jobs.model.JobDto;
 import com.linkedin.openhouse.jobs.model.JobDtoPrimaryKey;
 import com.linkedin.openhouse.jobs.repository.JobsInternalRepository;
@@ -20,7 +22,7 @@ import org.springframework.stereotype.Component;
 public class JobsServiceImpl implements JobsService {
   @Autowired JobsInternalRepository repository;
   @Autowired JobsMapper mapper;
-  @Autowired HouseJobsCoordinator jobsCoordinator;
+  @Autowired JobsCoordinatorManager jobsCoordinatorManager;
   @Autowired JobsRegistry jobsRegistry;
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.JOBS_SERVICE);
@@ -40,6 +42,8 @@ public class JobsServiceImpl implements JobsService {
         MetricsConstant.REQUEST_COUNT, MetricsConstant.ACTION_TAG, MetricsConstant.CREATE);
     String jobId = generateJobId(createJobRequestBody.getJobName());
     long timestamp = System.currentTimeMillis();
+    JobLaunchConf jobLaunchConf =
+        jobsRegistry.createLaunchConf(jobId, createJobRequestBody.getJobConf());
     // save job entry before submitting to capture the event
     // and ensure that entry exists before the job starts sending heartbeats
     JobDto jobDto =
@@ -48,13 +52,12 @@ public class JobsServiceImpl implements JobsService {
             .creationTimeMs(timestamp)
             .lastUpdateTimeMs(timestamp)
             .state(JobState.QUEUED)
+            .engineType(EngineType.valueOf(jobLaunchConf.getEngineType()))
             .build();
     jobDto = mapper.toJobDto(jobDto, createJobRequestBody);
     repository.save(jobDto);
 
-    HouseJobHandle handle =
-        jobsCoordinator.submit(
-            jobsRegistry.createLaunchConf(jobId, createJobRequestBody.getJobConf()));
+    HouseJobHandle handle = jobsCoordinatorManager.submit(jobLaunchConf);
     JobInfo jobInfo = handle.getInfo();
     jobDto = jobDto.toBuilder().executionId(jobInfo.getExecutionId()).build();
     log.info("Submitted job: {}", jobDto);
@@ -71,7 +74,8 @@ public class JobsServiceImpl implements JobsService {
             .orElseThrow(() -> new NoSuchJobException(jobId));
     checkCancellable(job);
     if (shouldCancel(job)) {
-      HouseJobHandle handle = jobsCoordinator.obtainHandle(job.getExecutionId());
+      HouseJobHandle handle =
+          jobsCoordinatorManager.obtainHandle(job.getEngineType(), job.getExecutionId());
       handle.cancel();
       repository.save(job.toBuilder().state(JobState.CANCELLED).build());
     }

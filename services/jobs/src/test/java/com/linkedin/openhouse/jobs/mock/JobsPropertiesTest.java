@@ -22,9 +22,10 @@ public class JobsPropertiesTest {
 
   @Test
   void test() {
-    Assertions.assertEquals("test-uri", properties.getEngineUri());
+    Assertions.assertEquals("test-uri", properties.getEngines().get(0).getEngineUri());
     Assertions.assertEquals("test-uri", properties.getStorageUri());
-    Assertions.assertEquals("test-class-name", properties.getCoordinatorClassName());
+    Assertions.assertEquals(
+        "test-class-name", properties.getEngines().get(0).getCoordinatorClassName());
     final Map<String, String> expectedDefaultSparkProperties = new HashMap<>();
     expectedDefaultSparkProperties.put("dp1", "dv1");
     expectedDefaultSparkProperties.put("dp2", "dv2");

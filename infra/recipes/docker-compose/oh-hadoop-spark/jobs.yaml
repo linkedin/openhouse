@@ -11,36 +11,44 @@ jobs:
         "spark.sql.autoBroadcastJoinThreshold": "-1",
         "spark.driver.memory": "1g"
       }
-      jar-path: local:/opt/spark/openhouse-spark-apps_2.12-latest-all.jar
-      dependencies:
-        - local:/opt/spark/openhouse-spark-runtime_2.12-latest-all.jar
   spark:
-    engine-uri: http://spark-livy:8998
+    engines:
+      - &livy-engine
+        engine-type: LIVY
+        coordinator-class-name: com.linkedin.openhouse.jobs.services.livy.LivyJobsCoordinator
+        engine-uri: http://spark-livy:8998
+        jar-path: local:/opt/spark/openhouse-spark-apps_2.12-latest-all.jar
+        dependencies:
+          - local:/opt/spark/openhouse-spark-runtime_2.12-latest-all.jar
     storage-uri: http://openhouse-housetables:8080
     metrics-uri: http://localhost:4318
-    coordinator-class-name: com.linkedin.openhouse.jobs.services.livy.LivyJobsCoordinator
     auth-token-path: "/var/config/openhouse.token"
     apps:
       - type: NO_OP
         class-name: com.linkedin.openhouse.jobs.spark.NoOpSparkApp
         args: []
         << : *apps-defaults
+        << : *livy-engine
       - type: SQL_TEST
         class-name: com.linkedin.openhouse.jobs.spark.OpenHouseCatalogSQLTestSparkApp
         args: []
         << : *apps-defaults
+        << : *livy-engine
       - type: RETENTION
         class-name: com.linkedin.openhouse.jobs.spark.RetentionSparkApp
         args: []
         << : *apps-defaults
+        << : *livy-engine
       - type: DATA_COMPACTION
         class-name: com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp
         args: []
         << : *apps-defaults
+        << : *livy-engine
       - type: SNAPSHOTS_EXPIRATION
         class-name: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
         args: []
         << : *apps-defaults
+        << : *livy-engine
       - type: ORPHAN_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
         args: ["--trashDir", ".trash"]
@@ -48,23 +56,29 @@ jobs:
         spark-properties:
           <<: *spark-defaults
           "spark.driver.memory": "2g"
+        << : *livy-engine
       - type: STAGED_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.StagedFilesDeletionSparkApp
         args: ["--trashDir", ".trash", "--daysOld", "10", "--recursive", "true"]
         <<: *apps-defaults
+        << : *livy-engine
       - type: ORPHAN_DIRECTORY_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.OrphanTableDirectoryDeletionSparkApp
         args: [ "--trashDir", ".trash" ]
         <<: *apps-defaults
+        << : *livy-engine
       - type: TABLE_STATS_COLLECTION
         class-name: com.linkedin.openhouse.jobs.spark.TableStatsCollectionSparkApp
         args: []
         <<: *apps-defaults
+        << : *livy-engine
       - type: DATA_LAYOUT_STRATEGY_GENERATION
         class-name: com.linkedin.openhouse.jobs.spark.DataLayoutStrategyGeneratorSparkApp
         args: ["--outputTableName", "u_openhouse.dlo_strategies", "--partitionLevelOutputTableName", "u_openhouse.dlo_partition_strategies"]
         <<: *apps-defaults
+        << : *livy-engine
       - type: DATA_LAYOUT_STRATEGY_EXECUTION
         class-name: com.linkedin.openhouse.jobs.spark.DataCompactionSparkApp
         args: []
         <<: *apps-defaults
+        << : *livy-engine

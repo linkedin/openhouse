@@ -23,11 +23,9 @@ import org.springframework.context.annotation.PropertySource;
 @Setter
 @ToString
 public class JobsProperties {
-  private String engineUri;
   private String storageUri;
   private String metricsUri;
-  private String coordinatorClassName;
   private String authTokenPath;
-
+  private List<JobsEngineProperties> engines;
   private List<JobLaunchConf> apps = new ArrayList<>();
 }

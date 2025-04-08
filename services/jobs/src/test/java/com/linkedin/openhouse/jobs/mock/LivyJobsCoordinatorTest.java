@@ -4,6 +4,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
+import com.linkedin.openhouse.jobs.model.EngineType;
 import com.linkedin.openhouse.jobs.services.livy.LivyJobHandle;
 import com.linkedin.openhouse.jobs.services.livy.LivyJobsCoordinator;
 import java.util.Collections;
@@ -33,7 +34,8 @@ public class LivyJobsCoordinatorTest {
             Collections.emptyList(),
             "test.jar",
             Collections.emptyList(),
-            Maps.newHashMap());
+            Maps.newHashMap(),
+            EngineType.LIVY.name());
     responseBody.addProperty("id", testExecutionId);
     ExchangeFunction exchangeFunction =
         request -> {
@@ -58,7 +60,8 @@ public class LivyJobsCoordinatorTest {
             Collections.emptyList(),
             "test.jar",
             Collections.emptyList(),
-            Maps.newHashMap());
+            Maps.newHashMap(),
+            EngineType.LIVY.name());
     ExchangeFunction exchangeFunction =
         request -> {
           Assertions.assertEquals(HttpMethod.POST, request.method());
