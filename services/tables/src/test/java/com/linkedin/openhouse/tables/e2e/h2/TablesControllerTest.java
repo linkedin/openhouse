@@ -1374,7 +1374,7 @@ public class TablesControllerTest {
                         GET_TABLE_RESPONSE_BODY.getTableId()))
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isCreated())
+        .andExpect(status().isNoContent())
         .andReturn();
     mvcResult =
         getTable(GET_TABLE_RESPONSE_BODY.getDatabaseId(), GET_TABLE_RESPONSE_BODY.getTableId());
