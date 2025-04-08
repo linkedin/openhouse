@@ -7,20 +7,15 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
 import com.linkedin.openhouse.housetables.client.api.JobApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
-import com.linkedin.openhouse.jobs.services.HouseJobsCoordinator;
+import com.linkedin.openhouse.jobs.services.JobsCoordinatorManager;
 import com.linkedin.openhouse.jobs.services.JobsRegistry;
-import com.linkedin.openhouse.jobs.services.livy.LivyJobsCoordinator;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.time.Duration;
-import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.util.ReflectionUtils;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
@@ -48,31 +43,8 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   }
 
   @Bean
-  HouseJobsCoordinator createHouseJobCoordinator() {
-    String coordinatorClassName = jobsProperties.getCoordinatorClassName();
-    String baseEngineUrl = jobsProperties.getEngineUri();
-    try {
-      Class<?> coordinatorClass =
-          ReflectionUtils.loadIfPresent(coordinatorClassName, getClass().getClassLoader());
-      if (coordinatorClass != null) {
-        Optional<Constructor<?>> cons =
-            ReflectionUtils.findConstructor(coordinatorClass, baseEngineUrl);
-        if (cons.isPresent()) {
-          return (HouseJobsCoordinator) cons.get().newInstance(baseEngineUrl);
-        }
-      }
-      log.warn(
-          String.format(
-              "Could not load class or find its constructor: %s, using Livy coordinator by default",
-              coordinatorClassName));
-    } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
-      log.warn(
-          String.format(
-              "Could not create instance of class: %s, using Livy coordinator by default",
-              coordinatorClassName),
-          e);
-    }
-    return new LivyJobsCoordinator(baseEngineUrl);
+  JobsCoordinatorManager createJobsCoordinatorManager() {
+    return JobsCoordinatorManager.from(jobsProperties);
   }
 
   @Bean
