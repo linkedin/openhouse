@@ -252,7 +252,7 @@ public class TablesServiceImpl implements TablesService {
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     authorizationUtils.checkTableLockPrivileges(
-        tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+        tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
     // lock state from incoming request
     LockState lockState =
         LockState.builder()
@@ -293,8 +293,7 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableUnLockPrivileges(
-        tableDto, actingPrincipal, Privileges.UPDATE_TABLE_METADATA);
+    authorizationUtils.checkTableLockPrivileges(tableDto, actingPrincipal, Privileges.UNLOCK_ADMIN);
     Policies policies = tableDto.getPolicies();
     if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
       Policies policiesToSave;

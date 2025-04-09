@@ -51,7 +51,7 @@ public class AuthorizationUtils {
   }
 
   /**
-   * Checks if actingPrincipal is authorized to perform lock action on Table.
+   * Checks if actingPrincipal is authorized to perform lock/unlock action on Table.
    *
    * @param tableDto
    * @param actingPrincipal
@@ -59,27 +59,14 @@ public class AuthorizationUtils {
    */
   public void checkTableLockPrivileges(
       TableDto tableDto, String actingPrincipal, Privileges privilege) {
-    if (tableDto.getTableType().equals(TableType.REPLICA_TABLE)) {
+    if (TableType.REPLICA_TABLE.equals(tableDto.getTableType())) {
       String errMsg =
           String.format(
-              "Lock Operation on Replica table %s.%s is not permitted.",
+              "Lock/UnLock Operation on Replica table %s.%s is not permitted.",
               tableDto.getDatabaseId(), tableDto.getTableId());
       throw new UnsupportedOperationException(errMsg);
     } else {
-      checkTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
-    }
-  }
-
-  public void checkTableUnLockPrivileges(
-      TableDto tableDto, String actingPrincipal, Privileges privilege) {
-    if (tableDto.getTableType().equals(TableType.REPLICA_TABLE)) {
-      String errMsg =
-          String.format(
-              "UnLock Operation on Replica table %s.%s is not permitted.",
-              tableDto.getDatabaseId(), tableDto.getTableId());
-      throw new UnsupportedOperationException(errMsg);
-    } else {
-      checkTablePrivilege(tableDto, actingPrincipal, Privileges.UNLOCK_ADMIN);
+      checkTablePrivilege(tableDto, actingPrincipal, privilege);
     }
   }
 

@@ -629,7 +629,7 @@ public class TablesServiceTest {
 
   /** assert lock is created as policy object on createLock call */
   @Test
-  public void testCreateLockForaTable() {
+  public void testCreateLockOnTable() {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
     tablesService.createLock(
@@ -660,7 +660,7 @@ public class TablesServiceTest {
 
   /** assert lock is created as policy object on createLock call */
   @Test
-  public void testDeleteLockForaTable() {
+  public void testDeleteLockOnTable() {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
     tablesService.createLock(
