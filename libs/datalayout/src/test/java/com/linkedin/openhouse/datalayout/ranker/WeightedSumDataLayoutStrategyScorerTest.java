@@ -60,7 +60,7 @@ public class WeightedSumDataLayoutStrategyScorerTest {
     Assertions.assertEquals(normalizedStrategies.size(), 3);
     for (int k = 1; k <= 3; k++) {
       DataLayoutCandidateSelector dataLayoutCandidateSelector =
-          new GreedyMaxBudgetCandidateSelector(Double.MAX_VALUE, k);
+          new GreedyMaxBudgetCandidateSelector(Double.MAX_VALUE, k, 0, false);
       List<Integer> topK = dataLayoutCandidateSelector.select(normalizedStrategies);
       Assertions.assertEquals(k, topK.size());
       for (int j = 1; j <= k; j++) {
@@ -77,22 +77,26 @@ public class WeightedSumDataLayoutStrategyScorerTest {
         dataLayoutStrategyScorer.scoreDataLayoutStrategies(testSampleDataLayoutStrategies);
     Assertions.assertEquals(3, normalizedStrategies.size());
 
-    DataLayoutCandidateSelector selectAll = new GreedyMaxBudgetCandidateSelector(550.5, 3);
+    DataLayoutCandidateSelector selectAll =
+        new GreedyMaxBudgetCandidateSelector(550.5, 3, 0, false);
     List<Integer> selectedAllStrategies = selectAll.select(normalizedStrategies);
     Assertions.assertEquals(3, selectedAllStrategies.size());
     Assertions.assertArrayEquals(new Integer[] {2, 1, 0}, selectedAllStrategies.toArray());
 
-    DataLayoutCandidateSelector selectTwo = new GreedyMaxBudgetCandidateSelector(550.0, 3);
+    DataLayoutCandidateSelector selectTwo =
+        new GreedyMaxBudgetCandidateSelector(550.0, 3, 0, false);
     List<Integer> selectedTwoStrategies = selectTwo.select(normalizedStrategies);
     Assertions.assertEquals(2, selectedTwoStrategies.size());
     Assertions.assertArrayEquals(new Integer[] {2, 1}, selectedTwoStrategies.toArray());
 
-    DataLayoutCandidateSelector selectOne = new GreedyMaxBudgetCandidateSelector(500.0, 3);
+    DataLayoutCandidateSelector selectOne =
+        new GreedyMaxBudgetCandidateSelector(500.0, 3, 0, false);
     List<Integer> selectedOneStrategies = selectOne.select(normalizedStrategies);
     Assertions.assertEquals(1, selectedOneStrategies.size());
     Assertions.assertArrayEquals(new Integer[] {2}, selectedOneStrategies.toArray());
 
-    DataLayoutCandidateSelector selectNone = new GreedyMaxBudgetCandidateSelector(5000.0, 0);
+    DataLayoutCandidateSelector selectNone =
+        new GreedyMaxBudgetCandidateSelector(5000.0, 0, 0, false);
     List<Integer> selectedNoneStrategies = selectNone.select(normalizedStrategies);
     Assertions.assertEquals(0, selectedNoneStrategies.size());
     Assertions.assertArrayEquals(new Integer[] {}, selectedNoneStrategies.toArray());

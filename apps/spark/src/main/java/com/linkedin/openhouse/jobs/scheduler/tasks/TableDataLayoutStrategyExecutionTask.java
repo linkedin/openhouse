@@ -36,7 +36,7 @@ public class TableDataLayoutStrategyExecutionTask
 
   @Override
   protected List<String> getArgs() {
-    DataCompactionConfig config = metadata.getDataLayoutStrategy().getConfig();
+    DataCompactionConfig config = metadata.getDataLayoutStrategies().get(0).getConfig();
     List<String> args =
         new ArrayList<>(
             Arrays.asList(
