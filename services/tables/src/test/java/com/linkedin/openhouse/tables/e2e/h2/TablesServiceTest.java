@@ -629,7 +629,7 @@ public class TablesServiceTest {
 
   /** assert lock is created as policy object on createLock call */
   @Test
-  public void testCreateLockForaTable() {
+  public void testCreateLockOnTable() {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
     tablesService.createLock(
@@ -651,6 +651,33 @@ public class TablesServiceTest {
     TableDto result1 =
         tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
     Assertions.assertTrue(result1.getPolicies().getLockState().isLocked());
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.deleteTable(
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  /** assert lock is created as policy object on createLock call */
+  @Test
+  public void testDeleteLockOnTable() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+    tablesService.createLock(
+        tableDtoCopy.getDatabaseId(),
+        tableDtoCopy.getTableId(),
+        CreateUpdateLockRequestBody.builder().locked(true).expirationInDays(4).build(),
+        TEST_USER);
+    TableDto result =
+        tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertTrue(result.getPolicies().getLockState().isLocked());
+    Assertions.assertEquals(result.getPolicies().getLockState().getExpirationInDays(), 4);
+    // update lock state to false, assert that lock state does not change since create lock should
+    // only set it to true
+    tablesService.deleteLock(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER);
+    TableDto result1 =
+        tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertNull(result1.getPolicies().getLockState());
 
     Assertions.assertDoesNotThrow(
         () ->

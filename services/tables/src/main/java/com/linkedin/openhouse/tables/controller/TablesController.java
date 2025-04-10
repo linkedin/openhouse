@@ -324,4 +324,28 @@ public class TablesController {
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
+
+  @Operation(
+      summary = "Delete lock on Table",
+      description = "Delete lock on a table identified by databaseId and tableId",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock PATCH: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock PATCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock PATCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock PATCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND")
+      })
+  @DeleteMapping(
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},
+      produces = {"application/json"})
+  public ResponseEntity<Void> deleteLock(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.deleteLock(databaseId, tableId, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
 }

@@ -122,4 +122,14 @@ public interface TablesApiHandler {
       String tableId,
       CreateUpdateLockRequestBody createUpdateLockRequestBody,
       String tableCreatorUpdator);
+
+  /**
+   * Function to Delete a Table lock Resource identified by tableId in a given databaseId
+   *
+   * @param databaseId
+   * @param tableId
+   * @param tableCreatorUpdator
+   * @return empty body on successful delete
+   */
+  ApiResponse<Void> deleteLock(String databaseId, String tableId, String tableCreatorUpdator);
 }

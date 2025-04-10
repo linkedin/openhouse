@@ -234,7 +234,7 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * Updates the lock state on a table if boolean lock state if different from existing state.
+   * Creates lock on a table if lock on table is not already set.
    *
    * @param databaseId
    * @param tableId
@@ -251,8 +251,8 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableWritePathPrivileges(
-        tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+    authorizationUtils.checkTableLockPrivileges(
+        tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
     // lock state from incoming request
     LockState lockState =
         LockState.builder()
@@ -270,6 +270,36 @@ public class TablesServiceImpl implements TablesService {
         policiesToSave = Policies.builder().lockState(lockState).build();
       }
       // should allow updating lock on a table with different reason
+      TableDto tableDtoToSave =
+          tableDto
+              .toBuilder()
+              .policies(policiesToSave)
+              .tableVersion(tableDto.getTableLocation())
+              .build();
+      saveTableDto(tableDtoToSave, Optional.of(tableDto));
+    }
+  }
+
+  /**
+   * unlock the table by setting the lockState policy to null. Without a lock policy a table should
+   * be considered unlocked.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal
+   */
+  @Override
+  public void deleteLock(String databaseId, String tableId, String actingPrincipal) {
+    TableDto tableDto =
+        openHouseInternalRepository
+            .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    authorizationUtils.checkTableLockPrivileges(tableDto, actingPrincipal, Privileges.UNLOCK_ADMIN);
+    Policies policies = tableDto.getPolicies();
+    if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
+      Policies policiesToSave;
+      // set lockState policy to null
+      policiesToSave = tableDto.getPolicies().toBuilder().lockState(null).build();
       TableDto tableDtoToSave =
           tableDto
               .toBuilder()
