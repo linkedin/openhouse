@@ -281,7 +281,8 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * unlock the table by setting the lockState policy to null.
+   * unlock the table by setting the lockState policy to null. Without a lock policy a table should
+   * be considered unlocked.
    *
    * @param databaseId
    * @param tableId
