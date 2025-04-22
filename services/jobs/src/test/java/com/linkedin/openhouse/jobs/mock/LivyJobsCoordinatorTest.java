@@ -4,7 +4,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
-import com.linkedin.openhouse.jobs.model.EngineType;
 import com.linkedin.openhouse.jobs.services.livy.LivyJobHandle;
 import com.linkedin.openhouse.jobs.services.livy.LivyJobsCoordinator;
 import java.util.Collections;

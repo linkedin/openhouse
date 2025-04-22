@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.mock;
 
 import com.google.common.collect.Maps;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
+import com.linkedin.openhouse.jobs.config.JobsEngineProperties;
 import com.linkedin.openhouse.jobs.config.JobsProperties;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,10 +23,32 @@ public class JobsPropertiesTest {
 
   @Test
   void test() {
-    Assertions.assertEquals("test-uri", properties.getEngines().get(0).getEngineUri());
+    // test jobsProperties
+    Assertions.assertEquals(2, properties.getEngines().size());
+    Assertions.assertEquals("LIVY", properties.getDefaultEngine());
     Assertions.assertEquals("test-uri", properties.getStorageUri());
-    Assertions.assertEquals(
-        "test-class-name", properties.getEngines().get(0).getCoordinatorClassName());
+    Assertions.assertEquals(null, properties.getAuthTokenPath());
+
+    // test jobsEngineProperties
+    List<JobsEngineProperties> expectedEngines =
+        Arrays.asList(
+            JobsEngineProperties.builder()
+                .engineType("LIVY")
+                .engineUri("test-uri")
+                .coordinatorClassName("test-class-name")
+                .executionTags(Collections.singletonMap("pool", "dev"))
+                .jarPath("default-jar-path")
+                .build(),
+            JobsEngineProperties.builder()
+                .engineType("FAKE")
+                .engineUri("fake-uri")
+                .coordinatorClassName("fake-class-name")
+                .dependencies(Collections.singletonList("fake-dependency"))
+                .jarPath("fake-jar-path")
+                .build());
+    Assertions.assertEquals(expectedEngines, properties.getEngines());
+
+    // test jobLaunchConf
     final Map<String, String> expectedDefaultSparkProperties = new HashMap<>();
     expectedDefaultSparkProperties.put("dp1", "dv1");
     expectedDefaultSparkProperties.put("dp2", "dv2");
@@ -62,6 +85,7 @@ public class JobsPropertiesTest {
                 .executionTags(executionTags)
                 .dependencies(Collections.emptyList())
                 .sparkProperties(expectedDefaultSparkProperties)
+                .engineType("LIVY")
                 .build(),
             JobLaunchConf.builder()
                 .type("test-job-3")
@@ -71,6 +95,7 @@ public class JobsPropertiesTest {
                 .executionTags(executionTags)
                 .dependencies(Collections.singletonList("d3"))
                 .sparkProperties(expectedDefaultSparkProperties)
+                .engineType("LIVY")
                 .build(),
             JobLaunchConf.builder()
                 .type("RETENTION")
@@ -80,22 +105,22 @@ public class JobsPropertiesTest {
                 .executionTags(executionTags)
                 .dependencies(Collections.singletonList("d3"))
                 .sparkProperties(expectedDefaultSparkProperties)
+                .engineType("LIVY")
                 .build(),
             JobLaunchConf.builder()
                 .type("ORPHAN_FILES_DELETION")
                 .className("job-3-class-name")
                 .args(Collections.emptyList())
-                .jarPath("default-jar-path")
-                .executionTags(executionTags)
+                .jarPath("fake-jar-path")
                 .dependencies(Collections.singletonList("d3"))
                 .args(expectedOFDArgs)
                 .sparkProperties(expectedOFDSparkProperties)
+                .engineType("FAKE")
                 .build());
     Assertions.assertEquals(expected, properties.getApps());
     Assertions.assertEquals(
         expectedDefaultSparkProperties, properties.getApps().get(2).getSparkProperties());
     Assertions.assertEquals(
         expectedSparkProperties, properties.getApps().get(0).getSparkProperties());
-    Assertions.assertEquals(null, properties.getAuthTokenPath());
   }
 }

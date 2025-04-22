@@ -7,8 +7,8 @@ import com.linkedin.openhouse.jobs.model.JobDto;
 import com.linkedin.openhouse.jobs.model.JobDtoPrimaryKey;
 import com.linkedin.openhouse.jobs.repository.JobsInternalRepository;
 import com.linkedin.openhouse.jobs.services.HouseJobHandle;
-import com.linkedin.openhouse.jobs.services.HouseJobsCoordinator;
 import com.linkedin.openhouse.jobs.services.JobInfo;
+import com.linkedin.openhouse.jobs.services.JobsCoordinatorManager;
 import com.linkedin.openhouse.jobs.services.JobsRegistry;
 import com.linkedin.openhouse.jobs.services.JobsService;
 import java.util.HashMap;
@@ -31,7 +31,7 @@ public class JobsServiceTest {
   private JobsInternalRepository repository;
 
   @MockBean private JobsRegistry jobsRegistry;
-  @MockBean private HouseJobsCoordinator jobsCoordinator;
+  @MockBean private JobsCoordinatorManager jobsCoordinatorManager;
   @MockBean private HouseJobHandle jobHandle;
   @MockBean private JobInfo jobInfo;
 
@@ -47,7 +47,7 @@ public class JobsServiceTest {
     Mockito.when(repository.save(Mockito.any())).thenReturn(job);
     Mockito.when(jobsRegistry.createLaunchConf(Mockito.any(), Mockito.any()))
         .thenReturn(JobLaunchConf.builder().build());
-    Mockito.when(jobsCoordinator.submit(Mockito.any())).thenReturn(jobHandle);
+    Mockito.when(jobsCoordinatorManager.submit(Mockito.any())).thenReturn(jobHandle);
     Mockito.when(jobHandle.getInfo()).thenReturn(jobInfo);
     Mockito.when(jobInfo.getExecutionId()).thenReturn(job.getExecutionId());
     Assertions.assertEquals(job, service.create(requestBody));
@@ -65,6 +65,7 @@ public class JobsServiceTest {
                     .executionConf(executionConf)
                     .jobType(JobConf.JobType.RETENTION)
                     .build())
+            .engineType("LIVY")
             .build();
     CreateJobRequestBody requestBody =
         CreateJobRequestBody.builder()
@@ -74,8 +75,8 @@ public class JobsServiceTest {
             .build();
     Mockito.when(repository.save(Mockito.any())).thenReturn(job);
     Mockito.when(jobsRegistry.createLaunchConf(Mockito.any(), Mockito.any()))
-        .thenReturn(JobLaunchConf.builder().build());
-    Mockito.when(jobsCoordinator.submit(Mockito.any())).thenReturn(jobHandle);
+        .thenReturn(JobLaunchConf.builder().engineType("LIVY").build());
+    Mockito.when(jobsCoordinatorManager.submit(Mockito.any())).thenReturn(jobHandle);
     Mockito.when(jobHandle.getInfo()).thenReturn(jobInfo);
     Mockito.when(jobInfo.getExecutionId()).thenReturn(job.getExecutionId());
     JobDto actualJobDto = service.create(requestBody);

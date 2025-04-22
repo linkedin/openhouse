@@ -20,6 +20,7 @@ jobs:
         jar-path: local:/opt/spark/openhouse-spark-apps_2.12-latest-all.jar
         dependencies:
           - local:/opt/spark/openhouse-spark-runtime_2.12-latest-all.jar
+    default-engine: LIVY
     storage-uri: http://openhouse-housetables:8080
     metrics-uri: http://localhost:4318
     auth-token-path: "/var/config/openhouse.token"

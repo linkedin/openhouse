@@ -26,6 +26,7 @@ public class JobsProperties {
   private String storageUri;
   private String metricsUri;
   private String authTokenPath;
-  private List<JobsEngineProperties> engines;
+  private String defaultEngine;
+  private List<JobsEngineProperties> engines = new ArrayList<>();
   private List<JobLaunchConf> apps = new ArrayList<>();
 }

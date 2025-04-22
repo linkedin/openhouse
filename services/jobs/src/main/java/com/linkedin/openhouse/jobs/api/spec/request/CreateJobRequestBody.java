@@ -14,7 +14,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-@Builder
+@Builder(toBuilder = true)
 @EqualsAndHashCode
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)

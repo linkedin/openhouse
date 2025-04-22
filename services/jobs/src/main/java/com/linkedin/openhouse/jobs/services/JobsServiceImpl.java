@@ -8,7 +8,6 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
 import com.linkedin.openhouse.jobs.dto.mapper.JobsMapper;
-import com.linkedin.openhouse.jobs.model.EngineType;
 import com.linkedin.openhouse.jobs.model.JobDto;
 import com.linkedin.openhouse.jobs.model.JobDtoPrimaryKey;
 import com.linkedin.openhouse.jobs.repository.JobsInternalRepository;
@@ -42,17 +41,17 @@ public class JobsServiceImpl implements JobsService {
         MetricsConstant.REQUEST_COUNT, MetricsConstant.ACTION_TAG, MetricsConstant.CREATE);
     String jobId = generateJobId(createJobRequestBody.getJobName());
     long timestamp = System.currentTimeMillis();
-    JobLaunchConf jobLaunchConf =
-        jobsRegistry.createLaunchConf(jobId, createJobRequestBody.getJobConf());
     // save job entry before submitting to capture the event
     // and ensure that entry exists before the job starts sending heartbeats
+    JobLaunchConf jobLaunchConf =
+        jobsRegistry.createLaunchConf(jobId, createJobRequestBody.getJobConf());
     JobDto jobDto =
         JobDto.builder()
             .jobId(jobId)
             .creationTimeMs(timestamp)
             .lastUpdateTimeMs(timestamp)
             .state(JobState.QUEUED)
-            .engineType(EngineType.valueOf(jobLaunchConf.getEngineType()))
+            .engineType(jobLaunchConf.getEngineType())
             .build();
     jobDto = mapper.toJobDto(jobDto, createJobRequestBody);
     repository.save(jobDto);

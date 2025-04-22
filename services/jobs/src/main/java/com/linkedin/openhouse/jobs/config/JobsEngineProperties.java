@@ -20,10 +20,10 @@ import lombok.ToString;
 @Builder(toBuilder = true)
 @EqualsAndHashCode
 public class JobsEngineProperties {
-  private String type;
+  private String engineType;
   private String coordinatorClassName;
   private String engineUri;
   private String jarPath;
-  private List<String> dependencies = new ArrayList<>();
-  private Map<String, String> executionTags = new HashMap<>();
+  @Builder.Default private List<String> dependencies = new ArrayList<>();
+  @Builder.Default private Map<String, String> executionTags = new HashMap<>();
 }
