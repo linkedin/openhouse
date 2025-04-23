@@ -40,13 +40,6 @@ def configurePom(pom) {
     developerConnection = 'scm:git:ssh://github.com/linkedin/openhouse.git'
     url = 'https://github.com/linkedin/openhouse'
   }
-
-  pom.withXml {
-    asNode().dependencies.first().each {
-      // Change the scope from runtime to compile
-      it.get("scope").first().value = 'compile'
-    }
-  }
 }
 
 publishing {

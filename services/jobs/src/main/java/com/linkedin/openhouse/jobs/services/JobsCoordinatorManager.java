@@ -11,11 +11,13 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.util.ReflectionUtils;
 
 @Slf4j
-@AllArgsConstructor(access = AccessLevel.PRIVATE)
+@AllArgsConstructor(access = AccessLevel.PUBLIC)
+@Getter
 public class JobsCoordinatorManager {
   private final Map<String, HouseJobsCoordinator> coordinators;
   private final String defaultEngineType;
