@@ -4,6 +4,8 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -94,6 +96,20 @@ public final class RequestConstants {
           .baseTableVersion("v1")
           .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
           .createUpdateTableRequestBody(TEST_CREATE_TABLE_REQUEST_BODY)
+          .build();
+
+  public static final IcebergSnapshotsRequestBody TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY_FOR_LOCKED =
+      IcebergSnapshotsRequestBody.builder()
+          .baseTableVersion("v1")
+          .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
+          .createUpdateTableRequestBody(
+              TEST_CREATE_TABLE_REQUEST_BODY
+                  .toBuilder()
+                  .policies(
+                      Policies.builder()
+                          .lockState(LockState.builder().locked(true).build())
+                          .build())
+                  .build())
           .build();
 
   public static final IcebergSnapshotsRequestBody

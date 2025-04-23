@@ -6,6 +6,8 @@ import com.linkedin.openhouse.common.exception.EntityConcurrentModificationExcep
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapperImpl;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -150,6 +152,37 @@ public class IcebergSnapshotsServiceTest {
                 .databaseId(dbId)
                 .tableId(tableId)
                 .tableLocation(requestBody.getBaseTableVersion())
+                .tableCreator(TEST_TABLE_CREATOR)
+                .build(),
+            requestBody);
+    Mockito.when(tableUUIDGenerator.generateUUID(Mockito.any(IcebergSnapshotsRequestBody.class)))
+        .thenReturn(UUID.randomUUID());
+    Mockito.when(mockRepository.findById(key)).thenReturn(Optional.of(tableDto));
+    Mockito.when(mockRepository.save(tableDtoArgumentCaptor.capture())).thenReturn(tableDto);
+
+    Pair<TableDto, Boolean> result = service.putIcebergSnapshots(dbId, tableId, requestBody, null);
+    Assertions.assertEquals(tableDto, result.getFirst(), "Returned DTO must be the mock value");
+    Assertions.assertFalse(result.getSecond(), "Table must be found in repository");
+
+    verifyCalls(key, TEST_TABLE_CREATOR, requestBody.getCreateUpdateTableRequestBody());
+  }
+
+  @Test
+  public void testTableUpdatedForLockedTable() {
+    final IcebergSnapshotsRequestBody requestBody = TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY_FOR_LOCKED;
+    final String dbId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
+    final String tableId = requestBody.getCreateUpdateTableRequestBody().getTableId();
+    final TableDtoPrimaryKey key =
+        TableDtoPrimaryKey.builder().databaseId(dbId).tableId(tableId).build();
+    final TableDto tableDto =
+        tablesMapper.toTableDto(
+            TableDto.builder()
+                .clusterId(requestBody.getCreateUpdateTableRequestBody().getClusterId())
+                .databaseId(dbId)
+                .tableId(tableId)
+                .tableLocation(requestBody.getBaseTableVersion())
+                .policies(
+                    Policies.builder().lockState(LockState.builder().locked(true).build()).build())
                 .tableCreator(TEST_TABLE_CREATOR)
                 .build(),
             requestBody);

@@ -58,6 +58,10 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    // Restricts reading table to users with lock admin Privileges
+    if (isTableLocked(tableDto)) {
+      authorizationUtils.checkTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    }
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     return tableDto;
@@ -89,6 +93,10 @@ public class TablesServiceImpl implements TablesService {
             String.format("Staged Table %s.%s was illegally persisted", databaseId, tableId));
       }
       checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
+      if (isTableLocked(tableDto.get())) {
+        authorizationUtils.checkTablePrivilege(
+            tableDto.get(), tableCreatorUpdater, Privileges.LOCK_ADMIN);
+      }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
 
@@ -182,6 +190,11 @@ public class TablesServiceImpl implements TablesService {
     if (!tableDto.isPresent()) {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
+    if (isTableLocked(tableDto.get())) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.DELETE_LOCKED_TABLE,
+          String.format("Table %s.%s is in locked state. Cannot be deleted", databaseId, tableId));
+    }
     authorizationUtils.checkTableWritePathPrivileges(
         tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
 
@@ -207,6 +220,11 @@ public class TablesServiceImpl implements TablesService {
         if (!isTableSharingEnabled(tableDto)) {
           throw new UnsupportedClientOperationException(
               UnsupportedClientOperationException.Operation.GRANT_ON_UNSHARED_TABLES,
+              String.format("%s.%s is not a shared table", databaseId, tableId));
+        }
+        if (isTableLocked(tableDto)) {
+          throw new UnsupportedClientOperationException(
+              UnsupportedClientOperationException.Operation.GRANT_ON_LOCKED_TABLES,
               String.format("%s.%s is not a shared table", databaseId, tableId));
         }
         authorizationHandler.grantRole(
@@ -294,7 +312,7 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableLockPrivileges(tableDto, actingPrincipal, Privileges.UNLOCK_ADMIN);
+    authorizationUtils.checkTableLockPrivileges(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     Policies policies = tableDto.getPolicies();
     if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
       Policies policiesToSave;
@@ -331,5 +349,12 @@ public class TablesServiceImpl implements TablesService {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
     return tableDto.get();
+  }
+
+  /** Check if table has lock policy defined */
+  private static boolean isTableLocked(TableDto tableDto) {
+    return tableDto.getPolicies() != null
+        && tableDto.getPolicies().getLockState() != null
+        && tableDto.getPolicies().getLockState().isLocked();
   }
 }

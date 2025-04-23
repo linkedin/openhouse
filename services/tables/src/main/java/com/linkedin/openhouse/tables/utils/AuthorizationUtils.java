@@ -26,11 +26,16 @@ public class AuthorizationUtils {
    * @param privilege
    */
   public void checkTablePrivilege(TableDto tableDto, String actingPrincipal, Privileges privilege) {
+    String lockErrorSuffix = "";
+    if (privilege.getPrivilege().equals(Privileges.LOCK_ADMIN.toString())
+        || privilege.getPrivilege().equals(Privileges.LOCK_WRITER.toString())) {
+      lockErrorSuffix = " to act on table in locked state";
+    }
     if (!authorizationHandler.checkAccessDecision(actingPrincipal, tableDto, privilege)) {
       throw new AccessDeniedException(
           String.format(
-              "Operation on table %s.%s failed as user %s is unauthorized",
-              tableDto.getDatabaseId(), tableDto.getTableId(), actingPrincipal));
+              "Operation on table %s.%s failed as user %s is unauthorized%s",
+              tableDto.getDatabaseId(), tableDto.getTableId(), actingPrincipal, lockErrorSuffix));
     }
   }
 

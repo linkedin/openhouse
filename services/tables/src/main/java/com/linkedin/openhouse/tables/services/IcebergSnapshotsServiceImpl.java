@@ -65,6 +65,10 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
             icebergSnapshotRequestBody);
 
     if (tableDto.isPresent()) {
+      if (isTableLocked(tableDto.get())) {
+        authorizationUtils.checkTableLockPrivileges(
+            tableDto.get(), tableCreatorUpdater, Privileges.LOCK_WRITER);
+      }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     } else {
@@ -92,5 +96,11 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
               "The requested table has been modified/created by other processes."),
           ce);
     }
+  }
+
+  private boolean isTableLocked(TableDto tableDto) {
+    return tableDto.getPolicies() != null
+        && tableDto.getPolicies().getLockState() != null
+        && tableDto.getPolicies().getLockState().isLocked();
   }
 }
