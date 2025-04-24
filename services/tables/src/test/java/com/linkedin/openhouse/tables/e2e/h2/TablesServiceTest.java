@@ -719,5 +719,10 @@ public class TablesServiceTest {
                 TABLE_DTO.getTableId(),
                 updateAclPoliciesRequestBody,
                 TEST_USER));
+    tablesService.deleteLock(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.deleteTable(
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
   }
 }
