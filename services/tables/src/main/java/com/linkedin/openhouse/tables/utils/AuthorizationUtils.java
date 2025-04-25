@@ -27,8 +27,8 @@ public class AuthorizationUtils {
    */
   public void checkTablePrivilege(TableDto tableDto, String actingPrincipal, Privileges privilege) {
     String lockErrorSuffix = "";
-    if (privilege.getPrivilege().equals(Privileges.LOCK_ADMIN.toString())
-        || privilege.getPrivilege().equals(Privileges.LOCK_WRITER.toString())) {
+    if (Privileges.LOCK_ADMIN.toString().equals(privilege.getPrivilege())
+        || Privileges.LOCK_WRITER.toString().equals(privilege.getPrivilege())) {
       lockErrorSuffix = " to act on table in locked state";
     }
     if (!authorizationHandler.checkAccessDecision(actingPrincipal, tableDto, privilege)) {

@@ -193,7 +193,8 @@ public class TablesServiceImpl implements TablesService {
     if (isTableLocked(tableDto.get())) {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.DELETE_LOCKED_TABLE,
-          String.format("Table %s.%s is in locked state. Cannot be deleted", databaseId, tableId));
+          String.format(
+              "Table %s.%s is in locked state and cannot be deleted", databaseId, tableId));
     }
     authorizationUtils.checkTableWritePathPrivileges(
         tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
@@ -225,7 +226,9 @@ public class TablesServiceImpl implements TablesService {
         if (isTableLocked(tableDto)) {
           throw new UnsupportedClientOperationException(
               UnsupportedClientOperationException.Operation.GRANT_ON_LOCKED_TABLES,
-              String.format("%s.%s is not a shared table", databaseId, tableId));
+              String.format(
+                  "%s.%s is in locked state and grants are not allowed for sharing",
+                  databaseId, tableId));
         }
         authorizationHandler.grantRole(
             role, granteePrincipal, expirationEpochTimeSeconds, properties, tableDto);
