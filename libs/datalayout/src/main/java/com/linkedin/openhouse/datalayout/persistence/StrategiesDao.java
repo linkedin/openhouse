@@ -12,4 +12,8 @@ public interface StrategiesDao {
   List<DataLayoutStrategy> load(String fqtn);
 
   List<DataLayoutStrategy> loadPartitionScope(String fqtn);
+
+  void delete(String fqtn);
+
+  void deletePartitionScope(String fqtn);
 }

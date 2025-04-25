@@ -72,6 +72,24 @@ public class StrategiesDaoTableProps implements StrategiesDao {
     return deserializeList(propValue);
   }
 
+  @Override
+  public void delete(String fqtn) {
+    log.info("Deleting strategies for table {}", fqtn);
+    spark.sql(
+        String.format(
+            "ALTER TABLE %s UNSET TBLPROPERTIES ('%s')",
+            fqtn, DATA_LAYOUT_STRATEGIES_PROPERTY_KEY));
+  }
+
+  @Override
+  public void deletePartitionScope(String fqtn) {
+    log.info("Deleting partition level strategies for table {}", fqtn);
+    spark.sql(
+        String.format(
+            "ALTER TABLE %s UNSET TBLPROPERTIES ('%s')",
+            fqtn, DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY));
+  }
+
   public static String serialize(List<DataLayoutStrategy> strategies) {
     Gson gson = new GsonBuilder().create();
     Type type = new TypeToken<ArrayList<DataLayoutStrategy>>() {}.getType();
