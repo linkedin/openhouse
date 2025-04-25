@@ -26,16 +26,29 @@ public class AuthorizationUtils {
    * @param privilege
    */
   public void checkTablePrivilege(TableDto tableDto, String actingPrincipal, Privileges privilege) {
-    String lockErrorSuffix = "";
-    if (Privileges.LOCK_ADMIN.toString().equals(privilege.getPrivilege())
-        || Privileges.LOCK_WRITER.toString().equals(privilege.getPrivilege())) {
-      lockErrorSuffix = " to act on table in locked state";
-    }
     if (!authorizationHandler.checkAccessDecision(actingPrincipal, tableDto, privilege)) {
       throw new AccessDeniedException(
           String.format(
-              "Operation on table %s.%s failed as user %s is unauthorized%s",
-              tableDto.getDatabaseId(), tableDto.getTableId(), actingPrincipal, lockErrorSuffix));
+              "Operation on table %s.%s failed as user %s is unauthorized",
+              tableDto.getDatabaseId(), tableDto.getTableId(), actingPrincipal));
+    }
+  }
+
+  /**
+   * * Throws AccessDeniedException if actingPrincipal is not authorized to act on a Locked table
+   * denoted by tableId.
+   *
+   * @param tableDto
+   * @param actingPrincipal
+   * @param privilege
+   */
+  public void checkLockTablePrivilege(
+      TableDto tableDto, String actingPrincipal, Privileges privilege) {
+    if (!authorizationHandler.checkAccessDecision(actingPrincipal, tableDto, privilege)) {
+      throw new AccessDeniedException(
+          String.format(
+              "Operation on table %s.%s failed as user %s is unauthorized to act on Locked table",
+              tableDto.getDatabaseId(), tableDto.getTableId(), actingPrincipal));
     }
   }
 
@@ -56,13 +69,13 @@ public class AuthorizationUtils {
   }
 
   /**
-   * Checks if actingPrincipal is authorized to perform lock/unlock action on Table.
+   * Checks if actingPrincipal is authorized to perform write action on locked Table.
    *
    * @param tableDto
    * @param actingPrincipal
    * @param privilege
    */
-  public void checkTableLockPrivileges(
+  public void checkLockTableWritePathPrivileges(
       TableDto tableDto, String actingPrincipal, Privileges privilege) {
     if (TableType.REPLICA_TABLE.equals(tableDto.getTableType())) {
       String errMsg =

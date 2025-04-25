@@ -60,7 +60,7 @@ public class TablesServiceImpl implements TablesService {
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     // Restricts reading table to users with lock admin Privileges
     if (isTableLocked(tableDto)) {
-      authorizationUtils.checkTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+      authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     }
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
@@ -94,7 +94,7 @@ public class TablesServiceImpl implements TablesService {
       }
       checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
       if (isTableLocked(tableDto.get())) {
-        authorizationUtils.checkTablePrivilege(
+        authorizationUtils.checkLockTablePrivilege(
             tableDto.get(), tableCreatorUpdater, Privileges.LOCK_ADMIN);
       }
       authorizationUtils.checkTableWritePathPrivileges(
@@ -272,7 +272,7 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableLockPrivileges(
+    authorizationUtils.checkLockTableWritePathPrivileges(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
     // lock state from incoming request
     LockState lockState =
@@ -315,7 +315,10 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableLockPrivileges(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    authorizationUtils.checkLockTableWritePathPrivileges(
+        tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    authorizationUtils.checkTableWritePathPrivileges(
+        tableDto, actingPrincipal, Privileges.UPDATE_TABLE_METADATA);
     Policies policies = tableDto.getPolicies();
     if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
       Policies policiesToSave;
