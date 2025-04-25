@@ -63,6 +63,17 @@ public class JobsCoordinatorManagerTest {
   }
 
   @Test
+  public void testSubmitEngineTypeNull() {
+    JobsCoordinatorManager jobsCoordinatorManager =
+        new JobsCoordinatorManager(ImmutableMap.of("LIVY", livyJobsCoordinator), "LIVY");
+    JobLaunchConf conf = JobLaunchConf.builder().build();
+    when(livyJobsCoordinator.submit(conf)).thenReturn(livyJobHandle);
+    HouseJobHandle actualHandle = jobsCoordinatorManager.submit(conf);
+
+    Assertions.assertEquals(actualHandle, livyJobHandle);
+  }
+
+  @Test
   public void testObtainHandle() {
     JobsCoordinatorManager jobsCoordinatorManager =
         new JobsCoordinatorManager(ImmutableMap.of("LIVY", livyJobsCoordinator), "LIVY");
