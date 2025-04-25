@@ -58,7 +58,7 @@ public class JobsCoordinatorManager {
    * defaultEngineType is engineType is not provided.
    */
   public HouseJobHandle submit(JobLaunchConf conf) {
-    String resolvedEngineType = resolveEngineType(conf.getEngineType());
+    String resolvedEngineType = resolveEngineType(conf.getEngineType(), conf.getType());
     HouseJobsCoordinator coordinator = coordinators.get(resolvedEngineType);
     log.info("Submitting job to {} with args: {}", resolvedEngineType, conf.getArgs());
     return coordinator.submit(conf);
@@ -69,16 +69,18 @@ public class JobsCoordinatorManager {
    * defaultEngineType is engineType is not provided.
    */
   public HouseJobHandle obtainHandle(String engineType, String executionId) {
-    String resolvedEngineType = resolveEngineType(engineType);
+    String resolvedEngineType = resolveEngineType(engineType, null);
     HouseJobsCoordinator coordinator = coordinators.get(resolvedEngineType);
     log.info("Obtaining handle from {} with executionId: {}", resolvedEngineType, executionId);
     return coordinator.obtainHandle(executionId);
   }
 
-  private String resolveEngineType(String engineType) {
+  private String resolveEngineType(String engineType, String jobType) {
     if (engineType == null) {
       log.warn(
-          String.format("No engine type provided, using default engine: %s", defaultEngineType));
+          String.format(
+              "No engine type provided for jobType: %s, using default engine: %s",
+              jobType, defaultEngineType));
       return defaultEngineType;
     } else if (!coordinators.containsKey(engineType)) {
       throw new JobEngineException(
