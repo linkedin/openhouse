@@ -46,4 +46,5 @@ public class JobDto {
   private long heartbeatTimeMs;
   // job execution engine job identifier
   private String executionId;
+  private String engineType;
 }

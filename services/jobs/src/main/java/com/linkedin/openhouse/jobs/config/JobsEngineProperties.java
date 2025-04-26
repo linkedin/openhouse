@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.config;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,14 +19,11 @@ import lombok.ToString;
 @ToString
 @Builder(toBuilder = true)
 @EqualsAndHashCode
-public class JobLaunchConf implements Serializable {
-  private String type;
-  private String className;
-  private String proxyUser;
-  @Builder.Default private Map<String, String> executionTags = new HashMap<>();
-  @Builder.Default private List<String> args = new ArrayList<>();
+public class JobsEngineProperties {
+  private String engineType;
+  private String coordinatorClassName;
+  private String engineUri;
   private String jarPath;
   @Builder.Default private List<String> dependencies = new ArrayList<>();
-  @Builder.Default private Map<String, String> sparkProperties = new HashMap<>();
-  private String engineType;
+  @Builder.Default private Map<String, String> executionTags = new HashMap<>();
 }
