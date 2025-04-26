@@ -170,7 +170,7 @@ public class TablesClient {
     return tableMetadataList;
   }
 
-  public List<TableDataLayoutMetadata> getTableDataLayoutMetadataList() {
+  public List<TableDataLayoutMetadata> getTableDataLayoutMetadataList(boolean isPartitionScope) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList = new ArrayList<>();
     for (String dbName : getDatabases()) {
       if (databaseFilter.applyDatabaseName(dbName)) {
@@ -191,7 +191,8 @@ public class TablesClient {
                           .orElseGet(Stream::empty)
                           .flatMap(
                               shallowResponseBody ->
-                                  mapTableResponseToTableDataLayoutMetadataList(shallowResponseBody)
+                                  mapTableResponseToTableDataLayoutMetadataList(
+                                          shallowResponseBody, isPartitionScope)
                                       .stream()
                                       .filter(databaseFilter::apply))
                           .collect(Collectors.toList());
@@ -320,7 +321,7 @@ public class TablesClient {
   }
 
   protected List<TableDataLayoutMetadata> mapTableResponseToTableDataLayoutMetadataList(
-      GetTableResponseBody shallowResponseBody) {
+      GetTableResponseBody shallowResponseBody, boolean isPartitionScope) {
     GetTableResponseBody tableResponseBody =
         getTable(shallowResponseBody.getDatabaseId(), shallowResponseBody.getTableId());
 
@@ -346,8 +347,18 @@ public class TablesClient {
             .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
     builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     List<TableDataLayoutMetadata> result = new ArrayList<>();
-    for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody)) {
-      result.add(builder.dataLayoutStrategy(strategy).build());
+    if (isPartitionScope) {
+      List<DataLayoutStrategy> strategies =
+          new ArrayList<>(getDataLayoutStrategies(tableResponseBody, true));
+      result.add(builder.isPartitionScope(true).dataLayoutStrategies(strategies).build());
+    } else {
+      for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody, false)) {
+        result.add(
+            builder
+                .isPartitionScope(false)
+                .dataLayoutStrategies(Collections.singletonList(strategy))
+                .build());
+      }
     }
     return result;
   }
@@ -366,14 +377,17 @@ public class TablesClient {
         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 
-  private List<DataLayoutStrategy> getDataLayoutStrategies(GetTableResponseBody tableResponseBody) {
+  private List<DataLayoutStrategy> getDataLayoutStrategies(
+      GetTableResponseBody tableResponseBody, boolean isPartitionScope) {
+    String key =
+        isPartitionScope
+            ? StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY
+            : StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY;
     Map<String, String> tableProps = tableResponseBody.getTableProperties();
-    if (tableProps == null
-        || !tableProps.containsKey(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY)) {
+    if (tableProps == null || !tableProps.containsKey(key)) {
       return Collections.emptyList();
     }
-    return StrategiesDaoTableProps.deserializeList(
-        tableProps.get(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY));
+    return StrategiesDaoTableProps.deserializeList(tableProps.get(key));
   }
 
   protected @NonNull String getTableCreator(GetTableResponseBody responseBody) {

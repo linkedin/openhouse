@@ -50,7 +50,9 @@ public class SparkMoRFunctionalTest extends OpenHouseSparkITest {
               1,
               true,
               10,
-              0);
+              0,
+              null,
+              null);
 
   private Operations ops;
 
