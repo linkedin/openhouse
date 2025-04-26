@@ -1,9 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
-import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
-import java.util.List;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
@@ -38,10 +35,8 @@ public class DataLayoutStrategyGeneratorSparkAppTest extends OpenHouseSparkITest
               .first()
               .getBoolean(0));
       Assertions.assertNotNull(ops.getTable(fqtn).properties().get("write.data-layout.strategies"));
-      List<DataLayoutStrategy> strategies =
-          StrategiesDaoTableProps.deserializeList(
-              ops.getTable(fqtn).properties().get("write.data-layout.partition-strategies"));
-      Assertions.assertEquals(2, strategies.size());
+      Assertions.assertNull(
+          ops.getTable(fqtn).properties().get("write.data-layout.partition-strategies"));
     }
   }
 

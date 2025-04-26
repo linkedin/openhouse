@@ -74,7 +74,7 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
     List<DataLayoutStrategy> strategies = strategiesGenerator.generatePartitionLevelStrategies();
     log.info("Generated {} strategies for table {}", strategies.size(), fqtn);
     StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
-    dao.savePartitionScope(fqtn, strategies);
+    dao.deletePartitionScope(fqtn);
     appendToDloStrategiesTable(spark, partitionLevelOutputFqtn, strategies, true, true);
   }
 

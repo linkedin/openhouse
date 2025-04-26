@@ -18,10 +18,34 @@ public class StrategiesDaoTablePropsTest extends OpenHouseSparkITest {
       DataLayoutStrategy strategy =
           DataLayoutStrategy.builder().config(DataCompactionConfig.builder().build()).build();
       // validate up-to 100 strategies can be saved and loaded
-      List<DataLayoutStrategy> strategyList = Collections.nCopies(100, strategy);
+      List<DataLayoutStrategy> strategyList = Collections.nCopies(2, strategy);
       StrategiesDao dao = StrategiesDaoTableProps.builder().spark(spark).build();
       dao.save(testTable, strategyList);
+      dao.savePartitionScope(testTable, strategyList);
       Assertions.assertEquals(strategyList, dao.load(testTable));
+      Assertions.assertEquals(strategyList, dao.loadPartitionScope(testTable));
+      // validate delete
+      dao.delete(testTable);
+      dao.deletePartitionScope(testTable);
+      Assertions.assertEquals(
+          0,
+          spark
+              .sql(String.format("SHOW TBLPROPERTIES %s", testTable))
+              .filter(
+                  String.format(
+                      "key='%s'", StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY))
+              .collectAsList()
+              .size());
+      Assertions.assertEquals(
+          0,
+          spark
+              .sql(String.format("SHOW TBLPROPERTIES %s", testTable))
+              .filter(
+                  String.format(
+                      "key='%s'",
+                      StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY))
+              .collectAsList()
+              .size());
     }
   }
 
