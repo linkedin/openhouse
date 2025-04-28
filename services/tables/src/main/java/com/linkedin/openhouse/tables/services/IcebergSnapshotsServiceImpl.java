@@ -66,7 +66,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
 
     if (tableDto.isPresent()) {
       if (isTableLocked(tableDto.get())) {
-        authorizationUtils.checkLockTableWritePathPrivileges(
+        authorizationUtils.checkLockTablePrivilege(
             tableDto.get(), tableCreatorUpdater, Privileges.LOCK_WRITER);
       }
       authorizationUtils.checkTableWritePathPrivileges(

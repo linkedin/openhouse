@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
@@ -272,8 +273,11 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkLockTableWritePathPrivileges(
+    checkReplicaTable(tableDto);
+    authorizationUtils.checkLockTablePrivilege(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
+    authorizationUtils.checkTableWritePathPrivileges(
+        tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     // lock state from incoming request
     LockState lockState =
         LockState.builder()
@@ -315,8 +319,8 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkLockTableWritePathPrivileges(
-        tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    checkReplicaTable(tableDto);
+    authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     authorizationUtils.checkTableWritePathPrivileges(
         tableDto, actingPrincipal, Privileges.UPDATE_TABLE_METADATA);
     Policies policies = tableDto.getPolicies();
@@ -355,6 +359,21 @@ public class TablesServiceImpl implements TablesService {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
     return tableDto.get();
+  }
+
+  /**
+   * Throw Exception if tableType is Replica table
+   *
+   * @param tableDto
+   */
+  private void checkReplicaTable(TableDto tableDto) {
+    if (TableType.REPLICA_TABLE.equals(tableDto.getTableType())) {
+      String errMsg =
+          String.format(
+              "Lock/UnLock Operation on Replica table %s.%s is not permitted. TableType: %s",
+              tableDto.getDatabaseId(), tableDto.getTableId(), tableDto.getTableType());
+      throw new UnsupportedOperationException(errMsg);
+    }
   }
 
   /** Check if table has lock policy defined */
