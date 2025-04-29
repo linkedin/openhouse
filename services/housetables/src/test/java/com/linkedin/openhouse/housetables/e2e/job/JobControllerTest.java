@@ -50,6 +50,7 @@ public class JobControllerTest {
           .heartbeatTimeMs(1651017746000L)
           .executionId("1")
           .engineType("LIVY")
+          .retentionTimeSec(1745908497L)
           .build();
 
   @Autowired HtsRepository<JobRow, JobRowPrimaryKey> htsRepository;

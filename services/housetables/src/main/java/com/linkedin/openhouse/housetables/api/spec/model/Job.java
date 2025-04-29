@@ -80,4 +80,11 @@ public class Job {
   @Schema(description = "Engine type that job submitted to", example = "LIVY")
   @JsonProperty(value = "engineType")
   private String engineType;
+
+  @Schema(
+      description =
+          "Job retention time in seconds. This is used to retain job based defined retention period",
+      example = "1745908497")
+  @JsonProperty(value = "retentionTimeSec")
+  private Long retentionTimeSec;
 }

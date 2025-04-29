@@ -33,6 +33,8 @@ public class JobDto {
 
   String engineType;
 
+  Long retentionTimeSec;
+
   /**
    * Compare if a given {@link JobDto} matches the current one if all non-null fields are equal.
    *
@@ -52,6 +54,7 @@ public class JobDto {
         && Utilities.fieldMatch(this.jobConf, jobDto.jobConf)
         && Utilities.fieldMatch(this.heartbeatTimeMs, jobDto.heartbeatTimeMs)
         && Utilities.fieldMatch(this.executionId, jobDto.executionId)
-        && Utilities.fieldMatch(this.engineType, jobDto.engineType);
+        && Utilities.fieldMatch(this.engineType, jobDto.engineType)
+        && Utilities.fieldMatch(this.retentionTimeSec, jobDto.retentionTimeSec);
   }
 }

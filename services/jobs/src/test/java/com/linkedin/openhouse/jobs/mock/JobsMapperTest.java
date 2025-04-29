@@ -65,7 +65,7 @@ public class JobsMapperTest {
         .state(job.getState())
         .jobConf(job.getJobConf())
         .executionId(job.getExecutionId())
-        // internal heartbeatTimeMs and sessionId are omitted
+        // internal heartbeatTimeMs, sessionId and retentionTimeSec are omitted
         .build();
   }
 
@@ -89,6 +89,7 @@ public class JobsMapperTest {
         .finishTimeMs(jobDto.getFinishTimeMs())
         .lastUpdateTimeMs(jobDto.getLastUpdateTimeMs())
         .heartbeatTimeMs(jobDto.getHeartbeatTimeMs())
-        .executionId(jobDto.getExecutionId());
+        .executionId(jobDto.getExecutionId())
+        .retentionTimeSec(jobDto.getRetentionTimeSec());
   }
 }

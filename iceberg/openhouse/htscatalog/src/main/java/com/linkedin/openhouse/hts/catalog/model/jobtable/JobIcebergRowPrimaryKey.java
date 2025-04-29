@@ -49,6 +49,7 @@ public class JobIcebergRowPrimaryKey implements IcebergRowPrimaryKey {
         .jobConf((String) record.getField("jobConf"))
         .heartbeatTimeMs((Long) record.getField("heartbeatTimeMs"))
         .executionId((String) record.getField("executionId"))
+        .retentionTimeSec((Long) record.getField("retentionTimeSec"))
         .build();
   }
 }

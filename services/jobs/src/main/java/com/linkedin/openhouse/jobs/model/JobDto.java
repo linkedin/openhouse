@@ -47,4 +47,7 @@ public class JobDto {
   // job execution engine job identifier
   private String executionId;
   private String engineType;
+
+  // Used for data retention
+  private long retentionTimeSec;
 }

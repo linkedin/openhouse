@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS job_row (
     execution_id            VARCHAR (128),
     engine_type             VARCHAR (128),
     ETL_TS                  datetime(6)      DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    retention_time_sec      BIGINT ,
     PRIMARY KEY (job_id)
     );
 
