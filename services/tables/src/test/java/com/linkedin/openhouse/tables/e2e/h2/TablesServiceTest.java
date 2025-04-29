@@ -698,13 +698,6 @@ public class TablesServiceTest {
         tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
     Assertions.assertTrue(result.getPolicies().getLockState().isLocked());
     // assert delete on locked table throws UnsupportedOperationException
-    Assertions.assertThrows(
-        UnsupportedClientOperationException.class,
-        () ->
-            tablesService.deleteTable(
-                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
-
-    // assert delete on locked table throws UnsupportedOperationException
     UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody =
         UpdateAclPoliciesRequestBody.builder()
             .role("AclEditor")

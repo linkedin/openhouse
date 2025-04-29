@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.tables.mock.RequestConstants.*;
 
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -168,7 +169,7 @@ public class IcebergSnapshotsServiceTest {
   }
 
   @Test
-  public void testTableUpdatedForLockedTable() {
+  public void testTableUpdatedForLockedTableThrowsException() {
     final IcebergSnapshotsRequestBody requestBody = TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY_FOR_LOCKED;
     final String dbId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
     final String tableId = requestBody.getCreateUpdateTableRequestBody().getTableId();
@@ -191,11 +192,9 @@ public class IcebergSnapshotsServiceTest {
     Mockito.when(mockRepository.findById(key)).thenReturn(Optional.of(tableDto));
     Mockito.when(mockRepository.save(tableDtoArgumentCaptor.capture())).thenReturn(tableDto);
 
-    Pair<TableDto, Boolean> result = service.putIcebergSnapshots(dbId, tableId, requestBody, null);
-    Assertions.assertEquals(tableDto, result.getFirst(), "Returned DTO must be the mock value");
-    Assertions.assertFalse(result.getSecond(), "Table must be found in repository");
-
-    verifyCalls(key, TEST_TABLE_CREATOR, requestBody.getCreateUpdateTableRequestBody());
+    Assertions.assertThrows(
+        UnsupportedClientOperationException.class,
+        () -> service.putIcebergSnapshots(dbId, tableId, requestBody, null));
   }
 
   private void verifyCalls(

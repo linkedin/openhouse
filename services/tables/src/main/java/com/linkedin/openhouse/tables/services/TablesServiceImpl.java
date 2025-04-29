@@ -95,8 +95,10 @@ public class TablesServiceImpl implements TablesService {
       }
       checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
       if (isTableLocked(tableDto.get())) {
-        authorizationUtils.checkLockTablePrivilege(
-            tableDto.get(), tableCreatorUpdater, Privileges.LOCK_ADMIN);
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+            String.format(
+                "Table %s.%s is in locked state and cannot be updated.", databaseId, tableId));
       }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
@@ -191,12 +193,6 @@ public class TablesServiceImpl implements TablesService {
     if (!tableDto.isPresent()) {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
-    if (isTableLocked(tableDto.get())) {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.DELETE_LOCKED_TABLE,
-          String.format(
-              "Table %s.%s is in locked state and cannot be deleted", databaseId, tableId));
-    }
     authorizationUtils.checkTableWritePathPrivileges(
         tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
 
@@ -276,8 +272,6 @@ public class TablesServiceImpl implements TablesService {
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
-    authorizationUtils.checkTableWritePathPrivileges(
-        tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     // lock state from incoming request
     LockState lockState =
         LockState.builder()
@@ -321,8 +315,6 @@ public class TablesServiceImpl implements TablesService {
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
-    authorizationUtils.checkTableWritePathPrivileges(
-        tableDto, actingPrincipal, Privileges.UPDATE_TABLE_METADATA);
     Policies policies = tableDto.getPolicies();
     if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
       Policies policiesToSave;

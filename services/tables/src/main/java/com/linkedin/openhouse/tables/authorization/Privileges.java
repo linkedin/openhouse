@@ -16,7 +16,6 @@ public enum Privileges {
   UPDATE_ACL(Privilege.UPDATE_ACL),
   SYSTEM_ADMIN(Privilege.SYSTEM_ADMIN),
   LOCK_ADMIN(Privilege.LOCK_ADMIN),
-  LOCK_WRITER(Privilege.LOCK_WRITER),
   SELECT(Privilege.SELECT);
 
   private String privilege;
