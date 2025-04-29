@@ -34,6 +34,7 @@ public class JobRepositoryTest {
           .lastUpdateTimeMs(1651017746000L)
           .heartbeatTimeMs(1651017746000L)
           .executionId("1")
+          .engineType("LIVY")
           .build();
 
   @Autowired HtsRepository<JobRow, JobRowPrimaryKey> htsRepository;

@@ -76,4 +76,8 @@ public class Job {
       example = "application_1642969576960_13278206")
   @JsonProperty(value = "executionId")
   private String executionId;
+
+  @Schema(description = "Engine type that job submitted to", example = "LIVY")
+  @JsonProperty(value = "engineType")
+  private String engineType;
 }

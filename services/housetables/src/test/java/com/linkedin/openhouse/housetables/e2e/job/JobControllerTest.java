@@ -49,6 +49,7 @@ public class JobControllerTest {
           .lastUpdateTimeMs(1651017746000L)
           .heartbeatTimeMs(1651017746000L)
           .executionId("1")
+          .engineType("LIVY")
           .build();
 
   @Autowired HtsRepository<JobRow, JobRowPrimaryKey> htsRepository;
@@ -105,6 +106,7 @@ public class JobControllerTest {
         .andExpect(jsonPath("$.entity.jobName", is(equalTo(testJobRow.getJobName()))))
         .andExpect(jsonPath("$.entity.clusterId", is(equalTo(testJobRow.getClusterId()))))
         .andExpect(jsonPath("$.entity.executionId", is(equalTo(testJobRow.getExecutionId()))))
+        .andExpect(jsonPath("$.entity.engineType", is(equalTo(testJobRow.getEngineType()))))
         .andExpect(jsonPath("$.entity.version", matchesPattern("\\d+")));
   }
 
@@ -162,6 +164,7 @@ public class JobControllerTest {
             .jobName("jobName")
             .clusterId("testCluster")
             .executionId("1")
+            .engineType("LIVY")
             .build();
     // Create the job and return correct status code
     mvc.perform(
@@ -177,6 +180,7 @@ public class JobControllerTest {
         .andExpect(jsonPath("$.entity.jobName", is(equalTo(testJob.getJobName()))))
         .andExpect(jsonPath("$.entity.clusterId", is(equalTo(testJob.getClusterId()))))
         .andExpect(jsonPath("$.entity.executionId", is(equalTo(testJob.getExecutionId()))))
+        .andExpect(jsonPath("$.entity.engineType", is(equalTo(testJobRow.getEngineType()))))
         .andExpect(jsonPath("$.entity.version", matchesPattern("\\d+")));
 
     // Update the job and returning the updated object.

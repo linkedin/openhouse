@@ -31,6 +31,8 @@ public class JobDto {
 
   String executionId;
 
+  String engineType;
+
   /**
    * Compare if a given {@link JobDto} matches the current one if all non-null fields are equal.
    *
@@ -49,6 +51,7 @@ public class JobDto {
         && Utilities.fieldMatch(this.lastUpdateTimeMs, jobDto.lastUpdateTimeMs)
         && Utilities.fieldMatch(this.jobConf, jobDto.jobConf)
         && Utilities.fieldMatch(this.heartbeatTimeMs, jobDto.heartbeatTimeMs)
-        && Utilities.fieldMatch(this.executionId, jobDto.executionId);
+        && Utilities.fieldMatch(this.executionId, jobDto.executionId)
+        && Utilities.fieldMatch(this.engineType, jobDto.engineType);
   }
 }
