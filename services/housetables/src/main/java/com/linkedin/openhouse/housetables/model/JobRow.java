@@ -43,4 +43,6 @@ public class JobRow {
   Long heartbeatTimeMs;
 
   String executionId;
+
+  String engineType;
 }

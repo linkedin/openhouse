@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS job_row (
     job_conf                MEDIUMTEXT,
     heartbeat_time_ms       BIGINT ,
     execution_id            VARCHAR (128),
+    engine_type             VARCHAR (128),
     ETL_TS                  datetime(6)      DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (job_id)
     );

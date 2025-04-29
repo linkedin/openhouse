@@ -39,6 +39,7 @@ public class JobServiceTest {
           .lastUpdateTimeMs(1651017746000L)
           .heartbeatTimeMs(1651017746000L)
           .executionId("1")
+          .engineType("LIVY")
           .build();
   private final JobRow testJobRow2 = testJobRow.toBuilder().jobId("id2").state("X").build();
   private final JobRow testJobRow3 = testJobRow.toBuilder().jobId("id3").state("X").build();
