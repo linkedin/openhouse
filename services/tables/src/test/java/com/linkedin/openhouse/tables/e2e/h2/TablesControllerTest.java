@@ -1326,6 +1326,7 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
     Assertions.assertEquals(updatedPolicies.get("lockState").get("locked"), true);
     Assertions.assertNotNull(updatedPolicies.get("lockState").get("creationTime"));
+    RequestAndValidateHelper.deleteLockOnTableAndValidate(mvc, GET_TABLE_RESPONSE_BODY);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 

@@ -16,7 +16,6 @@ public enum Privileges {
   UPDATE_ACL(Privilege.UPDATE_ACL),
   SYSTEM_ADMIN(Privilege.SYSTEM_ADMIN),
   LOCK_ADMIN(Privilege.LOCK_ADMIN),
-  UNLOCK_ADMIN(Privilege.UNLOCK_ADMIN),
   SELECT(Privilege.SELECT);
 
   private String privilege;
@@ -42,7 +41,6 @@ public enum Privileges {
     public static final String UPDATE_ACL = "UPDATE_ACL";
     public static final String SYSTEM_ADMIN = "SYSTEM_ADMIN";
     public static final String LOCK_ADMIN = "LOCK_ADMIN";
-    public static final String UNLOCK_ADMIN = "UNLOCK_ADMIN";
 
     public static final String SELECT = "SELECT";
     private static final Set<String> SUPPORTED_PRIVILEGES =

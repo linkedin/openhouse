@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
@@ -58,6 +59,10 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    // Restricts reading table to users with lock admin Privileges
+    if (isTableLocked(tableDto)) {
+      authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    }
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     return tableDto;
@@ -89,6 +94,12 @@ public class TablesServiceImpl implements TablesService {
             String.format("Staged Table %s.%s was illegally persisted", databaseId, tableId));
       }
       checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
+      if (isTableLocked(tableDto.get())) {
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+            String.format(
+                "Table %s.%s is in locked state and cannot be updated.", databaseId, tableId));
+      }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
 
@@ -209,6 +220,13 @@ public class TablesServiceImpl implements TablesService {
               UnsupportedClientOperationException.Operation.GRANT_ON_UNSHARED_TABLES,
               String.format("%s.%s is not a shared table", databaseId, tableId));
         }
+        if (isTableLocked(tableDto)) {
+          throw new UnsupportedClientOperationException(
+              UnsupportedClientOperationException.Operation.GRANT_ON_LOCKED_TABLES,
+              String.format(
+                  "%s.%s is in locked state and grants are not allowed for sharing",
+                  databaseId, tableId));
+        }
         authorizationHandler.grantRole(
             role, granteePrincipal, expirationEpochTimeSeconds, properties, tableDto);
         break;
@@ -251,7 +269,8 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableLockPrivileges(
+    checkReplicaTable(tableDto);
+    authorizationUtils.checkLockTablePrivilege(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
     // lock state from incoming request
     LockState lockState =
@@ -294,7 +313,8 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTableLockPrivileges(tableDto, actingPrincipal, Privileges.UNLOCK_ADMIN);
+    checkReplicaTable(tableDto);
+    authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     Policies policies = tableDto.getPolicies();
     if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
       Policies policiesToSave;
@@ -331,5 +351,27 @@ public class TablesServiceImpl implements TablesService {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
     return tableDto.get();
+  }
+
+  /**
+   * Throw Exception if tableType is Replica table
+   *
+   * @param tableDto
+   */
+  private void checkReplicaTable(TableDto tableDto) {
+    if (TableType.REPLICA_TABLE.equals(tableDto.getTableType())) {
+      String errMsg =
+          String.format(
+              "Lock/UnLock Operation on Replica table %s.%s is not permitted. TableType: %s",
+              tableDto.getDatabaseId(), tableDto.getTableId(), tableDto.getTableType());
+      throw new UnsupportedOperationException(errMsg);
+    }
+  }
+
+  /** Check if table has lock policy defined */
+  private static boolean isTableLocked(TableDto tableDto) {
+    return tableDto.getPolicies() != null
+        && tableDto.getPolicies().getLockState() != null
+        && tableDto.getPolicies().getLockState().isLocked();
   }
 }

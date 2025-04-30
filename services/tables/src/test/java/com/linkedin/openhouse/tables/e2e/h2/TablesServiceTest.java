@@ -651,7 +651,7 @@ public class TablesServiceTest {
     TableDto result1 =
         tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
     Assertions.assertTrue(result1.getPolicies().getLockState().isLocked());
-
+    tablesService.deleteLock(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER);
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(
@@ -679,6 +679,40 @@ public class TablesServiceTest {
         tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
     Assertions.assertNull(result1.getPolicies().getLockState());
 
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.deleteTable(
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testFailedOpsOnLockTable() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+    tablesService.createLock(
+        tableDtoCopy.getDatabaseId(),
+        tableDtoCopy.getTableId(),
+        CreateUpdateLockRequestBody.builder().locked(true).expirationInDays(4).build(),
+        TEST_USER);
+    TableDto result =
+        tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertTrue(result.getPolicies().getLockState().isLocked());
+    // assert delete on locked table throws UnsupportedOperationException
+    UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody =
+        UpdateAclPoliciesRequestBody.builder()
+            .role("AclEditor")
+            .principal("DUMMY_USER")
+            .operation(UpdateAclPoliciesRequestBody.Operation.GRANT)
+            .build();
+    Assertions.assertThrows(
+        UnsupportedClientOperationException.class,
+        () ->
+            tablesService.updateAclPolicies(
+                tableDtoCopy.getDatabaseId(),
+                TABLE_DTO.getTableId(),
+                updateAclPoliciesRequestBody,
+                TEST_USER));
+    tablesService.deleteLock(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER);
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(

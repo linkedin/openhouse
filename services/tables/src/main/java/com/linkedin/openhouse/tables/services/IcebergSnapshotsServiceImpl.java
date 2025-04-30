@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.services;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -65,6 +66,12 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
             icebergSnapshotRequestBody);
 
     if (tableDto.isPresent()) {
+      if (isTableLocked(tableDto.get())) {
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+            String.format(
+                "Table %s.%s is in locked state and cannot be written to", databaseId, tableId));
+      }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     } else {
@@ -92,5 +99,11 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
               "The requested table has been modified/created by other processes."),
           ce);
     }
+  }
+
+  private boolean isTableLocked(TableDto tableDto) {
+    return tableDto.getPolicies() != null
+        && tableDto.getPolicies().getLockState() != null
+        && tableDto.getPolicies().getLockState().isLocked();
   }
 }

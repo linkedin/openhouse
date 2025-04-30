@@ -284,6 +284,19 @@ public final class RequestAndValidateHelper {
         .andExpect(content().string(""));
   }
 
+  static void deleteLockOnTableAndValidate(MockMvc mvc, GetTableResponseBody getTableResponseBody)
+      throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                String.format(
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/%s/tables/%s/lock",
+                    getTableResponseBody.getDatabaseId(),
+                    getTableResponseBody.getTableId())))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+  }
+
   static MvcResult putSnapshotsAndValidateResponse(
       Catalog catalog,
       MockMvc mvc,
