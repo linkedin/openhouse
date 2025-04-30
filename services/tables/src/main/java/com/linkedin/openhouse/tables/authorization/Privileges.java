@@ -41,7 +41,6 @@ public enum Privileges {
     public static final String UPDATE_ACL = "UPDATE_ACL";
     public static final String SYSTEM_ADMIN = "SYSTEM_ADMIN";
     public static final String LOCK_ADMIN = "LOCK_ADMIN";
-    public static final String LOCK_WRITER = "LOCK_WRITER";
 
     public static final String SELECT = "SELECT";
     private static final Set<String> SUPPORTED_PRIVILEGES =
