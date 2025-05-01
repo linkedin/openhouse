@@ -74,6 +74,10 @@ public class JobResponseBody {
   @Nullable
   private String executionId;
 
+  @Schema(description = "Engine type that job submitted to", example = "LIVY")
+  @Nullable
+  private String engineType;
+
   public String toJson() {
     return new Gson().toJson(this);
   }
