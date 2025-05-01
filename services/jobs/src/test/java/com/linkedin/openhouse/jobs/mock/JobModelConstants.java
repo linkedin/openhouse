@@ -20,6 +20,7 @@ public final class JobModelConstants {
         .lastUpdateTimeMs(1651017746000L)
         .heartbeatTimeMs(1651017746000L)
         .executionId("1")
+        .retentionTimeSec(1745908497L)
         .state(JobState.SUCCEEDED);
   }
 

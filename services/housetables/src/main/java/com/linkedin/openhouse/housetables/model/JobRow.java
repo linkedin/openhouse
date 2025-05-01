@@ -45,4 +45,6 @@ public class JobRow {
   String executionId;
 
   String engineType;
+
+  Long retentionTimeSec;
 }

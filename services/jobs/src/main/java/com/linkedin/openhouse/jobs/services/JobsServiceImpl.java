@@ -11,6 +11,7 @@ import com.linkedin.openhouse.jobs.dto.mapper.JobsMapper;
 import com.linkedin.openhouse.jobs.model.JobDto;
 import com.linkedin.openhouse.jobs.model.JobDtoPrimaryKey;
 import com.linkedin.openhouse.jobs.repository.JobsInternalRepository;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,7 @@ public class JobsServiceImpl implements JobsService {
             .lastUpdateTimeMs(timestamp)
             .state(JobState.QUEUED)
             .engineType(jobLaunchConf.getEngineType())
+            .retentionTimeSec(Instant.now().getEpochSecond())
             .build();
     jobDto = mapper.toJobDto(jobDto, createJobRequestBody);
     repository.save(jobDto);

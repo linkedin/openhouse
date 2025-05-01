@@ -29,6 +29,7 @@ public class TestJobIcebergRow {
             .lastUpdateTimeMs(1651017746000L)
             .heartbeatTimeMs(1651017746000L)
             .executionId("1")
+            .retentionTimeSec(1745908497L)
             .build();
   }
 
@@ -58,7 +59,8 @@ public class TestJobIcebergRow {
                     "lastUpdateTimeMs",
                     "jobConf",
                     "heartbeatTimeMs",
-                    "executionId")));
+                    "executionId",
+                    "retentionTimeSec")));
   }
 
   @Test
@@ -74,6 +76,7 @@ public class TestJobIcebergRow {
     Assertions.assertEquals(jobIcebergRow.getRecord().getField("lastUpdateTimeMs"), 1651017746000L);
     Assertions.assertEquals(jobIcebergRow.getRecord().getField("heartbeatTimeMs"), 1651017746000L);
     Assertions.assertEquals(jobIcebergRow.getRecord().getField("executionId"), "1");
+    Assertions.assertEquals(jobIcebergRow.getRecord().getField("retentionTimeSec"), 1745908497L);
   }
 
   @Test

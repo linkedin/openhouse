@@ -36,6 +36,8 @@ public class JobIcebergRow implements IcebergRow {
 
   private String executionId;
 
+  private Long retentionTimeSec;
+
   @Override
   public Schema getSchema() {
     return new Schema(
@@ -50,7 +52,8 @@ public class JobIcebergRow implements IcebergRow {
         Types.NestedField.optional(9, "lastUpdateTimeMs", Types.LongType.get()),
         Types.NestedField.optional(10, "jobConf", Types.StringType.get()),
         Types.NestedField.optional(11, "heartbeatTimeMs", Types.LongType.get()),
-        Types.NestedField.optional(12, "executionId", Types.StringType.get()));
+        Types.NestedField.optional(12, "executionId", Types.StringType.get()),
+        Types.NestedField.optional(13, "retentionTimeSec", Types.LongType.get()));
   }
 
   @Override
@@ -68,6 +71,7 @@ public class JobIcebergRow implements IcebergRow {
     genericRecord.setField("jobConf", jobConf);
     genericRecord.setField("heartbeatTimeMs", heartbeatTimeMs);
     genericRecord.setField("executionId", executionId);
+    genericRecord.setField("retentionTimeSec", retentionTimeSec);
     return genericRecord;
   }
 
