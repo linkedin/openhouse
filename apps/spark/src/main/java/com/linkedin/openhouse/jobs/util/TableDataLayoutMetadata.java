@@ -3,6 +3,7 @@ package com.linkedin.openhouse.jobs.util;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NonNull;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
@@ -11,5 +12,5 @@ import lombok.experimental.SuperBuilder;
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
 public class TableDataLayoutMetadata extends TableMetadata {
-  protected DataLayoutStrategy dataLayoutStrategy;
+  @NonNull protected DataLayoutStrategy dataLayoutStrategy;
 }
