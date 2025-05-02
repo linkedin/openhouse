@@ -89,6 +89,9 @@ public class OperationTasksBuilder {
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
         DataLayoutUtil.selectStrategies(scorer, candidateSelector, tableDataLayoutMetadataList);
     log.info("Selected {} strategies", selectedTableDataLayoutMetadataList.size());
+    for (TableDataLayoutMetadata metadata : selectedTableDataLayoutMetadataList) {
+      log.info("Selected metadata {}", metadata);
+    }
     double totalComputeCost =
         selectedTableDataLayoutMetadataList.stream()
             .map(m -> m.getDataLayoutStrategy().getCost())
