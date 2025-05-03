@@ -26,6 +26,7 @@ import org.apache.iceberg.UpdateProperties;
 public final class InternalRepositoryUtils {
 
   protected static final String POLICIES_KEY = "policies";
+  protected static final String REPLICATION_SETUP_KEY = "replication.enableSetup";
 
   private static final Set<String> EXCLUDE_PROPERTIES_LIST =
       new HashSet<>(Collections.singletonList(POLICIES_KEY));

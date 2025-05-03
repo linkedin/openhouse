@@ -18,6 +18,7 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -31,6 +32,7 @@ import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -138,10 +140,16 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           doUpdateSchemaIfNeeded(transaction, writeSchema, table.schema(), tableDto);
       UpdateProperties updateProperties = transaction.updateProperties();
 
+      // check if replicationPolicy has any change. update property replication.setupNeeded
+      // accordingly
+      if (checkIfReplicationPolicyUpdated(table.properties(), tableDto.getPolicies())) {
+        updateProperties.set(REPLICATION_SETUP_KEY, Boolean.TRUE.toString());
+      }
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
           doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
@@ -160,6 +168,25 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
     return convertToTableDto(
         table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
+  }
+
+  private boolean checkIfReplicationPolicyUpdated(
+      Map<String, String> existingTableProps, Policies policyFromTableDTO) {
+    String existingPolicies = existingTableProps.getOrDefault(POLICIES_KEY, "");
+    // If both are empty or null, no update
+    if (existingPolicies.isEmpty() && policyFromTableDTO == null) {
+      return false;
+    }
+    // If existing policies exist and policyFromTableDTO is not null, compare replication
+    if (!existingPolicies.isEmpty() && policyFromTableDTO != null) {
+      Policies existingPoliciesObj =
+          new GsonBuilder().create().fromJson(existingPolicies, Policies.class);
+      return !Objects.equals(
+          existingPoliciesObj.getReplication(), policyFromTableDTO.getReplication());
+    }
+    // If existing policies are empty but policyFromTableDTO is not null, update needed if
+    // replication is set
+    return existingPolicies.isEmpty() && policyFromTableDTO.getReplication() != null;
   }
 
   private boolean skipEligibilityCheck(
@@ -300,6 +327,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     // Populate policies
     String policiesString = policiesMapper.toPoliciesJsonString(tableDto);
     propertiesMap.put(InternalRepositoryUtils.POLICIES_KEY, policiesString);
+    if (tableDto.getPolicies() != null && tableDto.getPolicies().getReplication() != null) {
+      propertiesMap.put(REPLICATION_SETUP_KEY, Boolean.TRUE.toString());
+    }
 
     if (!CollectionUtils.isEmpty(tableDto.getJsonSnapshots())) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_WITH_DATA_CTR).increment();

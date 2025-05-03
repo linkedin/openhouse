@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.client;
 
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.ReplicationConfig;
@@ -113,6 +114,11 @@ public class TablesClient {
                     .cluster(rc.getDestination())
                     .tableOwner(response.getTableCreator())
                     .schedule(rc.getCronSchedule())
+                    .enableSetup(
+                        Boolean.parseBoolean(
+                            response
+                                .getTableProperties()
+                                .getOrDefault(AppConstants.REPLICATION_SETUP_KEY, null)))
                     .build()));
     // since replicationConfigList is initialized, it cannot be null.
     return Optional.of(replicationConfigList);
