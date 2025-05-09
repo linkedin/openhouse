@@ -176,10 +176,6 @@ public class JobsScheduler {
       try {
         long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
         long remainingTimeMillis = TimeUnit.HOURS.toMillis(tasksWaitHours) - passedTimeMillis;
-        if (remainingTimeMillis <= 0) {
-          // treat as a global timeout case similar to future.get timeout
-          throw new TimeoutException();
-        }
         jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
       } catch (ExecutionException e) {
         log.error(String.format("Operation for %s failed with exception", task), e);
@@ -187,21 +183,26 @@ public class JobsScheduler {
       } catch (InterruptedException e) {
         throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
       } catch (TimeoutException e) {
-        executors.getQueue().clear();
-        if (!taskFuture.isDone()) {
+        // Clear queue to stop internal tasks submission
+        if (!executors.getQueue().isEmpty()) {
           log.warn(
-              "Attempting to cancel job for {} because of timeout of {} hours",
-              task,
-              tasksWaitHours);
-          if (taskFuture.cancel(true)) {
-            log.warn("Cancelled job for {} because of timeout of {} hours", task, tasksWaitHours);
-            jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
-          }
+              "Drops {} tasks for job type {} from wait queue due to timeout",
+              executors.getQueue().size(),
+              jobType);
+          executors.getQueue().clear();
+        }
+        log.warn(
+            "Attempting to cancel job for {} because of timeout of {} hours", task, tasksWaitHours);
+        if (taskFuture.cancel(true)) {
+          log.warn("Cancelled job for {} because of timeout of {} hours", task, tasksWaitHours);
         }
       } finally {
         if (jobState.isPresent()) {
           jobStateCountMap.put(jobState.get(), jobStateCountMap.get(jobState.get()) + 1);
+        } else if (taskFuture.isCancelled()) {
+          jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
         } else {
+          // Jobs that are skipped due to replica or missing retention policy, etc.
           emptyStateJobCount++;
         }
       }
