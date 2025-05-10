@@ -32,6 +32,17 @@ public interface HouseTablesApiHandler<K, V> {
   ApiResponse<GetAllEntityResponseBody<V>> getEntities(V entity);
 
   /**
+   * Function to get paginated rows that fulfills the given entity.
+   *
+   * @param entity The entity serves as a container for predicates.
+   * @param page The page number to be retrieved
+   * @param size The number of entities in the page
+   * @param sortBy The results sorted by a field in the entity. For example, tableId, databaseId
+   * @return Paginated rows that fulfills the predicates expressed through param entity.
+   */
+  ApiResponse<GetAllEntityResponseBody<V>> getEntities(V entity, int page, int size, String sortBy);
+
+  /**
    * Function to Delete a row in a House Table given the key of the row.
    *
    * @param key The key object to identify the row to delete.

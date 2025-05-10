@@ -55,6 +55,22 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
+  public ApiResponse<GetAllEntityResponseBody<UserTable>> getEntities(
+      UserTable userTable, int page, int size, String sortBy) {
+    userTablesHtsApiValidator.validateGetEntities(userTable);
+    return ApiResponse.<GetAllEntityResponseBody<UserTable>>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            GetAllEntityResponseBody.<UserTable>builder()
+                .pageResults(
+                    userTableService
+                        .getAllUserTables(userTable, page, size, sortBy)
+                        .map(userTableDto -> userTablesMapper.toUserTable(userTableDto)))
+                .build())
+        .build();
+  }
+
+  @Override
   public ApiResponse<Void> deleteEntity(UserTableKey userTableKey) {
     userTablesHtsApiValidator.validateDeleteEntity(userTableKey);
     userTableService.deleteUserTable(userTableKey.getDatabaseId(), userTableKey.getTableId());

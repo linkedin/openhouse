@@ -9,12 +9,16 @@ import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRow;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.repository.IcebergHtsRepository;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 @Deprecated
@@ -49,7 +53,7 @@ public class JobTableHtsRepository implements HtsRepository<JobRow, JobRowPrimar
   }
 
   @Override
-  public Iterable<JobRow> findAll() {
+  public List<JobRow> findAll() {
     return Lists.newArrayList(
             icebergHtsRepository
                 .searchByPartialId(JobIcebergRowPrimaryKey.builder().build())
@@ -91,7 +95,7 @@ public class JobTableHtsRepository implements HtsRepository<JobRow, JobRowPrimar
   }
 
   @Override
-  public Iterable<JobRow> findAllById(Iterable<JobRowPrimaryKey> jobRowPrimaryKeys) {
+  public List<JobRow> findAllById(Iterable<JobRowPrimaryKey> jobRowPrimaryKeys) {
     throw getUnsupportedException();
   }
 
@@ -101,11 +105,21 @@ public class JobTableHtsRepository implements HtsRepository<JobRow, JobRowPrimar
   }
 
   @Override
-  public <S extends JobRow> Iterable<S> saveAll(Iterable<S> entities) {
+  public <S extends JobRow> List<S> saveAll(Iterable<S> entities) {
     throw getUnsupportedException();
   }
 
   private UnsupportedOperationException getUnsupportedException() {
     return new UnsupportedOperationException("Not supported yet");
+  }
+
+  @Override
+  public Iterable<JobRow> findAll(Sort sort) {
+    return null;
+  }
+
+  @Override
+  public Page<JobRow> findAll(Pageable pageable) {
+    return null;
   }
 }
