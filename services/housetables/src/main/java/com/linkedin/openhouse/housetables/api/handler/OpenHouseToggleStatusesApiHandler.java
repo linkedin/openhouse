@@ -37,6 +37,12 @@ public class OpenHouseToggleStatusesApiHandler implements ToggleStatusesApiHandl
   }
 
   @Override
+  public ApiResponse<GetAllEntityResponseBody<ToggleStatus>> getEntities(
+      ToggleStatus entity, int page, int size, String sortBy) {
+    throw new UnsupportedOperationException("Get all toggle status is unsupported");
+  }
+
+  @Override
   public ApiResponse<Void> deleteEntity(TableToggleStatusKey key) {
     throw new UnsupportedOperationException("Delete toggle status is unsupported");
   }

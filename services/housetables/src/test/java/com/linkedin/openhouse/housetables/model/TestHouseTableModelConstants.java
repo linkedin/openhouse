@@ -30,8 +30,20 @@ public final class TestHouseTableModelConstants {
   public static final TestTuple TEST_TUPLE_1_0 = new TestHouseTableModelConstants.TestTuple(1);
   // table2, db0
   public static final TestTuple TEST_TUPLE_2_0 = new TestHouseTableModelConstants.TestTuple(2);
+  // table3, db0
+  public static final TestTuple TEST_TUPLE_3_0 = new TestHouseTableModelConstants.TestTuple(3);
+  // table4, db0
+  public static final TestTuple TEST_TUPLE_4_0 = new TestHouseTableModelConstants.TestTuple(4);
   // table1, db1
   public static final TestTuple TEST_TUPLE_1_1 = new TestHouseTableModelConstants.TestTuple(1, 1);
+  // table2, db1
+  public static final TestTuple TEST_TUPLE_2_1 = new TestHouseTableModelConstants.TestTuple(2, 1);
+  // table3, db1
+  public static final TestTuple TEST_TUPLE_3_1 = new TestHouseTableModelConstants.TestTuple(3, 1);
+  // table1, db2
+  public static final TestTuple TEST_TUPLE_1_2 = new TestHouseTableModelConstants.TestTuple(1, 2);
+  // table2, db2
+  public static final TestTuple TEST_TUPLE_2_2 = new TestHouseTableModelConstants.TestTuple(2, 2);
 
   @Getter
   public static class TestTuple {

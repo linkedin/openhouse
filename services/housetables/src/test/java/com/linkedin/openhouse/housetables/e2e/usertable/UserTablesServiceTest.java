@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
 
 @SpringBootTest(classes = SpringH2HtsApplication.class)
@@ -42,7 +43,13 @@ public class UserTablesServiceTest {
     htsRepository.save(testUserTableRow);
     htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_3_0.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_4_0.get_userTableRow());
     htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_3_1.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_1_2.get_userTableRow());
+    htsRepository.save(TEST_TUPLE_2_2.get_userTableRow());
 
     // delete candidate
     htsRepository.save(
@@ -108,6 +115,131 @@ public class UserTablesServiceTest {
   }
 
   @Test
+  public void testGetUserTables() {
+    UserTable userTable =
+        UserTable.builder().databaseId(TestHouseTableModelConstants.TEST_DB_ID).build();
+    List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
+    Assertions.assertEquals(5, list.size());
+    Page<UserTableDto> userTableDtoPage0 =
+        userTablesService.getAllUserTables(userTable, 0, 2, "tableId");
+    Assertions.assertEquals(5, userTableDtoPage0.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
+    List<UserTableDto> list0 = userTableDtoPage0.getContent();
+    Assertions.assertEquals(2, list0.size());
+
+    Page<UserTableDto> userTableDtoPage1 =
+        userTablesService.getAllUserTables(userTable, 1, 2, "tableId");
+    Assertions.assertEquals(5, userTableDtoPage1.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
+    List<UserTableDto> list1 = userTableDtoPage1.getContent();
+    Assertions.assertEquals(2, list1.size());
+
+    Page<UserTableDto> userTableDtoPage2 =
+        userTablesService.getAllUserTables(userTable, 2, 2, "tableId");
+    Assertions.assertEquals(5, userTableDtoPage2.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
+    List<UserTableDto> list2 = userTableDtoPage2.getContent();
+    Assertions.assertEquals(1, list2.size());
+  }
+
+  @Test
+  public void testListDatabases() {
+    UserTable userTable = UserTable.builder().build();
+    List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
+    Assertions.assertEquals(5, list.size());
+    Page<UserTableDto> userTableDtoPage0 =
+        userTablesService.getAllUserTables(userTable, 0, 2, "databaseId");
+    Assertions.assertEquals(5, userTableDtoPage0.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
+    List<UserTableDto> list0 = userTableDtoPage0.getContent();
+    Assertions.assertEquals(2, list0.size());
+    for (UserTableDto userTableDto : list0) {
+      Assertions.assertNotNull(userTableDto.getDatabaseId());
+      Assertions.assertNull(userTableDto.getTableId());
+    }
+
+    Page<UserTableDto> userTableDtoPage1 =
+        userTablesService.getAllUserTables(userTable, 1, 2, "databaseId");
+    Assertions.assertEquals(5, userTableDtoPage1.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
+    List<UserTableDto> list1 = userTableDtoPage1.getContent();
+    Assertions.assertEquals(2, list1.size());
+    for (UserTableDto userTableDto : list1) {
+      Assertions.assertNotNull(userTableDto.getDatabaseId());
+      Assertions.assertNull(userTableDto.getTableId());
+    }
+
+    Page<UserTableDto> userTableDtoPage2 =
+        userTablesService.getAllUserTables(userTable, 2, 2, "databaseId");
+    Assertions.assertEquals(5, userTableDtoPage2.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
+    List<UserTableDto> list2 = userTableDtoPage2.getContent();
+    Assertions.assertEquals(1, list2.size());
+    for (UserTableDto userTableDto : list2) {
+      Assertions.assertNotNull(userTableDto.getDatabaseId());
+      Assertions.assertNull(userTableDto.getTableId());
+    }
+  }
+
+  @Test
+  public void testGetUserTablesWithTablePattern() {
+    UserTable userTable =
+        UserTable.builder()
+            .databaseId(TestHouseTableModelConstants.TEST_DB_ID)
+            .tableId("test_table%")
+            .build();
+    List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
+    Assertions.assertEquals(5, list.size());
+    Page<UserTableDto> userTableDtoPage0 =
+        userTablesService.getAllUserTables(userTable, 0, 2, "tableId");
+    Assertions.assertEquals(5, userTableDtoPage0.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
+    List<UserTableDto> list0 = userTableDtoPage0.getContent();
+    Assertions.assertEquals(2, list0.size());
+
+    Page<UserTableDto> userTableDtoPage1 =
+        userTablesService.getAllUserTables(userTable, 1, 2, "tableId");
+    Assertions.assertEquals(5, userTableDtoPage1.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
+    List<UserTableDto> list1 = userTableDtoPage1.getContent();
+    Assertions.assertEquals(2, list1.size());
+
+    Page<UserTableDto> userTableDtoPage2 =
+        userTablesService.getAllUserTables(userTable, 2, 2, "tableId");
+    Assertions.assertEquals(5, userTableDtoPage2.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
+    List<UserTableDto> list2 = userTableDtoPage2.getContent();
+    Assertions.assertEquals(1, list2.size());
+  }
+
+  @Test
+  public void testGetUserTablesWithSearchFilter() {
+    UserTable userTable = UserTable.builder().creationTime(123L).build();
+    List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
+    Assertions.assertEquals(12, list.size());
+    Page<UserTableDto> userTableDtoPage0 =
+        userTablesService.getAllUserTables(userTable, 0, 4, "tableId");
+    Assertions.assertEquals(12, userTableDtoPage0.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
+    List<UserTableDto> list0 = userTableDtoPage0.getContent();
+    Assertions.assertEquals(4, list0.size());
+
+    Page<UserTableDto> userTableDtoPage1 =
+        userTablesService.getAllUserTables(userTable, 1, 4, "tableId");
+    Assertions.assertEquals(12, userTableDtoPage1.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
+    List<UserTableDto> list1 = userTableDtoPage1.getContent();
+    Assertions.assertEquals(4, list1.size());
+
+    Page<UserTableDto> userTableDtoPage2 =
+        userTablesService.getAllUserTables(userTable, 2, 4, "tableId");
+    Assertions.assertEquals(12, userTableDtoPage2.getTotalElements());
+    Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
+    List<UserTableDto> list2 = userTableDtoPage2.getContent();
+    Assertions.assertEquals(4, list2.size());
+  }
+
+  @Test
   public void testUserTableQuery() {
     List<UserTableDto> results = new ArrayList<>();
     results.add(
@@ -123,6 +255,18 @@ public class UserTablesServiceTest {
             .tableVersion(TEST_TUPLE_2_0.get_userTableDto().getMetadataLocation())
             .build());
     results.add(
+        TEST_TUPLE_3_0
+            .get_userTableDto()
+            .toBuilder()
+            .tableVersion(TEST_TUPLE_3_0.get_userTableDto().getMetadataLocation())
+            .build());
+    results.add(
+        TEST_TUPLE_4_0
+            .get_userTableDto()
+            .toBuilder()
+            .tableVersion(TEST_TUPLE_4_0.get_userTableDto().getMetadataLocation())
+            .build());
+    results.add(
         TEST_USER_TABLE_DTO
             .toBuilder()
             .tableVersion(TEST_USER_TABLE_DTO.getMetadataLocation())
@@ -130,7 +274,7 @@ public class UserTablesServiceTest {
 
     // No filter, should return all tables.
     List<UserTableDto> actual = userTablesService.getAllUserTables(UserTable.builder().build());
-    assertThat(actual.size()).isEqualTo(4);
+    assertThat(actual.size()).isEqualTo(5);
 
     // Only specify the database ID to find all tables under this database.
     actual =
@@ -152,7 +296,7 @@ public class UserTablesServiceTest {
     actual =
         userTablesService.getAllUserTables(
             UserTable.builder().tableId(TEST_TUPLE_2_0.getTableId()).build());
-    assertThat(actual.size()).isEqualTo(1);
+    assertThat(actual.size()).isEqualTo(3);
     assertThat(isUserTableDtoEqual(actual.get(0), TEST_TUPLE_2_0.get_userTableDto())).isTrue();
   }
 

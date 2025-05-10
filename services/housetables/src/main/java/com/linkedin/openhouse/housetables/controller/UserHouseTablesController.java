@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserHouseTablesController {
   private static final String HTS_TABLES_GENERAL_ENDPOINT = "/hts/tables";
   private static final String HTS_TABLES_QUERY_ENDPOINT = "/hts/tables/query";
+  private static final String HTS_TABLES_QUERY_ENDPOINT_V1 = "/v1/hts/tables/query";
 
   @Autowired private UserTableHtsApiHandler tableHtsApiHandler;
 
@@ -74,6 +75,29 @@ public class UserHouseTablesController {
       @RequestParam Map<String, String> parameters) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllEntityResponseBody<UserTable>>
         apiResponse = tableHtsApiHandler.getEntities(userTablesMapper.mapToUserTable(parameters));
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Search User Table by filter.",
+      description =
+          "Returns paginate user tables from house table that fulfills the predicate. "
+              + "For examples, one could provide {databaseId: d1} in the map to query all tables from database d1.",
+      tags = {"UserTable"})
+  @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "User Table GET: OK")})
+  @GetMapping(
+      value = HTS_TABLES_QUERY_ENDPOINT_V1,
+      produces = {"application/json"})
+  public ResponseEntity<GetAllEntityResponseBody<UserTable>> getPaginatedUserTables(
+      @RequestParam Map<String, String> parameters,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "50") int size,
+      @RequestParam(defaultValue = "databaseId") String sortBy) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllEntityResponseBody<UserTable>>
+        apiResponse =
+            tableHtsApiHandler.getEntities(
+                userTablesMapper.mapToUserTable(parameters), page, size, sortBy);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

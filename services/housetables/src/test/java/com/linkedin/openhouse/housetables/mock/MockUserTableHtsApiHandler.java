@@ -16,6 +16,12 @@ public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
+  public ApiResponse<GetAllEntityResponseBody<UserTable>> getEntities(
+      UserTable entity, int page, int size, String sortBy) {
+    return null;
+  }
+
+  @Override
   public ApiResponse<Void> deleteEntity(UserTableKey key) {
     return null;
   }

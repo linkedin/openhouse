@@ -9,12 +9,16 @@ import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import com.linkedin.openhouse.hts.catalog.model.usertable.UserTableIcebergRow;
 import com.linkedin.openhouse.hts.catalog.model.usertable.UserTableIcebergRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.repository.IcebergHtsRepository;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 @Deprecated
@@ -78,7 +82,7 @@ public class UserTableHtsRepository implements HtsRepository<UserTableRow, UserT
   }
 
   @Override
-  public Iterable<UserTableRow> findAll() {
+  public List<UserTableRow> findAll() {
     return Lists.newArrayList(
             icebergHtsRepository
                 .searchByPartialId(UserTableIcebergRowPrimaryKey.builder().build())
@@ -90,13 +94,12 @@ public class UserTableHtsRepository implements HtsRepository<UserTableRow, UserT
 
   /* IMPLEMENT AS NEEDED */
   @Override
-  public <S extends UserTableRow> Iterable<S> saveAll(Iterable<S> entities) {
+  public <S extends UserTableRow> List<S> saveAll(Iterable<S> entities) {
     throw getUnsupportedException();
   }
 
   @Override
-  public Iterable<UserTableRow> findAllById(
-      Iterable<UserTableRowPrimaryKey> userTableRowPrimaryKeys) {
+  public List<UserTableRow> findAllById(Iterable<UserTableRowPrimaryKey> userTableRowPrimaryKeys) {
     throw getUnsupportedException();
   }
 
@@ -118,5 +121,14 @@ public class UserTableHtsRepository implements HtsRepository<UserTableRow, UserT
   private UnsupportedOperationException getUnsupportedException() {
     return new UnsupportedOperationException(
         "Only save, findById, existsById, deleteById supported for UserTableHtsRepositoryImpl");
+  }
+
+  public List<UserTableRow> findAll(Sort sort) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public Page<UserTableRow> findAll(Pageable pageable) {
+    return null;
   }
 }

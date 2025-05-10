@@ -6,6 +6,7 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import lombok.Builder;
+import org.springframework.data.domain.Page;
 
 // TODO: Support pagination
 @Builder
@@ -17,6 +18,8 @@ public class GetAllEntityResponseBody<T> {
       value = "URF_UNREAD_FIELD",
       justification = "Value referenced in generated client code.")
   private List<T> results;
+
+  private Page<T> pageResults;
 
   public String toJson() {
     return new Gson().toJson(this);

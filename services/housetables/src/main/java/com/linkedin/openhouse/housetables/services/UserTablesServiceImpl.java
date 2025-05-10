@@ -16,9 +16,14 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
@@ -61,6 +66,20 @@ public class UserTablesServiceImpl implements UserTablesService {
       return listTablesWithPattern(userTable);
     } else {
       return searchTables(userTable);
+    }
+  }
+
+  @Override
+  public Page<UserTableDto> getAllUserTables(
+      UserTable userTable, int page, int size, String sortBy) {
+    if (isListDatabases(userTable)) {
+      return listDatabases(page, size, sortBy);
+    } else if (isListTables(userTable)) {
+      return listTables(userTable, page, size, sortBy);
+    } else if (isListTablesWithPattern(userTable)) {
+      return listTablesWithPattern(userTable, page, size, sortBy);
+    } else {
+      return searchTables(userTable, page, size, sortBy);
     }
   }
 
@@ -117,6 +136,13 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_LIST_DATABASES_TIME);
   }
 
+  private Page<UserTableDto> listDatabases(int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, "databaseId");
+    return htsJdbcRepository
+        .findAllDistinctDatabaseIds(null, pageable)
+        .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build());
+  }
+
   private List<UserTableDto> listTables(UserTable userTable) {
     return StreamSupport.stream(
             htsJdbcRepository
@@ -125,6 +151,22 @@ public class UserTablesServiceImpl implements UserTablesService {
             false)
         .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
         .collect(Collectors.toList());
+  }
+
+  private Page<UserTableDto> listTables(UserTable userTable, int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
+    Page<UserTableDto> userTableDtoPage =
+        htsJdbcRepository
+            .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
+            .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow));
+    return userTableDtoPage;
+    /*return StreamSupport.stream(
+        htsJdbcRepository
+            .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
+            .spliterator(),
+        false)
+    .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
+    .collect(Collectors.toList());*/
   }
 
   private List<UserTableDto> listTablesWithPattern(UserTable userTable) {
@@ -136,6 +178,40 @@ public class UserTablesServiceImpl implements UserTablesService {
             false)
         .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
         .collect(Collectors.toList());
+  }
+
+  private Page<UserTableDto> listTablesWithPattern(
+      UserTable userTable, int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
+    return htsJdbcRepository
+        .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+            userTable.getDatabaseId(), userTable.getTableId(), pageable)
+        .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow));
+  }
+
+  private Page<UserTableDto> searchTables(UserTable userTable, int page, int size, String sortBy) {
+    METRICS_REPORTER.count(MetricsConstant.HTS_GENERAL_SEARCH_REQUEST);
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
+    log.warn(
+        "Reaching general search for user table which is not expected: {}", userTable.toJson());
+    return htsJdbcRepository
+        .findAllByFilters(
+            userTable.getDatabaseId(),
+            userTable.getTableId(),
+            userTable.getTableVersion(),
+            userTable.getMetadataLocation(),
+            userTable.getStorageType(),
+            userTable.getCreationTime(),
+            pageable)
+        .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow));
+  }
+
+  private Pageable createPageable(int page, int size, String sortBy, String defaultSortBy) {
+    Sort sort =
+        StringUtils.isEmpty(sortBy)
+            ? Sort.by(defaultSortBy).ascending()
+            : Sort.by(sortBy).ascending();
+    return PageRequest.of(page, size, sort);
   }
 
   private List<UserTableDto> searchTables(UserTable userTable) {
