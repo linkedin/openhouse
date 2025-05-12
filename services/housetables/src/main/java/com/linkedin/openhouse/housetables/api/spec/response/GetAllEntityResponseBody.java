@@ -19,6 +19,11 @@ public class GetAllEntityResponseBody<T> {
       justification = "Value referenced in generated client code.")
   private List<T> results;
 
+  @Schema(description = "Page of user table objects in House table", example = "")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  @SuppressFBWarnings(
+      value = "URF_UNREAD_FIELD",
+      justification = "Value referenced in generated client code.")
   private Page<T> pageResults;
 
   public String toJson() {
