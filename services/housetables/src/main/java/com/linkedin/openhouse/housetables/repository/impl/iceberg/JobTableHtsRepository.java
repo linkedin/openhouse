@@ -9,7 +9,6 @@ import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRow;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.repository.IcebergHtsRepository;
-import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.commons.compress.utils.Lists;
@@ -53,7 +52,7 @@ public class JobTableHtsRepository implements HtsRepository<JobRow, JobRowPrimar
   }
 
   @Override
-  public List<JobRow> findAll() {
+  public Iterable<JobRow> findAll() {
     return Lists.newArrayList(
             icebergHtsRepository
                 .searchByPartialId(JobIcebergRowPrimaryKey.builder().build())
@@ -95,7 +94,7 @@ public class JobTableHtsRepository implements HtsRepository<JobRow, JobRowPrimar
   }
 
   @Override
-  public List<JobRow> findAllById(Iterable<JobRowPrimaryKey> jobRowPrimaryKeys) {
+  public Iterable<JobRow> findAllById(Iterable<JobRowPrimaryKey> jobRowPrimaryKeys) {
     throw getUnsupportedException();
   }
 
@@ -105,7 +104,7 @@ public class JobTableHtsRepository implements HtsRepository<JobRow, JobRowPrimar
   }
 
   @Override
-  public <S extends JobRow> List<S> saveAll(Iterable<S> entities) {
+  public <S extends JobRow> Iterable<S> saveAll(Iterable<S> entities) {
     throw getUnsupportedException();
   }
 
@@ -115,11 +114,11 @@ public class JobTableHtsRepository implements HtsRepository<JobRow, JobRowPrimar
 
   @Override
   public Iterable<JobRow> findAll(Sort sort) {
-    return null;
+    throw getUnsupportedException();
   }
 
   @Override
   public Page<JobRow> findAll(Pageable pageable) {
-    return null;
+    throw getUnsupportedException();
   }
 }

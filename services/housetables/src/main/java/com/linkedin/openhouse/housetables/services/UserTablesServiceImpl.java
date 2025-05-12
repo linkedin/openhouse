@@ -160,13 +160,6 @@ public class UserTablesServiceImpl implements UserTablesService {
             .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
             .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow));
     return userTableDtoPage;
-    /*return StreamSupport.stream(
-        htsJdbcRepository
-            .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
-            .spliterator(),
-        false)
-    .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
-    .collect(Collectors.toList());*/
   }
 
   private List<UserTableDto> listTablesWithPattern(UserTable userTable) {

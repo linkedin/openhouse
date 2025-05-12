@@ -9,7 +9,6 @@ import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import com.linkedin.openhouse.hts.catalog.model.usertable.UserTableIcebergRow;
 import com.linkedin.openhouse.hts.catalog.model.usertable.UserTableIcebergRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.repository.IcebergHtsRepository;
-import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.commons.compress.utils.Lists;
@@ -82,7 +81,7 @@ public class UserTableHtsRepository implements HtsRepository<UserTableRow, UserT
   }
 
   @Override
-  public List<UserTableRow> findAll() {
+  public Iterable<UserTableRow> findAll() {
     return Lists.newArrayList(
             icebergHtsRepository
                 .searchByPartialId(UserTableIcebergRowPrimaryKey.builder().build())
@@ -94,12 +93,13 @@ public class UserTableHtsRepository implements HtsRepository<UserTableRow, UserT
 
   /* IMPLEMENT AS NEEDED */
   @Override
-  public <S extends UserTableRow> List<S> saveAll(Iterable<S> entities) {
+  public <S extends UserTableRow> Iterable<S> saveAll(Iterable<S> entities) {
     throw getUnsupportedException();
   }
 
   @Override
-  public List<UserTableRow> findAllById(Iterable<UserTableRowPrimaryKey> userTableRowPrimaryKeys) {
+  public Iterable<UserTableRow> findAllById(
+      Iterable<UserTableRowPrimaryKey> userTableRowPrimaryKeys) {
     throw getUnsupportedException();
   }
 
@@ -123,12 +123,12 @@ public class UserTableHtsRepository implements HtsRepository<UserTableRow, UserT
         "Only save, findById, existsById, deleteById supported for UserTableHtsRepositoryImpl");
   }
 
-  public List<UserTableRow> findAll(Sort sort) {
+  public Iterable<UserTableRow> findAll(Sort sort) {
     throw getUnsupportedException();
   }
 
   @Override
   public Page<UserTableRow> findAll(Pageable pageable) {
-    return null;
+    throw getUnsupportedException();
   }
 }

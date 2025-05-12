@@ -4,7 +4,6 @@ import com.linkedin.openhouse.housetables.config.db.jdbc.JdbcProviderConfigurati
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
-import java.util.List;
 import java.util.Optional;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.data.domain.Page;
@@ -38,11 +37,11 @@ public interface UserTableHtsJdbcRepository
   void deleteByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
 
   @Query("SELECT DISTINCT databaseId FROM UserTableRow")
-  List<String> findAllDistinctDatabaseIds();
+  Iterable<String> findAllDistinctDatabaseIds();
 
-  List<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId);
+  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId);
 
-  List<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
       String databaseId, String tableIdPattern);
 
   @Query(
