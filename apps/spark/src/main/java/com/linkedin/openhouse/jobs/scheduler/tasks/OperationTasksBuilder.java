@@ -11,16 +11,25 @@ import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.math.NumberUtils;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Prepares the task list based on the job type. Right now task type is either table based or
@@ -39,7 +48,87 @@ public class OperationTasksBuilder {
   @Getter(AccessLevel.NONE)
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 
-  protected final TablesClient tablesClient;
+  protected TablesClient tablesClient;
+
+  private final BlockingQueue<OperationTask<?>> operationTaskQueue;
+  private AtomicBoolean tableMetadataFetchCompleted;
+
+  /**
+   * Uses Flux to iterate the databases list in parallel. For each database list tables
+   * asynchronously and then for each table get table metadata asynchronously and add to the queue.
+   * On completion, the metadata fetch flag is set to true.
+   *
+   * @param jobType
+   */
+  public void buildOperationTaskListInParallel(JobConf.JobTypeEnum jobType) {
+    List<String> databases = tablesClient.getDatabases();
+    Flux.fromIterable(databases) // iterate databases list
+        .parallel(10) // Parallelize the databases list processing with 10 threads
+        .runOn(Schedulers.boundedElastic()) // Use boundedElastic scheduler for IO-bound tasks
+        .filter(database -> tablesClient.applyDatabaseFilter(database))
+        .flatMap(
+            database ->
+                getAllTables(database)
+                    .flatMapMany(Flux::fromIterable)
+                    .parallel(50) // Parallelize the get table metadate with 50 threads
+                    .runOn(Schedulers.boundedElastic())
+                    .flatMap(
+                        tableResponseBody ->
+                            getTableMetadata(
+                                tableResponseBody)) // Get tableMetadata asynchronously for each
+            // table
+            )
+        .doOnNext(
+            tableMetadata -> {
+              try {
+                log.info(
+                    "Got table metadata for database name: {}, table name: {} ",
+                    tableMetadata.getDbName(),
+                    tableMetadata.getTableName());
+                Optional<OperationTask<?>> optionalOperationTask =
+                    processMetadata(tableMetadata, jobType);
+                if (optionalOperationTask.isPresent()) {
+                  // Put tableMetadata into the blocking queue
+                  operationTaskQueue.put(optionalOperationTask.get());
+                }
+              } catch (InterruptedException e) {
+                log.warn("Interrupted while waiting for table metadata to be processed", e);
+              }
+            })
+        .doOnComplete(() -> tableMetadataFetchCompleted.set(true))
+        .subscribe();
+  }
+
+  private Mono<List<GetTableResponseBody>> getAllTables(String database) {
+    return Mono.fromCallable(
+            () -> {
+              // Add some delay
+              Thread.sleep(1000);
+              GetAllTablesResponseBody getAllTablesResponseBody =
+                  tablesClient.getAllTables(database);
+              if (getAllTablesResponseBody == null) {
+                return Collections.<GetTableResponseBody>emptyList();
+              }
+              return getAllTablesResponseBody.getResults();
+            })
+        .subscribeOn(
+            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+  }
+
+  public Mono<List<GetTableResponseBody>> getEmptyListMono() {
+    return Mono.just(Collections.emptyList());
+  }
+
+  private Mono<TableMetadata> getTableMetadata(GetTableResponseBody getTableResponseBody) {
+    return Mono.fromCallable(
+            () -> {
+              // Add some delay
+              Thread.sleep(1000);
+              return tablesClient.mapTableResponseToTableMetadata(getTableResponseBody).get();
+            })
+        .subscribeOn(
+            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+  }
 
   private List<OperationTask<?>> prepareTableOperationTaskList(JobConf.JobTypeEnum jobType) {
     List<TableMetadata> tableMetadataList = tablesClient.getTableMetadataList();
@@ -120,21 +209,30 @@ public class OperationTasksBuilder {
     List<OperationTask<?>> taskList = new ArrayList<>();
     for (Metadata metadata : metadataList) {
       log.info("Found metadata {}", metadata);
-      try {
-        OperationTask<?> task = taskFactory.create(metadata);
-        if (!task.shouldRun()) {
-          log.info("Skipping task {}", task);
-        } else {
-          taskList.add(task);
-        }
-      } catch (Exception e) {
-        throw new RuntimeException(
-            String.format(
-                "Cannot create operation task metadata %s given job type: %s", metadata, jobType),
-            e);
+      Optional<OperationTask<?>> optionalOperationTask = processMetadata(metadata, jobType);
+      if (optionalOperationTask.isPresent()) {
+        taskList.add(optionalOperationTask.get());
       }
     }
     return taskList;
+  }
+
+  private Optional<OperationTask<?>> processMetadata(
+      Metadata metadata, JobConf.JobTypeEnum jobType) {
+    try {
+      OperationTask<?> task = taskFactory.create(metadata);
+      if (!task.shouldRun()) {
+        log.info("Skipping task {}", task);
+        return Optional.empty();
+      } else {
+        return Optional.of(task);
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(
+          String.format(
+              "Cannot create operation task metadata %s given job type: %s", metadata, jobType),
+          e);
+    }
   }
 
   /**
@@ -143,14 +241,6 @@ public class OperationTasksBuilder {
   public List<OperationTask<?>> buildOperationTaskList(
       JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
     switch (jobType) {
-      case DATA_COMPACTION:
-      case NO_OP:
-      case ORPHAN_FILES_DELETION:
-      case RETENTION:
-      case SNAPSHOTS_EXPIRATION:
-      case SQL_TEST:
-      case TABLE_STATS_COLLECTION:
-      case STAGED_FILES_DELETION:
       case DATA_LAYOUT_STRATEGY_GENERATION:
         return prepareTableOperationTaskList(jobType);
       case REPLICATION:

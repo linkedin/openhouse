@@ -133,6 +133,27 @@ public class TablesClient {
         null);
   }
 
+  public boolean applyDatabaseFilter(String dbName) {
+    return databaseFilter.applyDatabaseName(dbName);
+  }
+
+  public GetAllTablesResponseBody getAllTables(String dbName) {
+    return RetryUtil.executeWithRetry(
+        retryTemplate,
+        (RetryCallback<GetAllTablesResponseBody, Exception>)
+            context -> {
+              GetAllTablesResponseBody response =
+                  tableApi
+                      .searchTablesV1(dbName)
+                      .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+              if (response == null) {
+                return null;
+              }
+              return response;
+            },
+        null);
+  }
+
   /**
    * Scans all databases and tables in the databases, converts Tables Service responses to {@link
    * TableMetadata}, filters out using {@link DatabaseTableFilter}, and returns as a list.
@@ -289,7 +310,7 @@ public class TablesClient {
         Collections.emptyList());
   }
 
-  protected Optional<TableMetadata> mapTableResponseToTableMetadata(
+  public Optional<TableMetadata> mapTableResponseToTableMetadata(
       GetTableResponseBody shallowResponseBody) {
     GetTableResponseBody tableResponseBody =
         getTable(shallowResponseBody.getDatabaseId(), shallowResponseBody.getTableId());

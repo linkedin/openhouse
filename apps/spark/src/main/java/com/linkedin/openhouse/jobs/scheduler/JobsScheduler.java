@@ -14,6 +14,7 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.TableOperationTask;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.OtelConfig;
+import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.LongCounter;
@@ -32,12 +33,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -97,14 +100,19 @@ public class JobsScheduler {
   private final ThreadPoolExecutor executors;
   private final OperationTaskFactory<? extends OperationTask> taskFactory;
   private final TablesClient tablesClient;
+  private final BlockingQueue<OperationTask<?>> operationTaskQueue;
+  private AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
 
   public JobsScheduler(
       ThreadPoolExecutor executors,
       OperationTaskFactory<? extends OperationTask> taskFactory,
-      TablesClient tablesClient) {
+      TablesClient tablesClient,
+      BlockingQueue<TableMetadata> tableMetadataQueue,
+      BlockingQueue<OperationTask<?>> operationTaskQueue) {
     this.executors = executors;
     this.taskFactory = taskFactory;
     this.tablesClient = tablesClient;
+    this.operationTaskQueue = operationTaskQueue;
   }
 
   public static void main(String[] args) {
@@ -131,7 +139,13 @@ public class JobsScheduler {
             0L,
             TimeUnit.MILLISECONDS,
             new LinkedBlockingQueue<Runnable>());
-    JobsScheduler app = new JobsScheduler(executors, tasksFactory, tablesClientFactory.create());
+    JobsScheduler app =
+        new JobsScheduler(
+            executors,
+            tasksFactory,
+            tablesClientFactory.create(),
+            new LinkedBlockingQueue<>(),
+            new LinkedBlockingQueue<>());
     app.run(
         operationType,
         operationTaskCls.toString(),
@@ -152,20 +166,37 @@ public class JobsScheduler {
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
 
     log.info("Fetching task list based on the job type: {}", jobType);
-    List<OperationTask<?>> taskList =
-        new OperationTasksBuilder(taskFactory, tablesClient)
-            .buildOperationTaskList(jobType, properties, METER);
-    if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
-      log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
-      for (OperationTask<?> operationTask : taskList) {
-        log.info("Task {}", operationTask);
-      }
-      return;
-    }
-    log.info("Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
+    List<OperationTask<?>> taskList = new ArrayList<>();
     List<Future<Optional<JobState>>> taskFutures = new ArrayList<>();
-    for (OperationTask<?> operationTask : taskList) {
-      taskFutures.add(executors.submit(operationTask));
+    OperationTasksBuilder builder =
+        new OperationTasksBuilder(
+            taskFactory, tablesClient, operationTaskQueue, tableMetadataFetchCompleted);
+    if (fetchMetadataInParallel(jobType)) {
+      builder.buildOperationTaskListInParallel(jobType);
+      while (!tableMetadataFetchCompleted.get()) {
+        try {
+          OperationTask<?> task = operationTaskQueue.poll(300, TimeUnit.SECONDS);
+          taskList.add(task);
+          taskFutures.add(executors.submit(task));
+        } catch (InterruptedException e) {
+          log.info("Interrupted exception while polling from the queue: {}", jobType);
+        }
+      }
+    } else {
+      taskList = builder.buildOperationTaskList(jobType, properties, METER);
+      if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
+        log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
+        for (OperationTask<?> operationTask : taskList) {
+          log.info("Task {}", operationTask);
+        }
+        return;
+      }
+      log.info(
+          "Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
+
+      for (OperationTask<?> operationTask : taskList) {
+        taskFutures.add(executors.submit(operationTask));
+      }
     }
 
     int emptyStateJobCount = 0;
@@ -465,5 +496,27 @@ public class JobsScheduler {
           cmdLine.getOptionValue(OperationTasksBuilder.MAX_STRATEGIES_COUNT));
     }
     return result;
+  }
+
+  private boolean fetchMetadataInParallel(JobConf.JobTypeEnum jobType) {
+    switch (jobType) {
+      case DATA_COMPACTION:
+      case NO_OP:
+      case ORPHAN_FILES_DELETION:
+      case RETENTION:
+      case SNAPSHOTS_EXPIRATION:
+      case SQL_TEST:
+      case TABLE_STATS_COLLECTION:
+      case STAGED_FILES_DELETION:
+        return true;
+      case DATA_LAYOUT_STRATEGY_GENERATION:
+      case REPLICATION:
+      case DATA_LAYOUT_STRATEGY_EXECUTION:
+      case ORPHAN_DIRECTORY_DELETION:
+        return false;
+      default:
+        throw new UnsupportedOperationException(
+            String.format("Job type %s is not supported", jobType));
+    }
   }
 }
