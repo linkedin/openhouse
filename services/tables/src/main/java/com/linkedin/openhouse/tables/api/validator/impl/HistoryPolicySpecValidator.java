@@ -11,6 +11,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class HistoryPolicySpecValidator extends PolicySpecValidator {
 
+  // History retention configuration constants
+  private static final int MIN_VERSIONS = 2;
+  private static final int MAX_VERSIONS = 900;
+  private static final int MIN_DAYS_RETENTION = 1;
+  private static final int MAX_DAYS_RETENTION = 3;
+  private static final int MIN_HOURS_RETENTION = MIN_DAYS_RETENTION * 24; // 1 day in hours
+  private static final int MAX_HOURS_RETENTION = MAX_DAYS_RETENTION * 24; // 3 days in hours
+
   public boolean validate(
       CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
     History history = createUpdateTableRequestBody.getPolicies().getHistory();
@@ -62,20 +70,18 @@ public class HistoryPolicySpecValidator extends PolicySpecValidator {
       return true;
     }
 
-    if (granularity.equals(TimePartitionSpec.Granularity.HOUR)
-        || granularity.equals(TimePartitionSpec.Granularity.DAY)) {
-      return (maxAge <= 3 && granularity.equals(TimePartitionSpec.Granularity.DAY)
-              || maxAge <= 72 && granularity.equals(TimePartitionSpec.Granularity.HOUR))
-          && (maxAge >= 1 && granularity.equals(TimePartitionSpec.Granularity.DAY)
-              || maxAge >= 24 && granularity.equals(TimePartitionSpec.Granularity.HOUR));
+    if (granularity.equals(TimePartitionSpec.Granularity.HOUR)) {
+      return maxAge >= MIN_HOURS_RETENTION && maxAge <= MAX_HOURS_RETENTION;
+    } else if (granularity.equals(TimePartitionSpec.Granularity.DAY)) {
+      return maxAge >= MIN_DAYS_RETENTION && maxAge <= MAX_DAYS_RETENTION;
     }
 
     return false;
   }
 
   /*
-   * Validate that the number of versions to retain history of table snapshots is between 2 and 100
-   * We want at least 2 versions so that users can always rollback to at least 1 version before a commit
+   * Validate that the number of versions to retain history of table snapshots is between MIN_VERSIONS and MAX_VERSIONS
+   * We want at least MIN_VERSIONS so that users can always rollback to at least 1 version before a commit
    */
   protected boolean validateHistoryConfigVersionsWithinBounds(History history) {
     if (history.getVersions()
@@ -84,6 +90,6 @@ public class HistoryPolicySpecValidator extends PolicySpecValidator {
       return true;
     }
     int versions = history.getVersions();
-    return versions >= 2 && versions <= 100;
+    return versions >= MIN_VERSIONS && versions <= MAX_VERSIONS;
   }
 }
