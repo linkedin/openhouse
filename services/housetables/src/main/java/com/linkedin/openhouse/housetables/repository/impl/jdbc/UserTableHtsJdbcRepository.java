@@ -71,6 +71,22 @@ public interface UserTableHtsJdbcRepository
       Long creationTime,
       Pageable pageable);
 
+  @Query(
+      "select DISTINCT u from UserTableRow u where "
+          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
+          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
+          + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
+          + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
+          + "(:storageType IS NULL OR u.storageType = :storageType) AND "
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
+  Iterable<UserTableRow> findAllByFilters(
+      String databaseId,
+      String tableId,
+      String tableVersion,
+      String metadataLocation,
+      String storageType,
+      Long creationTime);
+
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}
    */
