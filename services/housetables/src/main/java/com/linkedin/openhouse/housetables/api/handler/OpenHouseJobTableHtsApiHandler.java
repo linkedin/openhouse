@@ -52,6 +52,12 @@ public class OpenHouseJobTableHtsApiHandler implements JobTableHtsApiHandler {
   }
 
   @Override
+  public ApiResponse<GetAllEntityResponseBody<Job>> getEntities(
+      Job entity, int page, int size, String sortBy) {
+    throw new UnsupportedOperationException("Get all job is unsupported");
+  }
+
+  @Override
   public ApiResponse<Void> deleteEntity(JobKey key) {
     jobsHTSApiValidator.validateDeleteEntity(key);
     jobsService.deleteJob(key.getJobId());

@@ -22,19 +22,4 @@ public class UserTableDto {
   String storageType;
 
   Long creationTime;
-
-  /**
-   * Compare if a given {@link UserTable} matches the current one if all non-null fields are equal.
-   *
-   * @param userTable the object to be examined.
-   * @return true if matched.
-   */
-  public boolean match(UserTableDto userTable) {
-    return Utilities.fieldMatchCaseInsensitive(this.databaseId, userTable.databaseId)
-        && Utilities.fieldMatchCaseInsensitive(this.tableId, userTable.tableId)
-        && Utilities.fieldMatch(this.metadataLocation, userTable.metadataLocation)
-        && Utilities.fieldMatch(this.tableVersion, userTable.tableVersion)
-        && Utilities.fieldMatch(this.storageType, userTable.storageType)
-        && Utilities.fieldMatch(this.creationTime, userTable.creationTime);
-  }
 }

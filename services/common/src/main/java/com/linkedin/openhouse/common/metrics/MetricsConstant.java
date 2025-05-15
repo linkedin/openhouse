@@ -45,4 +45,14 @@ public final class MetricsConstant {
   public static final String REPO_TABLE_IDS_FIND_ALL_TIME = "repo_table_ids_find_all_time";
   public static final String REPO_TABLES_FIND_ALL_TIME = "repo_tables_find_all_time";
   public static final String HTS_LIST_DATABASES_TIME = "hts_list_databases_time";
+  public static final String HTS_PAGE_DATABASES_TIME = "hts_page_databases_time";
+  public static final String HTS_PAGE_TABLES_TIME = "hts_page_tables_time";
+  public static final String HTS_PAGE_SEARCH_TABLES_TIME = "hts_page_search_tables_time";
+  public static final String HTS_PAGE_SEARCH_TABLES_REQUEST = "hts_page_search_tables_request";
+  public static final String HTS_PAGE_DATABASES_REQUEST = "hts_page_databases_request";
+  public static final String HTS_PAGE_TABLES_REQUEST = "hts_page_tables_request";
+  public static final String HTS_LIST_DATABASES_REQUEST = "hts_list_databases_request";
+  public static final String HTS_LIST_TABLES_REQUEST = "hts_list_tables_request";
+  public static final String HTS_LIST_TABLES_TIME = "hts_list_tables_time";
+  public static final String HTS_SEARCH_TABLES_TIME = "hts_search_tables_time";
 }

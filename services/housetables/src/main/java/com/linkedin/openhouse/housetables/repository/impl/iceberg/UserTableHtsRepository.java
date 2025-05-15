@@ -15,6 +15,9 @@ import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 @Deprecated
@@ -118,5 +121,14 @@ public class UserTableHtsRepository implements HtsRepository<UserTableRow, UserT
   private UnsupportedOperationException getUnsupportedException() {
     return new UnsupportedOperationException(
         "Only save, findById, existsById, deleteById supported for UserTableHtsRepositoryImpl");
+  }
+
+  public Iterable<UserTableRow> findAll(Sort sort) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public Page<UserTableRow> findAll(Pageable pageable) {
+    throw getUnsupportedException();
   }
 }
