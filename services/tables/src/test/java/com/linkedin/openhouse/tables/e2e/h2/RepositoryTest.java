@@ -501,9 +501,7 @@ public class RepositoryTest {
 
     Assertions.assertThrows(
         InvalidSchemaEvolutionException.class,
-        () ->
-            validator.validateWriteSchema(
-                oldSchema, newSchema, update.apply(), createDto.getTableUri()));
+        () -> validator.validateWriteSchema(oldSchema, newSchema, createDto.getTableUri()));
     TableDtoPrimaryKey primaryKey = getPrimaryKey(TABLE_DTO);
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
@@ -540,9 +538,7 @@ public class RepositoryTest {
 
     Assertions.assertThrows(
         InvalidSchemaEvolutionException.class,
-        () ->
-            validator.validateWriteSchema(
-                oldSchema, newSchema, update.apply(), createDto.getTableUri()));
+        () -> validator.validateWriteSchema(oldSchema, newSchema, createDto.getTableUri()));
     TableDtoPrimaryKey primaryKey = getPrimaryKey(TABLE_DTO);
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
@@ -578,9 +574,7 @@ public class RepositoryTest {
 
     Assertions.assertThrows(
         InvalidSchemaEvolutionException.class,
-        () ->
-            validator.validateWriteSchema(
-                oldSchema, newSchema, update.apply(), createDto.getTableUri()));
+        () -> validator.validateWriteSchema(oldSchema, newSchema, createDto.getTableUri()));
     TableDtoPrimaryKey primaryKey = getPrimaryKey(TABLE_DTO);
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
@@ -630,9 +624,7 @@ public class RepositoryTest {
     UpdateSchema update = table.newTransaction().updateSchema().unionByNameWith(newSchema);
     Assertions.assertThrows(
         InvalidSchemaEvolutionException.class,
-        () ->
-            validator.validateWriteSchema(
-                oldSchema, newSchema, update.apply(), createDto.getTableUri()));
+        () -> validator.validateWriteSchema(oldSchema, newSchema, createDto.getTableUri()));
     TableDtoPrimaryKey primaryKey = getPrimaryKey(TABLE_DTO);
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));

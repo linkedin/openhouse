@@ -16,15 +16,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class BaseIcebergSchemaValidator implements SchemaValidator {
   @Override
-  public void validateWriteSchema(
-      Schema oldSchema, Schema newSchema, Schema updatedSchema, String tableUri)
+  public void validateWriteSchema(Schema oldSchema, Schema newSchema, String tableUri)
       throws InvalidSchemaEvolutionException, IllegalArgumentException {
     // TODO: Detect and resolve rename and reorder
     // This implementation assumes both old and new schemas have field ids internally assigned by
     // iceberg rather than specified by the users
     enforceDeleteColumnFailure(oldSchema, newSchema, tableUri);
     TypeUtil.validateWriteSchema(
-        updatedSchema, oldSchema, /*checkNullability*/ true, /*checkOrdering*/ false);
+        newSchema, oldSchema, /*checkNullability*/ true, /*checkOrdering*/ false);
   }
 
   private void enforceDeleteColumnFailure(Schema oldSchema, Schema newSchema, String tableUri) {
