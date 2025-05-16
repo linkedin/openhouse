@@ -75,4 +75,9 @@ public class OpenHouseJobTableHtsApiHandler implements JobTableHtsApiHandler {
             EntityResponseBody.<Job>builder().entity(jobMapper.toJob(putResult.getFirst())).build())
         .build();
   }
+
+  @Override
+  public ApiResponse<Void> renameEntity(JobKey fromKey, JobKey toKey) {
+    throw new UnsupportedOperationException("Rename toggle status is unsupported");
+  }
 }
