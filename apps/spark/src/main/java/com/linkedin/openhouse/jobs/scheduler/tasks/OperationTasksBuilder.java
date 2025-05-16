@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -51,84 +52,9 @@ public class OperationTasksBuilder {
   protected TablesClient tablesClient;
 
   private final BlockingQueue<OperationTask<?>> operationTaskQueue;
+  private final int numParallelMetadataFetch;
   private AtomicBoolean tableMetadataFetchCompleted;
-
-  /**
-   * Uses Flux to iterate the databases list in parallel. For each database list tables
-   * asynchronously and then for each table get table metadata asynchronously and add to the queue.
-   * On completion, the metadata fetch flag is set to true.
-   *
-   * @param jobType
-   */
-  public void buildOperationTaskListInParallel(JobConf.JobTypeEnum jobType) {
-    List<String> databases = tablesClient.getDatabases();
-    Flux.fromIterable(databases) // iterate databases list
-        .parallel(10) // Parallelize the databases list processing with 10 threads
-        .runOn(Schedulers.boundedElastic()) // Use boundedElastic scheduler for IO-bound tasks
-        .filter(database -> tablesClient.applyDatabaseFilter(database))
-        .flatMap(
-            database ->
-                getAllTables(database)
-                    .flatMapMany(Flux::fromIterable)
-                    .parallel(50) // Parallelize the get table metadate with 50 threads
-                    .runOn(Schedulers.boundedElastic())
-                    .flatMap(
-                        tableResponseBody ->
-                            getTableMetadata(
-                                tableResponseBody)) // Get tableMetadata asynchronously for each
-            // table
-            )
-        .doOnNext(
-            tableMetadata -> {
-              try {
-                log.info(
-                    "Got table metadata for database name: {}, table name: {} ",
-                    tableMetadata.getDbName(),
-                    tableMetadata.getTableName());
-                Optional<OperationTask<?>> optionalOperationTask =
-                    processMetadata(tableMetadata, jobType);
-                if (optionalOperationTask.isPresent()) {
-                  // Put tableMetadata into the blocking queue
-                  operationTaskQueue.put(optionalOperationTask.get());
-                }
-              } catch (InterruptedException e) {
-                log.warn("Interrupted while waiting for table metadata to be processed", e);
-              }
-            })
-        .doOnComplete(() -> tableMetadataFetchCompleted.set(true))
-        .subscribe();
-  }
-
-  private Mono<List<GetTableResponseBody>> getAllTables(String database) {
-    return Mono.fromCallable(
-            () -> {
-              // Add some delay
-              Thread.sleep(1000);
-              GetAllTablesResponseBody getAllTablesResponseBody =
-                  tablesClient.getAllTables(database);
-              if (getAllTablesResponseBody == null) {
-                return Collections.<GetTableResponseBody>emptyList();
-              }
-              return getAllTablesResponseBody.getResults();
-            })
-        .subscribeOn(
-            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
-  }
-
-  public Mono<List<GetTableResponseBody>> getEmptyListMono() {
-    return Mono.just(Collections.emptyList());
-  }
-
-  private Mono<TableMetadata> getTableMetadata(GetTableResponseBody getTableResponseBody) {
-    return Mono.fromCallable(
-            () -> {
-              // Add some delay
-              Thread.sleep(1000);
-              return tablesClient.mapTableResponseToTableMetadata(getTableResponseBody).get();
-            })
-        .subscribeOn(
-            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
-  }
+  private AtomicLong operationTaskCount;
 
   private List<OperationTask<?>> prepareTableOperationTaskList(JobConf.JobTypeEnum jobType) {
     List<TableMetadata> tableMetadataList = tablesClient.getTableMetadataList();
@@ -241,6 +167,14 @@ public class OperationTasksBuilder {
   public List<OperationTask<?>> buildOperationTaskList(
       JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
     switch (jobType) {
+      case DATA_COMPACTION:
+      case NO_OP:
+      case ORPHAN_FILES_DELETION:
+      case RETENTION:
+      case SNAPSHOTS_EXPIRATION:
+      case SQL_TEST:
+      case TABLE_STATS_COLLECTION:
+      case STAGED_FILES_DELETION:
       case DATA_LAYOUT_STRATEGY_GENERATION:
         return prepareTableOperationTaskList(jobType);
       case REPLICATION:
@@ -252,6 +186,114 @@ public class OperationTasksBuilder {
       default:
         throw new UnsupportedOperationException(
             String.format("Job type %s is not supported", jobType));
+    }
+  }
+
+  /**
+   * Uses Flux to iterate the databases list in parallel. For each database, list tables
+   * asynchronously(using Mono) and then for each table get table metadata asynchronously (using
+   * Mono) and add to the queue. On after terminate (when all the parallel threads finishes and were
+   * shutdown), the metadata fetch flag is set to true.
+   *
+   * @param jobType
+   */
+  public void buildOperationTaskListInParallel(JobConf.JobTypeEnum jobType) {
+    List<String> databases = tablesClient.getDatabases();
+    Flux.fromIterable(databases) // iterate databases list
+        .parallel(
+            numParallelMetadataFetch) // Parallelize the databases list processing with N threads
+        .runOn(Schedulers.boundedElastic()) // Use boundedElastic scheduler for IO-bound tasks
+        .filter(database -> tablesClient.applyDatabaseFilter(database))
+        .flatMap(
+            database ->
+                getAllTables(database)
+                    .flatMapMany(Flux::fromIterable)
+                    .parallel(numParallelMetadataFetch) // Parallelize the get table metadate with N
+                    // threads
+                    .runOn(Schedulers.boundedElastic())
+                    .flatMap(
+                        tableResponseBody ->
+                            getTableMetadata(
+                                tableResponseBody)) // Get tableMetadata asynchronously for each
+            // table
+            )
+        .doOnNext(
+            tableMetadata -> {
+              if (tableMetadata != null && applyMetadataFilter(jobType, tableMetadata)) {
+                try {
+                  log.debug(
+                      "Got table metadata for database name: {}, table name: {} ",
+                      tableMetadata.getDbName(),
+                      tableMetadata.getTableName());
+                  Optional<OperationTask<?>> optionalOperationTask =
+                      processMetadata(tableMetadata, jobType);
+                  if (optionalOperationTask.isPresent()) {
+                    // Put tableMetadata into the blocking queue
+                    operationTaskQueue.put(optionalOperationTask.get());
+                    operationTaskCount.incrementAndGet();
+                  }
+                } catch (InterruptedException e) {
+                  log.warn("Interrupted while waiting for table metadata to be processed", e);
+                }
+              }
+            })
+        .sequential() // wait for all the threads to finish before terminate
+        .doAfterTerminate(() -> tableMetadataFetchCompleted.set(true))
+        .subscribe();
+  }
+
+  /**
+   * Fetch all tables for the given database asynchronously using Mono.
+   *
+   * @param database
+   * @return Mono<List<GetTableResponseBody>>
+   */
+  private Mono<List<GetTableResponseBody>> getAllTables(String database) {
+    return Mono.fromCallable(
+            () -> {
+              GetAllTablesResponseBody allTablesResponseBody = tablesClient.getAllTables(database);
+              if (allTablesResponseBody == null) {
+                return Collections.<GetTableResponseBody>emptyList();
+              }
+              return allTablesResponseBody.getResults();
+            })
+        .subscribeOn(
+            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+  }
+
+  /**
+   * Fetch table metadata for a table asynchronously using Mono.
+   *
+   * @param getTableResponseBody
+   * @return Mono<TableMetadata>
+   */
+  private Mono<TableMetadata> getTableMetadata(GetTableResponseBody getTableResponseBody) {
+    return Mono.fromCallable(
+            () -> {
+              Optional<TableMetadata> optionalTableMetadata =
+                  tablesClient.mapTableResponseToTableMetadata(getTableResponseBody);
+              if (optionalTableMetadata.isPresent()) {
+                return optionalTableMetadata.get();
+              }
+              return null;
+            })
+        .subscribeOn(
+            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+  }
+
+  /**
+   * Filter table metadata for replication job type. There is no filter for other job types.
+   *
+   * @param jobType
+   * @param tableMetadata
+   * @return boolean
+   */
+  private boolean applyMetadataFilter(JobConf.JobTypeEnum jobType, TableMetadata tableMetadata) {
+    switch (jobType) {
+      case REPLICATION:
+        return tableMetadata.isPrimary() && (tableMetadata.getReplicationConfig() != null);
+      default:
+        return true;
     }
   }
 }

@@ -14,7 +14,6 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.TableOperationTask;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.OtelConfig;
-import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.LongCounter;
@@ -41,6 +40,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -71,6 +71,9 @@ public class JobsScheduler {
   private static final int TASKS_WAIT_HOURS_DEFAULT = 12;
   private static final int MAX_NUM_CONCURRENT_JOBS_DEFAULT = 40;
   private static final int TABLE_MIN_AGE_THRESHOLD_HOURS_DEFAULT = 72;
+  private static final boolean PARALLEL_METADATA_FETCH_MODE_DEFAULT = false;
+  private static final int MAX_NUM_CONCURRENT_METADATA_FETCH_THREAD_DEFAULT = 20;
+  private static final int OPERATION_TASK_QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT = 5;
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
   private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());
@@ -102,12 +105,12 @@ public class JobsScheduler {
   private final TablesClient tablesClient;
   private final BlockingQueue<OperationTask<?>> operationTaskQueue;
   private AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
+  private AtomicLong operationTaskCount = new AtomicLong(0);
 
   public JobsScheduler(
       ThreadPoolExecutor executors,
       OperationTaskFactory<? extends OperationTask> taskFactory,
       TablesClient tablesClient,
-      BlockingQueue<TableMetadata> tableMetadataQueue,
       BlockingQueue<OperationTask<?>> operationTaskQueue) {
     this.executors = executors;
     this.taskFactory = taskFactory;
@@ -141,17 +144,15 @@ public class JobsScheduler {
             new LinkedBlockingQueue<Runnable>());
     JobsScheduler app =
         new JobsScheduler(
-            executors,
-            tasksFactory,
-            tablesClientFactory.create(),
-            new LinkedBlockingQueue<>(),
-            new LinkedBlockingQueue<>());
+            executors, tasksFactory, tablesClientFactory.create(), new LinkedBlockingQueue<>());
     app.run(
         operationType,
         operationTaskCls.toString(),
         properties,
         isDryRun(cmdLine),
-        getTasksWaitHours(cmdLine));
+        getTasksWaitHours(cmdLine),
+        isParallelMetadataFetchModeEnabled(cmdLine),
+        getNumParallelMetadataFetch(cmdLine));
   }
 
   protected void run(
@@ -159,7 +160,9 @@ public class JobsScheduler {
       String taskType,
       Properties properties,
       boolean isDryRun,
-      int tasksWaitHours) {
+      int tasksWaitHours,
+      boolean parallelMetadataFetchMode,
+      int numParallelMetadataFetch) {
     long startTimeMillis = System.currentTimeMillis();
     METER.counterBuilder("scheduler_start_count").build().add(1);
     Map<JobState, Integer> jobStateCountMap = new HashMap<>();
@@ -168,36 +171,15 @@ public class JobsScheduler {
     log.info("Fetching task list based on the job type: {}", jobType);
     List<OperationTask<?>> taskList = new ArrayList<>();
     List<Future<Optional<JobState>>> taskFutures = new ArrayList<>();
-    OperationTasksBuilder builder =
-        new OperationTasksBuilder(
-            taskFactory, tablesClient, operationTaskQueue, tableMetadataFetchCompleted);
-    if (fetchMetadataInParallel(jobType)) {
-      builder.buildOperationTaskListInParallel(jobType);
-      while (!tableMetadataFetchCompleted.get()) {
-        try {
-          OperationTask<?> task = operationTaskQueue.poll(300, TimeUnit.SECONDS);
-          taskList.add(task);
-          taskFutures.add(executors.submit(task));
-        } catch (InterruptedException e) {
-          log.info("Interrupted exception while polling from the queue: {}", jobType);
-        }
-      }
-    } else {
-      taskList = builder.buildOperationTaskList(jobType, properties, METER);
-      if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
-        log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
-        for (OperationTask<?> operationTask : taskList) {
-          log.info("Task {}", operationTask);
-        }
-        return;
-      }
-      log.info(
-          "Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
-
-      for (OperationTask<?> operationTask : taskList) {
-        taskFutures.add(executors.submit(operationTask));
-      }
-    }
+    // Fetch metadata and submit jobs
+    fetchMetadataAndSubmitTasks(
+        jobType,
+        taskList,
+        taskFutures,
+        properties,
+        isDryRun,
+        parallelMetadataFetchMode,
+        numParallelMetadataFetch);
 
     int emptyStateJobCount = 0;
     for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
@@ -405,6 +387,20 @@ public class JobsScheduler {
             .longOpt(OperationTasksBuilder.MAX_COST_BUDGET_GB_HRS)
             .desc("Maximum compute cost budget in GB hours")
             .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("parallelMetadataFetchMode")
+            .desc("Turn on/off parallel metadata fetch mode")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("numParallelMetadataFetch")
+            .desc("Number of threads to run in parallel for metadata fetch")
+            .build());
     CommandLineParser parser = new BasicParser();
     try {
       return parser.parse(options, args);
@@ -498,25 +494,84 @@ public class JobsScheduler {
     return result;
   }
 
-  private boolean fetchMetadataInParallel(JobConf.JobTypeEnum jobType) {
-    switch (jobType) {
-      case DATA_COMPACTION:
-      case NO_OP:
-      case ORPHAN_FILES_DELETION:
-      case RETENTION:
-      case SNAPSHOTS_EXPIRATION:
-      case SQL_TEST:
-      case TABLE_STATS_COLLECTION:
-      case STAGED_FILES_DELETION:
-        return true;
-      case DATA_LAYOUT_STRATEGY_GENERATION:
-      case REPLICATION:
-      case DATA_LAYOUT_STRATEGY_EXECUTION:
-      case ORPHAN_DIRECTORY_DELETION:
-        return false;
-      default:
-        throw new UnsupportedOperationException(
-            String.format("Job type %s is not supported", jobType));
+  /**
+   * Fetches table metadata in parallel or sequential based on parallelMetadataFetchMode flag. For
+   * parallel mode table metadata is fetched in parallel and add to a queue. On the other, hand
+   * metadata is read from queue and jobs are submitted in parallel as they arrive. For sequential
+   * mode all the table metadata are fetched first and then jobs are submitted.
+   *
+   * @param jobType
+   * @param taskList
+   * @param taskFutures
+   * @param properties
+   * @param isDryRun
+   * @param parallelMetadataFetchMode
+   * @param numParallelMetadataFetch
+   */
+  private void fetchMetadataAndSubmitTasks(
+      JobConf.JobTypeEnum jobType,
+      List<OperationTask<?>> taskList,
+      List<Future<Optional<JobState>>> taskFutures,
+      Properties properties,
+      boolean isDryRun,
+      boolean parallelMetadataFetchMode,
+      int numParallelMetadataFetch) {
+    OperationTasksBuilder builder =
+        new OperationTasksBuilder(
+            taskFactory,
+            tablesClient,
+            operationTaskQueue,
+            numParallelMetadataFetch,
+            tableMetadataFetchCompleted,
+            operationTaskCount);
+    if (parallelMetadataFetchMode) {
+      // Asynchronously fetches operation tasks and adds them to a queue
+      builder.buildOperationTaskListInParallel(jobType);
+      // fetch operation tasks from queue and submits jobs until terminate signal and queue is empty
+      do {
+        try {
+          OperationTask<?> task =
+              operationTaskQueue.poll(
+                  OPERATION_TASK_QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
+          taskList.add(task);
+          taskFutures.add(executors.submit(task));
+        } catch (InterruptedException e) {
+          log.warn("Interrupted exception while polling from the queue: {}", jobType);
+        }
+      } while (!(tableMetadataFetchCompleted.get() && operationTaskQueue.isEmpty()));
+      log.info("The metadata fetched count: {} for the job type: {}", operationTaskCount, jobType);
+      log.info(
+          "The total operation tasks submitted: {} for the job type: {}", taskList.size(), jobType);
+    } else {
+      taskList = builder.buildOperationTaskList(jobType, properties, METER);
+      if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
+        log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
+        for (OperationTask<?> operationTask : taskList) {
+          log.info("Task {}", operationTask);
+        }
+        return;
+      }
+      log.info(
+          "Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
+
+      for (OperationTask<?> operationTask : taskList) {
+        taskFutures.add(executors.submit(operationTask));
+      }
     }
+  }
+
+  protected static int getNumParallelMetadataFetch(CommandLine cmdLine) {
+    int ret = MAX_NUM_CONCURRENT_METADATA_FETCH_THREAD_DEFAULT;
+    if (cmdLine.hasOption("numParallelMetadataFetch")) {
+      ret = Integer.parseInt(cmdLine.getOptionValue("numParallelMetadataFetch"));
+    }
+    return ret;
+  }
+
+  protected static boolean isParallelMetadataFetchModeEnabled(CommandLine cmdLine) {
+    if (cmdLine.hasOption("parallelMetadataFetchMode")) {
+      return Boolean.parseBoolean(cmdLine.getOptionValue("parallelMetadataFetchMode"));
+    }
+    return PARALLEL_METADATA_FETCH_MODE_DEFAULT;
   }
 }
