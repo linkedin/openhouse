@@ -128,7 +128,24 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
-    throw new UnsupportedOperationException("Rename Tables not implemented yet");
+    try {
+      houseTableRepository
+          .findById(
+              HouseTablePrimaryKey.builder()
+                  .databaseId(from.namespace().toString())
+                  .tableId(from.name())
+                  .build())
+          .ifPresent(
+              houseTable -> {
+                houseTableRepository.rename(
+                    houseTable.getDatabaseId(),
+                    houseTable.getTableId(),
+                    to.namespace().toString(),
+                    to.name());
+              });
+    } catch (HouseTableNotFoundException e) {
+      log.info("House table entry not found {}.{}", from.namespace().toString(), from.name());
+    }
   }
 
   /**

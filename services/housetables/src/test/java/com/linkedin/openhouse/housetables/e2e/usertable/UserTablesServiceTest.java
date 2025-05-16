@@ -336,6 +336,23 @@ public class UserTablesServiceTest {
     assertThat(result.getFirst().getTableVersion()).isEqualTo(modifiedLocation);
   }
 
+  @Test
+  public void testUserTableRename() {
+    // testTuple1_0 is one of the table that is created from setup method.
+    String newTableName = TEST_TUPLE_1_0.getTableId() + "_newName";
+
+    userTablesService.renameUserTable(
+        TEST_TUPLE_1_0.getDatabaseId(),
+        TEST_TUPLE_1_0.getTableId(),
+        TEST_TUPLE_1_0.getDatabaseId(),
+        newTableName);
+
+    // check if the table is renamed
+    UserTableDto result =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), newTableName);
+    assertThat(result.getTableId()).isEqualTo(newTableName);
+  }
+
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {
     return expected
         .toBuilder()

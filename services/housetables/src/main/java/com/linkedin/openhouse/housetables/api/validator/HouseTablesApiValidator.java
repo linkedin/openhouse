@@ -38,4 +38,14 @@ public interface HouseTablesApiValidator<K, V> {
    *     request is invalid.
    */
   void validatePutEntity(V entity);
+
+  /**
+   * Function to validate a request to rename an existing row in a House Table to another Key ID.
+   *
+   * @param fromKey The key object to identify the row to rename.
+   * @param toKey The key object to rename the row to.
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if the
+   *     request is invalid.
+   */
+  void validateRenameEntity(K fromKey, K toKey);
 }

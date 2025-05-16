@@ -51,4 +51,9 @@ public class OpenHouseToggleStatusesApiHandler implements ToggleStatusesApiHandl
   public ApiResponse<EntityResponseBody<ToggleStatus>> putEntity(ToggleStatus entity) {
     throw new UnsupportedOperationException("Update toggle status is unsupported");
   }
+
+  @Override
+  public ApiResponse<Void> renameEntity(TableToggleStatusKey fromKey, TableToggleStatusKey toKey) {
+    throw new UnsupportedOperationException("Rename toggle status is unsupported");
+  }
 }

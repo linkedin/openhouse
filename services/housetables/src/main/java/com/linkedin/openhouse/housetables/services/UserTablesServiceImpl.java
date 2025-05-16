@@ -27,6 +27,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @Slf4j
@@ -113,6 +114,35 @@ public class UserTablesServiceImpl implements UserTablesService {
     }
 
     return Pair.of(returnedDto, existingUserTableRow.isPresent());
+  }
+
+  @Transactional // Needed for update query
+  @Override
+  public void renameUserTable(
+      String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
+    if (!htsJdbcRepository.existsById(
+        UserTableRowPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build())) {
+      throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
+    }
+    // Renames user table within the same database
+    try {
+      htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId);
+    } catch (CommitFailedException
+        | ObjectOptimisticLockingFailureException
+        | DataIntegrityViolationException e) {
+      throw new EntityConcurrentModificationException(
+          String.format(
+              "databaseId : %s, tableId : %s, version: %s %s",
+              fromDatabaseId,
+              fromTableId,
+              "The requested user table has been modified/created by other processes."),
+          UserTableRowPrimaryKey.builder()
+              .databaseId(fromDatabaseId)
+              .tableId(fromTableId)
+              .build()
+              .toString(),
+          e);
+    }
   }
 
   @Override

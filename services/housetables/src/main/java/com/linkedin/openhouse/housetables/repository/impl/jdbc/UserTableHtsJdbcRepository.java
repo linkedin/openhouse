@@ -8,7 +8,9 @@ import java.util.Optional;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * JDBC-backed {@link HtsRepository} for CRUDing {@link UserTableRow}
@@ -108,4 +110,12 @@ public interface UserTableHtsJdbcRepository
     deleteByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
         userTableRowPrimaryKey.getDatabaseId(), userTableRowPrimaryKey.getTableId());
   }
+
+  @Modifying
+  @Query(
+      "UPDATE UserTableRow table SET table.tableId = :newTableId WHERE table.databaseId = :databaseId AND table.tableId = :oldTableId")
+  void renameTableId(
+      @Param("databaseId") String databaseId,
+      @Param("oldTableId") String oldTableId,
+      @Param("newTableId") String newTableId);
 }

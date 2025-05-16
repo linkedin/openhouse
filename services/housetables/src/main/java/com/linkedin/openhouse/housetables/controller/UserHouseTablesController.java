@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -150,6 +151,33 @@ public class UserHouseTablesController {
           CreateUpdateEntityRequestBody<UserTable> createUpdateTableRequestBody) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
         tableHtsApiHandler.putEntity(createUpdateTableRequestBody.getEntity());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Rename a User Table",
+      description =
+          "Update an existing user table, identified by databaseID and tableId, to a new databaseID and tableId.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "User Table PATCH: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "User Table PATCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "User Table PATCH: TBL_DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "User Table PATCH: CONFLICT")
+      })
+  @PatchMapping(value = HTS_TABLES_GENERAL_ENDPOINT)
+  public ResponseEntity<Void> renameTable(
+      @RequestParam(value = "fromDatabaseId") String fromDatabaseId,
+      @RequestParam(value = "fromTableId") String fromTableId,
+      @RequestParam(value = "toDatabaseId") String toDatabaseId,
+      @RequestParam(value = "toTableId") String toTableId) {
+    UserTableKey fromKey =
+        UserTableKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build();
+    UserTableKey toKey = UserTableKey.builder().databaseId(toDatabaseId).tableId(toTableId).build();
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tableHtsApiHandler.renameEntity(fromKey, toKey);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

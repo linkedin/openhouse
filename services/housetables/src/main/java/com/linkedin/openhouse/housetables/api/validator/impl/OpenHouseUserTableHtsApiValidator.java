@@ -98,4 +98,10 @@ public class OpenHouseUserTableHtsApiValidator
       throw new RequestValidationFailureException(validationFailures);
     }
   }
+
+  @Override
+  public void validateRenameEntity(UserTableKey fromUserTableKey, UserTableKey toUserTableKey) {
+    validateGetEntity(fromUserTableKey);
+    validateGetEntity(toUserTableKey);
+  }
 }

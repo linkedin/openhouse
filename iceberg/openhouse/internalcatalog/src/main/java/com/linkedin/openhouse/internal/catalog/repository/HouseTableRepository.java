@@ -14,4 +14,6 @@ import org.springframework.stereotype.Repository;
 public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTablePrimaryKey> {
 
   List<HouseTable> findAllByDatabaseId(String databaseId);
+
+  void rename(String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId);
 }

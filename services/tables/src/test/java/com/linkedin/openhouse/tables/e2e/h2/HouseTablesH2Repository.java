@@ -11,4 +11,11 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 @Primary
-public interface HouseTablesH2Repository extends HouseTableRepository {}
+public interface HouseTablesH2Repository extends HouseTableRepository {
+
+  @Override
+  default void rename(
+      String databaseId, String fromTableId, String toDatabaseId, String toTableId) {
+    // No-op
+  }
+}
