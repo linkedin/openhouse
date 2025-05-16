@@ -49,7 +49,7 @@ public class OperationTasksBuilder {
   @Getter(AccessLevel.NONE)
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 
-  protected TablesClient tablesClient;
+  protected final TablesClient tablesClient;
 
   private final BlockingQueue<OperationTask<?>> operationTaskQueue;
   private final int numParallelMetadataFetch;
@@ -221,7 +221,7 @@ public class OperationTasksBuilder {
             tableMetadata -> {
               if (tableMetadata != null && applyMetadataFilter(jobType, tableMetadata)) {
                 try {
-                  log.debug(
+                  log.info(
                       "Got table metadata for database name: {}, table name: {} ",
                       tableMetadata.getDbName(),
                       tableMetadata.getTableName());
@@ -252,6 +252,7 @@ public class OperationTasksBuilder {
     return Mono.fromCallable(
             () -> {
               GetAllTablesResponseBody allTablesResponseBody = tablesClient.getAllTables(database);
+              log.info("Got all tables: {} for database {}", allTablesResponseBody, database);
               if (allTablesResponseBody == null) {
                 return Collections.<GetTableResponseBody>emptyList();
               }
@@ -273,6 +274,7 @@ public class OperationTasksBuilder {
               Optional<TableMetadata> optionalTableMetadata =
                   tablesClient.mapTableResponseToTableMetadata(getTableResponseBody);
               if (optionalTableMetadata.isPresent()) {
+                log.info("Got table metadata for : {}", optionalTableMetadata.get());
                 return optionalTableMetadata.get();
               }
               return null;

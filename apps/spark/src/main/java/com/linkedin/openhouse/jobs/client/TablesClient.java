@@ -133,10 +133,22 @@ public class TablesClient {
         null);
   }
 
+  /**
+   * Filter database
+   *
+   * @param dbName
+   * @return
+   */
   public boolean applyDatabaseFilter(String dbName) {
     return databaseFilter.applyDatabaseName(dbName);
   }
 
+  /**
+   * Get all tables for the given database
+   *
+   * @param dbName
+   * @return
+   */
   public GetAllTablesResponseBody getAllTables(String dbName) {
     return RetryUtil.executeWithRetry(
         retryTemplate,
