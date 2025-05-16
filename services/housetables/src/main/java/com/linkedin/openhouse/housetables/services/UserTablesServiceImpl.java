@@ -115,6 +115,15 @@ public class UserTablesServiceImpl implements UserTablesService {
     return Pair.of(returnedDto, existingUserTableRow.isPresent());
   }
 
+  /**
+   * Renames a user table within the same database.
+   *
+   * @param fromDatabaseId The databaseId of the row to rename.
+   * @param fromTableId The tableId of the row to rename.
+   * @param toDatabaseId Until rename support across databases is supported, this should be the same
+   *     as fromDatabaseId
+   * @param toTableId The new tableId of the renamed row.
+   */
   @Override
   public void renameUserTable(
       String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
