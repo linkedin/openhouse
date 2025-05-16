@@ -23,7 +23,7 @@ public class BaseIcebergSchemaValidator implements SchemaValidator {
     // iceberg rather than specified by the users
     enforceDeleteColumnFailure(oldSchema, newSchema, tableUri);
     TypeUtil.validateWriteSchema(
-        newSchema, oldSchema, /*checkNullability*/ true, /*checkOrdering*/ false);
+        oldSchema, newSchema, /*checkNullability*/ true, /*checkOrdering*/ false);
   }
 
   private void enforceDeleteColumnFailure(Schema oldSchema, Schema newSchema, String tableUri) {
