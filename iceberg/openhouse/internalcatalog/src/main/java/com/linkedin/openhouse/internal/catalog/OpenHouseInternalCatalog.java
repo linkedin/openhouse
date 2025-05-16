@@ -143,8 +143,9 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
                     to.namespace().toString(),
                     to.name());
               });
-    } catch (HouseTableNotFoundException e) {
-      log.info("House table entry not found {}.{}", from.namespace().toString(), from.name());
+    } catch (HouseTableRepositoryException e) {
+      throw new RuntimeException(
+          String.format("The table %s cannot be renamed due to the server side error:", from), e);
     }
   }
 

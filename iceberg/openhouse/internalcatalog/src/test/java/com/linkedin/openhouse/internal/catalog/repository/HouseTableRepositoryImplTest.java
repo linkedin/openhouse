@@ -289,6 +289,47 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
+  public void testRepoRename() {
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(204)
+            .setBody("")
+            .addHeader("Content-Type", "application/json"));
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            htsRepo.rename(
+                HOUSE_TABLE.getDatabaseId(),
+                HOUSE_TABLE.getTableId(),
+                HOUSE_TABLE_SAME_DB.getDatabaseId(),
+                HOUSE_TABLE.getTableId() + "_renamed"));
+  }
+
+  @Test
+  public void testRepoRenameFailsWithExceptions() {
+    HashMap<Integer, Class> map = new HashMap<>();
+    map.put(404, HouseTableNotFoundException.class);
+    map.put(409, HouseTableConcurrentUpdateException.class);
+    map.put(400, HouseTableCallerException.class);
+
+    for (HashMap.Entry<Integer, Class> entry : map.entrySet()) {
+      mockHtsServer.enqueue(
+          new MockResponse()
+              .setResponseCode(entry.getKey())
+              .setBody("")
+              .addHeader("Content-Type", "application/json"));
+      Assertions.assertThrowsExactly(
+          entry.getValue(),
+          () ->
+              htsRepo.rename(
+                  HOUSE_TABLE.getDatabaseId(),
+                  HOUSE_TABLE.getTableId(),
+                  HOUSE_TABLE_SAME_DB.getDatabaseId(),
+                  HOUSE_TABLE.getTableId() + "_renamed"));
+    }
+  }
+
+  @Test
   public void testListOfTablesInDatabase() {
     List<UserTable> tables = new ArrayList<>();
     tables.add(houseTableMapper.toUserTable(HOUSE_TABLE));
