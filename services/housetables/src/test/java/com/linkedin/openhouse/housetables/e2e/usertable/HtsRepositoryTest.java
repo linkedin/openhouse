@@ -168,4 +168,34 @@ public class HtsRepositoryTest {
     htsRepository.deleteById(
         UserTableRowPrimaryKey.builder().databaseId(TEST_DB_ID).tableId(TEST_TABLE_ID).build());
   }
+
+  @Test
+  public void testRenameUserTable() {
+    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    UserTableRowPrimaryKey key =
+        UserTableRowPrimaryKey.builder()
+            .tableId(TEST_TUPLE_1_1.getTableId())
+            .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+            .build();
+    // verify testTuple1_1 exist first.
+    assertThat(htsRepository.existsById(key)).isTrue();
+
+    htsRepository.renameTableId(
+        TEST_TUPLE_1_1.getDatabaseId(),
+        TEST_TUPLE_1_1.getTableId(),
+        TEST_TUPLE_1_1.getTableId() + "_renamed");
+
+    UserTableRow result =
+        htsRepository
+            .findById(
+                UserTableRowPrimaryKey.builder()
+                    .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+                    .tableId(TEST_TUPLE_1_1.getTableId() + "_renamed")
+                    .build())
+            .orElse(UserTableRow.builder().build());
+    assertThat(result.getMetadataLocation()).isEqualTo(TEST_TUPLE_1_1.getTableLoc());
+
+    // verify testTuple1_1 doesn't exist any more.
+    assertThat(htsRepository.existsById(key)).isFalse();
+  }
 }

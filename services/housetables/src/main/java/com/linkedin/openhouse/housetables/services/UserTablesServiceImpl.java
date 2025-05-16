@@ -27,7 +27,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @Slf4j
@@ -116,7 +115,6 @@ public class UserTablesServiceImpl implements UserTablesService {
     return Pair.of(returnedDto, existingUserTableRow.isPresent());
   }
 
-  @Transactional // Needed for update query
   @Override
   public void renameUserTable(
       String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
@@ -132,10 +130,10 @@ public class UserTablesServiceImpl implements UserTablesService {
         | DataIntegrityViolationException e) {
       throw new EntityConcurrentModificationException(
           String.format(
-              "databaseId : %s, tableId : %s, version: %s %s",
+              "databaseId : %s, tableId : %s, %s",
               fromDatabaseId,
               fromTableId,
-              "The requested user table has been modified/created by other processes."),
+              "Failed to rename user table, it may have been modified/created by other processes."),
           UserTableRowPrimaryKey.builder()
               .databaseId(fromDatabaseId)
               .tableId(fromTableId)

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.housetables.e2e.usertable;
 import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants.*;
 import static org.assertj.core.api.Assertions.*;
 
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
@@ -351,6 +352,37 @@ public class UserTablesServiceTest {
     UserTableDto result =
         userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), newTableName);
     assertThat(result.getTableId()).isEqualTo(newTableName);
+    assertThat(result.getDatabaseId()).isEqualTo(TEST_TUPLE_1_0.getDatabaseId());
+    assertThat(result.getMetadataLocation()).isEqualTo(TEST_TUPLE_1_0.getTableLoc());
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            userTablesService.getUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId()));
+  }
+
+  @Test
+  public void testUserTableRenameFails() {
+    // Ensure that the rename is occurring in the same database
+    assertThat(TEST_TUPLE_1_0.getDatabaseId()).isEqualTo(TEST_TUPLE_2_0.getDatabaseId());
+
+    // Expect that the rename will fail as the table already exists
+    Assertions.assertThrows(
+        EntityConcurrentModificationException.class,
+        () -> {
+          userTablesService.renameUserTable(
+              TEST_TUPLE_1_0.getDatabaseId(),
+              TEST_TUPLE_1_0.getTableId(),
+              TEST_TUPLE_1_0.getDatabaseId(),
+              TEST_TUPLE_2_0.getTableId());
+        });
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> {
+          userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), "no_such_table");
+        });
   }
 
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {
