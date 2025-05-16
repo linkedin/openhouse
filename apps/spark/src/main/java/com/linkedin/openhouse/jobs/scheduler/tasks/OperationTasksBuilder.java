@@ -221,7 +221,7 @@ public class OperationTasksBuilder {
             tableMetadata -> {
               if (tableMetadata != null && applyMetadataFilter(jobType, tableMetadata)) {
                 try {
-                  log.info(
+                  log.debug(
                       "Got table metadata for database name: {}, table name: {} ",
                       tableMetadata.getDbName(),
                       tableMetadata.getTableName());
@@ -252,7 +252,7 @@ public class OperationTasksBuilder {
     return Mono.fromCallable(
             () -> {
               GetAllTablesResponseBody allTablesResponseBody = tablesClient.getAllTables(database);
-              log.info("Got all tables: {} for database {}", allTablesResponseBody, database);
+              log.debug("Got all tables: {} for database {}", allTablesResponseBody, database);
               if (allTablesResponseBody == null) {
                 return Collections.<GetTableResponseBody>emptyList();
               }
@@ -274,7 +274,7 @@ public class OperationTasksBuilder {
               Optional<TableMetadata> optionalTableMetadata =
                   tablesClient.mapTableResponseToTableMetadata(getTableResponseBody);
               if (optionalTableMetadata.isPresent()) {
-                log.info("Got table metadata for : {}", optionalTableMetadata.get());
+                log.debug("Got table metadata for : {}", optionalTableMetadata.get());
                 return optionalTableMetadata.get();
               }
               return null;
