@@ -178,9 +178,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   private TableMetadata rebuildTblMetaWithSchema(TableMetadata newMetadata, String schemaKey) {
     Schema writerSchema = SchemaParser.fromJson(newMetadata.properties().get(schemaKey));
     return TableMetadata.buildFrom(newMetadata)
-        //        .buildFromEmpty()
-        //        .assignUUID()
-        //        .setLocation(newMetadata.location())
         .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
         .addPartitionSpec(
             rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
