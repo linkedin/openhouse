@@ -197,9 +197,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
      */
     if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
       metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA);
-    }
-
-    if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
+    } else if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
       metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY);
     }
 
