@@ -182,7 +182,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         .addPartitionSpec(
             rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
         .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
-        .setProperties(newMetadata.properties())
         .build();
   }
 
