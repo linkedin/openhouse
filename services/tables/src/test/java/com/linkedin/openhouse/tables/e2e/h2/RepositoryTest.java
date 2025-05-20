@@ -508,6 +508,24 @@ public class RepositoryTest {
   }
 
   @Test
+  void testSchemaEvolutionWithMismatchedFieldId() {
+    Schema oldSchema =
+        new Schema(
+            required(1, "name", Types.StringType.get()),
+            required(2, "count", Types.LongType.get()));
+
+    // negative case: Id being different
+    Schema newSchema =
+        new Schema(
+            required(2, "name", Types.StringType.get()),
+            required(1, "count", Types.LongType.get()));
+
+    Assertions.assertThrows(
+        InvalidSchemaEvolutionException.class,
+        () -> validator.validateWriteSchema(oldSchema, newSchema, "random_uri"));
+  }
+
+  @Test
   void testSchemaEvolutionStruct() {
     Types.StructType leafStructType1 =
         Types.StructType.of(

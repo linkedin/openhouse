@@ -360,8 +360,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       UpdateProperties updateProperties) {
     if (!writeSchema.sameSchema(tableSchema)) {
       try {
-        updateProperties.set(CatalogConstants.EVOLVED_SCHEMA_KEY, SchemaParser.toJson(writeSchema));
         schemaValidator.validateWriteSchema(tableSchema, writeSchema, tableDto.getTableUri());
+        updateProperties.set(CatalogConstants.EVOLVED_SCHEMA_KEY, SchemaParser.toJson(writeSchema));
         return true;
       } catch (Exception e) {
         // TODO: Make upstream change to have explicit SchemaEvolutionFailureException
