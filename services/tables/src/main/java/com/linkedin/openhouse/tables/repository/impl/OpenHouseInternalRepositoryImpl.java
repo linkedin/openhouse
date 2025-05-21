@@ -16,6 +16,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -39,11 +40,11 @@ import org.apache.commons.collections.MapUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
-import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -134,10 +135,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Transaction transaction = table.newTransaction();
       updateEligibilityCheck(table, tableDto);
 
-      boolean schemaUpdated =
-          doUpdateSchemaIfNeeded(transaction, writeSchema, table.schema(), tableDto);
       UpdateProperties updateProperties = transaction.updateProperties();
-
+      boolean schemaUpdated =
+          doUpdateSchemaIfNeeded(writeSchema, table.schema(), tableDto, updateProperties);
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
@@ -352,21 +352,16 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
   }
 
-  /**
-   * @param transaction
-   * @param writeSchema
-   * @param tableSchema
-   * @param tableDto
-   * @return Whether there are any schema-updates actually materialized.
-   */
+  /** @return Whether there are any schema-updates actually materialized. */
   private boolean doUpdateSchemaIfNeeded(
-      Transaction transaction, Schema writeSchema, Schema tableSchema, TableDto tableDto) {
+      Schema writeSchema,
+      Schema tableSchema,
+      TableDto tableDto,
+      UpdateProperties updateProperties) {
     if (!writeSchema.sameSchema(tableSchema)) {
       try {
-        UpdateSchema update = transaction.updateSchema().unionByNameWith(writeSchema);
-        schemaValidator.validateWriteSchema(
-            tableSchema, writeSchema, update.apply(), tableDto.getTableUri());
-        update.commit();
+        schemaValidator.validateWriteSchema(tableSchema, writeSchema, tableDto.getTableUri());
+        updateProperties.set(CatalogConstants.EVOLVED_SCHEMA_KEY, SchemaParser.toJson(writeSchema));
         return true;
       } catch (Exception e) {
         // TODO: Make upstream change to have explicit SchemaEvolutionFailureException

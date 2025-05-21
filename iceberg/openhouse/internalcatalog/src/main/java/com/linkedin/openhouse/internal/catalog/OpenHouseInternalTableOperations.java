@@ -174,6 +174,26 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
+  /** An internal helper method to rebuild the {@link TableMetadata} object. */
+  private TableMetadata rebuildTblMetaWithSchema(
+      TableMetadata newMetadata, String schemaKey, boolean reuseMetadata) {
+    Schema writerSchema = SchemaParser.fromJson(newMetadata.properties().get(schemaKey));
+    if (reuseMetadata) {
+      return TableMetadata.buildFrom(newMetadata)
+          .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
+          .build();
+    } else {
+      return TableMetadata.buildFromEmpty()
+          .setLocation(newMetadata.location())
+          .setCurrentSchema(writerSchema, newMetadata.lastColumnId())
+          .addPartitionSpec(
+              rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
+          .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
+          .setProperties(newMetadata.properties())
+          .build();
+    }
+  }
+
   @SuppressWarnings("checkstyle:MissingSwitchDefault")
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
@@ -184,17 +204,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
      * object using the client supplied schema by preserving its field-ids.
      */
     if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
-      Schema clientSchema =
-          SchemaParser.fromJson(metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA));
-      metadata =
-          TableMetadata.buildFromEmpty()
-              .setLocation(metadata.location())
-              .setCurrentSchema(clientSchema, metadata.lastColumnId())
-              .addPartitionSpec(
-                  rebuildPartitionSpec(metadata.spec(), metadata.schema(), clientSchema))
-              .addSortOrder(rebuildSortOrder(metadata.sortOrder(), clientSchema))
-              .setProperties(metadata.properties())
-              .build();
+      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA, false);
+    } else if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
+      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY, true);
     }
 
     int version = currentVersion() + 1;
@@ -220,6 +232,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               getCanonicalFieldName("tableLocation"), CatalogConstants.INITIAL_VERSION));
       properties.put(getCanonicalFieldName("tableLocation"), newMetadataLocation);
 
+      if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
+        properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
+      }
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =

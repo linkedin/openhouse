@@ -6,6 +6,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.relocated.com.google.common.collect.MapDifference;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.types.TypeUtil;
+import org.apache.iceberg.types.Types;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,15 +17,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class BaseIcebergSchemaValidator implements SchemaValidator {
   @Override
-  public void validateWriteSchema(
-      Schema oldSchema, Schema newSchema, Schema updatedSchema, String tableUri)
+  public void validateWriteSchema(Schema oldSchema, Schema newSchema, String tableUri)
       throws InvalidSchemaEvolutionException, IllegalArgumentException {
-    // TODO: Detect and resolve rename and reorder
-    // This implementation assumes both old and new schemas have field ids internally assigned by
-    // iceberg rather than specified by the users
+    validateFields(oldSchema, newSchema, tableUri);
     enforceDeleteColumnFailure(oldSchema, newSchema, tableUri);
-    TypeUtil.validateWriteSchema(
-        updatedSchema, oldSchema, /*checkNullability*/ true, /*checkOrdering*/ false);
+    TypeUtil.validateSchema(
+        "OpenHouse Server Schema validation Validation", newSchema, oldSchema, true, false);
   }
 
   private void enforceDeleteColumnFailure(Schema oldSchema, Schema newSchema, String tableUri) {
@@ -32,16 +30,52 @@ public class BaseIcebergSchemaValidator implements SchemaValidator {
     MapDifference<Integer, String> diff =
         Maps.difference(oldSchema.idToName(), newSchema.idToName());
 
-    if (diff.entriesOnlyOnLeft().size() != 0) {
+    if (!diff.entriesOnlyOnLeft().isEmpty()) {
       throw new InvalidSchemaEvolutionException(
           tableUri, newSchema.toString(), oldSchema.toString(), "Some columns are dropped");
     }
-    if (diff.entriesDiffering().size() != 0) {
+    if (!diff.entriesDiffering().isEmpty()) {
       throw new InvalidSchemaEvolutionException(
           tableUri,
           newSchema.toString(),
           oldSchema.toString(),
           "Given same id, column name is different");
+    }
+  }
+
+  /**
+   * Since @param newSchema is considered to be the new source-of-truth table schema, OpenHouse just
+   * need to ensure all field-Id are still matching before directly use it to assemble {@link
+   * org.apache.iceberg.TableMetadata}
+   *
+   * <p>Note that Iceberg by itself is case-sensitive by default, the casing info can be lost
+   * through the SQL engine layer. Here OH is honoring the default case sensitivity for column
+   * name-based resolution.
+   *
+   * @param oldSchema existing schema in table catalog
+   * @param newSchema user-provided schema that may contain evolution
+   * @param tableUri tableUri
+   */
+  protected void validateFields(Schema oldSchema, Schema newSchema, String tableUri) {
+    for (Types.NestedField field : oldSchema.columns()) {
+      Types.NestedField columnInNewSchema = newSchema.findField(field.name());
+      if (columnInNewSchema == null) {
+        throw new InvalidSchemaEvolutionException(
+            tableUri,
+            newSchema.toString(),
+            oldSchema.toString(),
+            String.format("Column[%s] not found in newSchema", field.name()));
+      }
+
+      if (columnInNewSchema.fieldId() != field.fieldId()) {
+        throw new InvalidSchemaEvolutionException(
+            tableUri,
+            newSchema.toString(),
+            oldSchema.toString(),
+            String.format(
+                "Internal Error: Column name [%s] in newSchema has a different fieldId",
+                field.name()));
+      }
     }
   }
 }

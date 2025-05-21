@@ -353,7 +353,8 @@ public class TablesServiceTest {
         new org.apache.iceberg.Schema(
             Types.NestedField.required(1, "stringId", Types.StringType.get()),
             Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone()),
-            Types.NestedField.required(3, "newCol", Types.StringType.get()));
+            Types.NestedField.optional(
+                3, "newCol", Types.StringType.get())); /* newly added column has to be optional */
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.putTable(

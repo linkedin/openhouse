@@ -215,45 +215,49 @@ public class TablesControllerTest {
         RequestAndValidateHelper.createTableAndValidateResponse(
             GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, storageManager);
 
-    String tableLocation = RequestAndValidateHelper.obtainTableLocationFromMvcResult(mvcResultT1d1);
-    String tableSameDbLocation =
-        RequestAndValidateHelper.obtainTableLocationFromMvcResult(mvcResultT2d1);
-    String tableDiffDbLocation =
-        RequestAndValidateHelper.obtainTableLocationFromMvcResult(mvcResultT1d2);
+    try {
+      String tableLocation =
+          RequestAndValidateHelper.obtainTableLocationFromMvcResult(mvcResultT1d1);
+      String tableSameDbLocation =
+          RequestAndValidateHelper.obtainTableLocationFromMvcResult(mvcResultT2d1);
+      String tableDiffDbLocation =
+          RequestAndValidateHelper.obtainTableLocationFromMvcResult(mvcResultT1d2);
 
-    // Sending the same object for update should expect no new object returned and status code being
-    // 200.
-    RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc,
-        storageManager,
-        buildGetTableResponseBody(mvcResultT1d1),
-        INITIAL_TABLE_VERSION,
-        false);
-    RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc,
-        storageManager,
-        buildGetTableResponseBody(mvcResultT2d1),
-        INITIAL_TABLE_VERSION,
-        false);
-    RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc,
-        storageManager,
-        buildGetTableResponseBody(mvcResultT1d2),
-        INITIAL_TABLE_VERSION,
-        false);
+      // Sending the same object for update should expect no new object returned and status code
+      // being
+      // 200.
+      RequestAndValidateHelper.updateTableAndValidateResponse(
+          mvc,
+          storageManager,
+          buildGetTableResponseBody(mvcResultT1d1),
+          INITIAL_TABLE_VERSION,
+          false);
+      RequestAndValidateHelper.updateTableAndValidateResponse(
+          mvc,
+          storageManager,
+          buildGetTableResponseBody(mvcResultT2d1),
+          INITIAL_TABLE_VERSION,
+          false);
+      RequestAndValidateHelper.updateTableAndValidateResponse(
+          mvc,
+          storageManager,
+          buildGetTableResponseBody(mvcResultT1d2),
+          INITIAL_TABLE_VERSION,
+          false);
 
-    // Sending the object with updated schema, expecting version moving ahead.
-    // Creating a container GetTableResponseBody to update schema ONLY
-    RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc, storageManager, evolveDummySchema(mvcResultT1d1), tableLocation);
-    RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc, storageManager, evolveDummySchema(mvcResultT2d1), tableSameDbLocation);
-    RequestAndValidateHelper.updateTableAndValidateResponse(
-        mvc, storageManager, evolveDummySchema(mvcResultT1d2), tableDiffDbLocation);
-
-    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
-    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_SAME_DB);
-    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_DIFF_DB);
+      // Sending the object with updated schema, expecting version moving ahead.
+      // Creating a container GetTableResponseBody to update schema ONLY
+      RequestAndValidateHelper.updateTableAndValidateResponse(
+          mvc, storageManager, evolveDummySchema(mvcResultT1d1), tableLocation);
+      RequestAndValidateHelper.updateTableAndValidateResponse(
+          mvc, storageManager, evolveDummySchema(mvcResultT2d1), tableSameDbLocation);
+      RequestAndValidateHelper.updateTableAndValidateResponse(
+          mvc, storageManager, evolveDummySchema(mvcResultT1d2), tableDiffDbLocation);
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_SAME_DB);
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY_DIFF_DB);
+    }
   }
 
   @Test
