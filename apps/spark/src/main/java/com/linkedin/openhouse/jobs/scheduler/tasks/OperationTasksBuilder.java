@@ -293,9 +293,11 @@ public class OperationTasksBuilder {
   private boolean applyMetadataFilter(JobConf.JobTypeEnum jobType, TableMetadata tableMetadata) {
     switch (jobType) {
       case REPLICATION:
-        return tableMetadata.isPrimary() && (tableMetadata.getReplicationConfig() != null);
+        return tablesClient.applyTableMetadataFilter(tableMetadata)
+            && tableMetadata.isPrimary()
+            && (tableMetadata.getReplicationConfig() != null);
       default:
-        return true;
+        return tablesClient.applyTableMetadataFilter(tableMetadata);
     }
   }
 }

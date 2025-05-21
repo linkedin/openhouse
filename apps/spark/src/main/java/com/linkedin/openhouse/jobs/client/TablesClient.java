@@ -144,6 +144,16 @@ public class TablesClient {
   }
 
   /**
+   * Apply table metadata filter
+   *
+   * @param tableMetadata
+   * @return
+   */
+  public boolean applyTableMetadataFilter(TableMetadata tableMetadata) {
+    return databaseFilter.apply(tableMetadata);
+  }
+
+  /**
    * Get all tables for the given database
    *
    * @param dbName
