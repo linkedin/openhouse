@@ -175,14 +175,23 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /** An internal helper method to rebuild the {@link TableMetadata} object. */
-  private TableMetadata rebuildTblMetaWithSchema(TableMetadata newMetadata, String schemaKey) {
+  private TableMetadata rebuildTblMetaWithSchema(
+      TableMetadata newMetadata, String schemaKey, boolean reuseMetadata) {
     Schema writerSchema = SchemaParser.fromJson(newMetadata.properties().get(schemaKey));
-    return TableMetadata.buildFrom(newMetadata)
-        .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
-        .addPartitionSpec(
-            rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
-        .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
-        .build();
+    if (reuseMetadata) {
+      return TableMetadata.buildFrom(newMetadata)
+          .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
+          .build();
+    } else {
+      return TableMetadata.buildFromEmpty()
+          .setLocation(newMetadata.location())
+          .setCurrentSchema(writerSchema, newMetadata.lastColumnId())
+          .addPartitionSpec(
+              rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
+          .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
+          .setProperties(newMetadata.properties())
+          .build();
+    }
   }
 
   @SuppressWarnings("checkstyle:MissingSwitchDefault")
@@ -195,9 +204,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
      * object using the client supplied schema by preserving its field-ids.
      */
     if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA);
+      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA, false);
     } else if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY);
+      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY, true);
     }
 
     int version = currentVersion() + 1;
