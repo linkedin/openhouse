@@ -19,10 +19,10 @@ public class BaseIcebergSchemaValidator implements SchemaValidator {
   @Override
   public void validateWriteSchema(Schema oldSchema, Schema newSchema, String tableUri)
       throws InvalidSchemaEvolutionException, IllegalArgumentException {
-    TypeUtil.validateSchema(
-        "OpenHouse Server Schema validation Validation", newSchema, oldSchema, true, false);
     validateFields(oldSchema, newSchema, tableUri);
     enforceDeleteColumnFailure(oldSchema, newSchema, tableUri);
+    TypeUtil.validateSchema(
+        "OpenHouse Server Schema validation Validation", newSchema, oldSchema, true, false);
   }
 
   private void enforceDeleteColumnFailure(Schema oldSchema, Schema newSchema, String tableUri) {
