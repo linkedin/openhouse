@@ -501,12 +501,12 @@ public class JobsScheduler {
    * mode all the table metadata are fetched first and then jobs are submitted.
    *
    * @param jobType
-   * @param taskList
-   * @param taskFutures
    * @param properties
    * @param isDryRun
    * @param parallelMetadataFetchMode
    * @param numParallelMetadataFetch
+   * @param taskList
+   * @param taskFutures
    */
   private void fetchMetadataAndSubmitTasks(
       JobConf.JobTypeEnum jobType,
