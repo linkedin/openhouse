@@ -5,6 +5,7 @@ import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.relocated.com.google.common.collect.MapDifference;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,8 @@ public class BaseIcebergSchemaValidator implements SchemaValidator {
   @Override
   public void validateWriteSchema(Schema oldSchema, Schema newSchema, String tableUri)
       throws InvalidSchemaEvolutionException, IllegalArgumentException {
+    TypeUtil.validateSchema(
+        "OpenHouse Server Schema validation Validation", newSchema, oldSchema, true, false);
     validateFields(oldSchema, newSchema, tableUri);
     enforceDeleteColumnFailure(oldSchema, newSchema, tableUri);
   }
