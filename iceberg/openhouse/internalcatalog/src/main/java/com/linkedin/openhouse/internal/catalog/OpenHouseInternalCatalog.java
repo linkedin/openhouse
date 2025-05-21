@@ -128,25 +128,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
-    try {
-      houseTableRepository
-          .findById(
-              HouseTablePrimaryKey.builder()
-                  .databaseId(from.namespace().toString())
-                  .tableId(from.name())
-                  .build())
-          .ifPresent(
-              houseTable -> {
-                houseTableRepository.rename(
-                    houseTable.getDatabaseId(),
-                    houseTable.getTableId(),
-                    to.namespace().toString(),
-                    to.name());
-              });
-    } catch (HouseTableRepositoryException e) {
-      throw new RuntimeException(
-          String.format("The table %s cannot be renamed due to the server side error:", from), e);
-    }
+    // TODO: Create a table transaction to rename the table and update the metadata atomically
+    throw new UnsupportedOperationException("Rename Tables not implemented yet");
   }
 
   /**
