@@ -75,8 +75,24 @@ public class SparkSchemaEvolutionTest extends OpenHouseSparkITest {
 
       dummyDF.write().mode("append").format("parquet").saveAsTable("openhouse.d1.t1");
 
+      // Validating write go through successfully
       tableDF = spark.table("openhouse.d1.t1");
       Assertions.assertEquals(tableDF.count(), 5);
+
+      // another schema evolution
+      StructType schema2 =
+          new StructType(
+              new StructField[] {
+                new StructField("dt", DataTypes.StringType, false, Metadata.empty()),
+                new StructField("zipcode", DataTypes.StringType, false, Metadata.empty()),
+                new StructField("id", DataTypes.LongType, false, Metadata.empty()),
+                new StructField("name", DataTypes.StringType, false, Metadata.empty())
+              });
+      table = operations.getTable("d1.t1");
+      table.updateSchema().unionByNameWith(SparkSchemaUtil.convert(schema2)).commit();
+      newSchema = operations.getTable("d1.t1").schema();
+      newSchemaCols = newSchema.columns();
+      Assertions.assertEquals(newSchemaCols.size(), 4);
     } finally {
       if (spark != null) {
         spark.sql("DROP TABLE openhouse.d1.t1");
