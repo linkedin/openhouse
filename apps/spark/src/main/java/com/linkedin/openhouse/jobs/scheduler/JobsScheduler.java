@@ -174,12 +174,12 @@ public class JobsScheduler {
     // Fetch metadata and submit jobs
     fetchMetadataAndSubmitTasks(
         jobType,
-        taskList,
-        taskFutures,
         properties,
         isDryRun,
         parallelMetadataFetchMode,
-        numParallelMetadataFetch);
+        numParallelMetadataFetch,
+        taskList,
+        taskFutures);
 
     int emptyStateJobCount = 0;
     for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
@@ -510,12 +510,12 @@ public class JobsScheduler {
    */
   private void fetchMetadataAndSubmitTasks(
       JobConf.JobTypeEnum jobType,
-      List<OperationTask<?>> taskList,
-      List<Future<Optional<JobState>>> taskFutures,
       Properties properties,
       boolean isDryRun,
       boolean parallelMetadataFetchMode,
-      int numParallelMetadataFetch) {
+      int numParallelMetadataFetch,
+      List<OperationTask<?>> taskList,
+      List<Future<Optional<JobState>>> taskFutures) {
     OperationTasksBuilder builder =
         new OperationTasksBuilder(
             taskFactory,
