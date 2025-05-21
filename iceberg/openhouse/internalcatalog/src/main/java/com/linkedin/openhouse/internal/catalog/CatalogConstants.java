@@ -15,7 +15,7 @@ public final class CatalogConstants {
   /** Used to uniquely identify an update towards a table from user side. */
   public static final String COMMIT_KEY = "commitKey";
 
-  public static final String EVOLVED_SCHEMA_KEY = "evolvedSchema";
+  public static final String EVOLVED_SCHEMA_KEY = "evolved.table.schema";
 
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
