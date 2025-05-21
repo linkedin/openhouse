@@ -128,6 +128,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
+    // TODO: Create a table transaction to rename the table and update the metadata atomically
     throw new UnsupportedOperationException("Rename Tables not implemented yet");
   }
 

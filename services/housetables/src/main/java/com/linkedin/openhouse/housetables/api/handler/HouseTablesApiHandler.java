@@ -57,4 +57,12 @@ public interface HouseTablesApiHandler<K, V> {
    * @return the row as part of response body that would be returned to the client.
    */
   ApiResponse<EntityResponseBody<V>> putEntity(V entity);
+
+  /**
+   * Function to rename a row in a House Table atomically.
+   *
+   * @param entity The complete entity to be upsert-ed into target House table.
+   * @return the row as part of response body that would be returned to the client.
+   */
+  ApiResponse<Void> renameEntity(K fromKey, K toKey);
 }

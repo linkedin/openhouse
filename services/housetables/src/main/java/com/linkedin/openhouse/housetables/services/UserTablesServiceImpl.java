@@ -115,6 +115,43 @@ public class UserTablesServiceImpl implements UserTablesService {
     return Pair.of(returnedDto, existingUserTableRow.isPresent());
   }
 
+  /**
+   * Renames a user table within the same database.
+   *
+   * @param fromDatabaseId The databaseId of the row to rename.
+   * @param fromTableId The tableId of the row to rename.
+   * @param toDatabaseId Until rename support across databases is supported, this should be the same
+   *     as fromDatabaseId
+   * @param toTableId The new tableId of the renamed row.
+   */
+  @Override
+  public void renameUserTable(
+      String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
+    if (!htsJdbcRepository.existsById(
+        UserTableRowPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build())) {
+      throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
+    }
+    // Renames user table within the same database
+    try {
+      htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId);
+    } catch (CommitFailedException
+        | ObjectOptimisticLockingFailureException
+        | DataIntegrityViolationException e) {
+      throw new EntityConcurrentModificationException(
+          String.format(
+              "databaseId : %s, tableId : %s, %s",
+              fromDatabaseId,
+              fromTableId,
+              "Failed to rename user table, it may have been modified/created by other processes."),
+          UserTableRowPrimaryKey.builder()
+              .databaseId(fromDatabaseId)
+              .tableId(fromTableId)
+              .build()
+              .toString(),
+          e);
+    }
+  }
+
   @Override
   public void deleteUserTable(String databaseId, String tableId) {
     if (!htsJdbcRepository.existsById(

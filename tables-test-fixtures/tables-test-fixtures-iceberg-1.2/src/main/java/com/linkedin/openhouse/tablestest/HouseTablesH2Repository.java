@@ -23,4 +23,18 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
     return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
         houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId());
   }
+
+  @Override
+  default void rename(
+      String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
+    HouseTablePrimaryKey fromKey =
+        HouseTablePrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build();
+    this.findById(fromKey)
+        .ifPresent(
+            houseTable -> {
+              HouseTable renamedTable = houseTable.toBuilder().tableId(toTableId).build();
+              this.save(renamedTable);
+              this.delete(houseTable);
+            });
+  }
 }

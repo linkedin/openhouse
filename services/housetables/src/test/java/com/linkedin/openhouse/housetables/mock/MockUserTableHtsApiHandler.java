@@ -41,4 +41,10 @@ public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
         .responseBody(TestHtsApiConstants.TEST_GET_USER_TABLE_RESPONSE_BODY)
         .build();
   }
+
+  @Override
+  public ApiResponse<Void> renameEntity(
+      UserTableKey fromUserTableKey, UserTableKey toUserTableKey) {
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
 }
