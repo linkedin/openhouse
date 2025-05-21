@@ -219,7 +219,7 @@ public class OperationTasksBuilder {
             )
         .doOnNext(
             tableMetadata -> {
-              if (tableMetadata != null && applyMetadataFilter(jobType, tableMetadata)) {
+              if (tableMetadata != null && tablesClient.applyTableMetadataFilter(tableMetadata)) {
                 try {
                   log.debug(
                       "Got table metadata for database name: {}, table name: {} ",
@@ -281,23 +281,5 @@ public class OperationTasksBuilder {
             })
         .subscribeOn(
             Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
-  }
-
-  /**
-   * Filter table metadata for replication job type. There is no filter for other job types.
-   *
-   * @param jobType
-   * @param tableMetadata
-   * @return boolean
-   */
-  private boolean applyMetadataFilter(JobConf.JobTypeEnum jobType, TableMetadata tableMetadata) {
-    switch (jobType) {
-      case REPLICATION:
-        return tablesClient.applyTableMetadataFilter(tableMetadata)
-            && tableMetadata.isPrimary()
-            && (tableMetadata.getReplicationConfig() != null);
-      default:
-        return tablesClient.applyTableMetadataFilter(tableMetadata);
-    }
   }
 }
