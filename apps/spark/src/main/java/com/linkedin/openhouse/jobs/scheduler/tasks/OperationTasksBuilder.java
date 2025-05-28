@@ -19,6 +19,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -55,14 +56,18 @@ public class OperationTasksBuilder {
   private final int numParallelMetadataFetch;
   private AtomicBoolean tableMetadataFetchCompleted;
   private AtomicLong operationTaskCount;
+  private final BlockingQueue<JobInfo> submittedJobQueue;
+  private final Set<String> runningJobs;
 
-  private List<OperationTask<?>> prepareTableOperationTaskList(JobConf.JobTypeEnum jobType) {
+  private List<OperationTask<?>> prepareTableOperationTaskList(
+      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     List<TableMetadata> tableMetadataList = tablesClient.getTableMetadataList();
     log.info("Fetched metadata for {} tables", tableMetadataList.size());
-    return processMetadataList(tableMetadataList, jobType);
+    return processMetadataList(tableMetadataList, jobType, operationMode);
   }
 
-  private List<OperationTask<?>> prepareReplicationOperationTaskList(JobConf.JobTypeEnum jobType) {
+  private List<OperationTask<?>> prepareReplicationOperationTaskList(
+      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     List<TableMetadata> replicationSetupTableMetadataList = tablesClient.getTableMetadataList();
     // filters tables which are primary and hava replication config defined
     replicationSetupTableMetadataList =
@@ -72,18 +77,21 @@ public class OperationTasksBuilder {
     log.info(
         "Fetched metadata for {} tables for replication setup task",
         replicationSetupTableMetadataList.size());
-    return processMetadataList(replicationSetupTableMetadataList, jobType);
+    return processMetadataList(replicationSetupTableMetadataList, jobType, operationMode);
   }
 
   private List<OperationTask<?>> prepareTableDirectoryOperationTaskList(
-      JobConf.JobTypeEnum jobType) {
+      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     List<DirectoryMetadata> directoryMetadataList = tablesClient.getOrphanTableDirectories();
     log.info("Fetched metadata for {} directories", directoryMetadataList.size());
-    return processMetadataList(directoryMetadataList, jobType);
+    return processMetadataList(directoryMetadataList, jobType, operationMode);
   }
 
   private List<OperationTask<?>> prepareDataLayoutOperationTaskList(
-      JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      Meter meter,
+      OperationMode operationMode) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataList();
     DataLayoutStrategyScorer scorer =
@@ -127,15 +135,18 @@ public class OperationTasksBuilder {
         .counterBuilder("data_layout_optimization_estimated_reduced_file_count")
         .build()
         .add((long) totalReducedFileCount);
-    return processMetadataList(selectedTableDataLayoutMetadataList, jobType);
+    return processMetadataList(selectedTableDataLayoutMetadataList, jobType, operationMode);
   }
 
   private List<OperationTask<?>> processMetadataList(
-      List<? extends Metadata> metadataList, JobConf.JobTypeEnum jobType) {
+      List<? extends Metadata> metadataList,
+      JobConf.JobTypeEnum jobType,
+      OperationMode operationMode) {
     List<OperationTask<?>> taskList = new ArrayList<>();
     for (Metadata metadata : metadataList) {
       log.info("Found metadata {}", metadata);
-      Optional<OperationTask<?>> optionalOperationTask = processMetadata(metadata, jobType);
+      Optional<OperationTask<?>> optionalOperationTask =
+          processMetadata(metadata, jobType, operationMode);
       if (optionalOperationTask.isPresent()) {
         taskList.add(optionalOperationTask.get());
       }
@@ -144,13 +155,37 @@ public class OperationTasksBuilder {
   }
 
   private Optional<OperationTask<?>> processMetadata(
-      Metadata metadata, JobConf.JobTypeEnum jobType) {
+      Metadata metadata, JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     try {
       OperationTask<?> task = taskFactory.create(metadata);
       if (!task.shouldRun()) {
         log.info("Skipping task {}", task);
         return Optional.empty();
       } else {
+        task.setSubmittedJobQueue(submittedJobQueue);
+        task.setOperationMode(operationMode);
+        task.setRunningJobs(runningJobs);
+        return Optional.of(task);
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(
+          String.format(
+              "Cannot create operation task metadata %s given job type: %s", metadata, jobType),
+          e);
+    }
+  }
+
+  public Optional<OperationTask<?>> createStatusOperationTask(
+      JobConf.JobTypeEnum jobType, Metadata metadata, String jobId, OperationMode operationMode) {
+    try {
+      OperationTask<?> task = taskFactory.create(metadata);
+      if (!task.shouldRun()) {
+        log.info("Skipping task {}", task);
+        return Optional.empty();
+      } else {
+        task.setJobId(jobId);
+        task.setOperationMode(operationMode);
+        task.setRunningJobs(runningJobs);
         return Optional.of(task);
       }
     } catch (Exception e) {
@@ -165,7 +200,10 @@ public class OperationTasksBuilder {
    * Fetches tables and associated metadata from Tables Service, and builds the operation task list.
    */
   public List<OperationTask<?>> buildOperationTaskList(
-      JobConf.JobTypeEnum jobType, Properties properties, Meter meter) {
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      Meter meter,
+      OperationMode operationMode) {
     switch (jobType) {
       case DATA_COMPACTION:
       case NO_OP:
@@ -176,13 +214,13 @@ public class OperationTasksBuilder {
       case TABLE_STATS_COLLECTION:
       case STAGED_FILES_DELETION:
       case DATA_LAYOUT_STRATEGY_GENERATION:
-        return prepareTableOperationTaskList(jobType);
+        return prepareTableOperationTaskList(jobType, operationMode);
       case REPLICATION:
-        return prepareReplicationOperationTaskList(jobType);
+        return prepareReplicationOperationTaskList(jobType, operationMode);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
-        return prepareDataLayoutOperationTaskList(jobType, properties, meter);
+        return prepareDataLayoutOperationTaskList(jobType, properties, meter, operationMode);
       case ORPHAN_DIRECTORY_DELETION:
-        return prepareTableDirectoryOperationTaskList(jobType);
+        return prepareTableDirectoryOperationTaskList(jobType, operationMode);
       default:
         throw new UnsupportedOperationException(
             String.format("Job type %s is not supported", jobType));
@@ -196,8 +234,10 @@ public class OperationTasksBuilder {
    * shutdown), the metadata fetch flag is set to true.
    *
    * @param jobType
+   * @param operationMode
    */
-  public void buildOperationTaskListInParallel(JobConf.JobTypeEnum jobType) {
+  public void buildOperationTaskListInParallel(
+      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     List<String> databases = tablesClient.getDatabases();
     Flux.fromIterable(databases) // iterate databases list
         .parallel(
@@ -221,12 +261,12 @@ public class OperationTasksBuilder {
             tableMetadata -> {
               if (tableMetadata != null && tablesClient.applyTableMetadataFilter(tableMetadata)) {
                 try {
-                  log.debug(
+                  log.info(
                       "Got table metadata for database name: {}, table name: {} ",
                       tableMetadata.getDbName(),
                       tableMetadata.getTableName());
                   Optional<OperationTask<?>> optionalOperationTask =
-                      processMetadata(tableMetadata, jobType);
+                      processMetadata(tableMetadata, jobType, operationMode);
                   if (optionalOperationTask.isPresent()) {
                     // Put tableMetadata into the blocking queue
                     operationTaskQueue.put(optionalOperationTask.get());
@@ -238,7 +278,14 @@ public class OperationTasksBuilder {
               }
             })
         .sequential() // wait for all the threads to finish before terminate
-        .doAfterTerminate(() -> tableMetadataFetchCompleted.set(true))
+        .doAfterTerminate(
+            () -> {
+              tableMetadataFetchCompleted.set(true);
+              log.info(
+                  "The metadata fetched count: {} for the job type: {}",
+                  operationTaskCount,
+                  jobType);
+            })
         .subscribe();
   }
 
@@ -252,7 +299,7 @@ public class OperationTasksBuilder {
     return Mono.fromCallable(
             () -> {
               GetAllTablesResponseBody allTablesResponseBody = tablesClient.getAllTables(database);
-              log.debug("Got all tables: {} for database {}", allTablesResponseBody, database);
+              log.info("Got all tables: {} for database {}", allTablesResponseBody, database);
               if (allTablesResponseBody == null) {
                 return Collections.<GetTableResponseBody>emptyList();
               }
@@ -274,7 +321,7 @@ public class OperationTasksBuilder {
               Optional<TableMetadata> optionalTableMetadata =
                   tablesClient.mapTableResponseToTableMetadata(getTableResponseBody);
               if (optionalTableMetadata.isPresent()) {
-                log.debug("Got table metadata for : {}", optionalTableMetadata.get());
+                log.info("Got table metadata for : {}", optionalTableMetadata.get());
                 return optionalTableMetadata.get();
               }
               return null;
