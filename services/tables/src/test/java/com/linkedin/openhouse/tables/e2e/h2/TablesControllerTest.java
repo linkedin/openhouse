@@ -1020,6 +1020,44 @@ public class TablesControllerTest {
   }
 
   @Test
+  public void testCreateRequestSucceedsForPrimaryTableWithUUIDAndReplicationOrigin()
+      throws Exception {
+    GetTableResponseBody responseBody =
+        GET_TABLE_RESPONSE_BODY.toBuilder().tableType(TableType.PRIMARY_TABLE).build();
+    Map<String, String> props = responseBody.getTableProperties();
+    props.put("openhouse.isTableReplicated", "true");
+    props.put("openhouse.tableUUID", responseBody.getTableUUID());
+    props.put("openhouse.databaseId", responseBody.getDatabaseId());
+    props.put("openhouse.tableId", responseBody.getTableId());
+    MvcResult mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            responseBody.getDatabaseId(),
+                            responseBody.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        buildCreateUpdateTableRequestBody(responseBody)
+                            .toBuilder()
+                            .baseTableVersion(INITIAL_TABLE_VERSION)
+                            .tableProperties(props)
+                            .build()
+                            .toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isCreated())
+            .andReturn();
+    Map<String, String> propertiesFromResult =
+        JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.tableProperties");
+    Assertions.assertEquals(
+        propertiesFromResult.get("openhouse.tableType"), TableType.PRIMARY_TABLE.toString());
+    Assertions.assertEquals(
+        propertiesFromResult.get("openhouse.tableUUID"), responseBody.getTableUUID());
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
   public void testUpdateSucceedsForReplicationConfig() throws Exception {
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
