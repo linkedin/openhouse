@@ -183,7 +183,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
       createUpdateTableRequestBody.setTableType(getTableType(base, metadata));
     }
-    // If base table is a replication table, retain the property from base table
+    // If base table is a replicated table, retain the property from base table
     if (base != null && base.properties().containsKey(TBL_IS_REPLICATED_KEY)) {
       Map<String, String> newTblProperties = createUpdateTableRequestBody.getTableProperties();
       newTblProperties.put(TBL_IS_REPLICATED_KEY, base.properties().get(TBL_IS_REPLICATED_KEY));
