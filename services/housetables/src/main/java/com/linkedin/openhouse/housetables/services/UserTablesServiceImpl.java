@@ -138,24 +138,7 @@ public class UserTablesServiceImpl implements UserTablesService {
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
     }
     // Renames user table within the same database
-    try {
-      htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId, metadataLocation);
-    } catch (CommitFailedException
-        | ObjectOptimisticLockingFailureException
-        | DataIntegrityViolationException e) {
-      throw new EntityConcurrentModificationException(
-          String.format(
-              "databaseId : %s, tableId : %s, %s",
-              fromDatabaseId,
-              fromTableId,
-              "Failed to rename user table, it may have been modified/created by other processes."),
-          UserTableRowPrimaryKey.builder()
-              .databaseId(fromDatabaseId)
-              .tableId(fromTableId)
-              .build()
-              .toString(),
-          e);
-    }
+    htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId, metadataLocation);
   }
 
   @Override

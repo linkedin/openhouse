@@ -708,6 +708,13 @@ public class RepositoryTest {
     TableIdentifier toTableIdentifier =
         TableIdentifier.of(createdDTO.getDatabaseId(), createdDTO.getTableId() + "_renamed");
     catalog.renameTable(fromTableIdentifier, toTableIdentifier);
+
+    Assertions.assertNotNull(
+        openHouseInternalRepository.findById(
+            TableDtoPrimaryKey.builder()
+                .databaseId(toTableIdentifier.namespace().toString())
+                .tableId(toTableIdentifier.name())
+                .build()));
   }
 
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {

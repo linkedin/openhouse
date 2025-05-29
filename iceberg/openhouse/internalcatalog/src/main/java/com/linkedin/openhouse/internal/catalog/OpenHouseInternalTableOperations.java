@@ -253,7 +253,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY);
 
       houseTable = houseTableMapper.toHouseTable(updatedMetadata, fileIO);
-      if (!isStageCreate) {
+      if (base != null
+          && !properties
+              .get(CatalogConstants.OPENHOUSE_TABLEID_KEY)
+              .equalsIgnoreCase(this.tableName())) {
+        houseTableRepository.rename(
+            this.tableName(),
+            this.tableIdentifier.namespace().toString(),
+            properties.get(CatalogConstants.OPENHOUSE_TABLEID_KEY),
+            properties.get(CatalogConstants.OPENHOUSE_DATABASEID_KEY),
+            newMetadataLocation);
+      } else if (!isStageCreate) {
         houseTableRepository.save(houseTable);
       } else {
         /**

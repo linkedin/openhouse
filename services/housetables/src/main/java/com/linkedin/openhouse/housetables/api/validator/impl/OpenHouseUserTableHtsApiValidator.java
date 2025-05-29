@@ -104,15 +104,15 @@ public class OpenHouseUserTableHtsApiValidator
     validateGetEntity(fromUserTableKey);
     validateGetEntity(toUserTableKey);
     List<String> validationFailures = new ArrayList<>();
-    if (fromUserTableKey.getDatabaseId().equals(toUserTableKey.getDatabaseId())
-        && fromUserTableKey.getTableId().equals(toUserTableKey.getTableId())) {
+    if (fromUserTableKey.getDatabaseId().equalsIgnoreCase(toUserTableKey.getDatabaseId())
+        && fromUserTableKey.getTableId().equalsIgnoreCase(toUserTableKey.getTableId())) {
       validationFailures.add(
           String.format(
               "Cannot rename a table to the same current db name and table name: %s",
               fromUserTableKey));
     }
     // Currently do not support cross database rename
-    if (!fromUserTableKey.getDatabaseId().equals(toUserTableKey.getDatabaseId())) {
+    if (!fromUserTableKey.getDatabaseId().equalsIgnoreCase(toUserTableKey.getDatabaseId())) {
       validationFailures.add(
           String.format(
               "Cross database rename is not supported: %s to %s",
