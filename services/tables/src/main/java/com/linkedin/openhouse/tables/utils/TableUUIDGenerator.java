@@ -33,6 +33,7 @@ public class TableUUIDGenerator {
   private static final String TBL_RAW_KEY = "tableId";
   private static final String TBL_LOC_RAW_KEY = "tableLocation";
   private static final String TBL_UUID_RAW_KEY = "tableUUID";
+  private static final String TBL_IS_REPLICATED_RAW_KEY = "isTableReplicated";
 
   @Autowired StorageManager storageManager;
 
@@ -139,8 +140,14 @@ public class TableUUIDGenerator {
     String tableURI = String.format("%s.%s", databaseId, tableId);
     String dbIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, DB_RAW_KEY);
     String tblIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_RAW_KEY);
+    boolean isTableReplicated =
+        Boolean.parseBoolean(
+            tableProperties.getOrDefault(OPENHOUSE_NAMESPACE + TBL_IS_REPLICATED_RAW_KEY, "false"));
 
-    if (TableType.REPLICA_TABLE != tableType) {
+    // validate only when table of type Primary and is not created for replication. CTAS and
+    // replication both require
+    // UUID to be passed from table Property. To disambiguate, TBL_IS_REPLICATED_RAW_KEY is used.
+    if (TableType.REPLICA_TABLE != tableType && !isTableReplicated) {
       // Extract tableLocation from table properties (openhouse.tableLocation)
       // tableLocation should be the absolute path to the latest metadata file including scheme.
       // Scheme is not present for HDFS and Local storages. See:
