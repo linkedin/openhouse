@@ -92,13 +92,24 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> renameEntity(UserTableKey fromUserTable, UserTableKey toUserTable) {
-    userTablesHtsApiValidator.validateRenameEntity(fromUserTable, toUserTable);
+  public ApiResponse<Void> renameEntity(UserTable fromUserTable, UserTable toUserTable) {
+    UserTableKey fromUserTableKey =
+        UserTableKey.builder()
+            .databaseId(fromUserTable.getDatabaseId())
+            .tableId(fromUserTable.getTableId())
+            .build();
+    UserTableKey toUserTableKey =
+        UserTableKey.builder()
+            .databaseId(toUserTable.getDatabaseId())
+            .tableId(toUserTable.getTableId())
+            .build();
+    userTablesHtsApiValidator.validateRenameEntity(fromUserTableKey, toUserTableKey);
     userTableService.renameUserTable(
         fromUserTable.getDatabaseId(),
         fromUserTable.getTableId(),
         toUserTable.getDatabaseId(),
-        toUserTable.getTableId());
+        toUserTable.getTableId(),
+        toUserTable.getMetadataLocation());
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 }

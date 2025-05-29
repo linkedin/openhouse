@@ -180,10 +180,12 @@ public class HtsRepositoryTest {
     // verify testTuple1_1 exist first.
     assertThat(htsRepository.existsById(key)).isTrue();
 
+    String newTableMetadata = TEST_TUPLE_1_1.getTableLoc() + "_v2";
     htsRepository.renameTableId(
         TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId(),
-        TEST_TUPLE_1_1.getTableId() + "_renamed");
+        TEST_TUPLE_1_1.getTableId() + "_renamed",
+        newTableMetadata);
 
     UserTableRow result =
         htsRepository
@@ -193,7 +195,7 @@ public class HtsRepositoryTest {
                     .tableId(TEST_TUPLE_1_1.getTableId() + "_renamed")
                     .build())
             .orElse(UserTableRow.builder().build());
-    assertThat(result.getMetadataLocation()).isEqualTo(TEST_TUPLE_1_1.getTableLoc());
+    assertThat(result.getMetadataLocation()).isEqualTo(newTableMetadata);
 
     // verify testTuple1_1 doesn't exist any more.
     assertThat(htsRepository.existsById(key)).isFalse();

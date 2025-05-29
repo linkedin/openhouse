@@ -187,12 +187,17 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public void rename(
-      String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String metadataLocation) {
     getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
         .execute(
             context ->
                 apiInstance
-                    .renameTable(fromDatabaseId, fromTableId, toDatabaseId, toTableId)
+                    .renameTable(
+                        fromDatabaseId, fromTableId, toDatabaseId, toTableId, metadataLocation)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
   }

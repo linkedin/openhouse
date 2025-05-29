@@ -302,7 +302,8 @@ public class HouseTableRepositoryImplTest {
                 HOUSE_TABLE.getDatabaseId(),
                 HOUSE_TABLE.getTableId(),
                 HOUSE_TABLE_SAME_DB.getDatabaseId(),
-                HOUSE_TABLE.getTableId() + "_renamed"));
+                HOUSE_TABLE.getTableId() + "_renamed",
+                HOUSE_TABLE.getTableLocation() + "_v2"));
   }
 
   @Test
@@ -325,7 +326,8 @@ public class HouseTableRepositoryImplTest {
                   HOUSE_TABLE.getDatabaseId(),
                   HOUSE_TABLE.getTableId(),
                   HOUSE_TABLE_SAME_DB.getDatabaseId(),
-                  HOUSE_TABLE.getTableId() + "_renamed"));
+                  HOUSE_TABLE.getTableId() + "_renamed",
+                  HOUSE_TABLE.getTableLocation() + "_v2"));
     }
   }
 

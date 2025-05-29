@@ -20,7 +20,11 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseMetastoreCatalog;
+import org.apache.iceberg.BaseTransaction;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.Transaction;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -129,7 +133,33 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
     // TODO: Create a table transaction to rename the table and update the metadata atomically
-    throw new UnsupportedOperationException("Rename Tables not implemented yet");
+    Table fromTable = loadTable(from);
+    Transaction transaction = fromTable.newTransaction();
+    UpdateProperties updateProperties = transaction.updateProperties();
+    updateProperties.set(CatalogConstants.OPENHOUSE_TABLEID_KEY, to.name());
+    updateProperties.set(CatalogConstants.OPENHOUSE_DATABASEID_KEY, to.namespace().toString());
+    updateProperties.commit();
+    transaction.commitTransaction();
+
+    String newMetadataLocation =
+        ((BaseTransaction.TransactionTable) transaction.table())
+            .operations()
+            .current()
+            .metadataFileLocation();
+
+    try {
+      houseTableRepository.rename(
+          from.namespace().toString(),
+          from.name(),
+          to.namespace().toString(),
+          to.name(),
+          newMetadataLocation);
+    } catch (Exception e) {
+      throw new RuntimeException(
+          String.format(
+              "The table %s cannot be renamed to %s due to the server side error:", from, to),
+          e);
+    }
   }
 
   /**

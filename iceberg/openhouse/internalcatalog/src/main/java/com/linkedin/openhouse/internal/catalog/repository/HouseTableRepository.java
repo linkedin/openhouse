@@ -15,5 +15,10 @@ public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTa
 
   List<HouseTable> findAllByDatabaseId(String databaseId);
 
-  void rename(String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId);
+  void rename(
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String metadataLocation);
 }

@@ -77,7 +77,7 @@ public class OpenHouseJobTableHtsApiHandler implements JobTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> renameEntity(JobKey fromKey, JobKey toKey) {
-    throw new UnsupportedOperationException("Rename toggle status is unsupported");
+  public ApiResponse<Void> renameEntity(Job fromEntity, Job toEntity) {
+    throw new UnsupportedOperationException("Rename job is unsupported");
   }
 }

@@ -34,6 +34,8 @@ public class UserHouseTablesController {
   private static final String HTS_TABLES_QUERY_ENDPOINT = "/hts/tables/query";
   private static final String HTS_TABLES_QUERY_ENDPOINT_V1 = "/v1/hts/tables/query";
 
+  private static final String HTS_TABLES_RENAME_ENDPOINT = "/hts/tables/rename";
+
   @Autowired private UserTableHtsApiHandler tableHtsApiHandler;
 
   @Autowired private UserTablesMapper userTablesMapper;
@@ -167,17 +169,23 @@ public class UserHouseTablesController {
         @ApiResponse(responseCode = "404", description = "User Table PATCH: TBL_DB_NOT_FOUND"),
         @ApiResponse(responseCode = "409", description = "User Table PATCH: CONFLICT")
       })
-  @PatchMapping(value = HTS_TABLES_GENERAL_ENDPOINT)
+  @PatchMapping(value = HTS_TABLES_RENAME_ENDPOINT)
   public ResponseEntity<Void> renameTable(
       @RequestParam(value = "fromDatabaseId") String fromDatabaseId,
       @RequestParam(value = "fromTableId") String fromTableId,
       @RequestParam(value = "toDatabaseId") String toDatabaseId,
-      @RequestParam(value = "toTableId") String toTableId) {
-    UserTableKey fromKey =
-        UserTableKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build();
-    UserTableKey toKey = UserTableKey.builder().databaseId(toDatabaseId).tableId(toTableId).build();
+      @RequestParam(value = "toTableId") String toTableId,
+      @RequestParam(value = "metadataLocation") String metadataLocation) {
+    UserTable fromUserTable =
+        UserTable.builder().databaseId(fromDatabaseId).tableId(fromTableId).build();
+    UserTable toUserTable =
+        UserTable.builder()
+            .databaseId(toDatabaseId)
+            .tableId(toTableId)
+            .metadataLocation(metadataLocation)
+            .build();
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
-        tableHtsApiHandler.renameEntity(fromKey, toKey);
+        tableHtsApiHandler.renameEntity(fromUserTable, toUserTable);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

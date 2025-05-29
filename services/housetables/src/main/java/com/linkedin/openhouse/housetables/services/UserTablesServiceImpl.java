@@ -123,17 +123,23 @@ public class UserTablesServiceImpl implements UserTablesService {
    * @param toDatabaseId Until rename support across databases is supported, this should be the same
    *     as fromDatabaseId
    * @param toTableId The new tableId of the renamed row.
+   * @param metadataLocation The new metadata file of the table with updated table properties that
+   *     match the new tableId
    */
   @Override
   public void renameUserTable(
-      String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String metadataLocation) {
     if (!htsJdbcRepository.existsById(
         UserTableRowPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build())) {
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
     }
     // Renames user table within the same database
     try {
-      htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId);
+      htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId, metadataLocation);
     } catch (CommitFailedException
         | ObjectOptimisticLockingFailureException
         | DataIntegrityViolationException e) {

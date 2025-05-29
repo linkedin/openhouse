@@ -53,7 +53,7 @@ public class OpenHouseToggleStatusesApiHandler implements ToggleStatusesApiHandl
   }
 
   @Override
-  public ApiResponse<Void> renameEntity(TableToggleStatusKey fromKey, TableToggleStatusKey toKey) {
+  public ApiResponse<Void> renameEntity(ToggleStatus fromEntity, ToggleStatus toEntity) {
     throw new UnsupportedOperationException("Rename toggle status is unsupported");
   }
 }

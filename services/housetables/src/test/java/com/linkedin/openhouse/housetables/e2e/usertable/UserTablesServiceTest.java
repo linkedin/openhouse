@@ -341,12 +341,13 @@ public class UserTablesServiceTest {
   public void testUserTableRename() {
     // testTuple1_0 is one of the table that is created from setup method.
     String newTableName = TEST_TUPLE_1_0.getTableId() + "_newName";
-
+    String newMetadataLocation = TEST_TUPLE_1_0.getTableLoc() + "_new";
     userTablesService.renameUserTable(
         TEST_TUPLE_1_0.getDatabaseId(),
         TEST_TUPLE_1_0.getTableId(),
         TEST_TUPLE_1_0.getDatabaseId(),
-        newTableName);
+        newTableName,
+        newMetadataLocation);
 
     // check if the table is renamed
     UserTableDto result =
@@ -375,7 +376,8 @@ public class UserTablesServiceTest {
               TEST_TUPLE_1_0.getDatabaseId(),
               TEST_TUPLE_1_0.getTableId(),
               TEST_TUPLE_1_0.getDatabaseId(),
-              TEST_TUPLE_2_0.getTableId());
+              TEST_TUPLE_2_0.getTableId(),
+              TEST_TUPLE_2_0.getTableLoc());
         });
 
     Assertions.assertThrows(
