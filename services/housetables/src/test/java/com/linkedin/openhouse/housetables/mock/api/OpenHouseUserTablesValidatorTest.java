@@ -112,4 +112,39 @@ public class OpenHouseUserTablesValidatorTest {
         RequestValidationFailureException.class,
         () -> userTablesHtsApiValidator.validateDeleteEntity(userTableKey));
   }
+
+  @Test
+  public void validateRenameEntityCaseInsensitiveSameName() {
+    UserTableKey fromKey = UserTableKey.builder().tableId("testTable").databaseId("testDB").build();
+    UserTableKey toKey = UserTableKey.builder().tableId("TESTTABLE").databaseId("TESTDB").build();
+
+    // Should throw because it's the same table name (case-insensitive)
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesHtsApiValidator.validateRenameEntity(fromKey, toKey));
+  }
+
+  @Test
+  public void validateRenameEntityCaseInsensitiveCrossDatabase() {
+    UserTableKey fromKey = UserTableKey.builder().tableId("testTable").databaseId("testDB").build();
+    UserTableKey toKey =
+        UserTableKey.builder().tableId("testTable").databaseId("DIFFERENTDB").build();
+
+    // Should throw because cross-database rename is not supported
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesHtsApiValidator.validateRenameEntity(fromKey, toKey));
+  }
+
+  @Test
+  public void validateRenameEntityInvalidInput() {
+    UserTableKey fromKey =
+        UserTableKey.builder().tableId("invalid!table").databaseId("testDB").build();
+    UserTableKey toKey = UserTableKey.builder().tableId("testTable").databaseId("testDB").build();
+
+    // Should throw because of invalid table name format
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesHtsApiValidator.validateRenameEntity(fromKey, toKey));
+  }
 }

@@ -52,4 +52,21 @@ public interface UserTablesService {
    *     and update of {@link UserTableDto}.
    */
   Pair<UserTableDto, Boolean> putUserTable(UserTable userTable);
+
+  /**
+   * Rename a {@link UserTable} row in House table.
+   *
+   * @param fromDatabaseId The databaseId of the row to rename.
+   * @param fromTableId The tableId of the row to rename.
+   * @param toDatabaseId The new databaseId of the renamed row.
+   * @param toTableId The new tableId of the renamed row.
+   * @param metadataLocation The new metadata file of the table with updated table properties for
+   *     updated ids.
+   */
+  void renameUserTable(
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String metadataLocation);
 }

@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
@@ -113,6 +114,36 @@ public class UserTablesServiceImpl implements UserTablesService {
     }
 
     return Pair.of(returnedDto, existingUserTableRow.isPresent());
+  }
+
+  /**
+   * Renames a user table within the same database.
+   *
+   * @param fromDatabaseId The databaseId of the row to rename.
+   * @param fromTableId The tableId of the row to rename.
+   * @param toDatabaseId Until rename support across databases is supported, this should be the same
+   *     as fromDatabaseId
+   * @param toTableId The new tableId of the renamed row.
+   * @param metadataLocation The new metadata file of the table with updated table properties that
+   *     match the new tableId
+   */
+  @Override
+  public void renameUserTable(
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String metadataLocation) {
+    if (!htsJdbcRepository.existsById(
+        UserTableRowPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build())) {
+      throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
+    }
+    // Renames user table within the same database
+    try {
+      htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId, metadataLocation);
+    } catch (DataIntegrityViolationException e) {
+      throw new AlreadyExistsException("Table", toTableId);
+    }
   }
 
   @Override

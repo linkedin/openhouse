@@ -84,4 +84,18 @@ public class UserHouseTablesControllerTest {
         new ReflectionEquals(SERVICE_AUDIT_EVENT_PUT_TABLE_SUCCESS, EXCLUDE_FIELDS)
             .matches(actualEvent));
   }
+
+  @Test
+  public void testRenameTableRow() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .contentType(MediaType.APPLICATION_JSON)
+                .param("fromDatabaseId", TEST_TABLE_ID)
+                .param("fromTableId", TEST_DB_ID)
+                .param("toDatabaseId", "newTableName")
+                .param("toTableId", "newDatabaseName")
+                .param("metadataLocation", "mockMetadataLocation")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNoContent());
+  }
 }
