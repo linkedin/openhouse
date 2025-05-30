@@ -35,8 +35,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -87,7 +88,7 @@ public class JobsSchedulerTest {
   private TablesClientFactory tablesClientFactory;
   private JobsClientFactory jobsClientFactory;
 
-  @BeforeEach
+  @BeforeAll
   void setup() {
     tablesClient = Mockito.mock(TablesClient.class);
     jobsClient = Mockito.mock(JobsClient.class);
@@ -241,9 +242,6 @@ public class JobsSchedulerTest {
     Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
     Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
     prepareMockitoForParallelFetch();
-    // Make sure queue is empty
-    operationTaskQueue.clear();
-    submittedJobQueue.clear();
     jobsSchedulerSnapshotExpiration.run(
         JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
         operationTaskClsSnapshotExpiration.toString(),
@@ -284,9 +282,6 @@ public class JobsSchedulerTest {
     Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
     Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
     prepareMockitoForParallelFetch();
-    // Make sure queue is empty
-    operationTaskQueue.clear();
-    submittedJobQueue.clear();
     jobsSchedulerSnapshotExpiration.run(
         JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
         operationTaskClsSnapshotExpiration.toString(),
@@ -326,9 +321,6 @@ public class JobsSchedulerTest {
     Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
     Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
     prepareMockitoForParallelFetch();
-    // Make sure queue is empty
-    operationTaskQueue.clear();
-    submittedJobQueue.clear();
     jobsSchedulerOrphanFileDeletion.run(
         JobConf.JobTypeEnum.ORPHAN_FILES_DELETION,
         operationTaskClsOrphanFileDeletion.toString(),
@@ -347,6 +339,15 @@ public class JobsSchedulerTest {
     Assertions.assertEquals(7, jobsSchedulerOrphanFileDeletion.jobStateCountMap.size());
     Assertions.assertEquals(
         16, jobsSchedulerOrphanFileDeletion.jobStateCountMap.get(JobState.SUCCEEDED));
+  }
+
+  @AfterEach
+  public void reset() {
+    operationTaskQueue.clear();
+    runningJobs.clear();
+    tableMetadataFetchCompleted.set(false);
+    submittedJobQueue.clear();
+    operationTaskCount.set(0);
   }
 
   @Test

@@ -269,7 +269,18 @@ public class JobsScheduler {
     METER.counterBuilder("scheduler_start_count").build().add(1);
     jobStateCountMap = new ConcurrentHashMap<>();
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
-
+    if (builder == null) {
+      builder =
+          new OperationTasksBuilder(
+              taskFactory,
+              tablesClient,
+              operationTaskQueue,
+              numParallelMetadataFetch,
+              tableMetadataFetchCompleted,
+              operationTaskCount,
+              submittedJobQueue,
+              runningJobs);
+    }
     log.info("Fetching task list based on the job type: {}", jobType);
     List<OperationTask<?>> taskList = new ArrayList<>();
     List<OperationTask<?>> statusTaskList = new ArrayList<>();

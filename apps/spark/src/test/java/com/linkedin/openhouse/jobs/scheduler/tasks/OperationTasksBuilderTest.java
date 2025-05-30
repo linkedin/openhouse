@@ -24,13 +24,17 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.mockito.Mockito;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@TestMethodOrder(MethodOrderer.MethodName.class)
 public class OperationTasksBuilderTest {
   private TablesClient tablesClient;
   private JobsClient jobsClient;
@@ -58,7 +62,7 @@ public class OperationTasksBuilderTest {
   private int tableCount = 4;
   List<TableMetadata> tableMetadataList = new ArrayList<>();
 
-  @BeforeEach
+  @BeforeAll
   void setup() {
     tablesClient = Mockito.mock(TablesClient.class);
     jobsClient = Mockito.mock(JobsClient.class);
@@ -225,8 +229,6 @@ public class OperationTasksBuilderTest {
   public void testBuildOperationTaskListInParallelForSnapshotExpiration()
       throws InterruptedException {
     prepareMockitoForParallelFetch();
-    // Make sure queue is empty
-    operationTaskQueue.clear();
     operationTasksBuilderSnapshotExpiration.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, OperationMode.SUBMIT);
     Assertions.assertNotNull(operationTaskQueue);
@@ -246,8 +248,6 @@ public class OperationTasksBuilderTest {
   public void testBuildOperationTaskListInParallelForOrphanFileDeletion()
       throws InterruptedException {
     prepareMockitoForParallelFetch();
-    // Make sure queue is empty
-    operationTaskQueue.clear();
     operationTasksBuilderOrphanFileDeletion.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.ORPHAN_FILES_DELETION, OperationMode.SUBMIT);
     Assertions.assertNotNull(operationTaskQueue);
@@ -267,8 +267,6 @@ public class OperationTasksBuilderTest {
   public void testBuildOperationTaskListInParallelForTableStatsCollection()
       throws InterruptedException {
     prepareMockitoForParallelFetch();
-    // Make sure queue is empty
-    operationTaskQueue.clear();
     operationTasksBuilderStatsCollection.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.TABLE_STATS_COLLECTION, OperationMode.SUBMIT);
     Assertions.assertNotNull(operationTaskQueue);
@@ -287,8 +285,6 @@ public class OperationTasksBuilderTest {
   @Test
   public void testBuildOperationTaskListInParallelForRetention() throws InterruptedException {
     prepareMockitoForParallelFetch();
-    // Make sure queue is empty
-    operationTaskQueue.clear();
     operationTasksBuilderRetention.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.RETENTION, OperationMode.SUBMIT);
     Assertions.assertNotNull(operationTaskQueue);
@@ -327,5 +323,13 @@ public class OperationTasksBuilderTest {
       Assertions.assertTrue(operationTasks.get(i) instanceof TableSnapshotsExpirationTask);
       Assertions.assertEquals(OperationMode.SINGLE, operationTasks.get(i).operationMode);
     }
+  }
+
+  @AfterEach
+  public void reset() {
+    operationTaskQueue.clear();
+    runningJobs.clear();
+    tableMetadataFetchCompleted.set(false);
+    operationTaskCount.set(0);
   }
 }
