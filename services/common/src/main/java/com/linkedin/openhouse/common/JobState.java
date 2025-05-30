@@ -5,11 +5,13 @@ package com.linkedin.openhouse.common;
  * mapping being done for each engine.
  */
 public enum JobState {
+  SUBMITTED,
   QUEUED,
   RUNNING,
   CANCELLED,
   FAILED,
-  SUCCEEDED;
+  SUCCEEDED,
+  SKIPPED;
 
   public boolean isTerminal() {
     return this.equals(SUCCEEDED) || this.equals(FAILED) || this.equals(CANCELLED);
