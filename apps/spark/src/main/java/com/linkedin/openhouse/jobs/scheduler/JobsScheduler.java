@@ -116,13 +116,15 @@ public class JobsScheduler {
   private final ThreadPoolExecutor statusExecutors;
   private final OperationTaskFactory<? extends OperationTask> taskFactory;
   private final TablesClient tablesClient;
-  private final BlockingQueue<OperationTask<?>> operationTaskQueue;
-  private AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
-  private AtomicLong operationTaskCount = new AtomicLong(0);
-  private final BlockingQueue<JobInfo> submittedJobQueue;
+  protected final BlockingQueue<OperationTask<?>> operationTaskQueue;
+  protected AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
+  protected AtomicLong operationTaskCount = new AtomicLong(0);
+  protected final BlockingQueue<JobInfo> submittedJobQueue;
   private AtomicBoolean jobLaunchTasksSubmissionCompleted = new AtomicBoolean(false);
   private AtomicBoolean jobStatusTasksSubmissionCompleted = new AtomicBoolean(false);
-  private Set<String> runningJobs = Collections.synchronizedSet(new HashSet<>());
+  protected Set<String> runningJobs = Collections.synchronizedSet(new HashSet<>());
+  private OperationTasksBuilder builder = null;
+  protected Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
 
   public JobsScheduler(
       ThreadPoolExecutor jobExecutors,
@@ -190,10 +192,21 @@ public class JobsScheduler {
             tablesClientFactory.create(),
             new LinkedBlockingQueue<>(),
             new LinkedBlockingQueue<>());
+    OperationTasksBuilder builder =
+        new OperationTasksBuilder(
+            tasksFactory,
+            app.tablesClient,
+            app.operationTaskQueue,
+            getNumParallelMetadataFetch(cmdLine),
+            app.tableMetadataFetchCompleted,
+            app.operationTaskCount,
+            app.submittedJobQueue,
+            app.runningJobs);
     app.run(
         operationType,
         operationTaskCls.toString(),
         properties,
+        builder,
         isDryRun(cmdLine),
         getTasksWaitHours(cmdLine),
         isParallelMetadataFetchModeEnabled(cmdLine),
@@ -204,6 +217,38 @@ public class JobsScheduler {
         getJobSubmissionPauseInMillis(cmdLine),
         getSubmitOperationPreSlaGracePeriodInMinutes(cmdLine),
         getStatusOperationPreSlaGracePeriodInMinutes(cmdLine));
+  }
+
+  protected void run(
+      JobConf.JobTypeEnum jobType,
+      String taskType,
+      Properties properties,
+      OperationTasksBuilder builder,
+      boolean isDryRun,
+      int tasksWaitHours,
+      boolean parallelMetadataFetchMode,
+      int numParallelMetadataFetch,
+      boolean isMultiOperationMode,
+      int concurrentJobsLimit,
+      int jobsSubmissionBatchSize,
+      int jobSubmissionPauseInMillis,
+      int submitOperationPreSlaGracePeriodInMinutes,
+      int statusOperationPreSlaGracePeriodInMinutes) {
+    this.builder = builder;
+    this.run(
+        jobType,
+        taskType,
+        properties,
+        isDryRun,
+        tasksWaitHours,
+        parallelMetadataFetchMode,
+        numParallelMetadataFetch,
+        isMultiOperationMode,
+        concurrentJobsLimit,
+        jobsSubmissionBatchSize,
+        jobSubmissionPauseInMillis,
+        submitOperationPreSlaGracePeriodInMinutes,
+        statusOperationPreSlaGracePeriodInMinutes);
   }
 
   protected void run(
@@ -222,7 +267,7 @@ public class JobsScheduler {
       int statusOperationPreSlaGracePeriodInMinutes) {
     long startTimeMillis = System.currentTimeMillis();
     METER.counterBuilder("scheduler_start_count").build().add(1);
-    Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
+    jobStateCountMap = new ConcurrentHashMap<>();
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
 
     log.info("Fetching task list based on the job type: {}", jobType);
@@ -230,16 +275,6 @@ public class JobsScheduler {
     List<OperationTask<?>> statusTaskList = new ArrayList<>();
     List<Future<Optional<JobState>>> taskFutures = new ArrayList<>();
     List<Future<Optional<JobState>>> statusTaskFutures = new ArrayList<>();
-    OperationTasksBuilder builder =
-        new OperationTasksBuilder(
-            taskFactory,
-            tablesClient,
-            operationTaskQueue,
-            numParallelMetadataFetch,
-            tableMetadataFetchCompleted,
-            operationTaskCount,
-            submittedJobQueue,
-            runningJobs);
     // Sets operation mode based on multiOperationMode flag
     OperationMode operationMode =
         isMultiOperationMode ? OperationMode.SUBMIT : OperationMode.SINGLE;
@@ -262,20 +297,17 @@ public class JobsScheduler {
           tasksWaitHours,
           submitOperationPreSlaGracePeriodInMinutes,
           taskList,
-          taskFutures,
-          jobStateCountMap);
+          taskFutures);
       // Submit status check jobs
       CompletableFuture<Void> completableFuture =
           submitJobStatusTasks(
               jobType,
-              builder,
               statusExecutors,
               startTimeMillis,
               tasksWaitHours,
               statusOperationPreSlaGracePeriodInMinutes,
               statusTaskList,
-              statusTaskFutures,
-              jobStateCountMap);
+              statusTaskFutures);
       // Wait on the main thread for status check job completion
       completableFuture.join();
     } else {
@@ -296,14 +328,7 @@ public class JobsScheduler {
       }
       // get job status from task future and update job state for SINGLE mode
       updateJobStateFromTaskFutures(
-          jobType,
-          jobExecutors,
-          taskList,
-          taskFutures,
-          startTimeMillis,
-          tasksWaitHours,
-          false,
-          jobStateCountMap);
+          jobType, jobExecutors, taskList, taskFutures, startTimeMillis, tasksWaitHours, false);
     }
 
     log.info(
@@ -652,7 +677,6 @@ public class JobsScheduler {
    * @param submitOperationPreSlaGracePeriodInMinutes
    * @param taskList
    * @param taskFutures
-   * @param jobStateCountMap
    */
   private void submitLaunchJobTasks(
       JobConf.JobTypeEnum jobType,
@@ -664,8 +688,7 @@ public class JobsScheduler {
       int tasksWaitHours,
       int submitOperationPreSlaGracePeriodInMinutes,
       List<OperationTask<?>> taskList,
-      List<Future<Optional<JobState>>> taskFutures,
-      Map<JobState, Integer> jobStateCountMap) {
+      List<Future<Optional<JobState>>> taskFutures) {
     // fetch operation tasks from queue and submits jobs until terminate signal and queue is empty
     CompletableFuture.runAsync(
             () -> {
@@ -674,13 +697,15 @@ public class JobsScheduler {
                 try {
                   OperationTask<?> task =
                       operationTaskQueue.poll(QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
-                  log.debug("Submitting job launch task {}", task);
-                  taskList.add(task);
-                  taskFutures.add(jobExecutors.submit(task));
-                  ++currentBatchSize;
+                  if (task != null) {
+                    log.debug("Submitting job launch task {}", task);
+                    taskList.add(task);
+                    taskFutures.add(jobExecutors.submit(task));
+                    ++currentBatchSize;
+                  }
                   long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
                   long remainingTimeMillis =
-                      (TimeUnit.MINUTES.toMillis(tasksWaitHours)
+                      (TimeUnit.HOURS.toMillis(tasksWaitHours)
                               - TimeUnit.MINUTES.toMillis(
                                   submitOperationPreSlaGracePeriodInMinutes))
                           - passedTimeMillis;
@@ -733,8 +758,7 @@ public class JobsScheduler {
                   taskFutures,
                   startTimeMillis,
                   tasksWaitHours,
-                  true,
-                  jobStateCountMap);
+                  true);
             });
   }
 
@@ -744,26 +768,22 @@ public class JobsScheduler {
    * on the futures.
    *
    * @param jobType
-   * @param builder
    * @param statusExecutors
    * @param startTimeMillis
    * @param tasksWaitHours
    * @param statusOperationPreSlaGracePeriodInMinutes
    * @param statusTaskList
    * @param statusTaskFutures
-   * @param jobStateCountMap
    * @return CompletableFuture
    */
   private CompletableFuture<Void> submitJobStatusTasks(
       JobConf.JobTypeEnum jobType,
-      OperationTasksBuilder builder,
       ThreadPoolExecutor statusExecutors,
       long startTimeMillis,
       int tasksWaitHours,
       int statusOperationPreSlaGracePeriodInMinutes,
       List<OperationTask<?>> statusTaskList,
-      List<Future<Optional<JobState>>> statusTaskFutures,
-      Map<JobState, Integer> jobStateCountMap) {
+      List<Future<Optional<JobState>>> statusTaskFutures) {
     // fetch submitted jobs from queue and submits status check jobs until terminate signal and
     // queue is empty
     return CompletableFuture.runAsync(
@@ -833,8 +853,7 @@ public class JobsScheduler {
                   statusTaskFutures,
                   startTimeMillis,
                   tasksWaitHours,
-                  false,
-                  jobStateCountMap);
+                  false);
             });
   }
 
@@ -916,15 +935,14 @@ public class JobsScheduler {
       List<Future<Optional<JobState>>> taskFutures,
       long startTimeMillis,
       int tasksWaitHours,
-      boolean skipStateCountUpdate,
-      Map<JobState, Integer> jobStateCountMap) {
+      boolean skipStateCountUpdate) {
     for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
       Optional<JobState> jobState = Optional.empty();
       OperationTask<?> task = taskList.get(taskIndex);
       Future<Optional<JobState>> taskFuture = taskFutures.get(taskIndex);
       try {
         long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        long remainingTimeMillis = TimeUnit.MINUTES.toMillis(tasksWaitHours) - passedTimeMillis;
+        long remainingTimeMillis = TimeUnit.HOURS.toMillis(tasksWaitHours) - passedTimeMillis;
         jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
       } catch (ExecutionException e) {
         log.error(String.format("Operation for %s failed with exception", task), e);

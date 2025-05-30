@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
+/** Enum to represent different mode of jobs submission operation */
 public enum OperationMode {
   SUBMIT("submit"),
   POLL("poll"),

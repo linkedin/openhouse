@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutStrategyScorer;
 import com.linkedin.openhouse.datalayout.ranker.GreedyMaxBudgetCandidateSelector;
@@ -154,7 +155,8 @@ public class OperationTasksBuilder {
     return taskList;
   }
 
-  private Optional<OperationTask<?>> processMetadata(
+  @VisibleForTesting
+  protected Optional<OperationTask<?>> processMetadata(
       Metadata metadata, JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     try {
       OperationTask<?> task = taskFactory.create(metadata);
@@ -162,9 +164,11 @@ public class OperationTasksBuilder {
         log.info("Skipping task {}", task);
         return Optional.empty();
       } else {
-        task.setSubmittedJobQueue(submittedJobQueue);
+        if (OperationMode.SUBMIT.equals(operationMode)) {
+          task.setSubmittedJobQueue(submittedJobQueue);
+          task.setRunningJobs(runningJobs);
+        }
         task.setOperationMode(operationMode);
-        task.setRunningJobs(runningJobs);
         return Optional.of(task);
       }
     } catch (Exception e) {
@@ -183,6 +187,12 @@ public class OperationTasksBuilder {
         log.info("Skipping task {}", task);
         return Optional.empty();
       } else {
+        if (!OperationMode.POLL.equals(operationMode)) {
+          throw new RuntimeException(
+              String.format(
+                  "Cannot create operation task metadata %s given job type: %s due to invalid operation mode: %s",
+                  metadata, jobType));
+        }
         task.setJobId(jobId);
         task.setOperationMode(operationMode);
         task.setRunningJobs(runningJobs);
@@ -261,7 +271,7 @@ public class OperationTasksBuilder {
             tableMetadata -> {
               if (tableMetadata != null && tablesClient.applyTableMetadataFilter(tableMetadata)) {
                 try {
-                  log.info(
+                  log.debug(
                       "Got table metadata for database name: {}, table name: {} ",
                       tableMetadata.getDbName(),
                       tableMetadata.getTableName());
@@ -299,7 +309,7 @@ public class OperationTasksBuilder {
     return Mono.fromCallable(
             () -> {
               GetAllTablesResponseBody allTablesResponseBody = tablesClient.getAllTables(database);
-              log.info("Got all tables: {} for database {}", allTablesResponseBody, database);
+              log.debug("Got all tables: {} for database {}", allTablesResponseBody, database);
               if (allTablesResponseBody == null) {
                 return Collections.<GetTableResponseBody>emptyList();
               }
@@ -321,7 +331,7 @@ public class OperationTasksBuilder {
               Optional<TableMetadata> optionalTableMetadata =
                   tablesClient.mapTableResponseToTableMetadata(getTableResponseBody);
               if (optionalTableMetadata.isPresent()) {
-                log.info("Got table metadata for : {}", optionalTableMetadata.get());
+                log.debug("Got table metadata for : {}", optionalTableMetadata.get());
                 return optionalTableMetadata.get();
               }
               return null;
