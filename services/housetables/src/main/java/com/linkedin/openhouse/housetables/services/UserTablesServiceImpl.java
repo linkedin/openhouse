@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
@@ -138,7 +139,11 @@ public class UserTablesServiceImpl implements UserTablesService {
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
     }
     // Renames user table within the same database
-    htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId, metadataLocation);
+    try {
+      htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId, metadataLocation);
+    } catch (DataIntegrityViolationException e) {
+      throw new AlreadyExistsException("Table", toTableId);
+    }
   }
 
   @Override

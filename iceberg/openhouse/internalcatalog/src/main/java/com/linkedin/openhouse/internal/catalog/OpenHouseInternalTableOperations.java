@@ -254,12 +254,14 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       houseTable = houseTableMapper.toHouseTable(updatedMetadata, fileIO);
       if (base != null
-          && (!properties
-                  .get(CatalogConstants.OPENHOUSE_TABLEID_KEY)
-                  .equalsIgnoreCase(this.tableIdentifier.name())
-              || !properties
-                  .get(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
-                  .equalsIgnoreCase(this.tableIdentifier.namespace().toString()))) {
+          && (properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
+                  && !properties
+                      .get(CatalogConstants.OPENHOUSE_TABLEID_KEY)
+                      .equalsIgnoreCase(this.tableIdentifier.name())
+              || properties.containsKey(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
+                  && !properties
+                      .get(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
+                      .equalsIgnoreCase(this.tableIdentifier.namespace().toString()))) {
         houseTableRepository.rename(
             this.tableIdentifier.namespace().toString(),
             this.tableIdentifier.name(),

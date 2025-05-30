@@ -3,7 +3,7 @@ package com.linkedin.openhouse.housetables.e2e.usertable;
 import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants.*;
 import static org.assertj.core.api.Assertions.*;
 
-import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
@@ -354,7 +354,7 @@ public class UserTablesServiceTest {
         userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), newTableName);
     assertThat(result.getTableId()).isEqualTo(newTableName);
     assertThat(result.getDatabaseId()).isEqualTo(TEST_TUPLE_1_0.getDatabaseId());
-    assertThat(result.getMetadataLocation()).isEqualTo(TEST_TUPLE_1_0.getTableLoc());
+    assertThat(result.getMetadataLocation()).isEqualTo(newMetadataLocation);
 
     Assertions.assertThrows(
         NoSuchUserTableException.class,
@@ -370,7 +370,7 @@ public class UserTablesServiceTest {
 
     // Expect that the rename will fail as the table already exists
     Assertions.assertThrows(
-        EntityConcurrentModificationException.class,
+        AlreadyExistsException.class,
         () -> {
           userTablesService.renameUserTable(
               TEST_TUPLE_1_0.getDatabaseId(),
