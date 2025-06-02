@@ -245,6 +245,34 @@ public class OperationTasksBuilderTest {
   }
 
   @Test
+  public void testBuildOperationTaskListInParallelForSnapshotExpirationVerifyAll()
+      throws InterruptedException {
+    prepareMockitoForParallelFetch();
+    operationTasksBuilderSnapshotExpiration.buildOperationTaskListInParallel(
+        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, OperationMode.SUBMIT);
+    Assertions.assertNotNull(operationTaskQueue);
+    // Make sure operation task build is completed
+    int count = 0;
+    do {
+      OperationTask<?> task = operationTaskQueue.poll(1, TimeUnit.SECONDS);
+      ++count;
+      // The original table metadata size is 16 and after 16th item, the queue item is returned as
+      // null
+      if (count == 17) {
+        Assertions.assertNull(task);
+      } else {
+        Assertions.assertNotNull(task);
+        Assertions.assertTrue(task instanceof TableSnapshotsExpirationTask);
+        Assertions.assertEquals(OperationMode.SUBMIT, task.operationMode);
+        Assertions.assertEquals(submittedJobQueue, task.submittedJobQueue);
+        Assertions.assertEquals(runningJobs, task.runningJobs);
+      }
+    } while (!(tableMetadataFetchCompleted.get() && operationTaskQueue.isEmpty()));
+    Assertions.assertTrue(operationTaskQueue.isEmpty());
+    Assertions.assertEquals(0, operationTaskQueue.size());
+  }
+
+  @Test
   public void testBuildOperationTaskListInParallelForOrphanFileDeletion()
       throws InterruptedException {
     prepareMockitoForParallelFetch();
@@ -321,6 +349,22 @@ public class OperationTasksBuilderTest {
     for (int i = 0; i < 16; i++) {
       Assertions.assertNotNull(operationTasks.get(i));
       Assertions.assertTrue(operationTasks.get(i) instanceof TableSnapshotsExpirationTask);
+      Assertions.assertEquals(OperationMode.SINGLE, operationTasks.get(i).operationMode);
+    }
+  }
+
+  @Test
+  public void testBuildOperationTaskListForOrphanFileDeletion() {
+    Mockito.when(tablesClient.getTableMetadataList()).thenReturn(tableMetadataList);
+    List<OperationTask<?>> operationTasks =
+        operationTasksBuilderOrphanFileDeletion.buildOperationTaskList(
+            JobConf.JobTypeEnum.ORPHAN_FILES_DELETION, null, null, OperationMode.SINGLE);
+    Assertions.assertNotNull(operationTasks);
+    // Make sure operation task build is completed
+    Assertions.assertEquals(16, operationTasks.size());
+    for (int i = 0; i < 16; i++) {
+      Assertions.assertNotNull(operationTasks.get(i));
+      Assertions.assertTrue(operationTasks.get(i) instanceof TableOrphanFilesDeletionTask);
       Assertions.assertEquals(OperationMode.SINGLE, operationTasks.get(i).operationMode);
     }
   }

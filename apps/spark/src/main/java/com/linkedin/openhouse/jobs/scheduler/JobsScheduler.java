@@ -286,12 +286,13 @@ public class JobsScheduler {
     List<OperationTask<?>> statusTaskList = new ArrayList<>();
     List<Future<Optional<JobState>>> taskFutures = new ArrayList<>();
     List<Future<Optional<JobState>>> statusTaskFutures = new ArrayList<>();
-    // Sets operation mode based on multiOperationMode flag
-    OperationMode operationMode =
-        isMultiOperationMode ? OperationMode.SUBMIT : OperationMode.SINGLE;
-    // Parallel metadata fetch mode is only enabled for multi operation mode
-    // Sequential metadata fetch continues to work with existing single operation mode.
+    // Sets the default operation mode as existing SINGLE
+    OperationMode operationMode = OperationMode.SINGLE;
+    // If Parallel metadata fetch mode and multi operation mode both are enable table metadata is
+    // fetched in parallel
+    // and jobs submission works in SUBMIT and POLL mode.
     if (parallelMetadataFetchMode && isMultiOperationMode) {
+      operationMode = OperationMode.SUBMIT;
       // table metadata is fetched in parallel and add to a queue. On the other, hand
       // metadata is read from queue and jobs are submitted in parallel as they arrive.
       // Asynchronously fetches operation tasks and adds them to a queue
@@ -321,7 +322,22 @@ public class JobsScheduler {
               statusTaskFutures);
       // Wait on the main thread for status check job completion
       completableFuture.join();
+    } else if (parallelMetadataFetchMode) {
+      // Table metadata is fetched in parallel and job submission works in SINGLE mode
+      builder.buildOperationTaskListInParallel(jobType, operationMode);
+      submitJobs(
+          jobType,
+          jobExecutors,
+          startTimeMillis,
+          tasksWaitHours,
+          submitOperationPreSlaGracePeriodInMinutes,
+          taskList,
+          taskFutures);
+      // get job status from task future and update job state for SINGLE mode
+      updateJobStateFromTaskFutures(
+          jobType, jobExecutors, taskList, taskFutures, startTimeMillis, tasksWaitHours, false);
     } else {
+      // Sequential metadata fetch continues to work with existing SINGLE operation mode.
       // all the table metadata are fetched first and then jobs are submitted.
       taskList = builder.buildOperationTaskList(jobType, properties, METER, operationMode);
       if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
@@ -866,6 +882,52 @@ public class JobsScheduler {
                   tasksWaitHours,
                   false);
             });
+  }
+
+  private void submitJobs(
+      JobConf.JobTypeEnum jobType,
+      ThreadPoolExecutor jobExecutors,
+      long startTimeMillis,
+      int tasksWaitHours,
+      int submitOperationPreSlaGracePeriodInMinutes,
+      List<OperationTask<?>> taskList,
+      List<Future<Optional<JobState>>> taskFutures) {
+    do {
+      try {
+        OperationTask<?> task =
+            operationTaskQueue.poll(QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
+        if (task != null) {
+          log.debug("Submitting job launch task {}", task);
+          taskList.add(task);
+          taskFutures.add(jobExecutors.submit(task));
+        }
+        long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
+        long remainingTimeMillis =
+            (TimeUnit.HOURS.toMillis(tasksWaitHours)
+                    - TimeUnit.MINUTES.toMillis(submitOperationPreSlaGracePeriodInMinutes))
+                - passedTimeMillis;
+        if (remainingTimeMillis <= 0) {
+          if (!operationTaskQueue.isEmpty()) {
+            log.info(
+                "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
+                TimeUnit.HOURS.toHours(passedTimeMillis),
+                jobType);
+            log.info(
+                "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
+                operationTaskQueue.size(),
+                jobType);
+            operationTaskQueue.clear();
+            break;
+          }
+        }
+      } catch (InterruptedException e) {
+        log.warn(
+            "Interrupted exception while polling from the operation task queue for job type: {}",
+            jobType);
+      }
+    } while (!(tableMetadataFetchCompleted.get() && operationTaskQueue.isEmpty()));
+    log.info(
+        "The total operation tasks submitted: {} for the job type: {}", taskList.size(), jobType);
   }
 
   protected static int getNumParallelMetadataFetch(CommandLine cmdLine) {

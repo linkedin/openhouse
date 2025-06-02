@@ -224,7 +224,7 @@ public class JobsSchedulerTest {
   }
 
   @Test
-  public void testRunSnapshotExpiration() {
+  public void testRunSnapshotExpirationParallelFetchMultiMode() {
     String jobId = UUID.randomUUID().toString();
     Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
     Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
@@ -263,7 +263,85 @@ public class JobsSchedulerTest {
   }
 
   @Test
-  public void testRunSnapshotExpirationSequential() {
+  public void testRunSnapshotExpirationParallelFetchMultiModeFailure() {
+    String jobId = UUID.randomUUID().toString();
+    Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
+    Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
+    Mockito.when(
+            jobsClient.launch(
+                Mockito.anyString(),
+                Mockito.eq(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION),
+                Mockito.anyString(),
+                Mockito.anyMap(),
+                Mockito.anyList()))
+        .thenReturn(Optional.of(jobId));
+    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(JobState.FAILED));
+    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
+    Mockito.when(jobResponseBody.getState()).thenReturn(JobResponseBody.StateEnum.FAILED);
+    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
+    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
+    prepareMockitoForParallelFetch();
+    jobsSchedulerSnapshotExpiration.run(
+        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
+        operationTaskClsSnapshotExpiration.toString(),
+        null,
+        operationTasksBuilderSnapshotExpiration,
+        false,
+        1,
+        true,
+        4,
+        true,
+        16,
+        2,
+        1000,
+        30,
+        15);
+    Assertions.assertEquals(
+        16, jobsSchedulerSnapshotExpiration.jobStateCountMap.get(JobState.FAILED));
+    Assertions.assertEquals(7, jobsSchedulerSnapshotExpiration.jobStateCountMap.size());
+  }
+
+  @Test
+  public void testRunSnapshotExpirationParallelFetchSingleMode() {
+    String jobId = UUID.randomUUID().toString();
+    Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
+    Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
+    Mockito.when(
+            jobsClient.launch(
+                Mockito.anyString(),
+                Mockito.eq(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION),
+                Mockito.anyString(),
+                Mockito.anyMap(),
+                Mockito.anyList()))
+        .thenReturn(Optional.of(jobId));
+    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(JobState.SUCCEEDED));
+    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
+    Mockito.when(jobResponseBody.getState()).thenReturn(JobResponseBody.StateEnum.SUCCEEDED);
+    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
+    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
+    prepareMockitoForParallelFetch();
+    jobsSchedulerSnapshotExpiration.run(
+        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
+        operationTaskClsSnapshotExpiration.toString(),
+        null,
+        operationTasksBuilderSnapshotExpiration,
+        false,
+        1,
+        true,
+        4,
+        false,
+        16,
+        2,
+        1000,
+        30,
+        15);
+    Assertions.assertEquals(
+        16, jobsSchedulerSnapshotExpiration.jobStateCountMap.get(JobState.SUCCEEDED));
+    Assertions.assertEquals(7, jobsSchedulerSnapshotExpiration.jobStateCountMap.size());
+  }
+
+  @Test
+  public void testRunSnapshotExpirationSequentialFetchSingleMode() {
     String jobId = UUID.randomUUID().toString();
     Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
     Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
@@ -303,7 +381,7 @@ public class JobsSchedulerTest {
   }
 
   @Test
-  public void testRunOrphanFileDeletion() {
+  public void testRunOrphanFileDeletionParallelFetchMultiMode() {
     String jobId = UUID.randomUUID().toString();
     Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
     Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
@@ -348,6 +426,12 @@ public class JobsSchedulerTest {
     tableMetadataFetchCompleted.set(false);
     submittedJobQueue.clear();
     operationTaskCount.set(0);
+    jobExecutors =
+        new ThreadPoolExecutor(
+            2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+    statusExecutors =
+        new ThreadPoolExecutor(
+            2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
   }
 
   @Test
