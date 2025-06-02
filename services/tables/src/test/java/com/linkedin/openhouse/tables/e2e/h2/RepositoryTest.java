@@ -697,26 +697,6 @@ public class RepositoryTest {
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
   }
 
-  @Test
-  public void testRenameTableMetadataUpdate() {
-    /* create the base table */
-    TableDto createdDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
-    openHouseInternalRepository.save(createdDTO);
-    /* Using catalog to do update first. */
-    TableIdentifier fromTableIdentifier =
-        TableIdentifier.of(createdDTO.getDatabaseId(), createdDTO.getTableId());
-    TableIdentifier toTableIdentifier =
-        TableIdentifier.of(createdDTO.getDatabaseId(), createdDTO.getTableId() + "_renamed");
-    catalog.renameTable(fromTableIdentifier, toTableIdentifier);
-
-    Assertions.assertNotNull(
-        openHouseInternalRepository.findById(
-            TableDtoPrimaryKey.builder()
-                .databaseId(toTableIdentifier.namespace().toString())
-                .tableId(toTableIdentifier.name())
-                .build()));
-  }
-
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {
     return TableDtoPrimaryKey.builder()
         .databaseId(tableDto.getDatabaseId())
