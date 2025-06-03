@@ -73,7 +73,7 @@ public class JobsScheduler {
   private static final int TABLE_MIN_AGE_THRESHOLD_HOURS_DEFAULT = 72;
   private static final boolean PARALLEL_METADATA_FETCH_MODE_DEFAULT = false;
   private static final int MAX_NUM_CONCURRENT_METADATA_FETCH_THREAD_DEFAULT = 20;
-  private static final int OPERATION_TASK_QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT = 5;
+  private static final int OPERATION_TASK_QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT = 1;
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
   private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());
@@ -533,8 +533,10 @@ public class JobsScheduler {
           OperationTask<?> task =
               operationTaskQueue.poll(
                   OPERATION_TASK_QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
-          taskList.add(task);
-          taskFutures.add(executors.submit(task));
+          if (task != null) {
+            taskList.add(task);
+            taskFutures.add(executors.submit(task));
+          }
         } catch (InterruptedException e) {
           log.warn("Interrupted exception while polling from the queue: {}", jobType);
         }
