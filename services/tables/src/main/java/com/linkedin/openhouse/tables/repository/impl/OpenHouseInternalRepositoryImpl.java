@@ -164,7 +164,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   private boolean skipEligibilityCheck(
       Map<String, String> existingTableProps, Map<String, String> newTableProps) {
-    // If on the same cluster, table update is primary -> primary and must check all keys
+    // If on the same cluster, table update is primary -> primary and must check all keys, so don't
+    // skip validation
     if (existingTableProps
         .get(getCanonicalFieldName(CLUSTER_ID))
         .equals(newTableProps.get(getCanonicalFieldName(CLUSTER_ID)))) {
@@ -183,6 +184,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     TableType newTableType =
         TableType.valueOf(newTableProps.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
 
+    // Legacy check to skip eligibility check for a primary -> replica update
     return existingTableType == TableType.REPLICA_TABLE && newTableType == TableType.PRIMARY_TABLE;
   }
 
