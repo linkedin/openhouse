@@ -163,16 +163,29 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   private boolean skipEligibilityCheck(
-      Map<String, String> existingTableProps, Map<String, String> newTableprops) {
+      Map<String, String> existingTableProps, Map<String, String> newTableProps) {
+    // If on the same cluster, table update is primary -> primary and must check all keys, so don't
+    // skip validation
+    if (existingTableProps
+        .get(getCanonicalFieldName(CLUSTER_ID))
+        .equals(newTableProps.get(getCanonicalFieldName(CLUSTER_ID)))) {
+      return false;
+    }
+
+    // If the table is explicitly marked as replicated, skip eligibility check
+    if (Boolean.parseBoolean(
+        existingTableProps.getOrDefault(OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"))) {
+      return true;
+    }
+
+    // For backwards compatibility check table types for a primary -> replica update
     TableType existingTableType =
         TableType.valueOf(existingTableProps.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
     TableType newTableType =
-        TableType.valueOf(newTableprops.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
-    return existingTableType == TableType.REPLICA_TABLE
-        && newTableType == TableType.PRIMARY_TABLE
-        && !existingTableProps
-            .get(getCanonicalFieldName(CLUSTER_ID))
-            .equals(newTableprops.get(getCanonicalFieldName(CLUSTER_ID)));
+        TableType.valueOf(newTableProps.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
+
+    // Legacy check to skip eligibility check for a primary -> replica update
+    return existingTableType == TableType.REPLICA_TABLE && newTableType == TableType.PRIMARY_TABLE;
   }
 
   /**

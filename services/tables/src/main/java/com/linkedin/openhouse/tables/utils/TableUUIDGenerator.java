@@ -33,7 +33,6 @@ public class TableUUIDGenerator {
   private static final String TBL_RAW_KEY = "tableId";
   private static final String TBL_LOC_RAW_KEY = "tableLocation";
   private static final String TBL_UUID_RAW_KEY = "tableUUID";
-  private static final String TBL_IS_REPLICATED_RAW_KEY = "isTableReplicated";
 
   @Autowired StorageManager storageManager;
 
@@ -142,7 +141,8 @@ public class TableUUIDGenerator {
     String tblIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_RAW_KEY);
     boolean isTableReplicated =
         Boolean.parseBoolean(
-            tableProperties.getOrDefault(OPENHOUSE_NAMESPACE + TBL_IS_REPLICATED_RAW_KEY, "false"));
+            tableProperties.getOrDefault(
+                CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"));
 
     // validate only when table of type Primary and is not created for replication. CTAS and
     // replication both require

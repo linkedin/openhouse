@@ -39,7 +39,11 @@ public class DoCommitTest {
 
   private TableMetadata base;
 
+  private TableMetadata baseWithReplicaTableWithoutReplicaProp;
+
   private TableMetadata baseWithReplicaTable;
+
+  private TableMetadata baseWithActiveReplicaTable;
 
   private TableMetadata baseWithPrimaryTable;
 
@@ -71,7 +75,7 @@ public class DoCommitTest {
             UUID.randomUUID().toString(),
             ImmutableMap.of());
 
-    baseWithReplicaTable =
+    baseWithReplicaTableWithoutReplicaProp =
         TableMetadata.newTableMetadata(
             new Schema(
                 Types.NestedField.required(1, "stringId", Types.StringType.get()),
@@ -85,6 +89,40 @@ public class DoCommitTest {
                 "testTable",
                 "openhouse.clusterId",
                 "replica_cluster"));
+
+    baseWithReplicaTable =
+        TableMetadata.newTableMetadata(
+            new Schema(
+                Types.NestedField.required(1, "stringId", Types.StringType.get()),
+                Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone())),
+            PartitionSpec.unpartitioned(),
+            UUID.randomUUID().toString(),
+            ImmutableMap.of(
+                "openhouse.tableType",
+                "REPLICA_TABLE",
+                "openhouse.tableId",
+                "testTable",
+                "openhouse.clusterId",
+                "replica_cluster",
+                "openhouse.isTableReplicated",
+                "true"));
+
+    baseWithActiveReplicaTable =
+        TableMetadata.newTableMetadata(
+            new Schema(
+                Types.NestedField.required(1, "stringId", Types.StringType.get()),
+                Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone())),
+            PartitionSpec.unpartitioned(),
+            UUID.randomUUID().toString(),
+            ImmutableMap.of(
+                "openhouse.tableType",
+                "PRIMARY_TABLE",
+                "openhouse.tableId",
+                "testTable",
+                "openhouse.clusterId",
+                "replica_cluster",
+                "openhouse.isTableReplicated",
+                "true"));
 
     baseWithPrimaryTable =
         TableMetadata.newTableMetadata(
@@ -276,8 +314,40 @@ public class DoCommitTest {
                 null,
                 null));
     mockTableService.enqueue(validResponse);
-
+    mockTableService.enqueue(validResponse);
     ops.doCommit(baseWithReplicaTable, baseWithPrimaryTable);
+    Assertions.assertTimeout(Duration.ofSeconds(1), () -> mockTableService.takeRequest());
+
+    // If tableType property differs, request is considered originating from replication flow
+    ops.doCommit(baseWithReplicaTableWithoutReplicaProp, baseWithPrimaryTable);
+    Assertions.assertTimeout(Duration.ofSeconds(1), () -> mockTableService.takeRequest());
+  }
+
+  /**
+   * To support active-active replica table copies, ensure that different table properties are
+   * ignored
+   */
+  @Test
+  public void testReplicationRequestWithTblPropertiesDiffOnActiveReplica() throws Exception {
+
+    // A random response should be good enough as the payload is not used.
+    MockResponse validResponse =
+        mockResponse(
+            200,
+            mockGetTableResponseBody(
+                "db_mc",
+                "tbl_mc",
+                "replica_cluster",
+                "",
+                "",
+                mockTableLocationDefaultSchema(TableIdentifier.of("db_mc", "tbl_mc")),
+                "",
+                baseSchema,
+                null,
+                null));
+    mockTableService.enqueue(validResponse);
+
+    ops.doCommit(baseWithActiveReplicaTable, baseWithPrimaryTable);
     // If tableType property differs, request is considered originating from replication flow
     Assertions.assertTimeout(Duration.ofSeconds(1), () -> mockTableService.takeRequest());
   }
