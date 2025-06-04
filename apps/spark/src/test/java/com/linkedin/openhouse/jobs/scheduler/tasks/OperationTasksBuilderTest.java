@@ -11,19 +11,11 @@ import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -47,11 +39,14 @@ public class OperationTasksBuilderTest {
   private OperationTaskFactory<TableRetentionTask> tasksFactoryRetention;
   private OperationTaskFactory<TableStatsCollectionTask> tasksFactoryStatsCollection;
   private OperationTaskFactory<TableOrphanFilesDeletionTask> tasksFactoryOrphanFileDeletion;
-  private BlockingQueue<OperationTask<?>> operationTaskQueue = new LinkedBlockingQueue<>();
-  private BlockingQueue<JobInfo> submittedJobQueue = new LinkedBlockingQueue<>();
-  private AtomicLong operationTaskCount = new AtomicLong(0);
-  private AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
-  private Set<String> runningJobs = Collections.synchronizedSet(new HashSet<>());
+  private OperationTaskManager operationTaskManagerSnapshotExpiration;
+  private OperationTaskManager operationTaskManagerOrphanFileDeletion;
+  private OperationTaskManager operationTaskManagerStatsCollection;
+  private OperationTaskManager operationTaskManagerRetention;
+  private JobInfoManager jobInfoManagerSnapshotExpiration;
+  private JobInfoManager jobInfoManagerOrphanFileDeletion;
+  private JobInfoManager jobInfoManagerStatsCollection;
+  private JobInfoManager jobInfoManagerRetention;
   private List<String> databases = new ArrayList<>();
   private Map<String, GetAllTablesResponseBody> dbAllTables = new HashMap();
   private Map<GetAllTablesResponseBody, List<GetTableResponseBody>> allTablesBodyToGetTableList =
@@ -101,46 +96,46 @@ public class OperationTasksBuilderTest {
             tablesClientFactory,
             60000L,
             60000L);
+    operationTaskManagerSnapshotExpiration =
+        new OperationTaskManager(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    operationTaskManagerOrphanFileDeletion =
+        new OperationTaskManager(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION);
+    operationTaskManagerStatsCollection =
+        new OperationTaskManager(JobConf.JobTypeEnum.TABLE_STATS_COLLECTION);
+    operationTaskManagerRetention = new OperationTaskManager(JobConf.JobTypeEnum.RETENTION);
+    jobInfoManagerSnapshotExpiration = new JobInfoManager(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    jobInfoManagerOrphanFileDeletion =
+        new JobInfoManager(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION);
+    jobInfoManagerStatsCollection = new JobInfoManager(JobConf.JobTypeEnum.TABLE_STATS_COLLECTION);
+    jobInfoManagerRetention = new JobInfoManager(JobConf.JobTypeEnum.RETENTION);
     operationTasksBuilderSnapshotExpiration =
         new OperationTasksBuilder(
             tasksFactorySnapshotExpiration,
             tablesClient,
-            operationTaskQueue,
             2,
-            tableMetadataFetchCompleted,
-            operationTaskCount,
-            submittedJobQueue,
-            runningJobs);
+            operationTaskManagerSnapshotExpiration,
+            jobInfoManagerSnapshotExpiration);
     operationTasksBuilderRetention =
         new OperationTasksBuilder(
             tasksFactoryRetention,
             tablesClient,
-            operationTaskQueue,
             2,
-            tableMetadataFetchCompleted,
-            operationTaskCount,
-            submittedJobQueue,
-            runningJobs);
+            operationTaskManagerRetention,
+            jobInfoManagerRetention);
     operationTasksBuilderStatsCollection =
         new OperationTasksBuilder(
             tasksFactoryStatsCollection,
             tablesClient,
-            operationTaskQueue,
             2,
-            tableMetadataFetchCompleted,
-            operationTaskCount,
-            submittedJobQueue,
-            runningJobs);
+            operationTaskManagerStatsCollection,
+            jobInfoManagerStatsCollection);
     operationTasksBuilderOrphanFileDeletion =
         new OperationTasksBuilder(
             tasksFactoryOrphanFileDeletion,
             tablesClient,
-            operationTaskQueue,
             2,
-            tableMetadataFetchCompleted,
-            operationTaskCount,
-            submittedJobQueue,
-            runningJobs);
+            operationTaskManagerOrphanFileDeletion,
+            jobInfoManagerOrphanFileDeletion);
     for (int i = 0; i < dbCount; i++) {
       databases.add("db" + i);
     }
@@ -186,7 +181,7 @@ public class OperationTasksBuilderTest {
     OperationTask<?> operationTask = optionalOperationTask.get();
     Assertions.assertEquals(OperationMode.POLL, operationTask.operationMode);
     Assertions.assertNotNull(operationTask.jobId);
-    Assertions.assertEquals(runningJobs, operationTask.runningJobs);
+    Assertions.assertNotNull(operationTask.jobInfoManager);
   }
 
   @Test
@@ -200,9 +195,7 @@ public class OperationTasksBuilderTest {
     OperationTask<?> operationTask = optionalOperationTask.get();
     Assertions.assertEquals(OperationMode.SUBMIT, operationTask.operationMode);
     Assertions.assertNull(operationTask.jobId);
-    Assertions.assertNotNull(operationTask.submittedJobQueue);
-    Assertions.assertEquals(operationTask.submittedJobQueue, submittedJobQueue);
-    Assertions.assertEquals(runningJobs, operationTask.runningJobs);
+    Assertions.assertNotNull(operationTask.jobInfoManager);
   }
 
   private void prepareMockitoForParallelFetch() {
@@ -231,17 +224,17 @@ public class OperationTasksBuilderTest {
     prepareMockitoForParallelFetch();
     operationTasksBuilderSnapshotExpiration.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, OperationMode.SUBMIT);
-    Assertions.assertNotNull(operationTaskQueue);
     // Make sure operation task build is completed
-    do {} while (!tableMetadataFetchCompleted.get());
-    Assertions.assertFalse(operationTaskQueue.isEmpty());
-    Assertions.assertEquals(16, operationTaskQueue.size());
-    OperationTask<?> task = operationTaskQueue.poll(1, TimeUnit.SECONDS);
+    do {} while (!operationTaskManagerSnapshotExpiration.isDataGenerationCompleted());
+    Assertions.assertFalse(operationTaskManagerSnapshotExpiration.isEmpty());
+    Assertions.assertEquals(16, operationTaskManagerSnapshotExpiration.getTotalDataCount());
+    OperationTask<?> task = operationTaskManagerSnapshotExpiration.getData();
     Assertions.assertNotNull(task);
     Assertions.assertTrue(task instanceof TableSnapshotsExpirationTask);
     Assertions.assertEquals(OperationMode.SUBMIT, task.operationMode);
-    Assertions.assertEquals(submittedJobQueue, task.submittedJobQueue);
-    Assertions.assertEquals(runningJobs, task.runningJobs);
+    Assertions.assertNotNull(task.jobInfoManager);
+    Assertions.assertEquals(16, operationTaskManagerSnapshotExpiration.getTotalDataCount());
+    Assertions.assertEquals(15, operationTaskManagerSnapshotExpiration.getCurrentDataCount());
   }
 
   @Test
@@ -250,26 +243,29 @@ public class OperationTasksBuilderTest {
     prepareMockitoForParallelFetch();
     operationTasksBuilderSnapshotExpiration.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, OperationMode.SUBMIT);
-    Assertions.assertNotNull(operationTaskQueue);
     // Make sure operation task build is completed
-    int count = 0;
+    int count = 16;
+    // Make sure operation task build is completed
+    do {} while (!operationTaskManagerSnapshotExpiration.isDataGenerationCompleted());
+    // Poll from the queue until there is no element
     do {
-      OperationTask<?> task = operationTaskQueue.poll(1, TimeUnit.SECONDS);
-      ++count;
+      Assertions.assertEquals(count, operationTaskManagerSnapshotExpiration.getCurrentDataCount());
+      OperationTask<?> task = operationTaskManagerSnapshotExpiration.getData();
+      --count;
       // The original table metadata size is 16 and after 16th item, the queue item is returned as
       // null
-      if (count == 17) {
+      if (count == -1) {
         Assertions.assertNull(task);
       } else {
         Assertions.assertNotNull(task);
         Assertions.assertTrue(task instanceof TableSnapshotsExpirationTask);
         Assertions.assertEquals(OperationMode.SUBMIT, task.operationMode);
-        Assertions.assertEquals(submittedJobQueue, task.submittedJobQueue);
-        Assertions.assertEquals(runningJobs, task.runningJobs);
+        Assertions.assertNotNull(task.jobInfoManager);
       }
-    } while (!(tableMetadataFetchCompleted.get() && operationTaskQueue.isEmpty()));
-    Assertions.assertTrue(operationTaskQueue.isEmpty());
-    Assertions.assertEquals(0, operationTaskQueue.size());
+    } while (operationTaskManagerSnapshotExpiration.hasNext());
+    Assertions.assertTrue(operationTaskManagerSnapshotExpiration.isEmpty());
+    Assertions.assertEquals(0, operationTaskManagerSnapshotExpiration.getCurrentDataCount());
+    Assertions.assertEquals(16, operationTaskManagerSnapshotExpiration.getTotalDataCount());
   }
 
   @Test
@@ -278,17 +274,16 @@ public class OperationTasksBuilderTest {
     prepareMockitoForParallelFetch();
     operationTasksBuilderOrphanFileDeletion.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.ORPHAN_FILES_DELETION, OperationMode.SUBMIT);
-    Assertions.assertNotNull(operationTaskQueue);
     // Make sure operation task build is completed
-    do {} while (!tableMetadataFetchCompleted.get());
-    Assertions.assertFalse(operationTaskQueue.isEmpty());
-    Assertions.assertEquals(16, operationTaskQueue.size());
-    OperationTask<?> task = operationTaskQueue.poll(1, TimeUnit.SECONDS);
+    do {} while (!operationTaskManagerOrphanFileDeletion.isDataGenerationCompleted());
+    Assertions.assertFalse(operationTaskManagerOrphanFileDeletion.isEmpty());
+    Assertions.assertEquals(16, operationTaskManagerOrphanFileDeletion.getCurrentDataCount());
+    Assertions.assertEquals(16, operationTaskManagerOrphanFileDeletion.getTotalDataCount());
+    OperationTask<?> task = operationTaskManagerOrphanFileDeletion.getData();
     Assertions.assertNotNull(task);
     Assertions.assertTrue(task instanceof TableOrphanFilesDeletionTask);
     Assertions.assertEquals(OperationMode.SUBMIT, task.operationMode);
-    Assertions.assertEquals(submittedJobQueue, task.submittedJobQueue);
-    Assertions.assertEquals(runningJobs, task.runningJobs);
+    Assertions.assertNotNull(task.jobInfoManager);
   }
 
   @Test
@@ -297,17 +292,16 @@ public class OperationTasksBuilderTest {
     prepareMockitoForParallelFetch();
     operationTasksBuilderStatsCollection.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.TABLE_STATS_COLLECTION, OperationMode.SUBMIT);
-    Assertions.assertNotNull(operationTaskQueue);
     // Make sure operation task build is completed
-    do {} while (!tableMetadataFetchCompleted.get());
-    Assertions.assertFalse(operationTaskQueue.isEmpty());
-    Assertions.assertEquals(16, operationTaskQueue.size());
-    OperationTask<?> task = operationTaskQueue.poll(1, TimeUnit.SECONDS);
+    do {} while (!operationTaskManagerStatsCollection.isDataGenerationCompleted());
+    Assertions.assertFalse(operationTaskManagerStatsCollection.isEmpty());
+    Assertions.assertEquals(16, operationTaskManagerStatsCollection.getCurrentDataCount());
+    Assertions.assertEquals(16, operationTaskManagerStatsCollection.getTotalDataCount());
+    OperationTask<?> task = operationTaskManagerStatsCollection.getData();
     Assertions.assertNotNull(task);
     Assertions.assertTrue(task instanceof TableStatsCollectionTask);
     Assertions.assertEquals(OperationMode.SUBMIT, task.operationMode);
-    Assertions.assertEquals(submittedJobQueue, task.submittedJobQueue);
-    Assertions.assertEquals(runningJobs, task.runningJobs);
+    Assertions.assertNotNull(task.jobInfoManager);
   }
 
   @Test
@@ -315,18 +309,16 @@ public class OperationTasksBuilderTest {
     prepareMockitoForParallelFetch();
     operationTasksBuilderRetention.buildOperationTaskListInParallel(
         JobConf.JobTypeEnum.RETENTION, OperationMode.SUBMIT);
-    Assertions.assertNotNull(operationTaskQueue);
     // Make sure operation task build is completed
-    do {} while (!tableMetadataFetchCompleted.get());
-    Assertions.assertFalse(operationTaskQueue.isEmpty());
-    Assertions.assertEquals(16, operationTaskQueue.size());
-    // Poll once and verify
-    OperationTask<?> task = operationTaskQueue.poll(1, TimeUnit.SECONDS);
+    do {} while (!operationTaskManagerRetention.isDataGenerationCompleted());
+    Assertions.assertFalse(operationTaskManagerRetention.isEmpty());
+    Assertions.assertEquals(16, operationTaskManagerRetention.getCurrentDataCount());
+    Assertions.assertEquals(16, operationTaskManagerRetention.getTotalDataCount());
+    OperationTask<?> task = operationTaskManagerRetention.getData();
     Assertions.assertNotNull(task);
     Assertions.assertTrue(task instanceof TableRetentionTask);
     Assertions.assertEquals(OperationMode.SUBMIT, task.operationMode);
-    Assertions.assertEquals(submittedJobQueue, task.submittedJobQueue);
-    Assertions.assertEquals(runningJobs, task.runningJobs);
+    Assertions.assertNotNull(task.jobInfoManager);
   }
 
   private void prepareTableMetadata() {
@@ -371,9 +363,13 @@ public class OperationTasksBuilderTest {
 
   @AfterEach
   public void reset() {
-    operationTaskQueue.clear();
-    runningJobs.clear();
-    tableMetadataFetchCompleted.set(false);
-    operationTaskCount.set(0);
+    operationTaskManagerSnapshotExpiration.resetAll();
+    operationTaskManagerOrphanFileDeletion.resetAll();
+    operationTaskManagerRetention.resetAll();
+    operationTaskManagerStatsCollection.resetAll();
+    jobInfoManagerSnapshotExpiration.resetAll();
+    jobInfoManagerOrphanFileDeletion.resetAll();
+    jobInfoManagerStatsCollection.resetAll();
+    jobInfoManagerRetention.resetAll();
   }
 }

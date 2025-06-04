@@ -20,10 +20,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -53,12 +49,9 @@ public class OperationTasksBuilder {
 
   protected final TablesClient tablesClient;
 
-  private final BlockingQueue<OperationTask<?>> operationTaskQueue;
   private final int numParallelMetadataFetch;
-  private AtomicBoolean tableMetadataFetchCompleted;
-  private AtomicLong operationTaskCount;
-  private final BlockingQueue<JobInfo> submittedJobQueue;
-  private final Set<String> runningJobs;
+  private final OperationTaskManager operationTaskManager;
+  private final JobInfoManager jobInfoManager;
 
   private List<OperationTask<?>> prepareTableOperationTaskList(
       JobConf.JobTypeEnum jobType, OperationMode operationMode) {
@@ -165,8 +158,7 @@ public class OperationTasksBuilder {
         return Optional.empty();
       } else {
         if (OperationMode.SUBMIT.equals(operationMode)) {
-          task.setSubmittedJobQueue(submittedJobQueue);
-          task.setRunningJobs(runningJobs);
+          task.setJobInfoManager(jobInfoManager);
         }
         task.setOperationMode(operationMode);
         return Optional.of(task);
@@ -195,7 +187,7 @@ public class OperationTasksBuilder {
         }
         task.setJobId(jobId);
         task.setOperationMode(operationMode);
-        task.setRunningJobs(runningJobs);
+        task.setJobInfoManager(jobInfoManager);
         return Optional.of(task);
       }
     } catch (Exception e) {
@@ -278,9 +270,8 @@ public class OperationTasksBuilder {
                   Optional<OperationTask<?>> optionalOperationTask =
                       processMetadata(tableMetadata, jobType, operationMode);
                   if (optionalOperationTask.isPresent()) {
-                    // Put tableMetadata into the blocking queue
-                    operationTaskQueue.put(optionalOperationTask.get());
-                    operationTaskCount.incrementAndGet();
+                    // Put tableMetadata into operation task manager
+                    operationTaskManager.addData(optionalOperationTask.get());
                   }
                 } catch (InterruptedException e) {
                   log.warn("Interrupted while waiting for table metadata to be processed", e);
@@ -290,10 +281,10 @@ public class OperationTasksBuilder {
         .sequential() // wait for all the threads to finish before terminate
         .doAfterTerminate(
             () -> {
-              tableMetadataFetchCompleted.set(true);
+              operationTaskManager.updateDataGenerationCompletion();
               log.info(
                   "The metadata fetched count: {} for the job type: {}",
-                  operationTaskCount,
+                  operationTaskManager.getTotalDataCount(),
                   jobType);
             })
         .subscribe();
@@ -315,6 +306,11 @@ public class OperationTasksBuilder {
               }
               return allTablesResponseBody.getResults();
             })
+        .onErrorResume(
+            ex -> {
+              log.error("Error while fetching tables for database {}", database, ex);
+              return Mono.just(Collections.emptyList());
+            })
         .subscribeOn(
             Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
   }
@@ -327,14 +323,20 @@ public class OperationTasksBuilder {
    */
   private Mono<TableMetadata> getTableMetadata(GetTableResponseBody getTableResponseBody) {
     return Mono.fromCallable(
-            () -> {
-              Optional<TableMetadata> optionalTableMetadata =
-                  tablesClient.mapTableResponseToTableMetadata(getTableResponseBody);
+            () -> tablesClient.mapTableResponseToTableMetadata(getTableResponseBody))
+        .flatMap(
+            optionalTableMetadata -> {
               if (optionalTableMetadata.isPresent()) {
                 log.debug("Got table metadata for : {}", optionalTableMetadata.get());
-                return optionalTableMetadata.get();
+                return Mono.just(optionalTableMetadata.get());
+              } else {
+                return Mono.empty();
               }
-              return null;
+            })
+        .onErrorResume(
+            ex -> {
+              log.error("Error while fetching table metadata for : {}", getTableResponseBody, ex);
+              return Mono.empty();
             })
         .subscribeOn(
             Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler

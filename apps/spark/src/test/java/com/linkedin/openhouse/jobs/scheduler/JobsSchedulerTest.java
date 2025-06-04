@@ -7,9 +7,9 @@ import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
-import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfo;
-import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTask;
+import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfoManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskFactory;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOrphanFilesDeletionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableRetentionTask;
@@ -21,20 +21,14 @@ import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -68,11 +62,10 @@ public class JobsSchedulerTest {
       TableStatsCollectionTask.class;
   private Class<TableOrphanFilesDeletionTask> operationTaskClsOrphanFileDeletion =
       TableOrphanFilesDeletionTask.class;
-  private BlockingQueue<OperationTask<?>> operationTaskQueue = new LinkedBlockingQueue<>();
-  private BlockingQueue<JobInfo> submittedJobQueue = new LinkedBlockingQueue<>();
-  private AtomicLong operationTaskCount = new AtomicLong(0);
-  private AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
-  private Set<String> runningJobs = Collections.synchronizedSet(new HashSet<>());
+  private OperationTaskManager operationTaskManagerSnapshotExpiration;
+  private OperationTaskManager operationTaskManagerOrphanFileDeletion;
+  private JobInfoManager jobInfoManagerSnapshotExpiration;
+  private JobInfoManager jobInfoManagerOrphanFileDeletion;
   private List<String> databases = new ArrayList<>();
   private Map<String, GetAllTablesResponseBody> dbAllTables = new HashMap();
   private Map<GetAllTablesResponseBody, List<GetTableResponseBody>> allTablesBodyToGetTableList =
@@ -131,42 +124,43 @@ public class JobsSchedulerTest {
     statusExecutors =
         new ThreadPoolExecutor(
             2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+    operationTaskManagerSnapshotExpiration =
+        new OperationTaskManager(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    operationTaskManagerOrphanFileDeletion =
+        new OperationTaskManager(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION);
+    jobInfoManagerSnapshotExpiration = new JobInfoManager(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    jobInfoManagerOrphanFileDeletion =
+        new JobInfoManager(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION);
     jobsSchedulerSnapshotExpiration =
         new JobsScheduler(
             jobExecutors,
             statusExecutors,
             tasksFactorySnapshotExpiration,
             tablesClientFactory.create(),
-            new LinkedBlockingQueue<>(),
-            new LinkedBlockingQueue<>());
+            operationTaskManagerSnapshotExpiration,
+            jobInfoManagerSnapshotExpiration);
     jobsSchedulerOrphanFileDeletion =
         new JobsScheduler(
             jobExecutors,
             statusExecutors,
             tasksFactoryOrphanFileDeletion,
             tablesClientFactory.create(),
-            new LinkedBlockingQueue<>(),
-            new LinkedBlockingQueue<>());
+            operationTaskManagerOrphanFileDeletion,
+            jobInfoManagerOrphanFileDeletion);
     operationTasksBuilderSnapshotExpiration =
         new OperationTasksBuilder(
             tasksFactorySnapshotExpiration,
             tablesClient,
-            jobsSchedulerSnapshotExpiration.operationTaskQueue,
             2,
-            jobsSchedulerSnapshotExpiration.tableMetadataFetchCompleted,
-            jobsSchedulerSnapshotExpiration.operationTaskCount,
-            jobsSchedulerSnapshotExpiration.submittedJobQueue,
-            jobsSchedulerSnapshotExpiration.runningJobs);
+            jobsSchedulerSnapshotExpiration.operationTaskManager,
+            jobsSchedulerSnapshotExpiration.jobInfoManager);
     operationTasksBuilderOrphanFileDeletion =
         new OperationTasksBuilder(
             tasksFactoryOrphanFileDeletion,
             tablesClient,
-            jobsSchedulerOrphanFileDeletion.operationTaskQueue,
             2,
-            jobsSchedulerOrphanFileDeletion.tableMetadataFetchCompleted,
-            jobsSchedulerOrphanFileDeletion.operationTaskCount,
-            jobsSchedulerOrphanFileDeletion.submittedJobQueue,
-            jobsSchedulerOrphanFileDeletion.runningJobs);
+            jobsSchedulerSnapshotExpiration.operationTaskManager,
+            jobsSchedulerSnapshotExpiration.jobInfoManager);
     jobResponseBody = Mockito.mock(JobResponseBody.class);
   }
 
@@ -421,11 +415,10 @@ public class JobsSchedulerTest {
 
   @AfterEach
   public void reset() {
-    operationTaskQueue.clear();
-    runningJobs.clear();
-    tableMetadataFetchCompleted.set(false);
-    submittedJobQueue.clear();
-    operationTaskCount.set(0);
+    operationTaskManagerSnapshotExpiration.resetAll();
+    operationTaskManagerOrphanFileDeletion.resetAll();
+    jobInfoManagerSnapshotExpiration.resetAll();
+    jobInfoManagerOrphanFileDeletion.resetAll();
     jobExecutors =
         new ThreadPoolExecutor(
             2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());

@@ -7,9 +7,11 @@ import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfo;
+import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfoManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationMode;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskFactory;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableDirectoryOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOperationTask;
@@ -29,15 +31,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -47,7 +45,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -116,13 +113,10 @@ public class JobsScheduler {
   private final ThreadPoolExecutor statusExecutors;
   private final OperationTaskFactory<? extends OperationTask> taskFactory;
   private final TablesClient tablesClient;
-  protected final BlockingQueue<OperationTask<?>> operationTaskQueue;
-  protected AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
-  protected AtomicLong operationTaskCount = new AtomicLong(0);
-  protected final BlockingQueue<JobInfo> submittedJobQueue;
   private AtomicBoolean jobLaunchTasksSubmissionCompleted = new AtomicBoolean(false);
   private AtomicBoolean jobStatusTasksSubmissionCompleted = new AtomicBoolean(false);
-  protected Set<String> runningJobs = Collections.synchronizedSet(new HashSet<>());
+  protected final OperationTaskManager operationTaskManager;
+  protected final JobInfoManager jobInfoManager;
   private OperationTasksBuilder builder = null;
   protected Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
 
@@ -131,14 +125,14 @@ public class JobsScheduler {
       ThreadPoolExecutor statusExecutors,
       OperationTaskFactory<? extends OperationTask> taskFactory,
       TablesClient tablesClient,
-      BlockingQueue<OperationTask<?>> operationTaskQueue,
-      BlockingQueue<JobInfo> submittedJobQueue) {
+      OperationTaskManager operationTaskManager,
+      JobInfoManager jobInfoManager) {
     this.jobExecutors = jobExecutors;
     this.statusExecutors = statusExecutors;
     this.taskFactory = taskFactory;
     this.tablesClient = tablesClient;
-    this.operationTaskQueue = operationTaskQueue;
-    this.submittedJobQueue = submittedJobQueue;
+    this.operationTaskManager = operationTaskManager;
+    this.jobInfoManager = jobInfoManager;
   }
 
   public static void main(String[] args) {
@@ -190,18 +184,15 @@ public class JobsScheduler {
             statusExecutors,
             tasksFactory,
             tablesClientFactory.create(),
-            new LinkedBlockingQueue<>(),
-            new LinkedBlockingQueue<>());
+            new OperationTaskManager(operationType),
+            new JobInfoManager(operationType));
     OperationTasksBuilder builder =
         new OperationTasksBuilder(
             tasksFactory,
             app.tablesClient,
-            app.operationTaskQueue,
             getNumParallelMetadataFetch(cmdLine),
-            app.tableMetadataFetchCompleted,
-            app.operationTaskCount,
-            app.submittedJobQueue,
-            app.runningJobs);
+            app.operationTaskManager,
+            app.jobInfoManager);
     app.run(
         operationType,
         operationTaskCls.toString(),
@@ -274,12 +265,9 @@ public class JobsScheduler {
           new OperationTasksBuilder(
               taskFactory,
               tablesClient,
-              operationTaskQueue,
               numParallelMetadataFetch,
-              tableMetadataFetchCompleted,
-              operationTaskCount,
-              submittedJobQueue,
-              runningJobs);
+              operationTaskManager,
+              jobInfoManager);
     }
     log.info("Fetching task list based on the job type: {}", jobType);
     List<OperationTask<?>> taskList = new ArrayList<>();
@@ -722,8 +710,7 @@ public class JobsScheduler {
               int currentBatchSize = 0;
               do {
                 try {
-                  OperationTask<?> task =
-                      operationTaskQueue.poll(QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
+                  OperationTask<?> task = operationTaskManager.getData();
                   if (task != null) {
                     log.debug("Submitting job launch task {}", task);
                     taskList.add(task);
@@ -737,20 +724,20 @@ public class JobsScheduler {
                                   submitOperationPreSlaGracePeriodInMinutes))
                           - passedTimeMillis;
                   if (remainingTimeMillis <= 0) {
-                    if (!operationTaskQueue.isEmpty()) {
+                    if (!operationTaskManager.isEmpty()) {
                       log.info(
                           "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
                           TimeUnit.HOURS.toHours(passedTimeMillis),
                           jobType);
                       log.info(
                           "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
-                          operationTaskQueue.size(),
+                          operationTaskManager.getCurrentDataCount(),
                           jobType);
-                      operationTaskQueue.clear();
+                      operationTaskManager.clear();
                       break;
                     }
                   }
-                  if (runningJobs.size() >= concurrentJobsLimit
+                  if (jobInfoManager.runningJobsCount() >= concurrentJobsLimit
                       || currentBatchSize >= jobsSubmissionBatchSize) {
                     // Delay between job submission batches
                     Thread.sleep(jobSubmissionPauseInMillis);
@@ -761,7 +748,7 @@ public class JobsScheduler {
                       "Interrupted exception while polling from the operation task queue for job type: {}",
                       jobType);
                 }
-              } while (!(tableMetadataFetchCompleted.get() && operationTaskQueue.isEmpty()));
+              } while (operationTaskManager.hasNext());
             })
         .exceptionally(
             ex -> {
@@ -774,7 +761,7 @@ public class JobsScheduler {
             })
         .thenRun(
             () -> {
-              jobLaunchTasksSubmissionCompleted.set(true);
+              jobInfoManager.updateDataGenerationCompletion();
               log.info(
                   "The total jobs submitted: {} for the job type: {}", taskList.size(), jobType);
               // get job status from task future and update job state for SUBMIT mode
@@ -817,8 +804,7 @@ public class JobsScheduler {
             () -> {
               do {
                 try {
-                  JobInfo jobInfo =
-                      submittedJobQueue.poll(QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
+                  JobInfo jobInfo = jobInfoManager.getData();
                   log.debug("Received job info: {} from submitted job queue", jobInfo);
                   if (jobInfo != null) {
                     Optional<OperationTask<?>> optionalOperationTask =
@@ -839,16 +825,16 @@ public class JobsScheduler {
                                   statusOperationPreSlaGracePeriodInMinutes))
                           - passedTimeMillis;
                   if (remainingTimeMillis <= 0) {
-                    if (!submittedJobQueue.isEmpty()) {
+                    if (!jobInfoManager.isEmpty()) {
                       log.info(
                           "Reached job scheduler execution SLA while submitting job status tasks. Total time elapsed: {} hrs for job type: {}",
                           TimeUnit.HOURS.toHours(passedTimeMillis),
                           jobType);
                       log.info(
                           "The remaining jobs status tasks: {} could not be submitted due to SLA signal for job type: {}",
-                          submittedJobQueue.size(),
+                          jobInfoManager.getCurrentDataCount(),
                           jobType);
-                      submittedJobQueue.clear();
+                      jobInfoManager.clear();
                       break;
                     }
                   }
@@ -857,7 +843,7 @@ public class JobsScheduler {
                       "Interrupted exception while polling submitted jobs from the queue: {}",
                       jobType);
                 }
-              } while (!(jobLaunchTasksSubmissionCompleted.get() && submittedJobQueue.isEmpty()));
+              } while (jobInfoManager.hasNext());
             })
         .exceptionally(
             ex -> {
@@ -894,8 +880,7 @@ public class JobsScheduler {
       List<Future<Optional<JobState>>> taskFutures) {
     do {
       try {
-        OperationTask<?> task =
-            operationTaskQueue.poll(QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
+        OperationTask<?> task = operationTaskManager.getData();
         if (task != null) {
           log.debug("Submitting job launch task {}", task);
           taskList.add(task);
@@ -907,16 +892,16 @@ public class JobsScheduler {
                     - TimeUnit.MINUTES.toMillis(submitOperationPreSlaGracePeriodInMinutes))
                 - passedTimeMillis;
         if (remainingTimeMillis <= 0) {
-          if (!operationTaskQueue.isEmpty()) {
+          if (!operationTaskManager.isEmpty()) {
             log.info(
                 "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
                 TimeUnit.HOURS.toHours(passedTimeMillis),
                 jobType);
             log.info(
                 "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
-                operationTaskQueue.size(),
+                operationTaskManager.getCurrentDataCount(),
                 jobType);
-            operationTaskQueue.clear();
+            operationTaskManager.clear();
             break;
           }
         }
@@ -925,7 +910,7 @@ public class JobsScheduler {
             "Interrupted exception while polling from the operation task queue for job type: {}",
             jobType);
       }
-    } while (!(tableMetadataFetchCompleted.get() && operationTaskQueue.isEmpty()));
+    } while (operationTaskManager.hasNext());
     log.info(
         "The total operation tasks submitted: {} for the job type: {}", taskList.size(), jobType);
   }

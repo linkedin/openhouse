@@ -16,8 +16,6 @@ import io.opentelemetry.api.metrics.LongHistogram;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import lombok.AccessLevel;
@@ -57,15 +55,11 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   @Setter(AccessLevel.PACKAGE)
   @Getter(AccessLevel.NONE)
-  protected BlockingQueue<JobInfo> submittedJobQueue;
+  protected JobInfoManager jobInfoManager;
 
   @Setter(AccessLevel.PACKAGE)
   @Getter(AccessLevel.NONE)
   protected OperationMode operationMode;
-
-  @Setter(AccessLevel.PACKAGE)
-  @Getter(AccessLevel.NONE)
-  protected Set<String> runningJobs;
 
   protected OperationTask(
       JobsClient jobsClient,
@@ -192,8 +186,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   private void moveJobToSubmittedStage() {
     try {
       if (jobId != null) {
-        submittedJobQueue.put(new JobInfo(metadata, jobId));
-        runningJobs.add(jobId);
+        jobInfoManager.addData(new JobInfo(metadata, jobId));
       }
     } catch (InterruptedException e) {
       log.warn(
@@ -205,9 +198,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   }
 
   private void moveJobToCompletedStage() {
-    if (jobId != null && runningJobs.contains(jobId)) {
-      runningJobs.remove(jobId);
-    }
+    jobInfoManager.moveJobToCompletedStage(jobId);
   }
 
   private void reportJobState(
