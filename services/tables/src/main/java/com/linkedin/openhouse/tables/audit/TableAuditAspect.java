@@ -195,6 +195,38 @@ public class TableAuditAspect {
     return result;
   }
 
+  /** Install the Around advice for deleteTable() method in OpenHouseTablesApiHandler */
+  @Around(
+      "execution("
+          + "com.linkedin.openhouse.common.api.spec.ApiResponse<Void> "
+          + "com.linkedin.openhouse.tables.api.handler.TablesApiHandler.renameTable(..)) "
+          + "&& args(fromDatabaseId, fromTableId, toDatabaseId, toTableId, actingPrincipal)")
+  protected ApiResponse<Void> auditRenameTable(
+      ProceedingJoinPoint point,
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String actingPrincipal)
+      throws Throwable {
+    ApiResponse<Void> result = null;
+    TableAuditEvent event =
+        TableAuditEvent.builder()
+            .eventTimestamp(Instant.now())
+            .databaseName(fromDatabaseId)
+            .tableName(fromTableId)
+            .operationType(OperationType.RENAME)
+            .build();
+    try {
+      result = (ApiResponse<Void>) point.proceed();
+      buildAndSendEvent(event, OperationStatus.SUCCESS, null);
+    } catch (Throwable t) {
+      buildAndSendEvent(event, OperationStatus.FAILED, null);
+      throw t;
+    }
+    return result;
+  }
+
   /** Install the Around advice for updateAclPolicies() method in OpenHouseTablesApiHandler */
   @Around(
       "execution("

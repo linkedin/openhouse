@@ -223,6 +223,13 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     validateGetTable(databaseId, tableId);
   }
 
+  @Override
+  public void validateRenameTable(
+      String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
+    validateGetTable(fromDatabaseId, fromTableId);
+    validateGetTable(toDatabaseId, toTableId);
+  }
+
   @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateUpdateAclPolicies(

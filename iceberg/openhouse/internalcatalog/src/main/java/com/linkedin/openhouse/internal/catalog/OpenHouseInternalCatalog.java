@@ -20,7 +20,10 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseMetastoreCatalog;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.Transaction;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -128,7 +131,14 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
-    throw new UnsupportedOperationException("Rename Tables not implemented yet");
+    TableIdentifier fromTableId = TableIdentifier.of(from.namespace().toString(), from.name());
+    Table fromTable = loadTable(fromTableId);
+    Transaction transaction = fromTable.newTransaction();
+    UpdateProperties updateProperties = transaction.updateProperties();
+    updateProperties.set(CatalogConstants.OPENHOUSE_TABLEID_KEY, to.name());
+    updateProperties.set(CatalogConstants.OPENHOUSE_DATABASEID_KEY, to.namespace().toString());
+    updateProperties.commit();
+    transaction.commitTransaction();
   }
 
   /**
