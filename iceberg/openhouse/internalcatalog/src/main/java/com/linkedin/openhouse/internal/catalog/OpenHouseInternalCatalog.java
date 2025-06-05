@@ -6,6 +6,7 @@ import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -133,10 +134,18 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   public void renameTable(TableIdentifier from, TableIdentifier to) {
     TableIdentifier fromTableId = TableIdentifier.of(from.namespace().toString(), from.name());
     Table fromTable = loadTable(fromTableId);
+    String tableClusterId = fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    TableUri tableUri =
+        TableUri.builder()
+            .clusterId(tableClusterId)
+            .databaseId(to.namespace().toString())
+            .tableId(to.name())
+            .build();
     Transaction transaction = fromTable.newTransaction();
     UpdateProperties updateProperties = transaction.updateProperties();
     updateProperties.set(CatalogConstants.OPENHOUSE_TABLEID_KEY, to.name());
     updateProperties.set(CatalogConstants.OPENHOUSE_DATABASEID_KEY, to.namespace().toString());
+    updateProperties.set(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri.toString());
     updateProperties.commit();
     transaction.commitTransaction();
   }

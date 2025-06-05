@@ -278,6 +278,10 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertNotNull(loadedTable);
       Assertions.assertEquals(
           loadedTable.properties().get("client.table.schema"), SchemaParser.toJson(schema));
+      Assertions.assertEquals(
+          loadedTable.properties().get("openhouse.tableUri"),
+          "local-cluster.db.rename_test_renamed");
+
       Assertions.assertThrows(
           NoSuchTableException.class, () -> icebergCatalog.loadTable(fromTableIdentifier));
     }
