@@ -49,10 +49,10 @@ public class DatabasesServiceImpl implements DatabasesService {
 
     switch (updateAclPoliciesRequestBody.getOperation()) {
       case GRANT:
-        authorizationHandler.grantRole(role, granteePrincipal, databaseDto);
+        authorizationHandler.grantRole(role, granteePrincipal, databaseDto, actingPrincipal);
         break;
       case REVOKE:
-        authorizationHandler.revokeRole(role, granteePrincipal, databaseDto);
+        authorizationHandler.revokeRole(role, granteePrincipal, databaseDto, actingPrincipal);
         break;
       default:
         throw new UnsupportedOperationException("Only GRANT and REVOKE are supported");

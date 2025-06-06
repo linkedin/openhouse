@@ -63,7 +63,8 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
   }
 
   @Override
-  public void grantRole(String role, String principal, DatabaseDto databaseDto) {
+  public void grantRole(
+      String role, String principal, DatabaseDto databaseDto, String grantingPrincipal) {
     log.info(
         "Granting role {} to principal {} on database {}",
         role,
@@ -86,7 +87,8 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
       String principal,
       Long expirationEpochTimeSeconds,
       Map<String, String> properties,
-      TableDto tableDto) {
+      TableDto tableDto,
+      String grantingPrincipal) {
     log.info(
         "Granting role {} to principal {} on database {} table {}",
         role,
@@ -105,7 +107,8 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
   }
 
   @Override
-  public void revokeRole(String role, String principal, DatabaseDto databaseDto) {
+  public void revokeRole(
+      String role, String principal, DatabaseDto databaseDto, String revokingPrincipal) {
     log.info(
         "Revoking role {} from principal {} on database {}",
         role,
@@ -123,7 +126,8 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
   }
 
   @Override
-  public void revokeRole(String role, String principal, TableDto tableDto) {
+  public void revokeRole(
+      String role, String principal, TableDto tableDto, String revokingPrincipal) {
     log.info(
         "Revoking role {} from principal {} on database {} table {}",
         role,
