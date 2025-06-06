@@ -20,6 +20,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -48,8 +49,17 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   @Getter(AccessLevel.NONE)
   private final long timeoutMs;
 
+  @Setter(AccessLevel.PACKAGE)
   @Getter(AccessLevel.NONE)
   protected String jobId;
+
+  @Setter(AccessLevel.PACKAGE)
+  @Getter(AccessLevel.NONE)
+  protected JobInfoManager jobInfoManager;
+
+  @Setter(AccessLevel.PACKAGE)
+  @Getter(AccessLevel.NONE)
+  protected OperationMode operationMode;
 
   protected OperationTask(
       JobsClient jobsClient,
@@ -77,11 +87,6 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   /* Returns empty value iff the callable was interrupted by future cancel. */
   @Override
   public Optional<JobState> call() {
-    if (!shouldRun()) {
-      log.info("Skipping job for {}, since the operation doesn't need to be run", metadata);
-      return Optional.empty();
-    }
-    log.info("Launching job for {}", metadata);
     Attributes typeAttributes =
         Attributes.of(
             AttributeKey.stringKey(AppConstants.TYPE),
@@ -90,6 +95,28 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
                 ? AttributeKey.stringKey(AppConstants.TABLE_NAME)
                 : AttributeKey.stringKey(AppConstants.DATABASE_NAME)),
             metadata.getEntityName());
+    switch (operationMode) {
+      case SUBMIT:
+        Optional<JobState> submitJobState = submitJob(typeAttributes);
+        moveJobToSubmittedStage();
+        return submitJobState;
+      case POLL:
+        Optional<JobState> pollJobState = pollJobStatus(typeAttributes);
+        moveJobToCompletedStage();
+        return pollJobState;
+      case SINGLE:
+      default:
+        submitJob(typeAttributes);
+        return pollJobStatus(typeAttributes);
+    }
+  }
+
+  private Optional<JobState> submitJob(Attributes typeAttributes) {
+    if (!shouldRun()) {
+      log.info("Skipping job for {}, since the operation doesn't need to be run", metadata);
+      return Optional.empty();
+    }
+    log.info("Launching job for {}", metadata);
     try {
       OtelConfig.executeWithStats(
           () -> {
@@ -108,6 +135,10 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
       return Optional.empty();
     }
     log.info("Launched a job with id {} for {}", jobId, metadata);
+    return Optional.of(JobState.SUBMITTED);
+  }
+
+  private Optional<JobState> pollJobStatus(Attributes typeAttributes) {
     long startTime = System.currentTimeMillis();
     while (!jobFinished()) {
       long elapsedTime = System.currentTimeMillis() - startTime;
@@ -143,11 +174,31 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     }
     Optional<JobResponseBody> ret = jobsClient.getJob(jobId);
     if (ret.isPresent()) {
+      log.info(
+          "Job: {} for {} has reached terminal state: {}", jobId, metadata, ret.get().getState());
       reportJobState(ret.get(), typeAttributes, startTime);
     } else {
       log.warn("Job: {} for {} has empty state", jobId, metadata);
     }
     return Optional.of(Enum.valueOf(JobState.class, ret.get().getState().getValue()));
+  }
+
+  private void moveJobToSubmittedStage() {
+    try {
+      if (jobId != null) {
+        jobInfoManager.addData(new JobInfo(metadata, jobId));
+      }
+    } catch (InterruptedException e) {
+      log.warn(
+          "Interrupted while putting job to submitted job queue for metadata: {} and jobId: {}",
+          metadata,
+          jobId,
+          e);
+    }
+  }
+
+  private void moveJobToCompletedStage() {
+    jobInfoManager.moveJobToCompletedStage(jobId);
   }
 
   private void reportJobState(

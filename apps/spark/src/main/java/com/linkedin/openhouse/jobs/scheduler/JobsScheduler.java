@@ -6,8 +6,12 @@ import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
+import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfo;
+import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfoManager;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationMode;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskFactory;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableDirectoryOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOperationTask;
@@ -32,7 +36,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -40,7 +45,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -73,7 +77,13 @@ public class JobsScheduler {
   private static final int TABLE_MIN_AGE_THRESHOLD_HOURS_DEFAULT = 72;
   private static final boolean PARALLEL_METADATA_FETCH_MODE_DEFAULT = false;
   private static final int MAX_NUM_CONCURRENT_METADATA_FETCH_THREAD_DEFAULT = 20;
-  private static final int OPERATION_TASK_QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT = 1;
+  private static final int QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT = 1;
+  private static final int MAX_JOBS_SUBMITTER_DEFAULT = 50;
+  private static final int MAX_JOBS_POLLER_DEFAULT = 50;
+  private static final int JOB_SUBMISSION_PAUSE_IN_MILLIS_DEFAULT = 60000;
+  private static final int SUBMIT_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 30;
+  private static final int STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 15;
+
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
   private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());
@@ -100,22 +110,30 @@ public class JobsScheduler {
   private static final String SUPPORTED_OPERATIONS_STRING =
       String.join(",", OPERATIONS_REGISTRY.keySet());
 
-  private final ThreadPoolExecutor executors;
+  private final ThreadPoolExecutor jobExecutors;
+  private final ThreadPoolExecutor statusExecutors;
   private final OperationTaskFactory<? extends OperationTask> taskFactory;
   private final TablesClient tablesClient;
-  private final BlockingQueue<OperationTask<?>> operationTaskQueue;
-  private AtomicBoolean tableMetadataFetchCompleted = new AtomicBoolean(false);
-  private AtomicLong operationTaskCount = new AtomicLong(0);
+  private AtomicBoolean jobLaunchTasksSubmissionCompleted = new AtomicBoolean(false);
+  private AtomicBoolean jobStatusTasksSubmissionCompleted = new AtomicBoolean(false);
+  protected final OperationTaskManager operationTaskManager;
+  protected final JobInfoManager jobInfoManager;
+  private OperationTasksBuilder builder = null;
+  protected Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
 
   public JobsScheduler(
-      ThreadPoolExecutor executors,
+      ThreadPoolExecutor jobExecutors,
+      ThreadPoolExecutor statusExecutors,
       OperationTaskFactory<? extends OperationTask> taskFactory,
       TablesClient tablesClient,
-      BlockingQueue<OperationTask<?>> operationTaskQueue) {
-    this.executors = executors;
+      OperationTaskManager operationTaskManager,
+      JobInfoManager jobInfoManager) {
+    this.jobExecutors = jobExecutors;
+    this.statusExecutors = statusExecutors;
     this.taskFactory = taskFactory;
     this.tablesClient = tablesClient;
-    this.operationTaskQueue = operationTaskQueue;
+    this.operationTaskManager = operationTaskManager;
+    this.jobInfoManager = jobInfoManager;
   }
 
   public static void main(String[] args) {
@@ -135,24 +153,94 @@ public class JobsScheduler {
                 OperationTask.POLL_INTERVAL_MS_DEFAULT),
             NumberUtils.toLong(
                 cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.TIMEOUT_MS_DEFAULT));
-    ThreadPoolExecutor executors =
-        new ThreadPoolExecutor(
-            getNumParallelJobs(cmdLine),
-            getNumParallelJobs(cmdLine),
-            0L,
-            TimeUnit.MILLISECONDS,
-            new LinkedBlockingQueue<Runnable>());
+    ThreadPoolExecutor jobExecutors = null;
+    ThreadPoolExecutor statusExecutors = null;
+    if (isMultiOperationMode(cmdLine)) {
+      jobExecutors =
+          new ThreadPoolExecutor(
+              getNumJobsSubmitter(cmdLine),
+              getNumJobsSubmitter(cmdLine),
+              0L,
+              TimeUnit.MILLISECONDS,
+              new LinkedBlockingQueue<Runnable>());
+      statusExecutors =
+          new ThreadPoolExecutor(
+              getNumJobsPoller(cmdLine),
+              getNumJobsPoller(cmdLine),
+              0L,
+              TimeUnit.MILLISECONDS,
+              new LinkedBlockingQueue<Runnable>());
+    } else {
+      jobExecutors =
+          new ThreadPoolExecutor(
+              getNumParallelJobs(cmdLine),
+              getNumParallelJobs(cmdLine),
+              0L,
+              TimeUnit.MILLISECONDS,
+              new LinkedBlockingQueue<Runnable>());
+    }
     JobsScheduler app =
         new JobsScheduler(
-            executors, tasksFactory, tablesClientFactory.create(), new LinkedBlockingQueue<>());
+            jobExecutors,
+            statusExecutors,
+            tasksFactory,
+            tablesClientFactory.create(),
+            new OperationTaskManager(operationType),
+            new JobInfoManager(operationType));
+    OperationTasksBuilder builder =
+        new OperationTasksBuilder(
+            tasksFactory,
+            app.tablesClient,
+            getNumParallelMetadataFetch(cmdLine),
+            app.operationTaskManager,
+            app.jobInfoManager);
     app.run(
         operationType,
         operationTaskCls.toString(),
         properties,
+        builder,
         isDryRun(cmdLine),
         getTasksWaitHours(cmdLine),
         isParallelMetadataFetchModeEnabled(cmdLine),
-        getNumParallelMetadataFetch(cmdLine));
+        getNumParallelMetadataFetch(cmdLine),
+        isMultiOperationMode(cmdLine),
+        getConcurrentJobsLimit(cmdLine),
+        getNumJobsSubmitter(cmdLine),
+        getJobSubmissionPauseInMillis(cmdLine),
+        getSubmitOperationPreSlaGracePeriodInMinutes(cmdLine),
+        getStatusOperationPreSlaGracePeriodInMinutes(cmdLine));
+  }
+
+  protected void run(
+      JobConf.JobTypeEnum jobType,
+      String taskType,
+      Properties properties,
+      OperationTasksBuilder builder,
+      boolean isDryRun,
+      int tasksWaitHours,
+      boolean parallelMetadataFetchMode,
+      int numParallelMetadataFetch,
+      boolean isMultiOperationMode,
+      int concurrentJobsLimit,
+      int jobsSubmissionBatchSize,
+      int jobSubmissionPauseInMillis,
+      int submitOperationPreSlaGracePeriodInMinutes,
+      int statusOperationPreSlaGracePeriodInMinutes) {
+    this.builder = builder;
+    this.run(
+        jobType,
+        taskType,
+        properties,
+        isDryRun,
+        tasksWaitHours,
+        parallelMetadataFetchMode,
+        numParallelMetadataFetch,
+        isMultiOperationMode,
+        concurrentJobsLimit,
+        jobsSubmissionBatchSize,
+        jobSubmissionPauseInMillis,
+        submitOperationPreSlaGracePeriodInMinutes,
+        statusOperationPreSlaGracePeriodInMinutes);
   }
 
   protected void run(
@@ -162,64 +250,103 @@ public class JobsScheduler {
       boolean isDryRun,
       int tasksWaitHours,
       boolean parallelMetadataFetchMode,
-      int numParallelMetadataFetch) {
+      int numParallelMetadataFetch,
+      boolean isMultiOperationMode,
+      int concurrentJobsLimit,
+      int jobsSubmissionBatchSize,
+      int jobSubmissionPauseInMillis,
+      int submitOperationPreSlaGracePeriodInMinutes,
+      int statusOperationPreSlaGracePeriodInMinutes) {
     long startTimeMillis = System.currentTimeMillis();
     METER.counterBuilder("scheduler_start_count").build().add(1);
-    Map<JobState, Integer> jobStateCountMap = new HashMap<>();
+    jobStateCountMap = new ConcurrentHashMap<>();
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
-
+    if (builder == null) {
+      builder =
+          new OperationTasksBuilder(
+              taskFactory,
+              tablesClient,
+              numParallelMetadataFetch,
+              operationTaskManager,
+              jobInfoManager);
+    }
     log.info("Fetching task list based on the job type: {}", jobType);
     List<OperationTask<?>> taskList = new ArrayList<>();
+    List<OperationTask<?>> statusTaskList = new ArrayList<>();
     List<Future<Optional<JobState>>> taskFutures = new ArrayList<>();
-    // Fetch metadata and submit jobs
-    fetchMetadataAndSubmitTasks(
-        jobType,
-        properties,
-        isDryRun,
-        parallelMetadataFetchMode,
-        numParallelMetadataFetch,
-        taskList,
-        taskFutures);
-
-    int emptyStateJobCount = 0;
-    for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
-      Optional<JobState> jobState = Optional.empty();
-      OperationTask<?> task = taskList.get(taskIndex);
-      Future<Optional<JobState>> taskFuture = taskFutures.get(taskIndex);
-      try {
-        long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        long remainingTimeMillis = TimeUnit.HOURS.toMillis(tasksWaitHours) - passedTimeMillis;
-        jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
-      } catch (ExecutionException e) {
-        log.error(String.format("Operation for %s failed with exception", task), e);
-        jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
-      } catch (InterruptedException e) {
-        throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
-      } catch (TimeoutException e) {
-        // Clear queue to stop internal tasks submission
-        if (!executors.getQueue().isEmpty()) {
-          log.warn(
-              "Drops {} tasks for job type {} from wait queue due to timeout",
-              executors.getQueue().size(),
-              jobType);
-          executors.getQueue().clear();
+    List<Future<Optional<JobState>>> statusTaskFutures = new ArrayList<>();
+    // Sets the default operation mode as existing SINGLE
+    OperationMode operationMode = OperationMode.SINGLE;
+    // If Parallel metadata fetch mode and multi operation mode both are enable table metadata is
+    // fetched in parallel
+    // and jobs submission works in SUBMIT and POLL mode.
+    if (parallelMetadataFetchMode && isMultiOperationMode) {
+      operationMode = OperationMode.SUBMIT;
+      // table metadata is fetched in parallel and add to a queue. On the other, hand
+      // metadata is read from queue and jobs are submitted in parallel as they arrive.
+      // Asynchronously fetches operation tasks and adds them to a queue
+      builder.buildOperationTaskListInParallel(jobType, operationMode);
+      log.info("Submitting and running jobs for job type: {}", jobType);
+      // Asynchronously submit jobs
+      submitLaunchJobTasks(
+          jobType,
+          jobExecutors,
+          concurrentJobsLimit,
+          jobsSubmissionBatchSize,
+          jobSubmissionPauseInMillis,
+          startTimeMillis,
+          tasksWaitHours,
+          submitOperationPreSlaGracePeriodInMinutes,
+          taskList,
+          taskFutures);
+      // Submit status check jobs
+      CompletableFuture<Void> completableFuture =
+          submitJobStatusTasks(
+              jobType,
+              statusExecutors,
+              startTimeMillis,
+              tasksWaitHours,
+              statusOperationPreSlaGracePeriodInMinutes,
+              statusTaskList,
+              statusTaskFutures);
+      // Wait on the main thread for status check job completion
+      completableFuture.join();
+    } else if (parallelMetadataFetchMode) {
+      // Table metadata is fetched in parallel and job submission works in SINGLE mode
+      builder.buildOperationTaskListInParallel(jobType, operationMode);
+      submitJobs(
+          jobType,
+          jobExecutors,
+          startTimeMillis,
+          tasksWaitHours,
+          submitOperationPreSlaGracePeriodInMinutes,
+          taskList,
+          taskFutures);
+      // get job status from task future and update job state for SINGLE mode
+      updateJobStateFromTaskFutures(
+          jobType, jobExecutors, taskList, taskFutures, startTimeMillis, tasksWaitHours, false);
+    } else {
+      // Sequential metadata fetch continues to work with existing SINGLE operation mode.
+      // all the table metadata are fetched first and then jobs are submitted.
+      taskList = builder.buildOperationTaskList(jobType, properties, METER, operationMode);
+      if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
+        log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
+        for (OperationTask<?> operationTask : taskList) {
+          log.info("Task {}", operationTask);
         }
-        log.warn(
-            "Attempting to cancel job for {} because of timeout of {} hours", task, tasksWaitHours);
-        if (taskFuture.cancel(true)) {
-          log.warn("Cancelled job for {} because of timeout of {} hours", task, tasksWaitHours);
-        }
-      } finally {
-        if (jobState.isPresent()) {
-          jobStateCountMap.put(jobState.get(), jobStateCountMap.get(jobState.get()) + 1);
-        } else if (taskFuture.isCancelled()) {
-          jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
-        } else {
-          // Jobs that are skipped due to replica or missing retention policy, etc.
-          emptyStateJobCount++;
-        }
+        return;
       }
+      log.info(
+          "Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
+
+      for (OperationTask<?> operationTask : taskList) {
+        taskFutures.add(jobExecutors.submit(operationTask));
+      }
+      // get job status from task future and update job state for SINGLE mode
+      updateJobStateFromTaskFutures(
+          jobType, jobExecutors, taskList, taskFutures, startTimeMillis, tasksWaitHours, false);
     }
+
     log.info(
         "Finishing scheduler for job type {}, tasks stats: {} created, {} succeeded,"
             + " {} cancelled (timeout), {} failed, {} skipped (no state)",
@@ -228,8 +355,16 @@ public class JobsScheduler {
         jobStateCountMap.get(JobState.SUCCEEDED),
         jobStateCountMap.get(JobState.CANCELLED),
         jobStateCountMap.get(JobState.FAILED),
-        emptyStateJobCount);
-    executors.shutdown();
+        jobStateCountMap.get(JobState.SKIPPED));
+    long totalRunDuration = TimeUnit.HOURS.toHours(System.currentTimeMillis() - startTimeMillis);
+    log.info(
+        "The total run duration of job scheduler for job type {} is : {} hours",
+        jobType,
+        totalRunDuration);
+    jobExecutors.shutdown();
+    if (statusExecutors != null) {
+      statusExecutors.shutdown();
+    }
     METER.counterBuilder("scheduler_end_count").build().add(1);
     reportMetrics(jobStateCountMap, taskType, startTimeMillis);
   }
@@ -401,6 +536,56 @@ public class JobsScheduler {
             .longOpt("numParallelMetadataFetch")
             .desc("Number of threads to run in parallel for metadata fetch")
             .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("multiOperationMode")
+            .desc(
+                "Is job submission and status polling done in different mode for maximum throughput")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("numJobsSubmitter")
+            .desc("Number of threads to run in parallel for jobs submission")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("numJobsPoller")
+            .desc("Number of threads to run in parallel for polling jobs status")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("jobSubmissionPauseInMillis")
+            .desc("Pause in milliseconds between submission batches")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("queuePollTimeoutInMinutes")
+            .desc("Queue poll timeout in minutes")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("submitOperationPreSlaGracePeriodInMinutes")
+            .desc("Pre sla grace period in minutes to stop submitting new jobs")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("statusOperationPreSlaGracePeriodInMinutes")
+            .desc("Pre sla grace period in minutes to stop submitting new status check jobs")
+            .build());
     CommandLineParser parser = new BasicParser();
     try {
       return parser.parse(options, args);
@@ -495,71 +680,240 @@ public class JobsScheduler {
   }
 
   /**
-   * Fetches table metadata in parallel or sequential based on parallelMetadataFetchMode flag. For
-   * parallel mode table metadata is fetched in parallel and add to a queue. On the other, hand
-   * metadata is read from queue and jobs are submitted in parallel as they arrive. For sequential
-   * mode all the table metadata are fetched first and then jobs are submitted.
+   * Submits tasks to launch jobs. Polls from the operation tasks queue and submits jobs. On jobs
+   * submit completion collects status on the futures.
    *
    * @param jobType
-   * @param properties
-   * @param isDryRun
-   * @param parallelMetadataFetchMode
-   * @param numParallelMetadataFetch
+   * @param jobExecutors
+   * @param concurrentJobsLimit
+   * @param jobsSubmissionBatchSize
+   * @param jobSubmissionPauseInMillis
+   * @param startTimeMillis
+   * @param tasksWaitHours
+   * @param submitOperationPreSlaGracePeriodInMinutes
    * @param taskList
    * @param taskFutures
    */
-  private void fetchMetadataAndSubmitTasks(
+  private void submitLaunchJobTasks(
       JobConf.JobTypeEnum jobType,
-      Properties properties,
-      boolean isDryRun,
-      boolean parallelMetadataFetchMode,
-      int numParallelMetadataFetch,
+      ThreadPoolExecutor jobExecutors,
+      int concurrentJobsLimit,
+      int jobsSubmissionBatchSize,
+      int jobSubmissionPauseInMillis,
+      long startTimeMillis,
+      int tasksWaitHours,
+      int submitOperationPreSlaGracePeriodInMinutes,
       List<OperationTask<?>> taskList,
       List<Future<Optional<JobState>>> taskFutures) {
-    OperationTasksBuilder builder =
-        new OperationTasksBuilder(
-            taskFactory,
-            tablesClient,
-            operationTaskQueue,
-            numParallelMetadataFetch,
-            tableMetadataFetchCompleted,
-            operationTaskCount);
-    if (parallelMetadataFetchMode) {
-      // Asynchronously fetches operation tasks and adds them to a queue
-      builder.buildOperationTaskListInParallel(jobType);
-      // fetch operation tasks from queue and submits jobs until terminate signal and queue is empty
-      do {
-        try {
-          OperationTask<?> task =
-              operationTaskQueue.poll(
-                  OPERATION_TASK_QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT, TimeUnit.MINUTES);
-          if (task != null) {
-            taskList.add(task);
-            taskFutures.add(executors.submit(task));
-          }
-        } catch (InterruptedException e) {
-          log.warn("Interrupted exception while polling from the queue: {}", jobType);
-        }
-      } while (!(tableMetadataFetchCompleted.get() && operationTaskQueue.isEmpty()));
-      log.info("The metadata fetched count: {} for the job type: {}", operationTaskCount, jobType);
-      log.info(
-          "The total operation tasks submitted: {} for the job type: {}", taskList.size(), jobType);
-    } else {
-      taskList = builder.buildOperationTaskList(jobType, properties, METER);
-      if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
-        log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
-        for (OperationTask<?> operationTask : taskList) {
-          log.info("Task {}", operationTask);
-        }
-        return;
-      }
-      log.info(
-          "Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
+    // fetch operation tasks from queue and submits jobs until terminate signal and queue is empty
+    CompletableFuture.runAsync(
+            () -> {
+              int currentBatchSize = 0;
+              do {
+                try {
+                  OperationTask<?> task = operationTaskManager.getData();
+                  if (task != null) {
+                    log.debug("Submitting job launch task {}", task);
+                    taskList.add(task);
+                    taskFutures.add(jobExecutors.submit(task));
+                    ++currentBatchSize;
+                  }
+                  long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
+                  long remainingTimeMillis =
+                      (TimeUnit.HOURS.toMillis(tasksWaitHours)
+                              - TimeUnit.MINUTES.toMillis(
+                                  submitOperationPreSlaGracePeriodInMinutes))
+                          - passedTimeMillis;
+                  if (remainingTimeMillis <= 0) {
+                    if (!operationTaskManager.isEmpty()) {
+                      log.info(
+                          "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
+                          TimeUnit.HOURS.toHours(passedTimeMillis),
+                          jobType);
+                      log.info(
+                          "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
+                          operationTaskManager.getCurrentDataCount(),
+                          jobType);
+                      operationTaskManager.clear();
+                      break;
+                    }
+                  }
+                  if (jobInfoManager.runningJobsCount() >= concurrentJobsLimit
+                      || currentBatchSize >= jobsSubmissionBatchSize) {
+                    // Delay between job submission batches
+                    Thread.sleep(jobSubmissionPauseInMillis);
+                    currentBatchSize = 0;
+                  }
+                } catch (InterruptedException e) {
+                  log.warn(
+                      "Interrupted exception while polling from the operation task queue for job type: {}",
+                      jobType);
+                }
+              } while (operationTaskManager.hasNext());
+            })
+        .exceptionally(
+            ex -> {
+              log.info(
+                  "Exception occurred while submitting jobs for job type: {}, exception: ",
+                  jobType,
+                  ex);
+              return null; // recover from the exception (if there is any) with null and the chain
+              // completes normally
+            })
+        .thenRun(
+            () -> {
+              jobInfoManager.updateDataGenerationCompletion();
+              log.info(
+                  "The total jobs submitted: {} for the job type: {}", taskList.size(), jobType);
+              // get job status from task future and update job state for SUBMIT mode
+              updateJobStateFromTaskFutures(
+                  jobType,
+                  jobExecutors,
+                  taskList,
+                  taskFutures,
+                  startTimeMillis,
+                  tasksWaitHours,
+                  true);
+            });
+  }
 
-      for (OperationTask<?> operationTask : taskList) {
-        taskFutures.add(executors.submit(operationTask));
+  /**
+   * Submits status jobs to check the status of the launched jobs. Polls the submitted jobs from the
+   * submit queue and submits status checks jobs. On status jobs submit completion collects status
+   * on the futures.
+   *
+   * @param jobType
+   * @param statusExecutors
+   * @param startTimeMillis
+   * @param tasksWaitHours
+   * @param statusOperationPreSlaGracePeriodInMinutes
+   * @param statusTaskList
+   * @param statusTaskFutures
+   * @return CompletableFuture
+   */
+  private CompletableFuture<Void> submitJobStatusTasks(
+      JobConf.JobTypeEnum jobType,
+      ThreadPoolExecutor statusExecutors,
+      long startTimeMillis,
+      int tasksWaitHours,
+      int statusOperationPreSlaGracePeriodInMinutes,
+      List<OperationTask<?>> statusTaskList,
+      List<Future<Optional<JobState>>> statusTaskFutures) {
+    // fetch submitted jobs from queue and submits status check jobs until terminate signal and
+    // queue is empty
+    return CompletableFuture.runAsync(
+            () -> {
+              do {
+                try {
+                  JobInfo jobInfo = jobInfoManager.getData();
+                  log.debug("Received job info: {} from submitted job queue", jobInfo);
+                  if (jobInfo != null) {
+                    Optional<OperationTask<?>> optionalOperationTask =
+                        builder.createStatusOperationTask(
+                            jobType, jobInfo.getMetadata(), jobInfo.getJobId(), OperationMode.POLL);
+                    if (optionalOperationTask.isPresent()) {
+                      log.info("Submitting status task {}", optionalOperationTask.get());
+                      statusTaskList.add(optionalOperationTask.get());
+                      Future<Optional<JobState>> futureTask =
+                          statusExecutors.submit(optionalOperationTask.get());
+                      statusTaskFutures.add(futureTask);
+                    }
+                  }
+                  long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
+                  long remainingTimeMillis =
+                      (TimeUnit.HOURS.toMillis(tasksWaitHours)
+                              - TimeUnit.MINUTES.toMillis(
+                                  statusOperationPreSlaGracePeriodInMinutes))
+                          - passedTimeMillis;
+                  if (remainingTimeMillis <= 0) {
+                    if (!jobInfoManager.isEmpty()) {
+                      log.info(
+                          "Reached job scheduler execution SLA while submitting job status tasks. Total time elapsed: {} hrs for job type: {}",
+                          TimeUnit.HOURS.toHours(passedTimeMillis),
+                          jobType);
+                      log.info(
+                          "The remaining jobs status tasks: {} could not be submitted due to SLA signal for job type: {}",
+                          jobInfoManager.getCurrentDataCount(),
+                          jobType);
+                      jobInfoManager.clear();
+                      break;
+                    }
+                  }
+                } catch (InterruptedException e) {
+                  log.warn(
+                      "Interrupted exception while polling submitted jobs from the queue: {}",
+                      jobType);
+                }
+              } while (jobInfoManager.hasNext());
+            })
+        .exceptionally(
+            ex -> {
+              log.info(
+                  "Exception occurred while submitting status tasks for job type: {}, exception: ",
+                  jobType,
+                  ex);
+              return null; // recover from the exception (if there is any) with null and the chain
+              // completes normally
+            })
+        .thenRun(
+            () -> {
+              jobStatusTasksSubmissionCompleted.set(true);
+              log.info("Job status check tasks submission completed for job type: {}", jobType);
+              // get job status from task future and update job state for STATUS mode
+              updateJobStateFromTaskFutures(
+                  jobType,
+                  statusExecutors,
+                  statusTaskList,
+                  statusTaskFutures,
+                  startTimeMillis,
+                  tasksWaitHours,
+                  false);
+            });
+  }
+
+  private void submitJobs(
+      JobConf.JobTypeEnum jobType,
+      ThreadPoolExecutor jobExecutors,
+      long startTimeMillis,
+      int tasksWaitHours,
+      int submitOperationPreSlaGracePeriodInMinutes,
+      List<OperationTask<?>> taskList,
+      List<Future<Optional<JobState>>> taskFutures) {
+    do {
+      try {
+        OperationTask<?> task = operationTaskManager.getData();
+        if (task != null) {
+          log.debug("Submitting job launch task {}", task);
+          taskList.add(task);
+          taskFutures.add(jobExecutors.submit(task));
+        }
+        long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
+        long remainingTimeMillis =
+            (TimeUnit.HOURS.toMillis(tasksWaitHours)
+                    - TimeUnit.MINUTES.toMillis(submitOperationPreSlaGracePeriodInMinutes))
+                - passedTimeMillis;
+        if (remainingTimeMillis <= 0) {
+          if (!operationTaskManager.isEmpty()) {
+            log.info(
+                "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
+                TimeUnit.HOURS.toHours(passedTimeMillis),
+                jobType);
+            log.info(
+                "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
+                operationTaskManager.getCurrentDataCount(),
+                jobType);
+            operationTaskManager.clear();
+            break;
+          }
+        }
+      } catch (InterruptedException e) {
+        log.warn(
+            "Interrupted exception while polling from the operation task queue for job type: {}",
+            jobType);
       }
-    }
+    } while (operationTaskManager.hasNext());
+    log.info(
+        "The total operation tasks submitted: {} for the job type: {}", taskList.size(), jobType);
   }
 
   protected static int getNumParallelMetadataFetch(CommandLine cmdLine) {
@@ -575,5 +929,112 @@ public class JobsScheduler {
       return Boolean.parseBoolean(cmdLine.getOptionValue("parallelMetadataFetchMode"));
     }
     return PARALLEL_METADATA_FETCH_MODE_DEFAULT;
+  }
+
+  protected static boolean isMultiOperationMode(CommandLine cmdLine) {
+    if (cmdLine.hasOption("multiOperationMode")) {
+      return Boolean.parseBoolean(cmdLine.getOptionValue("multiOperationMode"));
+    }
+    return false;
+  }
+
+  protected static int getNumJobsSubmitter(CommandLine cmdLine) {
+    if (cmdLine.hasOption("numJobsSubmitter")) {
+      return Integer.parseInt(cmdLine.getOptionValue("numJobsSubmitter"));
+    }
+    return MAX_JOBS_SUBMITTER_DEFAULT;
+  }
+
+  protected static int getNumJobsPoller(CommandLine cmdLine) {
+    if (cmdLine.hasOption("numJobsPoller")) {
+      return Integer.parseInt(cmdLine.getOptionValue("numJobsPoller"));
+    }
+    return MAX_JOBS_POLLER_DEFAULT;
+  }
+
+  protected static int getConcurrentJobsLimit(CommandLine cmdLine) {
+    if (cmdLine.hasOption("concurrentJobsLimit")) {
+      return Integer.parseInt(cmdLine.getOptionValue("concurrentJobsLimit"));
+    }
+    return MAX_NUM_CONCURRENT_JOBS_DEFAULT;
+  }
+
+  protected static int getJobSubmissionPauseInMillis(CommandLine cmdLine) {
+    if (cmdLine.hasOption("jobSubmissionPauseInMillis")) {
+      return Integer.parseInt(cmdLine.getOptionValue("jobSubmissionPauseInMillis"));
+    }
+    return JOB_SUBMISSION_PAUSE_IN_MILLIS_DEFAULT;
+  }
+
+  protected static int getQueuePollTimeoutInMinutes(CommandLine cmdLine) {
+    if (cmdLine.hasOption("queuePollTimeoutInMinutes")) {
+      return Integer.parseInt(cmdLine.getOptionValue("queuePollTimeoutInMinutes"));
+    }
+    return QUEUE_POLL_TIMEOUT_MINUTES_DEFAULT;
+  }
+
+  protected static int getSubmitOperationPreSlaGracePeriodInMinutes(CommandLine cmdLine) {
+    if (cmdLine.hasOption("submitOperationPreSlaGracePeriodInMinutes")) {
+      return Integer.parseInt(cmdLine.getOptionValue("submitOperationPreSlaGracePeriodInMinutes"));
+    }
+    return SUBMIT_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT;
+  }
+
+  protected static int getStatusOperationPreSlaGracePeriodInMinutes(CommandLine cmdLine) {
+    if (cmdLine.hasOption("statusOperationPreSlaGracePeriodInMinutes")) {
+      return Integer.parseInt(cmdLine.getOptionValue("statusOperationPreSlaGracePeriodInMinutes"));
+    }
+    return STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT;
+  }
+
+  private void updateJobStateFromTaskFutures(
+      JobConf.JobTypeEnum jobType,
+      ThreadPoolExecutor executors,
+      List<OperationTask<?>> taskList,
+      List<Future<Optional<JobState>>> taskFutures,
+      long startTimeMillis,
+      int tasksWaitHours,
+      boolean skipStateCountUpdate) {
+    for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
+      Optional<JobState> jobState = Optional.empty();
+      OperationTask<?> task = taskList.get(taskIndex);
+      Future<Optional<JobState>> taskFuture = taskFutures.get(taskIndex);
+      try {
+        long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
+        long remainingTimeMillis = TimeUnit.HOURS.toMillis(tasksWaitHours) - passedTimeMillis;
+        jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
+      } catch (ExecutionException e) {
+        log.error(String.format("Operation for %s failed with exception", task), e);
+        jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
+      } catch (InterruptedException e) {
+        throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
+      } catch (TimeoutException e) {
+        // Clear queue to stop internal tasks submission
+        if (!executors.getQueue().isEmpty()) {
+          log.warn(
+              "Drops {} tasks for job type {} from wait queue due to timeout",
+              executors.getQueue().size(),
+              jobType);
+          executors.getQueue().clear();
+        }
+        log.warn(
+            "Attempting to cancel job for {} because of timeout of {} hours", task, tasksWaitHours);
+        if (taskFuture.cancel(true)) {
+          log.warn("Cancelled job for {} because of timeout of {} hours", task, tasksWaitHours);
+        }
+      } finally {
+        if (!skipStateCountUpdate) {
+          if (jobState.isPresent()) {
+            jobStateCountMap.put(jobState.get(), jobStateCountMap.get(jobState.get()) + 1);
+          } else if (taskFuture.isCancelled()) {
+            jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
+          } else {
+            // Jobs that are skipped due to replica or missing retention policy, etc.
+            jobStateCountMap.put(JobState.SKIPPED, jobStateCountMap.get(JobState.SKIPPED) + 1);
+          }
+        }
+      }
+    }
+    log.info("Completed collecting jobs state on futures for job type {}", jobType);
   }
 }
