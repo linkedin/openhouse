@@ -83,6 +83,7 @@ public class JobsScheduler {
   private static final int JOB_SUBMISSION_PAUSE_IN_MILLIS_DEFAULT = 60000;
   private static final int SUBMIT_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 30;
   private static final int STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 15;
+
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
   private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());

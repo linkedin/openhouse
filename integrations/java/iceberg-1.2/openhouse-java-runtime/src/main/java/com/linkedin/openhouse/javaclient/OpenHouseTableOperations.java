@@ -70,6 +70,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private static final String UPDATED_OPENHOUSE_POLICY_KEY = "updated.openhouse.policy";
   private static final String OPENHOUSE_TABLE_TYPE_KEY = "openhouse.tableType";
   private static final String OPENHOUSE_CLUSTER_ID_KEY = "openhouse.clusterId";
+  private static final String TBL_IS_REPLICATED_KEY = "openhouse.isTableReplicated";
   private static final String POLICIES_KEY = "policies";
   static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
 
@@ -181,6 +182,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     if (metadata.properties() != null
         && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
       createUpdateTableRequestBody.setTableType(getTableType(base, metadata));
+    }
+    // If base table is a replicated table, retain the property from base table
+    if (base != null && base.properties().containsKey(TBL_IS_REPLICATED_KEY)) {
+      Map<String, String> newTblProperties = createUpdateTableRequestBody.getTableProperties();
+      newTblProperties.put(TBL_IS_REPLICATED_KEY, base.properties().get(TBL_IS_REPLICATED_KEY));
+      createUpdateTableRequestBody.setTableProperties(newTblProperties);
     }
     return createUpdateTableRequestBody;
   }

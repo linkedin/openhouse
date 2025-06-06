@@ -438,4 +438,58 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity.metadataLocation", is(equalTo(TEST_TUPLE_1_0.getTableLoc()))))
         .andExpect(jsonPath("$.entity.storageType", is(equalTo(TEST_DEFAULT_STORAGE_TYPE))));
   }
+
+  @Test
+  public void testRenameUserTable() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", TEST_DB_ID)
+                .param("fromTableId", TEST_TABLE_ID)
+                .param("toDatabaseId", TEST_DB_ID)
+                .param("toTableId", TEST_TABLE_ID + "_renamed")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+  }
+
+  @Test
+  public void testRenameUserTableFails() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", TEST_DB_ID)
+                .param("fromTableId", NON_EXISTED_TABLE)
+                .param("toDatabaseId", TEST_DB_ID)
+                .param("toTableId", TEST_TABLE_ID + "_renamed")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isNotFound());
+
+    // Currently we don't support renaming a table across databases.
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", TEST_DB_ID)
+                .param("fromTableId", TEST_TABLE_ID)
+                .param("toDatabaseId", TEST_DB_ID + "_renamed")
+                .param("toTableId", TEST_TABLE_ID + "_renamed")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isBadRequest());
+
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", TEST_DB_ID)
+                .param("fromTableId", TEST_TABLE_ID)
+                .param("toDatabaseId", TEST_DB_ID)
+                .param("toTableId", TEST_TABLE_ID)
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isBadRequest());
+
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", TEST_DB_ID)
+                .param("fromTableId", TEST_TABLE_ID)
+                .param("toDatabaseId", TEST_TUPLE_2_0.getDatabaseId())
+                .param("toTableId", TEST_TUPLE_2_0.getTableId())
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isConflict());
+  }
 }

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.housetables.e2e.usertable;
 import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants.*;
 import static org.assertj.core.api.Assertions.*;
 
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
@@ -334,6 +335,56 @@ public class UserTablesServiceTest {
     assertThat(result.getSecond()).isTrue();
     assertThat(result.getFirst().getMetadataLocation()).isEqualTo(modifiedLocation);
     assertThat(result.getFirst().getTableVersion()).isEqualTo(modifiedLocation);
+  }
+
+  @Test
+  public void testUserTableRename() {
+    // testTuple1_0 is one of the table that is created from setup method.
+    String newTableName = TEST_TUPLE_1_0.getTableId() + "_newName";
+    String newMetadataLocation = TEST_TUPLE_1_0.getTableLoc() + "_new";
+    userTablesService.renameUserTable(
+        TEST_TUPLE_1_0.getDatabaseId(),
+        TEST_TUPLE_1_0.getTableId(),
+        TEST_TUPLE_1_0.getDatabaseId(),
+        newTableName,
+        newMetadataLocation);
+
+    // check if the table is renamed
+    UserTableDto result =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), newTableName);
+    assertThat(result.getTableId()).isEqualTo(newTableName);
+    assertThat(result.getDatabaseId()).isEqualTo(TEST_TUPLE_1_0.getDatabaseId());
+    assertThat(result.getMetadataLocation()).isEqualTo(newMetadataLocation);
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            userTablesService.getUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId()));
+  }
+
+  @Test
+  public void testUserTableRenameFails() {
+    // Ensure that the rename is occurring in the same database
+    assertThat(TEST_TUPLE_1_0.getDatabaseId()).isEqualTo(TEST_TUPLE_2_0.getDatabaseId());
+
+    // Expect that the rename will fail as the table already exists
+    Assertions.assertThrows(
+        AlreadyExistsException.class,
+        () -> {
+          userTablesService.renameUserTable(
+              TEST_TUPLE_1_0.getDatabaseId(),
+              TEST_TUPLE_1_0.getTableId(),
+              TEST_TUPLE_1_0.getDatabaseId(),
+              TEST_TUPLE_2_0.getTableId(),
+              TEST_TUPLE_2_0.getTableLoc());
+        });
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> {
+          userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), "no_such_table");
+        });
   }
 
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {
