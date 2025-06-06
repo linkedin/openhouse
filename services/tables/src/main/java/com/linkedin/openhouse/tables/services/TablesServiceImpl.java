@@ -206,11 +206,11 @@ public class TablesServiceImpl implements TablesService {
       String toDatabaseId,
       String toTableId,
       String tableCreatorUpdater) {
-    Optional<TableDto> tableDto =
+    Optional<TableDto> existingTableDto =
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build());
 
-    if (!tableDto.isPresent()) {
+    if (!existingTableDto.isPresent()) {
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
     }
 
@@ -221,7 +221,7 @@ public class TablesServiceImpl implements TablesService {
       throw new AlreadyExistsException("Table", targetedTableDto.get().getTableUri());
     }
 
-    if (isTableLocked(tableDto.get())) {
+    if (isTableLocked(existingTableDto.get())) {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
           String.format(
@@ -230,8 +230,7 @@ public class TablesServiceImpl implements TablesService {
     }
 
     authorizationUtils.checkDatabasePrivilege(
-        fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
-
+        fromDatabaseId, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     openHouseInternalRepository.rename(
         TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),
         TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());

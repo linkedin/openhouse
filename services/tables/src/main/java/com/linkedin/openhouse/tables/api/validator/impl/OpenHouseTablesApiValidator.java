@@ -228,6 +228,13 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       String fromDatabaseId, String fromTableId, String toDatabaseId, String toTableId) {
     validateGetTable(fromDatabaseId, fromTableId);
     validateGetTable(toDatabaseId, toTableId);
+    // TODO: support renames across databases
+    if (!fromDatabaseId.equals(toDatabaseId)) {
+      throw new RequestValidationFailureException(
+          String.format(
+              "Rename table across databases is not supported. Cannot rename table %s from %s to %s",
+              fromTableId, fromDatabaseId, toDatabaseId));
+    }
   }
 
   @SuppressWarnings("checkstyle:OperatorWrap")

@@ -153,7 +153,7 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
     }
     try {
       Map<String, List<String>> allRolesOnResource =
-          opaHandler.getAllRolesOnResource(tableDto.getDatabaseId(), tableDto.getTableId());
+          opaHandler.getAllRolesOnResource(tableDto.getDatabaseId(), tableDto.getTableUUID());
 
       List<AclPolicy> result =
           allRolesOnResource.entrySet().stream()
@@ -184,7 +184,7 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
     try {
       List<String> roles =
           opaHandler.getRolesForPrincipalOnResource(
-              tableDto.getDatabaseId(), tableDto.getTableId(), userPrincipal);
+              tableDto.getDatabaseId(), tableDto.getTableUUID(), userPrincipal);
       return roles.stream()
           .map(role -> AclPolicy.builder().role(role).principal(userPrincipal).build())
           .collect(Collectors.toList());
