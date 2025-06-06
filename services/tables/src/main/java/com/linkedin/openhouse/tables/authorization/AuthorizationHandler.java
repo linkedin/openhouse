@@ -47,7 +47,7 @@ public interface AuthorizationHandler {
    * @param principal User principal to grant the access to.
    * @param databaseDto
    */
-  void grantRole(String role, String principal, DatabaseDto databaseDto);
+  void grantRole(String role, String principal, DatabaseDto databaseDto, String grantingPrincipal);
 
   /**
    * Method to assign role to principal on tableDto, for granting access to a table
@@ -63,7 +63,8 @@ public interface AuthorizationHandler {
       String principal,
       Long expirationEpochTimeSeconds,
       Map<String, String> properties,
-      TableDto tableDto);
+      TableDto tableDto,
+      String grantingPrincipal);
 
   /**
    * Method to revoke role from principal on databaseDto, for restricting access to a database
@@ -72,7 +73,7 @@ public interface AuthorizationHandler {
    * @param principal User principal to revoke the access from.
    * @param databaseDto
    */
-  void revokeRole(String role, String principal, DatabaseDto databaseDto);
+  void revokeRole(String role, String principal, DatabaseDto databaseDto, String revokingPrincipal);
 
   /**
    * Method to revoke role from principal on tableDto, for restricting access to a table
@@ -81,7 +82,7 @@ public interface AuthorizationHandler {
    * @param principal User principal to revoke the access from.
    * @param tableDto
    */
-  void revokeRole(String role, String principal, TableDto tableDto);
+  void revokeRole(String role, String principal, TableDto tableDto, String revokingPrincipal);
 
   /**
    * Method to list all aclPolicies defined on tableDto

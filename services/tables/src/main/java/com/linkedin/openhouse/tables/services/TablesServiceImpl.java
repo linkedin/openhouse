@@ -228,10 +228,15 @@ public class TablesServiceImpl implements TablesService {
                   databaseId, tableId));
         }
         authorizationHandler.grantRole(
-            role, granteePrincipal, expirationEpochTimeSeconds, properties, tableDto);
+            role,
+            granteePrincipal,
+            expirationEpochTimeSeconds,
+            properties,
+            tableDto,
+            actingPrincipal);
         break;
       case REVOKE:
-        authorizationHandler.revokeRole(role, granteePrincipal, tableDto);
+        authorizationHandler.revokeRole(role, granteePrincipal, tableDto, actingPrincipal);
         break;
       default:
         throw new UnsupportedOperationException("Only GRANT and REVOKE are supported");
