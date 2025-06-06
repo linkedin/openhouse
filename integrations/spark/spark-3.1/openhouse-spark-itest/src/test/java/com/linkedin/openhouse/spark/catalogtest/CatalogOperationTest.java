@@ -281,9 +281,12 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           loadedTable.properties().get("openhouse.tableUri"),
           "local-cluster.db.rename_test_renamed");
-
       Assertions.assertThrows(
           NoSuchTableException.class, () -> icebergCatalog.loadTable(fromTableIdentifier));
+
+      // Ensure that recreating the original table works
+      Assertions.assertDoesNotThrow(
+          () -> spark.sql("CREATE TABLE openhouse.db.rename_test (name string)"));
     }
   }
 

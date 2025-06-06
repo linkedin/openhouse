@@ -210,18 +210,26 @@ public class TableAuditAspect {
       String actingPrincipal)
       throws Throwable {
     ApiResponse<Void> result = null;
-    TableAuditEvent event =
+    TableAuditEvent fromEvent =
         TableAuditEvent.builder()
             .eventTimestamp(Instant.now())
             .databaseName(fromDatabaseId)
             .tableName(fromTableId)
-            .operationType(OperationType.RENAME)
+            .operationType(OperationType.RENAME_FROM)
+            .build();
+    TableAuditEvent toEvent =
+        TableAuditEvent.builder()
+            .eventTimestamp(Instant.now())
+            .databaseName(toDatabaseId)
+            .tableName(toTableId)
+            .operationType(OperationType.RENAME_TO)
             .build();
     try {
       result = (ApiResponse<Void>) point.proceed();
-      buildAndSendEvent(event, OperationStatus.SUCCESS, null);
+      buildAndSendEvent(fromEvent, OperationStatus.SUCCESS, null);
+      buildAndSendEvent(toEvent, OperationStatus.SUCCESS, null);
     } catch (Throwable t) {
-      buildAndSendEvent(event, OperationStatus.FAILED, null);
+      buildAndSendEvent(fromEvent, OperationStatus.FAILED, null);
       throw t;
     }
     return result;

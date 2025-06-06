@@ -11,5 +11,6 @@ public enum OperationType {
   REVOKE,
   STAGED_CREATE,
   STAGED_COMMIT,
-  RENAME
+  RENAME_FROM,
+  RENAME_TO
 }

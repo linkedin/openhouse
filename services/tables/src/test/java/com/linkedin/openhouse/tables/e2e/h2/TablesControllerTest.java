@@ -53,6 +53,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.SneakyThrows;
 import org.apache.commons.lang.StringUtils;
@@ -1438,7 +1439,7 @@ public class TablesControllerTest {
                         GET_TABLE_RESPONSE_BODY.getDatabaseId(),
                         GET_TABLE_RESPONSE_BODY.getTableId()))
                 .contentType(MediaType.APPLICATION_JSON)
-                .param("toTableId", "newTableId")
+                .param("toTableId", "t2")
                 .param("toDatabaseId", GET_TABLE_RESPONSE_BODY.getDatabaseId())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
@@ -1446,7 +1447,7 @@ public class TablesControllerTest {
     TableAuditEvent actualEvent = argCaptorTableAudit.getValue();
     assertTrue(
         new ReflectionEquals(
-                TABLE_AUDIT_EVENT_RENAME_TABLE_FAILED, TableAuditModelConstants.EXCLUDE_FIELDS)
+                TABLE_AUDIT_EVENT_RENAME_FROM_TABLE_FAILED, TableAuditModelConstants.EXCLUDE_FIELDS)
             .matches(actualEvent));
 
     RequestAndValidateHelper.createTableAndValidateResponse(
@@ -1459,18 +1460,25 @@ public class TablesControllerTest {
                         GET_TABLE_RESPONSE_BODY.getDatabaseId(),
                         GET_TABLE_RESPONSE_BODY.getTableId()))
                 .contentType(MediaType.APPLICATION_JSON)
-                .param("toTableId", "newTableId")
+                .param("toTableId", "t2")
                 .param("toDatabaseId", GET_TABLE_RESPONSE_BODY.getDatabaseId())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNoContent());
+
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptorTableAudit.capture());
-    actualEvent = argCaptorTableAudit.getValue();
+    List<TableAuditEvent> auditEvents = argCaptorTableAudit.getAllValues();
+    // The last 2 audit events should be success events for rename
     assertTrue(
         new ReflectionEquals(
-                TABLE_AUDIT_EVENT_RENAME_TABLE_SUCCESS, TableAuditModelConstants.EXCLUDE_FIELDS)
-            .matches(actualEvent));
+                TABLE_AUDIT_EVENT_RENAME_FROM_TABLE_SUCCESS,
+                TableAuditModelConstants.EXCLUDE_FIELDS)
+            .matches(auditEvents.get(3)));
+    assertTrue(
+        new ReflectionEquals(
+                TABLE_AUDIT_EVENT_RENAME_TO_TABLE_SUCCESS, TableAuditModelConstants.EXCLUDE_FIELDS)
+            .matches(auditEvents.get(4)));
     RequestAndValidateHelper.deleteTableAndValidateResponse(
-        mvc, GET_TABLE_RESPONSE_BODY.toBuilder().tableId("newTableId").build());
+        mvc, GET_TABLE_RESPONSE_BODY.toBuilder().tableId("t2").build());
   }
 
   private MvcResult getTable(String databaseId, String tableId) throws Exception {
