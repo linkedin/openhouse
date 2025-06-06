@@ -46,6 +46,7 @@ public interface AuthorizationHandler {
    * @param role
    * @param principal User principal to grant the access to.
    * @param databaseDto
+   * @param grantingPrincipal
    */
   void grantRole(String role, String principal, DatabaseDto databaseDto, String grantingPrincipal);
 
@@ -57,6 +58,7 @@ public interface AuthorizationHandler {
    * @param expirationEpochTimeSeconds optional epoch time in seconds for the role to expire
    * @param properties Optional properties to accept key-value pair
    * @param tableDto
+   * @param grantingPrincipal
    */
   void grantRole(
       String role,
@@ -72,6 +74,7 @@ public interface AuthorizationHandler {
    * @param role
    * @param principal User principal to revoke the access from.
    * @param databaseDto
+   * @param revokingPrincipal
    */
   void revokeRole(String role, String principal, DatabaseDto databaseDto, String revokingPrincipal);
 
@@ -81,6 +84,7 @@ public interface AuthorizationHandler {
    * @param role
    * @param principal User principal to revoke the access from.
    * @param tableDto
+   * @param revokingPrincipal
    */
   void revokeRole(String role, String principal, TableDto tableDto, String revokingPrincipal);
 
