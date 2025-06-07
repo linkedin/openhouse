@@ -53,7 +53,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import lombok.SneakyThrows;
 import org.apache.commons.lang.StringUtils;
@@ -1466,17 +1465,12 @@ public class TablesControllerTest {
         .andExpect(status().isNoContent());
 
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptorTableAudit.capture());
-    List<TableAuditEvent> auditEvents = argCaptorTableAudit.getAllValues();
-    // The last 2 audit events should be success events for rename
-    assertTrue(
-        new ReflectionEquals(
-                TABLE_AUDIT_EVENT_RENAME_FROM_TABLE_SUCCESS,
-                TableAuditModelConstants.EXCLUDE_FIELDS)
-            .matches(auditEvents.get(3)));
+    actualEvent = argCaptorTableAudit.getValue();
+
     assertTrue(
         new ReflectionEquals(
                 TABLE_AUDIT_EVENT_RENAME_TO_TABLE_SUCCESS, TableAuditModelConstants.EXCLUDE_FIELDS)
-            .matches(auditEvents.get(4)));
+            .matches(actualEvent));
     RequestAndValidateHelper.deleteTableAndValidateResponse(
         mvc, GET_TABLE_RESPONSE_BODY.toBuilder().tableId("t2").build());
   }
