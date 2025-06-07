@@ -212,11 +212,7 @@ public class TablesController {
         @ApiResponse(responseCode = "404", description = "Table RENAME: TBL_DB_NOT_FOUND"),
         @ApiResponse(responseCode = "409", description = "Table RENAME: TBL_EXISTS")
       })
-  @PatchMapping(
-      value = {
-        "/v0/databases/{fromDatabaseId}/tables/{fromTableId}/rename",
-        "/v1/databases/{fromDatabaseId}/tables/{fromTableId}/rename"
-      })
+  @PatchMapping(value = {"/v1/databases/{fromDatabaseId}/tables/{fromTableId}/rename"})
   public ResponseEntity<Void> renameTable(
       @Parameter(description = "Database ID", required = true) @PathVariable String fromDatabaseId,
       @Parameter(description = "Table ID", required = true) @PathVariable String fromTableId,

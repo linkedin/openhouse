@@ -67,10 +67,12 @@ public interface TablesApiValidator {
   void validateDeleteTable(String databaseId, String tableId);
 
   /**
-   * Function to validate a request to drop a Table Resource with tableId in a given databaseId
+   * Function to validate a request to rename a Table Resource
    *
-   * @param databaseId
-   * @param tableId
+   * @param fromDatabaseId
+   * @param fromTableId
+   * @param toDatabaseId
+   * @param toTableId
    * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
    *     invalid
    */
