@@ -127,6 +127,31 @@ public class MockTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
+  public ApiResponse<Void> renameTable(
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String actingPrincipal) {
+    switch (fromDatabaseId) {
+      case "d204":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+      case "d400":
+        throw new RequestValidationFailureException();
+      case "d404":
+        throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
+      case "d409":
+        throw new AlreadyExistsException(fromDatabaseId, fromTableId);
+      case "d503":
+        throw new AuthorizationServiceException("Internal authz service not available");
+      case "d422":
+        throw new UnprocessableEntityException("Unprocessable entity");
+      default:
+        return null;
+    }
+  }
+
+  @Override
   public ApiResponse<Void> updateAclPolicies(
       String databaseId,
       String tableId,

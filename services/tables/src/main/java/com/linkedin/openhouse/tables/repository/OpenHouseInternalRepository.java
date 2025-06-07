@@ -15,4 +15,6 @@ public interface OpenHouseInternalRepository extends CrudRepository<TableDto, Ta
   List<TableDtoPrimaryKey> findAllIds();
 
   List<TableDto> searchTables(String databaseId);
+
+  void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 }

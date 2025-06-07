@@ -140,6 +140,11 @@ public class UserTablesServiceImpl implements UserTablesService {
     }
     // Renames user table within the same database
     try {
+      log.info(
+          "Renaming user table from {} to {} in database {}",
+          fromTableId,
+          toTableId,
+          fromDatabaseId);
       htsJdbcRepository.renameTableId(fromDatabaseId, fromTableId, toTableId, metadataLocation);
     } catch (DataIntegrityViolationException e) {
       throw new AlreadyExistsException("Table", toTableId);

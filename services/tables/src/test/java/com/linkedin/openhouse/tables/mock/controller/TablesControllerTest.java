@@ -431,4 +431,20 @@ public class TablesControllerTest {
           .andExpect(status().is(Integer.parseInt(db.substring(1))));
     }
   }
+
+  @Test
+  public void testRenameTable() throws Exception {
+    for (String db : Arrays.asList("d204", "d400", "d404", "d409", "d503", "d422")) {
+      mvc.perform(
+              MockMvcRequestBuilders.patch(
+                      String.format(
+                          CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/t1/rename", db))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .accept(MediaType.APPLICATION_JSON)
+                  .header("Authorization", "Bearer " + jwtAccessToken)
+                  .param("toTableId", "t2")
+                  .param("toDatabaseId", db))
+          .andExpect(status().is(Integer.parseInt(db.substring(1))));
+    }
+  }
 }

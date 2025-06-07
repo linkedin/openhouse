@@ -230,7 +230,29 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
-    throw new UnsupportedOperationException("Renaming tables is not supported");
+    log.info(
+        "Calling renameTable from table identifier: {}, to table identifier: {}",
+        from.toString(),
+        to.toString());
+
+    if (from.namespace().levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels "
+              + String.join(".", from.namespace().levels()));
+    }
+    tableApi
+        .renameTableV1(
+            from.namespace().toString(), from.name(), to.namespace().toString(), to.name())
+        .onErrorResume(
+            WebClientResponseException.NotFound.class,
+            e -> Mono.error(new NoSuchTableException("Table " + from + " does not exist")))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
   }
 
   @Override

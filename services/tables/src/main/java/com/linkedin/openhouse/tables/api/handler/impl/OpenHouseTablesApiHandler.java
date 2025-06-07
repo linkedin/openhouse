@@ -100,6 +100,18 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
+  public ApiResponse<Void> renameTable(
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String actingPrincipal) {
+    tablesApiValidator.validateRenameTable(fromDatabaseId, fromTableId, toDatabaseId, toTableId);
+    tableService.renameTable(fromDatabaseId, fromTableId, toDatabaseId, toTableId, actingPrincipal);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
   public ApiResponse<Void> updateAclPolicies(
       String databaseId,
       String tableId,

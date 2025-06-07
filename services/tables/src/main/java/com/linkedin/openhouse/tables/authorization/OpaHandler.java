@@ -61,7 +61,7 @@ public class OpaHandler {
   public boolean checkAccessDecision(String principal, TableDto tableDto, Privileges privilege) {
     String requestBody =
         buildCheckAccessDecisionRequestBody(
-            principal, privilege.toString(), tableDto.getDatabaseId(), tableDto.getTableId());
+            principal, privilege.toString(), tableDto.getDatabaseId(), tableDto.getTableUUID());
 
     return makeCheckAccessDecisionRequest(requestBody);
   }
@@ -95,7 +95,7 @@ public class OpaHandler {
         String.format(
             USER_ROLES_ENDPOINT + "/%s/%s/%s",
             tableDto.getDatabaseId(),
-            tableDto.getTableId(),
+            tableDto.getTableUUID(),
             principal);
     String requestBody = buildGrantRevokeRequestBody(tableDto, principal, role, true);
 
@@ -152,7 +152,8 @@ public class OpaHandler {
   private String buildGrantRevokeRequestBody(
       TableDto tableDto, String principal, String role, boolean isGrant) {
     List<String> currentRoles =
-        getRolesForPrincipalOnResource(tableDto.getDatabaseId(), tableDto.getTableId(), principal);
+        getRolesForPrincipalOnResource(
+            tableDto.getDatabaseId(), tableDto.getTableUUID(), principal);
 
     if (isGrant) {
       if (!currentRoles.contains(role)) {
@@ -190,9 +191,9 @@ public class OpaHandler {
   }
 
   public List<String> getRolesForPrincipalOnResource(
-      String databaseId, String tableId, String principal) {
+      String databaseId, String tableUuid, String principal) {
     String endpoint =
-        String.format(USER_ROLES_ENDPOINT + "/%s/%s/%s/roles", databaseId, tableId, principal);
+        String.format(USER_ROLES_ENDPOINT + "/%s/%s/%s/roles", databaseId, tableUuid, principal);
 
     JsonNode userRoles =
         webClient.get().uri(endpoint).retrieve().bodyToMono(JsonNode.class).block();
@@ -210,11 +211,11 @@ public class OpaHandler {
    * Get all roles for a principal on a table in a given database.
    *
    * @param databaseId
-   * @param tableId
+   * @param tableUuid
    * @return
    */
-  public Map<String, List<String>> getAllRolesOnResource(String databaseId, String tableId) {
-    String endpoint = String.format(USER_ROLES_ENDPOINT + "/%s/%s", databaseId, tableId);
+  public Map<String, List<String>> getAllRolesOnResource(String databaseId, String tableUuid) {
+    String endpoint = String.format(USER_ROLES_ENDPOINT + "/%s/%s", databaseId, tableUuid);
 
     JsonNode userRoles =
         webClient.get().uri(endpoint).retrieve().bodyToMono(JsonNode.class).block();
