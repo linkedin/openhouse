@@ -184,6 +184,7 @@ public class HtsRepositoryTest {
     htsRepository.renameTableId(
         TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId(),
+        TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId() + "_renamed",
         newTableMetadata);
 

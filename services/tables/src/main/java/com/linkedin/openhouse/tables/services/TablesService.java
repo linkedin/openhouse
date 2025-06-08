@@ -57,7 +57,7 @@ public interface TablesService {
   void deleteTable(String databaseId, String tableId, String actingPrincipal);
 
   /**
-   * Delete a table represented by databaseId and tableId if actingPrincipal has the right
+   * Rename a table represented by databaseId and tableId if actingPrincipal has the right
    * privilege.
    *
    * @param fromDatabaseId

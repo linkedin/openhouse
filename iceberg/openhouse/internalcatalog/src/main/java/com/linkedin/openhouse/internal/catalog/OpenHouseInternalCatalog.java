@@ -143,6 +143,14 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
             .build();
     Transaction transaction = fromTable.newTransaction();
     UpdateProperties updateProperties = transaction.updateProperties();
+    log.info(
+        "Setting preserved table properties {} to {}, {} to {}, and {} to {} for table rename",
+        CatalogConstants.OPENHOUSE_TABLEID_KEY,
+        to.name(),
+        CatalogConstants.OPENHOUSE_DATABASEID_KEY,
+        to.namespace().toString(),
+        CatalogConstants.OPENHOUSE_TABLEURI_KEY,
+        tableUri.toString());
     updateProperties.set(CatalogConstants.OPENHOUSE_TABLEID_KEY, to.name());
     updateProperties.set(CatalogConstants.OPENHOUSE_DATABASEID_KEY, to.namespace().toString());
     updateProperties.set(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri.toString());

@@ -225,7 +225,7 @@ public class TablesServiceImpl implements TablesService {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
           String.format(
-              "Table %s.%s is in locked state and cannot be updated.",
+              "Table %s.%s is in locked state and cannot be renamed.",
               fromDatabaseId, fromTableId));
     }
 
