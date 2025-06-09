@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.authorization;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.tables.TablesSpringApplication;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -30,8 +29,6 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
 
   @Autowired(required = false)
   private OpaHandler opaHandler;
-
-  @Autowired private TablesSpringApplication tablesSpringApplication;
 
   @Override
   public boolean checkAccessDecision(
