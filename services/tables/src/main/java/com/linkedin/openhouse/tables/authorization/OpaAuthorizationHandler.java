@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.authorization;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.tables.TablesSpringApplication;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -29,6 +30,8 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
 
   @Autowired(required = false)
   private OpaHandler opaHandler;
+
+  @Autowired private TablesSpringApplication tablesSpringApplication;
 
   @Override
   public boolean checkAccessDecision(
@@ -66,10 +69,11 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
   public void grantRole(
       String role, String principal, DatabaseDto databaseDto, String grantingPrincipal) {
     log.info(
-        "Granting role {} to principal {} on database {}",
+        "Assigning role '{}' to user '{}' for database '{}' initiated by '{}'",
         role,
         principal,
-        databaseDto.getDatabaseId());
+        databaseDto.getDatabaseId(),
+        grantingPrincipal);
     if (clusterProperties.getClusterSecurityTablesAuthorizationOpaBaseUri() == null) {
       log.warn("Opa base uri is not configured. Skipping grant role");
       return;
@@ -90,11 +94,13 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
       TableDto tableDto,
       String grantingPrincipal) {
     log.info(
-        "Granting role {} to principal {} on database {} table {}",
+        "Assigning role '{}' to user '{}' for table '{}.{}' initiated by '{}'",
         role,
         principal,
         tableDto.getDatabaseId(),
-        tableDto.getTableId());
+        tableDto.getTableId(),
+        grantingPrincipal);
+
     if (clusterProperties.getClusterSecurityTablesAuthorizationOpaBaseUri() == null) {
       log.warn("Opa base uri is not configured. Skipping grant role");
       return;
@@ -110,10 +116,11 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
   public void revokeRole(
       String role, String principal, DatabaseDto databaseDto, String revokingPrincipal) {
     log.info(
-        "Revoking role {} from principal {} on database {}",
+        "Revoking role {} from principal {} on database {} by {}",
         role,
         principal,
-        databaseDto.getDatabaseId());
+        databaseDto.getDatabaseId(),
+        revokingPrincipal);
     if (clusterProperties.getClusterSecurityTablesAuthorizationOpaBaseUri() == null) {
       log.warn("Opa base uri is not configured. Skipping revoke role");
       return;
@@ -129,11 +136,12 @@ public class OpaAuthorizationHandler implements AuthorizationHandler {
   public void revokeRole(
       String role, String principal, TableDto tableDto, String revokingPrincipal) {
     log.info(
-        "Revoking role {} from principal {} on database {} table {}",
+        "Revoking role {} from principal {} on database {} table {} by {}",
         role,
         principal,
         tableDto.getDatabaseId(),
-        tableDto.getTableId());
+        tableDto.getTableId(),
+        revokingPrincipal);
     if (clusterProperties.getClusterSecurityTablesAuthorizationOpaBaseUri() == null) {
       log.warn("Opa base uri is not configured. Skipping revoke role");
       return;
