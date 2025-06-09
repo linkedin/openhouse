@@ -146,8 +146,9 @@ public class UserTablesServiceImpl implements UserTablesService {
           fromTableId,
           toTableId,
           toDatabaseId);
-      // Since currently databaseId should be consistent across renames, reuse the fromDatabaseId
-      // here temporarily for perserving the original casing
+      // Use fromDatabaseId for destination db to preserve the original case of the database
+      // TODO: Use toDataBaseId for destination instead of fromDatabaseId once rename across
+      // databases is supported
       htsJdbcRepository.renameTableId(
           fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation);
     } catch (DataIntegrityViolationException e) {

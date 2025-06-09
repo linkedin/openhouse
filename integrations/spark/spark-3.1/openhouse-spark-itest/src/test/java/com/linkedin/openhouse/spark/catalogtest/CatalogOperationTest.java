@@ -340,7 +340,9 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       TableIdentifier toTableIdentifier =
           TableIdentifier.of("db", "rename_test_renamed_CASE_SENSITIVE");
       Assertions.assertDoesNotThrow(
-          () -> icebergCatalog.renameTable(fromTableIdentifier, toTableIdentifier));
+          () ->
+              icebergCatalog.renameTable(
+                  TableIdentifier.of("DB", "RENAME_test3"), toTableIdentifier));
       Table renamedTable =
           icebergCatalog.loadTable(TableIdentifier.of("dB", "rename_test_renamed_case_SENSITIVE"));
 
