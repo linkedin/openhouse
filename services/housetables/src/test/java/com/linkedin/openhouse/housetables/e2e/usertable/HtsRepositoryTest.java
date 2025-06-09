@@ -184,6 +184,7 @@ public class HtsRepositoryTest {
     htsRepository.renameTableId(
         TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId(),
+        TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId() + "_renamed",
         newTableMetadata);
 
@@ -196,6 +197,51 @@ public class HtsRepositoryTest {
                     .build())
             .orElse(UserTableRow.builder().build());
     assertThat(result.getMetadataLocation()).isEqualTo(newTableMetadata);
+
+    // verify testTuple1_1 doesn't exist any more.
+    assertThat(htsRepository.existsById(key)).isFalse();
+  }
+
+  @Test
+  public void testRenameCaseSensitivity() {
+    UserTableRow testUpperCaseRow =
+        TEST_TUPLE_1_1
+            .get_userTableRow()
+            .toBuilder()
+            .tableId(TEST_TUPLE_1_1.getTableId().toUpperCase())
+            .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+            .build();
+    htsRepository.save(testUpperCaseRow);
+
+    UserTableRowPrimaryKey key =
+        UserTableRowPrimaryKey.builder()
+            .tableId(TEST_TUPLE_1_1.getTableId().toUpperCase())
+            .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+            .build();
+    // verify fetch is case in-sensitive
+    assertThat(htsRepository.existsById(key)).isTrue();
+
+    String renamedUpperCaseTableId = TEST_TUPLE_1_1.getTableId() + "_RENAMED";
+
+    htsRepository.renameTableId(
+        TEST_TUPLE_1_1.getDatabaseId(),
+        TEST_TUPLE_1_1.getTableId(),
+        TEST_TUPLE_1_1.getDatabaseId().toUpperCase(),
+        renamedUpperCaseTableId,
+        TEST_TUPLE_1_1.getTableLoc());
+
+    // Try fetching with lower case ID, should still work
+    UserTableRow result =
+        htsRepository
+            .findById(
+                UserTableRowPrimaryKey.builder()
+                    .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+                    .tableId(renamedUpperCaseTableId.toLowerCase())
+                    .build())
+            .orElse(UserTableRow.builder().build());
+
+    // Should preserve original case
+    Assertions.assertEquals(result.getTableId(), renamedUpperCaseTableId);
 
     // verify testTuple1_1 doesn't exist any more.
     assertThat(htsRepository.existsById(key)).isFalse();

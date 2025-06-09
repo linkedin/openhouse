@@ -1427,6 +1427,72 @@ public class TablesControllerTest {
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
+  @Test
+  public void testTableRename() throws Exception {
+    // Expect the request to fail with 404 not found
+    mvc.perform(
+            MockMvcRequestBuilders.patch(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s/rename",
+                        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY.getTableId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .param("toTableId", "t2")
+                .param("toDatabaseId", GET_TABLE_RESPONSE_BODY.getDatabaseId())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound());
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptorTableAudit.capture());
+    TableAuditEvent actualEvent = argCaptorTableAudit.getValue();
+    assertTrue(
+        new ReflectionEquals(
+                TABLE_AUDIT_EVENT_RENAME_FROM_TABLE_FAILED, TableAuditModelConstants.EXCLUDE_FIELDS)
+            .matches(actualEvent));
+
+    // Expect the request to fail with 400 bad request due to missing toDatabaseId
+    mvc.perform(
+            MockMvcRequestBuilders.patch(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s/rename",
+                        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY.getTableId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .param("toTableId", "t2")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptorTableAudit.capture());
+    assertTrue(
+        new ReflectionEquals(
+                TABLE_AUDIT_EVENT_RENAME_FROM_TABLE_FAILED, TableAuditModelConstants.EXCLUDE_FIELDS)
+            .matches(actualEvent));
+
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    mvc.perform(
+            MockMvcRequestBuilders.patch(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s/rename",
+                        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY.getTableId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .param("toTableId", "t2")
+                .param("toDatabaseId", GET_TABLE_RESPONSE_BODY.getDatabaseId())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNoContent());
+
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptorTableAudit.capture());
+    actualEvent = argCaptorTableAudit.getValue();
+
+    assertTrue(
+        new ReflectionEquals(
+                TABLE_AUDIT_EVENT_RENAME_TO_TABLE_SUCCESS, TableAuditModelConstants.EXCLUDE_FIELDS)
+            .matches(actualEvent));
+    RequestAndValidateHelper.deleteTableAndValidateResponse(
+        mvc, GET_TABLE_RESPONSE_BODY.toBuilder().tableId("t2").build());
+  }
+
   private MvcResult getTable(String databaseId, String tableId) throws Exception {
     return mvc.perform(
             MockMvcRequestBuilders.get(

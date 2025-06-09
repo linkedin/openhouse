@@ -719,4 +719,62 @@ public class TablesServiceTest {
             tablesService.deleteTable(
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
   }
+
+  @Test
+  public void testRenameTable() {
+    TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO, null, true);
+    // Create a table in the same db for conflicts
+    TableDto conflictingTable = verifyPutTableRequest(TABLE_DTO_SAME_DB, null, true);
+
+    verifyGetTableRequest(TABLE_DTO);
+    verifyGetTableRequest(TABLE_DTO_SAME_DB);
+
+    tablesService.renameTable(
+        TABLE_DTO.getDatabaseId(),
+        TABLE_DTO.getTableId(),
+        TABLE_DTO.getDatabaseId(),
+        "renamedTable",
+        TEST_USER);
+
+    TableDto renamedTable =
+        tablesService.getTable(TABLE_DTO.getDatabaseId(), "renamedTable", TEST_USER);
+    Assertions.assertEquals(renamedTable.getTableId(), "renamedTable");
+    Assertions.assertEquals(renamedTable.getDatabaseId(), TABLE_DTO.getDatabaseId());
+    Assertions.assertEquals(renamedTable.getTableType(), TABLE_DTO.getTableType());
+    Assertions.assertEquals(renamedTable.getCreationTime(), putResultCreate.getCreationTime());
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+
+    Assertions.assertThrows(
+        AlreadyExistsException.class,
+        () ->
+            tablesService.renameTable(
+                TABLE_DTO.getDatabaseId(),
+                "renamedTable",
+                TABLE_DTO_SAME_DB.getDatabaseId(),
+                TABLE_DTO_SAME_DB.getTableId(),
+                TEST_USER));
+
+    tablesService.renameTable(
+        TABLE_DTO.getDatabaseId(),
+        "renamedTable",
+        TABLE_DTO.getDatabaseId(),
+        "secondRenamedTable",
+        TEST_USER);
+
+    TableDto secondRenamedTable =
+        tablesService.getTable(TABLE_DTO.getDatabaseId(), "secondRenamedTable", TEST_USER);
+    Assertions.assertEquals(secondRenamedTable.getTableId(), "secondRenamedTable");
+    Assertions.assertEquals(
+        secondRenamedTable.getCreationTime(), putResultCreate.getCreationTime());
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> tablesService.getTable(TABLE_DTO.getDatabaseId(), "renamedTable", TEST_USER));
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), "secondRenamedTable", TEST_USER);
+    tablesService.deleteTable(
+        TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER);
+  }
 }

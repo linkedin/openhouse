@@ -200,6 +200,43 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
+  public void renameTable(
+      String fromDatabaseId,
+      String fromTableId,
+      String toDatabaseId,
+      String toTableId,
+      String tableCreatorUpdater) {
+    Optional<TableDto> existingTableDto =
+        openHouseInternalRepository.findById(
+            TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build());
+
+    if (!existingTableDto.isPresent()) {
+      throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
+    }
+
+    Optional<TableDto> targetedTableDto =
+        openHouseInternalRepository.findById(
+            TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
+    if (targetedTableDto.isPresent()) {
+      throw new AlreadyExistsException("Table", targetedTableDto.get().getTableUri());
+    }
+
+    if (isTableLocked(existingTableDto.get())) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+          String.format(
+              "Table %s.%s is in locked state and cannot be renamed.",
+              fromDatabaseId, fromTableId));
+    }
+
+    authorizationUtils.checkDatabasePrivilege(
+        fromDatabaseId, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+    openHouseInternalRepository.rename(
+        TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),
+        TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
+  }
+
+  @Override
   public void updateAclPolicies(
       String databaseId,
       String tableId,

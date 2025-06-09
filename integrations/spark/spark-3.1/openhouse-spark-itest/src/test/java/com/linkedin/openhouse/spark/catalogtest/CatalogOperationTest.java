@@ -4,6 +4,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
 import java.util.List;
@@ -19,6 +20,7 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -251,5 +253,102 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
     String policiesStr = String.valueOf(collect.get("policies"));
     Gson gson = new GsonBuilder().setPrettyPrinting().create();
     return gson.fromJson(policiesStr, Policies.class);
+  }
+
+  @Test
+  public void testRenameTable() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog icebergCatalog = getOpenHouseCatalog(spark);
+
+      TableIdentifier fromTableIdentifier = TableIdentifier.of("db", "rename_test");
+      spark.sql("CREATE TABLE openhouse.db.rename_test (name string)");
+
+      TableIdentifier toTableIdentifier = TableIdentifier.of("db", "rename_test_renamed");
+      spark.sql("ALTER TABLE openhouse.db.rename_test RENAME TO db.rename_test_renamed");
+
+      Table loadedTable = icebergCatalog.loadTable(toTableIdentifier);
+      Assertions.assertNotNull(loadedTable);
+
+      Assertions.assertEquals(
+          loadedTable.properties().get("openhouse.tableUri"),
+          "local-cluster.db.rename_test_renamed");
+
+      Assertions.assertThrows(
+          NoSuchTableException.class, () -> icebergCatalog.loadTable(fromTableIdentifier));
+
+      spark.sql("CREATE TABLE openhouse.db.rename_test (name string)");
+    }
+  }
+
+  @Test
+  public void testRenameTableFailsConflict() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog icebergCatalog = getOpenHouseCatalog(spark);
+      Schema schema =
+          new Schema(
+              Types.NestedField.required(
+                  1,
+                  "a",
+                  Types.StructType.of(Types.NestedField.required(2, "b", Types.StringType.get()))),
+              Types.NestedField.required(3, "c", Types.StringType.get()));
+
+      // Field ids not reassigned
+      TableIdentifier fromTableIdentifier = TableIdentifier.of("db", "rename_test2");
+      TableIdentifier conflictingTableIdentifier = TableIdentifier.of("db", "rename_test_conflict");
+      Map<String, String> props = new HashMap<>();
+      props.put("client.table.schema", SchemaParser.toJson(schema));
+      props.put("user.property", "test_property");
+      Map<String, String> conflictingProps = new HashMap<>();
+      conflictingProps.put("client.table.schema", SchemaParser.toJson(schema));
+      Table createdTable = icebergCatalog.createTable(fromTableIdentifier, schema, null, props);
+      Table conflictingTable =
+          icebergCatalog.createTable(conflictingTableIdentifier, schema, null, conflictingProps);
+      Assertions.assertNull(conflictingTable.properties().get("user.property"));
+      TableIdentifier toTableIdentifier = TableIdentifier.of("db", "rename_test_conflict");
+
+      // Should fail with conflict
+      Assertions.assertThrows(
+          WebClientResponseWithMessageException.class,
+          () ->
+              spark.sql("ALTER TABLE openhouse.db.rename_test2 RENAME TO db.rename_test_conflict"));
+
+      // Since rename fails, the properties on the user table should not have propagated
+      Assertions.assertNull(
+          icebergCatalog.loadTable(conflictingTableIdentifier).properties().get("user.property"));
+
+      Assertions.assertNotNull(icebergCatalog.loadTable(fromTableIdentifier));
+    }
+  }
+
+  @Test
+  public void testRenameTableCaseSensitivity() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog icebergCatalog = getOpenHouseCatalog(spark);
+      Schema schema =
+          new Schema(
+              Types.NestedField.required(
+                  1,
+                  "a",
+                  Types.StructType.of(Types.NestedField.required(2, "b", Types.StringType.get()))),
+              Types.NestedField.required(3, "c", Types.StringType.get()));
+
+      // Field ids not reassigned
+      TableIdentifier fromTableIdentifier = TableIdentifier.of("db", "rename_TEST3");
+      icebergCatalog.createTable(fromTableIdentifier, schema, null, new HashMap<>());
+      Table createdTable = icebergCatalog.loadTable(fromTableIdentifier);
+      Assertions.assertEquals(createdTable.name(), "openhouse.db.rename_TEST3");
+      TableIdentifier toTableIdentifier =
+          TableIdentifier.of("db", "rename_test_renamed_CASE_SENSITIVE");
+      Assertions.assertDoesNotThrow(
+          () ->
+              icebergCatalog.renameTable(
+                  TableIdentifier.of("DB", "RENAME_test3"), toTableIdentifier));
+      Table renamedTable =
+          icebergCatalog.loadTable(TableIdentifier.of("dB", "rename_test_renamed_case_SENSITIVE"));
+
+      // Ensure that the original db name is preserved
+      Assertions.assertEquals(
+          renamedTable.name(), "openhouse.dB.rename_test_renamed_case_SENSITIVE");
+    }
   }
 }

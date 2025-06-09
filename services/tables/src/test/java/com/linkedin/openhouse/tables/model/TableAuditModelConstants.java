@@ -139,6 +139,36 @@ public final class TableAuditModelConstants {
           .operationType(OperationType.DELETE)
           .build();
 
+  public static final TableAuditEvent TABLE_AUDIT_EVENT_RENAME_FROM_TABLE_SUCCESS =
+      TableAuditEvent.builder()
+          .clusterName(CLUSTER_NAME)
+          .databaseName("d1")
+          .tableName("t1")
+          .user(USER)
+          .operationStatus(OperationStatus.SUCCESS)
+          .operationType(OperationType.RENAME_FROM)
+          .build();
+
+  public static final TableAuditEvent TABLE_AUDIT_EVENT_RENAME_TO_TABLE_SUCCESS =
+      TableAuditEvent.builder()
+          .clusterName(CLUSTER_NAME)
+          .databaseName("d1")
+          .tableName("t2")
+          .user(USER)
+          .operationStatus(OperationStatus.SUCCESS)
+          .operationType(OperationType.RENAME_TO)
+          .build();
+
+  public static final TableAuditEvent TABLE_AUDIT_EVENT_RENAME_FROM_TABLE_FAILED =
+      TableAuditEvent.builder()
+          .clusterName(CLUSTER_NAME)
+          .databaseName("d1")
+          .tableName("t1")
+          .user(USER)
+          .operationStatus(OperationStatus.FAILED)
+          .operationType(OperationType.RENAME_FROM)
+          .build();
+
   public static final TableAuditEvent TABLE_AUDIT_EVENT_GET_ACL_POLICIES_SUCCESS =
       TableAuditEvent.builder()
           .clusterName(CLUSTER_NAME)

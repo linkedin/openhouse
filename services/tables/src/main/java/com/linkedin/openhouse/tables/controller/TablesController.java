@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -193,6 +194,38 @@ public class TablesController {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteTable(databaseId, tableId, extractAuthenticatedUserPrincipal());
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "RENAME Table",
+      description = "Renames a table resource",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "Table RENAME: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "Table RENAME: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "Table RENAME: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Table RENAME: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Table RENAME: TBL_DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "Table RENAME: TBL_EXISTS")
+      })
+  @PatchMapping(value = {"/v1/databases/{fromDatabaseId}/tables/{fromTableId}/rename"})
+  public ResponseEntity<Void> renameTable(
+      @Parameter(description = "Database ID", required = true) @PathVariable String fromDatabaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String fromTableId,
+      @RequestParam(value = "toDatabaseId") String toDatabaseId,
+      @RequestParam(value = "toTableId") String toTableId) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.renameTable(
+            fromDatabaseId,
+            fromTableId,
+            toDatabaseId,
+            toTableId,
+            extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

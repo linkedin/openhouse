@@ -10,5 +10,7 @@ public enum OperationType {
   GRANT,
   REVOKE,
   STAGED_CREATE,
-  STAGED_COMMIT
+  STAGED_COMMIT,
+  RENAME_FROM,
+  RENAME_TO
 }

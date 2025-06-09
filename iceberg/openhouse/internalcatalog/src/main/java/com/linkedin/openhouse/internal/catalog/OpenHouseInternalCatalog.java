@@ -6,6 +6,7 @@ import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -20,7 +21,10 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseMetastoreCatalog;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.Transaction;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -128,7 +132,30 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
-    throw new UnsupportedOperationException("Rename Tables not implemented yet");
+    TableIdentifier fromTableId = TableIdentifier.of(from.namespace().toString(), from.name());
+    Table fromTable = loadTable(fromTableId);
+    String tableClusterId = fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    TableUri tableUri =
+        TableUri.builder()
+            .clusterId(tableClusterId)
+            .databaseId(to.namespace().toString())
+            .tableId(to.name())
+            .build();
+    Transaction transaction = fromTable.newTransaction();
+    UpdateProperties updateProperties = transaction.updateProperties();
+    log.info(
+        "Setting preserved table properties {} to {}, {} to {}, and {} to {} for table rename",
+        CatalogConstants.OPENHOUSE_TABLEID_KEY,
+        to.name(),
+        CatalogConstants.OPENHOUSE_DATABASEID_KEY,
+        to.namespace().toString(),
+        CatalogConstants.OPENHOUSE_TABLEURI_KEY,
+        tableUri.toString());
+    updateProperties.set(CatalogConstants.OPENHOUSE_TABLEID_KEY, to.name());
+    updateProperties.set(CatalogConstants.OPENHOUSE_DATABASEID_KEY, to.namespace().toString());
+    updateProperties.set(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri.toString());
+    updateProperties.commit();
+    transaction.commitTransaction();
   }
 
   /**
