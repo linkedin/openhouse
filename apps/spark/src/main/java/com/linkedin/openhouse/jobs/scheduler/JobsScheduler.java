@@ -762,7 +762,6 @@ public class JobsScheduler {
             })
         .thenRun(
             () -> {
-              jobInfoManager.updateDataGenerationCompletion();
               log.info(
                   "The total jobs submitted: {} for the job type: {}", taskList.size(), jobType);
               // get job status from task future and update job state for SUBMIT mode
@@ -774,6 +773,10 @@ public class JobsScheduler {
                   startTimeMillis,
                   tasksWaitHours,
                   true);
+              // Marked as completed after submission status check to ensure that all the submitted
+              // jobs are added to
+              // the submitted queue
+              jobInfoManager.updateDataGenerationCompletion();
             });
   }
 
