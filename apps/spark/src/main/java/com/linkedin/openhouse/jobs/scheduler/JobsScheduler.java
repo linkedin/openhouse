@@ -1002,7 +1002,10 @@ public class JobsScheduler {
       try {
         long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
         long remainingTimeMillis = TimeUnit.HOURS.toMillis(tasksWaitHours) - passedTimeMillis;
+        log.info("Task {} has remainingTimeMillis={}", task.getJobId(), remainingTimeMillis);
         jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
+        log.info(
+            "Successfully get job state for task {}: {}", task.getJobId(), jobState.orElse(null));
       } catch (ExecutionException e) {
         log.error(String.format("Operation for %s failed with exception", task), e);
         jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
