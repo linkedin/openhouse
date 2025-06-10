@@ -140,25 +140,26 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   private Optional<JobState> pollJobStatus(Attributes typeAttributes) {
     long startTime = System.currentTimeMillis();
-    while (!jobFinished()) {
-      long elapsedTime = System.currentTimeMillis() - startTime;
-      if (elapsedTime > timeoutMs) {
-        Optional<JobState> job = jobsClient.getState(jobId);
-        // Do not cancel job if it is still in running state after 3 hours
-        if (job.isPresent() && !job.get().equals(JobState.RUNNING)) {
-          log.info(
-              "Cancelling job: {} due to timeout for {}: jobState: {}",
-              getType(),
-              metadata,
-              job.get());
-          if (!jobsClient.cancelJob(jobId)) {
-            log.error("Could not cancel job {} for {}", getType(), metadata);
-            return Optional.empty();
-          }
-          break;
-        }
-      }
+    while (!Thread.currentThread().isInterrupted() && !jobFinished()) {
       try {
+        long elapsedTime = System.currentTimeMillis() - startTime;
+        if (elapsedTime > timeoutMs) {
+          Optional<JobState> job = jobsClient.getState(jobId);
+          // Do not cancel job if it is still in running state after 3 hours
+          if (job.isPresent() && !job.get().equals(JobState.RUNNING)) {
+            log.info(
+                "Cancelling job: {} due to timeout for {}: jobState: {}",
+                getType(),
+                metadata,
+                job.get());
+            if (!jobsClient.cancelJob(jobId)) {
+              log.error("Could not cancel job {} for {}", getType(), metadata);
+              return Optional.empty();
+            }
+            break;
+          }
+        }
+        // Sleep for specified poll interval
         Thread.sleep(pollIntervalMs);
       } catch (InterruptedException e) {
         log.warn(
@@ -170,6 +171,9 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
           log.error("Could not cancel job {} for {}", getType(), metadata);
           return Optional.empty();
         }
+        // Interrupt the current thread and exit the loop
+        Thread.currentThread().interrupt();
+        break;
       }
     }
     Optional<JobResponseBody> ret = jobsClient.getJob(jobId);
