@@ -1005,7 +1005,9 @@ public class JobsScheduler {
         log.info("Task {} has remainingTimeMillis={}", task.getJobId(), remainingTimeMillis);
         jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
         log.info(
-            "Successfully get job state for task {}: {}", task.getJobId(), jobState.orElse(null));
+            "Successfully get job state for task {}: {}",
+            task.getJobId(),
+            jobState.orElse(JobState.SKIPPED));
       } catch (ExecutionException e) {
         log.error(String.format("Operation for %s failed with exception", task), e);
         jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
