@@ -159,7 +159,7 @@ public class JobsScheduler {
                 cmdLine.getOptionValue("taskPollIntervalMs"),
                 OperationTask.POLL_INTERVAL_MS_DEFAULT),
             NumberUtils.toLong(
-                cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.TIMEOUT_MS_DEFAULT));
+                cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.QUEUED_TIMEOUT_MS_DEFAULT));
     ThreadPoolExecutor jobExecutors = null;
     ThreadPoolExecutor statusExecutors = null;
     if (isMultiOperationMode(cmdLine)) {

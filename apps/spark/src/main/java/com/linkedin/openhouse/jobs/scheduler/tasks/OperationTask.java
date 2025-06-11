@@ -31,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 @Getter
 public abstract class OperationTask<T extends Metadata> implements Callable<Optional<JobState>> {
   public static final long POLL_INTERVAL_MS_DEFAULT = TimeUnit.MINUTES.toMillis(5);
-  public static final long TIMEOUT_MS_DEFAULT = TimeUnit.HOURS.toMillis(3);
+  public static final long QUEUED_TIMEOUT_MS_DEFAULT = TimeUnit.MINUTES.toMillis(10);
   private static final Meter METER = OtelConfig.getMeter(OperationTask.class.getName());
 
   @Getter(AccessLevel.NONE)
@@ -47,7 +47,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   private final long pollIntervalMs;
 
   @Getter(AccessLevel.NONE)
-  private final long timeoutMs;
+  private final long queuedTimeoutMs;
 
   @Setter(AccessLevel.PACKAGE)
   @Getter(AccessLevel.PUBLIC)
@@ -66,16 +66,16 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
       TablesClient tablesClient,
       T metadata,
       long pollIntervalMs,
-      long timeoutMs) {
+      long queuedTimeoutMs) {
     this.jobsClient = jobsClient;
     this.tablesClient = tablesClient;
     this.metadata = metadata;
     this.pollIntervalMs = pollIntervalMs;
-    this.timeoutMs = timeoutMs;
+    this.queuedTimeoutMs = queuedTimeoutMs;
   }
 
   protected OperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {
-    this(jobsClient, tablesClient, metadata, POLL_INTERVAL_MS_DEFAULT, TIMEOUT_MS_DEFAULT);
+    this(jobsClient, tablesClient, metadata, POLL_INTERVAL_MS_DEFAULT, QUEUED_TIMEOUT_MS_DEFAULT);
   }
 
   public abstract JobConf.JobTypeEnum getType();
@@ -150,12 +150,13 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     long startTime = System.currentTimeMillis();
     while (!jobFinished()) {
       long elapsedTime = System.currentTimeMillis() - startTime;
-      if (elapsedTime > timeoutMs) {
+      // Cancel job if it is queued for more than queuedTimeoutMs.
+      // Otherwise, if it is running, then keep it running until scheduler cancels it.
+      if (elapsedTime > queuedTimeoutMs) {
         Optional<JobState> job = jobsClient.getState(jobId);
-        // Do not cancel job if it is still in running state after 3 hours
-        if (job.isPresent() && !job.get().equals(JobState.RUNNING)) {
+        if (job.isPresent() && job.get().equals(JobState.QUEUED)) {
           log.info(
-              "Cancelling job: {} due to timeout for {}: jobState: {}",
+              "Cancelling job: {} due to queued timeout for {}: jobState: {}",
               getType(),
               metadata,
               job.get());
