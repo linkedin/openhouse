@@ -159,7 +159,8 @@ public class JobsScheduler {
                 cmdLine.getOptionValue("taskPollIntervalMs"),
                 OperationTask.POLL_INTERVAL_MS_DEFAULT),
             NumberUtils.toLong(
-                cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.QUEUED_TIMEOUT_MS_DEFAULT));
+                cmdLine.getOptionValue("taskQueuedTimeoutMs"),
+                OperationTask.QUEUED_TIMEOUT_MS_DEFAULT));
     ThreadPoolExecutor jobExecutors = null;
     ThreadPoolExecutor statusExecutors = null;
     if (isMultiOperationMode(cmdLine)) {
@@ -491,7 +492,7 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
-            .longOpt("taskTimeoutMs")
+            .longOpt("taskQueuedTimeoutMs")
             .desc("Timeout in milliseconds for an individual task")
             .build());
     // TODO: move these to ODD specific config
