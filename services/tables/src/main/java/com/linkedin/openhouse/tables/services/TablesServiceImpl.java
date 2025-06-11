@@ -228,9 +228,12 @@ public class TablesServiceImpl implements TablesService {
               "Table %s.%s is in locked state and cannot be renamed.",
               fromDatabaseId, fromTableId));
     }
-
+    // Rename involves both modifying an existing table and creating a new one
     authorizationUtils.checkDatabasePrivilege(
-        fromDatabaseId, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+        fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
+    authorizationUtils.checkTableWritePathPrivileges(
+        existingTableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+
     openHouseInternalRepository.rename(
         TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),
         TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
