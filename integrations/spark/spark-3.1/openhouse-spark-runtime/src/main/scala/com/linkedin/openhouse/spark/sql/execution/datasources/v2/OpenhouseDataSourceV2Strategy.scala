@@ -25,17 +25,25 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
       SetSharingPolicyExec(catalog, ident, sharing) :: Nil
     case SetColumnPolicyTag(CatalogAndIdentifierExtractor(catalog, ident), policyTag, cols) =>
       SetColumnPolicyTagExec(catalog, ident, policyTag, cols) :: Nil
-    case RenameTable(CatalogAndIdentifierExtractor(fromCatalog, fromIdent), toTable) =>
-      // Check if the destination table has a catalog name
-      val (toCatalog, toIdent) = toTable match {
+    case RenameTable(fromIdent, toIdent) =>
+      // Handle the source table identifier
+      val (fromCatalog, fromDbTable) = fromIdent match {
         case CatalogAndIdentifierExtractor(catalog, ident) =>
           (catalog, ident)
         case _ =>
-          // If the destination doesn't have a catalog name, throw a specific error
-          throw new IllegalArgumentException(
-            s"Destination table identifier '${toTable.mkString(".")}' must include a catalog name. " +
-            s"Expected '${fromCatalog.name()}.${toTable.mkString(".")}' instead."
-          )
+          // If the source doesn't have a catalog name, use the default catalog
+          val defaultCatalogWithIdent = Seq(spark.sessionState.catalogManager.currentCatalog.name()) ++ fromIdent
+          val catalogAndIdentifier = Spark3Util.catalogAndIdentifier(spark, defaultCatalogWithIdent.asJava)
+          (catalogAndIdentifier.catalog.asInstanceOf[TableCatalog], catalogAndIdentifier.identifier)
+      }
+
+      // Handle the destination table identifier
+      val (toCatalog, toDbTable) = toIdent match {
+        case CatalogAndIdentifierExtractor(catalog, ident) =>
+          (catalog, ident)
+        case _ =>
+          // If the destination doesn't have a catalog name, use the source catalog
+          (fromCatalog, Identifier.of(toIdent.dropRight(1).toArray, toIdent.last))
       }
 
       if (fromCatalog != toCatalog) {
@@ -43,7 +51,8 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
           s"Cannot rename tables across different catalogs: from '${fromCatalog.name()}' to '${toCatalog.name()}'"
         )
       }
-      RenameTableExec(fromCatalog, fromIdent, toIdent) :: Nil
+      RenameTableExec(fromCatalog, fromDbTable, toDbTable) :: Nil
+
     case GrantRevokeStatement(isGrant, resourceType, CatalogAndIdentifierExtractor(catalog, ident), privilege, principal) =>
       GrantRevokeStatementExec(isGrant, resourceType, catalog, ident, privilege, principal) :: Nil
 
