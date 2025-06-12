@@ -74,28 +74,16 @@ public class OperationTasksBuilderTest {
     JobsClientFactory jobsClientFactory = Mockito.mock(JobsClientFactory.class);
     tasksFactorySnapshotExpiration =
         new OperationTaskFactory<>(
-            operationTaskClsSnapshotExpiration,
-            jobsClientFactory,
-            tablesClientFactory,
-            60000L,
-            60000L);
+            operationTaskClsSnapshotExpiration, jobsClient, tablesClient, 60000L, 60000L);
     tasksFactoryRetention =
         new OperationTaskFactory<>(
-            operationTaskClsRetention, jobsClientFactory, tablesClientFactory, 60000L, 60000L);
+            operationTaskClsRetention, jobsClient, tablesClient, 60000L, 60000L);
     tasksFactoryStatsCollection =
         new OperationTaskFactory<>(
-            operationTaskClsStatsCollection,
-            jobsClientFactory,
-            tablesClientFactory,
-            60000L,
-            60000L);
+            operationTaskClsStatsCollection, jobsClient, tablesClient, 60000L, 60000L);
     tasksFactoryOrphanFileDeletion =
         new OperationTaskFactory<>(
-            operationTaskClsOrphanFileDeletion,
-            jobsClientFactory,
-            tablesClientFactory,
-            60000L,
-            60000L);
+            operationTaskClsOrphanFileDeletion, jobsClient, tablesClient, 60000L, 60000L);
     operationTaskManagerSnapshotExpiration =
         new OperationTaskManager(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
     operationTaskManagerOrphanFileDeletion =

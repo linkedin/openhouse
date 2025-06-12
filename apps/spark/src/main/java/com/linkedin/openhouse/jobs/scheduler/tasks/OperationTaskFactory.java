@@ -1,9 +1,7 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.linkedin.openhouse.jobs.client.JobsClient;
-import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
-import com.linkedin.openhouse.jobs.client.TablesClientFactory;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import java.lang.reflect.InvocationTargetException;
 import lombok.AllArgsConstructor;
@@ -12,8 +10,8 @@ import lombok.AllArgsConstructor;
 @AllArgsConstructor
 public class OperationTaskFactory<T extends OperationTask<?>> {
   private Class<T> cls;
-  private JobsClientFactory jobsClientFactory;
-  private TablesClientFactory tablesClientFactory;
+  private JobsClient jobsClient;
+  private TablesClient tablesClient;
   private long pollIntervalMs;
   private long timeoutMs;
 
@@ -22,11 +20,6 @@ public class OperationTaskFactory<T extends OperationTask<?>> {
           IllegalAccessException, IllegalStateException {
     return cls.getDeclaredConstructor(
             JobsClient.class, TablesClient.class, metadata.getClass(), long.class, long.class)
-        .newInstance(
-            jobsClientFactory.create(),
-            tablesClientFactory.create(),
-            metadata,
-            pollIntervalMs,
-            timeoutMs);
+        .newInstance(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
   }
 }

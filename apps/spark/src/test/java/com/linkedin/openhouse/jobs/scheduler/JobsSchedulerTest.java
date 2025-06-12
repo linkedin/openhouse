@@ -32,14 +32,13 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.mockito.Mockito;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@Disabled(
-    "The jobs scheduler test class is disabled as it takes time to run. Enable it to test jobs scheduler locally")
+/*@Disabled(
+"The jobs scheduler test class is disabled as it takes time to run. Enable it to test jobs scheduler locally")*/
 public class JobsSchedulerTest {
 
   private TablesClient tablesClient;
@@ -91,28 +90,16 @@ public class JobsSchedulerTest {
     jobsClientFactory = Mockito.mock(JobsClientFactory.class);
     tasksFactorySnapshotExpiration =
         new OperationTaskFactory<>(
-            operationTaskClsSnapshotExpiration,
-            jobsClientFactory,
-            tablesClientFactory,
-            60000L,
-            60000L);
+            operationTaskClsSnapshotExpiration, jobsClient, tablesClient, 60000L, 60000L);
     tasksFactoryRetention =
         new OperationTaskFactory<>(
-            operationTaskClsRetention, jobsClientFactory, tablesClientFactory, 60000L, 60000L);
+            operationTaskClsRetention, jobsClient, tablesClient, 60000L, 60000L);
     tasksFactoryStatsCollection =
         new OperationTaskFactory<>(
-            operationTaskClsStatsCollection,
-            jobsClientFactory,
-            tablesClientFactory,
-            60000L,
-            60000L);
+            operationTaskClsStatsCollection, jobsClient, tablesClient, 60000L, 60000L);
     tasksFactoryOrphanFileDeletion =
         new OperationTaskFactory<>(
-            operationTaskClsOrphanFileDeletion,
-            jobsClientFactory,
-            tablesClientFactory,
-            60000L,
-            60000L);
+            operationTaskClsOrphanFileDeletion, jobsClient, tablesClient, 60000L, 60000L);
     for (int i = 0; i < dbCount; i++) {
       databases.add("db" + i);
     }
@@ -136,7 +123,8 @@ public class JobsSchedulerTest {
             jobExecutors,
             statusExecutors,
             tasksFactorySnapshotExpiration,
-            tablesClientFactory.create(),
+            tablesClient,
+            jobsClient,
             operationTaskManagerSnapshotExpiration,
             jobInfoManagerSnapshotExpiration);
     jobsSchedulerOrphanFileDeletion =
@@ -144,7 +132,8 @@ public class JobsSchedulerTest {
             jobExecutors,
             statusExecutors,
             tasksFactoryOrphanFileDeletion,
-            tablesClientFactory.create(),
+            tablesClient,
+            jobsClient,
             operationTaskManagerOrphanFileDeletion,
             jobInfoManagerOrphanFileDeletion);
     operationTasksBuilderSnapshotExpiration =
