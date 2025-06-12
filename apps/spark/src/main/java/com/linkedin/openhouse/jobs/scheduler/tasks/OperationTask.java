@@ -50,7 +50,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   private final long timeoutMs;
 
   @Setter(AccessLevel.PACKAGE)
-  @Getter(AccessLevel.NONE)
+  @Getter(AccessLevel.PUBLIC)
   protected String jobId;
 
   @Setter(AccessLevel.PACKAGE)
