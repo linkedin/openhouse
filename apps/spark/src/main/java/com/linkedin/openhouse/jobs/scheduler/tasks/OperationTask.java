@@ -95,10 +95,14 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
                 ? AttributeKey.stringKey(AppConstants.TABLE_NAME)
                 : AttributeKey.stringKey(AppConstants.DATABASE_NAME)),
             metadata.getEntityName());
+    Optional<JobState> submitJobState;
     switch (operationMode) {
       case SUBMIT:
-        Optional<JobState> submitJobState = submitJob(typeAttributes);
-        moveJobToSubmittedStage();
+        submitJobState = submitJob(typeAttributes);
+        // If job state is not empty then poll for status
+        if (submitJobState.isPresent()) {
+          moveJobToSubmittedStage();
+        }
         return submitJobState;
       case POLL:
         Optional<JobState> pollJobState = pollJobStatus(typeAttributes);
@@ -106,8 +110,12 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         return pollJobState;
       case SINGLE:
       default:
-        submitJob(typeAttributes);
-        return pollJobStatus(typeAttributes);
+        submitJobState = submitJob(typeAttributes);
+        // If job state is not empty then poll for status
+        if (submitJobState.isPresent()) {
+          return pollJobStatus(typeAttributes);
+        }
+        return submitJobState;
     }
   }
 
