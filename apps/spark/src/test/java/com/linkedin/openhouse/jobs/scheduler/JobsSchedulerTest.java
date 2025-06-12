@@ -32,13 +32,14 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.mockito.Mockito;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-/*@Disabled(
-"The jobs scheduler test class is disabled as it takes time to run. Enable it to test jobs scheduler locally")*/
+@Disabled(
+    "The jobs scheduler test class is disabled as it takes time to run. Enable it to test jobs scheduler locally")
 public class JobsSchedulerTest {
 
   private TablesClient tablesClient;
