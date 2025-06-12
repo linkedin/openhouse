@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.scheduler;
 
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
 import com.linkedin.openhouse.common.JobState;
+import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
@@ -114,6 +115,7 @@ public class JobsScheduler {
   private final ThreadPoolExecutor statusExecutors;
   private final OperationTaskFactory<? extends OperationTask> taskFactory;
   private final TablesClient tablesClient;
+  private final JobsClient jobsClient;
   private AtomicBoolean jobLaunchTasksSubmissionCompleted = new AtomicBoolean(false);
   private AtomicBoolean jobStatusTasksSubmissionCompleted = new AtomicBoolean(false);
   protected final OperationTaskManager operationTaskManager;
@@ -126,12 +128,14 @@ public class JobsScheduler {
       ThreadPoolExecutor statusExecutors,
       OperationTaskFactory<? extends OperationTask> taskFactory,
       TablesClient tablesClient,
+      JobsClient jobsClient,
       OperationTaskManager operationTaskManager,
       JobInfoManager jobInfoManager) {
     this.jobExecutors = jobExecutors;
     this.statusExecutors = statusExecutors;
     this.taskFactory = taskFactory;
     this.tablesClient = tablesClient;
+    this.jobsClient = jobsClient;
     this.operationTaskManager = operationTaskManager;
     this.jobInfoManager = jobInfoManager;
   }
@@ -142,12 +146,15 @@ public class JobsScheduler {
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
+    TablesClient tablesClient = tablesClientFactory.create();
+    JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
+    JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);
     OperationTaskFactory<? extends OperationTask> tasksFactory =
         new OperationTaskFactory<>(
             operationTaskCls,
-            getJobsClientFactory(cmdLine),
-            tablesClientFactory,
+            jobsClient,
+            tablesClient,
             NumberUtils.toLong(
                 cmdLine.getOptionValue("taskPollIntervalMs"),
                 OperationTask.POLL_INTERVAL_MS_DEFAULT),
@@ -184,7 +191,8 @@ public class JobsScheduler {
             jobExecutors,
             statusExecutors,
             tasksFactory,
-            tablesClientFactory.create(),
+            tablesClient,
+            jobsClient,
             new OperationTaskManager(operationType),
             new JobInfoManager(operationType));
     OperationTasksBuilder builder =
