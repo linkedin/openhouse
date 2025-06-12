@@ -264,7 +264,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       spark.sql("CREATE TABLE openhouse.db.rename_test (name string)");
 
       TableIdentifier toTableIdentifier = TableIdentifier.of("db", "rename_test_renamed");
-      spark.sql("ALTER TABLE openhouse.db.rename_test RENAME TO db.rename_test_renamed");
+      spark.sql("ALTER TABLE openhouse.db.rename_test RENAME TO openhouse.db.rename_test_renamed");
 
       Table loadedTable = icebergCatalog.loadTable(toTableIdentifier);
       Assertions.assertNotNull(loadedTable);
@@ -310,7 +310,8 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertThrows(
           WebClientResponseWithMessageException.class,
           () ->
-              spark.sql("ALTER TABLE openhouse.db.rename_test2 RENAME TO db.rename_test_conflict"));
+              spark.sql(
+                  "ALTER TABLE openhouse.db.rename_test2 RENAME TO openhouse.db.rename_test_conflict"));
 
       // Since rename fails, the properties on the user table should not have propagated
       Assertions.assertNull(

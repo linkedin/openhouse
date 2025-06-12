@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, RenameTable, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
 import org.apache.iceberg.spark.{Spark3Util, SparkCatalog, SparkSessionCatalog}
 import org.apache.spark.sql.{SparkSession, Strategy}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
@@ -25,7 +25,25 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
       SetSharingPolicyExec(catalog, ident, sharing) :: Nil
     case SetColumnPolicyTag(CatalogAndIdentifierExtractor(catalog, ident), policyTag, cols) =>
       SetColumnPolicyTagExec(catalog, ident, policyTag, cols) :: Nil
+    case RenameTable(CatalogAndIdentifierExtractor(fromCatalog, fromIdent), toTable) =>
+      // Check if the destination table has a catalog name
+      val (toCatalog, toIdent) = toTable match {
+        case CatalogAndIdentifierExtractor(catalog, ident) =>
+          (catalog, ident)
+        case _ =>
+          // If the destination doesn't have a catalog name, throw a specific error
+          throw new IllegalArgumentException(
+            s"Destination table identifier '${toTable.mkString(".")}' must include a catalog name. " +
+            s"Expected '${fromCatalog.name()}.${toTable.mkString(".")}' instead."
+          )
+      }
 
+      if (fromCatalog != toCatalog) {
+        throw new UnsupportedOperationException(
+          s"Cannot rename tables across different catalogs: from '${fromCatalog.name()}' to '${toCatalog.name()}'"
+        )
+      }
+      RenameTableExec(fromCatalog, fromIdent, toIdent) :: Nil
     case GrantRevokeStatement(isGrant, resourceType, CatalogAndIdentifierExtractor(catalog, ident), privilege, principal) =>
       GrantRevokeStatementExec(isGrant, resourceType, catalog, ident, privilege, principal) :: Nil
 

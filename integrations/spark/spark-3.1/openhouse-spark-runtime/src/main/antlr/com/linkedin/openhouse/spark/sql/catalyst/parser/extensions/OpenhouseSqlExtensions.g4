@@ -29,6 +29,7 @@ statement
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' historyPolicy ')'                                   #setHistoryPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
+  | ALTER TABLE multipartIdentifier RENAME TO multipartIdentifier                                      #renameTable
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
   | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
@@ -68,7 +69,7 @@ quotedIdentifier
 
 nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
-    | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
+    | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN | RENAME
     ;
 
 sharingPolicy
@@ -205,6 +206,7 @@ TAG: 'TAG';
 NONE: 'NONE';
 VERSIONS: 'VERSIONS';
 MAX_AGE: 'MAX_AGE';
+RENAME: 'RENAME';
 
 POSITIVE_INTEGER
     : DIGIT+

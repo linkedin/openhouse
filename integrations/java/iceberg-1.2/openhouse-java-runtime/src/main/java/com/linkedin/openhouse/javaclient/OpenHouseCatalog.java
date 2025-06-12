@@ -240,6 +240,12 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
           "Input namespace has more than one levels "
               + String.join(".", from.namespace().levels()));
     }
+
+    if (to.namespace().levels().length > 1) {
+      throw new ValidationException(
+          "Renamed namespace has unexpected levels " + String.join(".", to.namespace().levels()));
+    }
+
     tableApi
         .renameTableV1(
             from.namespace().toString(), from.name(), to.namespace().toString(), to.name())
