@@ -23,14 +23,8 @@ case class RenameTableExec(
   override def output: Seq[Attribute] = Seq.empty
 
   override def run(): Seq[InternalRow] = {
-    catalog.loadTable(fromIdent) match {
-      case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
-        catalog.renameTable(fromIdent, toIdent)
-        Seq.empty
-
-      case table =>
-        throw new UnsupportedOperationException(s"Cannot rename non-Openhouse table: $table")
-    }
+    catalog.renameTable(fromIdent, toIdent)
+    Nil
   }
 
   override def simpleString(maxFields: Int): String = {

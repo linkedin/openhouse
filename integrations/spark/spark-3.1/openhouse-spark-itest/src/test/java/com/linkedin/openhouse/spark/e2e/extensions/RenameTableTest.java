@@ -18,8 +18,6 @@ public class RenameTableTest {
   @Test
   public void testRenameTable() {
     // Setup mock responses for the source table
-    mockTableLocation(
-        TableIdentifier.of("dbRename", "t1"), convertSchemaToDDLComponent(baseSchema), "");
     Object sourceTable =
         mockGetTableResponseBody(
             "dbRename",
@@ -27,17 +25,15 @@ public class RenameTableTest {
             "c1",
             "dbRename.t1",
             "u1",
-            mockTableLocationAfterOperation(
-                TableIdentifier.of("dbRename", "t1"),
-                "ALTER TABLE %t SET TBLPROPERTIES('openhouse.tableId'='t1')"),
+            mockTableLocation(
+                TableIdentifier.of("dbRename", "t1"), convertSchemaToDDLComponent(baseSchema), ""),
             "V1",
             baseSchema,
             null,
             null);
 
     // Mock the API responses
-    mockTableService.enqueue(mockResponse(200, sourceTable)); // doRefresh() for source table
-    mockTableService.enqueue(mockResponse(200, sourceTable)); // loads table when parsing
+    mockTableService.enqueue(mockResponse(200, sourceTable));
 
     // Execute the rename statement
     String renameStatement = "ALTER TABLE openhouse.dbRename.t1 RENAME TO openhouse.dbRename.t2";
@@ -47,10 +43,6 @@ public class RenameTableTest {
   @Test
   public void testRenameTableWithSpecialCharacters() {
     // Setup mock responses for the source table
-    mockTableLocation(
-        TableIdentifier.of("dbRename", "source_table_1"),
-        convertSchemaToDDLComponent(baseSchema),
-        "");
     Object sourceTable =
         mockGetTableResponseBody(
             "dbRename",
@@ -58,17 +50,17 @@ public class RenameTableTest {
             "c1",
             "dbRename.source_table_1",
             "u1",
-            mockTableLocationAfterOperation(
+            mockTableLocation(
                 TableIdentifier.of("dbRename", "source_table_1"),
-                "ALTER TABLE %t SET TBLPROPERTIES('openhouse.tableId'='source_table_1')"),
+                convertSchemaToDDLComponent(baseSchema),
+                ""),
             "V1",
             baseSchema,
             null,
             null);
 
     // Mock the API responses
-    mockTableService.enqueue(mockResponse(200, sourceTable)); // loads table when parsing
-    mockTableService.enqueue(mockResponse(200, sourceTable)); // loads table when parsing
+    mockTableService.enqueue(mockResponse(200, sourceTable));
 
     // Execute the rename statement
     String renameStatement =
@@ -80,8 +72,6 @@ public class RenameTableTest {
   public void testRenameTableInvalidSyntax() {
 
     // Setup mock responses for the source table
-    mockTableLocation(
-        TableIdentifier.of("dbRename", "t3"), convertSchemaToDDLComponent(baseSchema), "");
     Object sourceTable =
         mockGetTableResponseBody(
             "dbRename",
@@ -89,9 +79,8 @@ public class RenameTableTest {
             "c1",
             "dbRename.t3",
             "u1",
-            mockTableLocationAfterOperation(
-                TableIdentifier.of("dbRename", "t3"),
-                "ALTER TABLE %t SET TBLPROPERTIES('openhouse.tableId'='t3')"),
+            mockTableLocation(
+                TableIdentifier.of("dbRename", "t3"), convertSchemaToDDLComponent(baseSchema), ""),
             "V1",
             baseSchema,
             null,
@@ -120,8 +109,6 @@ public class RenameTableTest {
 
   @Test
   public void testRenameTableInvalidCatalogs() {
-    mockTableLocation(
-        TableIdentifier.of("dbRename", "t4"), convertSchemaToDDLComponent(baseSchema), "");
     // Setup mock responses for the source table
     Object sourceTable =
         mockGetTableResponseBody(
@@ -130,9 +117,8 @@ public class RenameTableTest {
             "c1",
             "dbRename.t4",
             "u1",
-            mockTableLocationAfterOperation(
-                TableIdentifier.of("dbRename", "t4"),
-                "ALTER TABLE %t SET TBLPROPERTIES('openhouse.tableId'='t4')"),
+            mockTableLocation(
+                TableIdentifier.of("dbRename", "t4"), convertSchemaToDDLComponent(baseSchema), ""),
             "V1",
             baseSchema,
             null,
@@ -160,8 +146,6 @@ public class RenameTableTest {
 
   @Test
   public void testRenameUseCatalog() {
-    mockTableLocation(
-        TableIdentifier.of("dbRename", "t5"), convertSchemaToDDLComponent(baseSchema), "");
     // Setup mock responses for the source table
     Object sourceTable =
         mockGetTableResponseBody(
@@ -170,15 +154,13 @@ public class RenameTableTest {
             "c1",
             "dbRename.t5",
             "u1",
-            mockTableLocationAfterOperation(
-                TableIdentifier.of("dbRename", "t5"),
-                "ALTER TABLE %t SET TBLPROPERTIES('openhouse.tableId'='t5')"),
+            mockTableLocation(
+                TableIdentifier.of("dbRename", "t5"), convertSchemaToDDLComponent(baseSchema), ""),
             "V1",
             baseSchema,
             null,
             null);
     // Mock the API responses
-    mockTableService.enqueue(mockResponse(200, sourceTable));
     mockTableService.enqueue(mockResponse(200, sourceTable));
 
     spark.sql("USE openhouse");
