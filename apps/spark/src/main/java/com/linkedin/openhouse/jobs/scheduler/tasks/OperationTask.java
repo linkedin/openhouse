@@ -33,6 +33,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   public static final long POLL_INTERVAL_MS_DEFAULT = TimeUnit.MINUTES.toMillis(5);
   public static final long TIMEOUT_MS_DEFAULT = TimeUnit.HOURS.toMillis(3);
   private static final Meter METER = OtelConfig.getMeter(OperationTask.class.getName());
+  private static final long JOB_SUBMISSION_DELAY_DEFAULT = TimeUnit.SECONDS.toMillis(10);
 
   @Getter(AccessLevel.NONE)
   protected final JobsClient jobsClient;
@@ -95,10 +96,14 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
                 ? AttributeKey.stringKey(AppConstants.TABLE_NAME)
                 : AttributeKey.stringKey(AppConstants.DATABASE_NAME)),
             metadata.getEntityName());
+    Optional<JobState> submitJobState;
     switch (operationMode) {
       case SUBMIT:
-        Optional<JobState> submitJobState = submitJob(typeAttributes);
-        moveJobToSubmittedStage();
+        submitJobState = submitJob(typeAttributes);
+        // If job state is not empty then poll for status
+        if (submitJobState.isPresent()) {
+          moveJobToSubmittedStage();
+        }
         return submitJobState;
       case POLL:
         Optional<JobState> pollJobState = pollJobStatus(typeAttributes);
@@ -106,8 +111,12 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         return pollJobState;
       case SINGLE:
       default:
-        submitJob(typeAttributes);
-        return pollJobStatus(typeAttributes);
+        submitJobState = submitJob(typeAttributes);
+        // If job state is not empty then poll for status
+        if (submitJobState.isPresent()) {
+          return pollJobStatus(typeAttributes);
+        }
+        return submitJobState;
     }
   }
 
@@ -129,6 +138,8 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
           METER,
           "submit",
           typeAttributes);
+      // Add some delay after job submission
+      Thread.sleep(JOB_SUBMISSION_DELAY_DEFAULT);
     } catch (Exception e) {
       log.error(
           "Could not launch job {} for {}. Exception {}", getType(), metadata, e.getMessage());
