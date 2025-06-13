@@ -241,24 +241,19 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
               + String.join(".", from.namespace().levels()));
     }
 
-    String toNamespace = to.namespace().toString();
-    if (to.namespace().levels().length == 2) {
-      // Assume that the namespace in the target table identifier contains the catalog name,
-      // validate it
-      if (!to.namespace().level(0).equalsIgnoreCase(this.name())) {
-        throw new UnsupportedOperationException(
-            String.format(
-                "Cannot rename tables across catalogs: from=%s, to=%s",
-                this.name(), to.namespace().level(0)));
-      }
-      toNamespace = to.namespace().level(1);
-    } else if (to.namespace().levels().length > 2) {
-      throw new ValidationException(
-          "Target namespace has unexpected levels " + String.join(".", to.namespace().levels()));
+    CatalogAndDbNameFromNamespace catalogAndDbName =
+        new CatalogAndDbNameFromNamespace(to.namespace());
+    if (catalogAndDbName.catalogName() != null
+        && !catalogAndDbName.catalogName().equals(this.name())) {
+      throw new UnsupportedOperationException(
+          String.format(
+              "Cannot rename tables across catalogs: from=%s, to=%s",
+              String.join(".", this.name(), from.toString()), to));
     }
 
     tableApi
-        .renameTableV1(from.namespace().toString(), from.name(), toNamespace, to.name())
+        .renameTableV1(
+            from.namespace().toString(), from.name(), catalogAndDbName.dbName(), to.name())
         .onErrorResume(
             WebClientResponseException.NotFound.class,
             e -> Mono.error(new NoSuchTableException("Table " + from + " does not exist")))
@@ -628,6 +623,38 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
               .mapNotNull(GetTableResponseBody::getTableLocation)
               .block();
       return new StaticTableOperations(tableLocation, fileIO).refresh();
+    }
+  }
+
+  /**
+   * In scenarios where catalog name is being lumped together with the namespace as it is not being
+   * parsed by the Spark Strategy. Needed in some scenarios to maintain compatibility with Hive DDL
+   * while also supporting Iceberg Spark DDL. This class is used as a way to parse the catalog name
+   * and dbname from a namespace
+   */
+  private static class CatalogAndDbNameFromNamespace {
+    private final String catalogName;
+    private final String dbName;
+
+    public CatalogAndDbNameFromNamespace(Namespace namespace) {
+      if (namespace.levels().length > 2) {
+        throw new ValidationException(
+            "Namespace has unexpected levels " + String.join(".", namespace.levels()));
+      } else if (namespace.levels().length == 2) {
+        this.catalogName = namespace.level(0);
+        this.dbName = namespace.level(1);
+      } else {
+        this.dbName = namespace.toString();
+        this.catalogName = null;
+      }
+    }
+
+    public String catalogName() {
+      return this.catalogName;
+    }
+
+    public String dbName() {
+      return this.dbName;
     }
   }
 }
