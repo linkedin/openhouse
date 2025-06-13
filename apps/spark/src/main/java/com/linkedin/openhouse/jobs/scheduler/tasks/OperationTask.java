@@ -185,7 +185,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
           break;
         }
         Thread.sleep(pollIntervalMs);
-      } while (jobFinished(jobState));
+      } while (!jobFinished(jobState));
     } catch (InterruptedException e) {
       // Exit status check if scheduler send out an interrupt signal.
       log.warn(
