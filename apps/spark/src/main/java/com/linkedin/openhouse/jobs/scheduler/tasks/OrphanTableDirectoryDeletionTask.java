@@ -17,8 +17,9 @@ public class OrphanTableDirectoryDeletionTask extends TableDirectoryOperationTas
       TablesClient tablesClient,
       DirectoryMetadata metadata,
       long pollIntervalMs,
-      long timeoutMs) {
-    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+      long queuedTimeoutMs,
+      long taskTimeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs);
   }
 
   public OrphanTableDirectoryDeletionTask(

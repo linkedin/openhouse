@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
+import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
@@ -32,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 public abstract class OperationTask<T extends Metadata> implements Callable<Optional<JobState>> {
   public static final long POLL_INTERVAL_MS_DEFAULT = TimeUnit.MINUTES.toMillis(5);
   public static final long QUEUED_TIMEOUT_MS_DEFAULT = TimeUnit.MINUTES.toMillis(10);
+  public static final long TASK_TIMEOUT_MS_DEFAULT = TimeUnit.MINUTES.toMillis(15);
   private static final Meter METER = OtelConfig.getMeter(OperationTask.class.getName());
 
   @Getter(AccessLevel.NONE)
@@ -48,6 +50,9 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   @Getter(AccessLevel.NONE)
   private final long queuedTimeoutMs;
+
+  @Getter(AccessLevel.NONE)
+  private final long taskTimeoutMs; // should be larger than queuedTimeoutMs
 
   @Setter(AccessLevel.PACKAGE)
   @Getter(AccessLevel.PUBLIC)
@@ -66,16 +71,29 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
       TablesClient tablesClient,
       T metadata,
       long pollIntervalMs,
-      long queuedTimeoutMs) {
+      long queuedTimeoutMs,
+      long taskTimeoutMs) {
+    Preconditions.checkArgument(
+        taskTimeoutMs > queuedTimeoutMs,
+        String.format(
+            "Task timeout must be larger than queued timeout: taskTimeoutMs=%s, queuedTimeoutMs=%s",
+            taskTimeoutMs, queuedTimeoutMs));
     this.jobsClient = jobsClient;
     this.tablesClient = tablesClient;
     this.metadata = metadata;
     this.pollIntervalMs = pollIntervalMs;
     this.queuedTimeoutMs = queuedTimeoutMs;
+    this.taskTimeoutMs = taskTimeoutMs;
   }
 
   protected OperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {
-    this(jobsClient, tablesClient, metadata, POLL_INTERVAL_MS_DEFAULT, QUEUED_TIMEOUT_MS_DEFAULT);
+    this(
+        jobsClient,
+        tablesClient,
+        metadata,
+        POLL_INTERVAL_MS_DEFAULT,
+        QUEUED_TIMEOUT_MS_DEFAULT,
+        TASK_TIMEOUT_MS_DEFAULT);
   }
 
   public abstract JobConf.JobTypeEnum getType();
@@ -148,43 +166,36 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   private Optional<JobState> pollJobStatus(Attributes typeAttributes) {
     long startTime = System.currentTimeMillis();
-    while (!jobFinished()) {
-      long elapsedTime = System.currentTimeMillis() - startTime;
-      // Cancel job if it is queued for more than queuedTimeoutMs.
-      // Otherwise, if it is running, then keep it running until scheduler cancels it.
-      if (elapsedTime > queuedTimeoutMs) {
-        Optional<JobState> job = jobsClient.getState(jobId);
-        if (job.isPresent() && job.get().equals(JobState.QUEUED)) {
-          log.info(
-              "Cancelling job: {} due to queued timeout for {}: jobState: {}",
-              getType(),
-              metadata,
-              job.get());
-          if (!jobsClient.cancelJob(jobId)) {
-            log.error("Could not cancel job {} for {}", getType(), metadata);
-            return Optional.empty();
+    try {
+      Optional<JobState> jobState;
+      do {
+        jobState = jobsClient.getState(jobId);
+        long elapsedTime = System.currentTimeMillis() - startTime;
+        // Exit status check if a job is queued for more than queuedTimeoutMs.
+        if (elapsedTime > queuedTimeoutMs) {
+          if (jobState.isPresent() && jobState.get().equals(JobState.QUEUED)) {
+            log.info(
+                "Exiting status check for {} for {} due to queued timeout", getType(), metadata);
+            break;
           }
+        }
+        // Exit status check if a job is running for more than taskTimeoutMs.
+        if (elapsedTime > taskTimeoutMs) {
+          log.info("Exiting status check for {} for {} due to task timeout", getType(), metadata);
           break;
         }
-      }
-      try {
         Thread.sleep(pollIntervalMs);
-      } catch (InterruptedException e) {
-        log.warn(
-            String.format(
-                "Interrupted status polling for job %s for %s. Cancelling the job",
-                getType(), metadata),
-            e);
-        if (!jobsClient.cancelJob(jobId)) {
-          log.error("Could not cancel job {} for {}", getType(), metadata);
-          return Optional.empty();
-        }
-      }
+      } while (jobFinished(jobState));
+    } catch (InterruptedException e) {
+      // Exit status check if scheduler send out an interrupt signal.
+      log.warn(
+          "Exiting status check, interrupted status polling for job {} for {}: ",
+          getType(),
+          metadata,
+          e);
     }
     Optional<JobResponseBody> ret = jobsClient.getJob(jobId);
     if (ret.isPresent()) {
-      log.info(
-          "Job: {} for {} has reached terminal state: {}", jobId, metadata, ret.get().getState());
       reportJobState(ret.get(), typeAttributes, startTime);
     } else {
       log.warn("Job: {} for {} has empty state", jobId, metadata);
@@ -268,8 +279,8 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   protected abstract boolean launchJob();
 
-  protected boolean jobFinished() {
-    return jobsClient.getState(jobId).map(JobState::isTerminal).orElse(false);
+  protected boolean jobFinished(Optional<JobState> job) {
+    return job.map(JobState::isTerminal).orElse(false);
   }
 
   @Override

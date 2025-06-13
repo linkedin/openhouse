@@ -20,8 +20,9 @@ public class TableDataLayoutStrategyExecutionTask
       TablesClient tablesClient,
       TableDataLayoutMetadata metadata,
       long pollIntervalMs,
-      long timeoutMs) {
-    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+      long queuedTimeoutMs,
+      long taskTimeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs);
   }
 
   public TableDataLayoutStrategyExecutionTask(

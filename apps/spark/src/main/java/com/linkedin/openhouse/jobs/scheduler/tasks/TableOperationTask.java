@@ -21,8 +21,9 @@ public abstract class TableOperationTask<T extends TableMetadata> extends Operat
       TablesClient tablesClient,
       T metadata,
       long pollIntervalMs,
-      long timeoutMs) {
-    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+      long queuedTimeoutMs,
+      long taskTimeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs);
   }
 
   protected TableOperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {

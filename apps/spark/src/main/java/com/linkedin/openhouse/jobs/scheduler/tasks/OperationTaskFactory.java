@@ -13,13 +13,20 @@ public class OperationTaskFactory<T extends OperationTask<?>> {
   private JobsClient jobsClient;
   private TablesClient tablesClient;
   private long pollIntervalMs;
-  private long timeoutMs;
+  private long queuedTimeoutMs;
+  private long taskTimeoutMs;
 
   public <S extends Metadata> T create(S metadata)
       throws NoSuchMethodException, InvocationTargetException, InstantiationException,
           IllegalAccessException, IllegalStateException {
     return cls.getDeclaredConstructor(
-            JobsClient.class, TablesClient.class, metadata.getClass(), long.class, long.class)
-        .newInstance(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+            JobsClient.class,
+            TablesClient.class,
+            metadata.getClass(),
+            long.class,
+            long.class,
+            long.class)
+        .newInstance(
+            jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs);
   }
 }
