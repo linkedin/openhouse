@@ -159,7 +159,10 @@ public class JobsScheduler {
                 cmdLine.getOptionValue("taskPollIntervalMs"),
                 OperationTask.POLL_INTERVAL_MS_DEFAULT),
             NumberUtils.toLong(
-                cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.TIMEOUT_MS_DEFAULT));
+                cmdLine.getOptionValue("taskQueuedTimeoutMs"),
+                OperationTask.QUEUED_TIMEOUT_MS_DEFAULT),
+            NumberUtils.toLong(
+                cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.TASK_TIMEOUT_MS_DEFAULT));
     ThreadPoolExecutor jobExecutors = null;
     ThreadPoolExecutor statusExecutors = null;
     if (isMultiOperationMode(cmdLine)) {
@@ -356,11 +359,13 @@ public class JobsScheduler {
     }
 
     log.info(
-        "Finishing scheduler for job type {}, tasks stats: {} created, {} succeeded,"
-            + " {} cancelled (timeout), {} failed, {} skipped (no state)",
+        "Finishing scheduler for job type {}, tasks stats: {} created, {} succeeded, {} running, {} queued"
+            + " {} cancelled (scheduler timeout), {} failed, {} skipped (no state)",
         jobType,
         taskList.size(),
         jobStateCountMap.get(JobState.SUCCEEDED),
+        jobStateCountMap.get(JobState.RUNNING),
+        jobStateCountMap.get(JobState.QUEUED),
         jobStateCountMap.get(JobState.CANCELLED),
         jobStateCountMap.get(JobState.FAILED),
         jobStateCountMap.get(JobState.SKIPPED));
@@ -384,10 +389,14 @@ public class JobsScheduler {
     LongCounter failedJobCounter = METER.counterBuilder(AppConstants.FAILED_JOB_COUNT).build();
     LongCounter cancelledJobCounter =
         METER.counterBuilder(AppConstants.CANCELLED_JOB_COUNT).build();
+    LongCounter runningJobCounter = METER.counterBuilder(AppConstants.RUNNING_JOB_COUNT).build();
+    LongCounter queuedJobCounter = METER.counterBuilder(AppConstants.QUEUED_JOB_COUNT).build();
     Attributes attributes = Attributes.of(AttributeKey.stringKey(AppConstants.TYPE), taskType);
     successfulJobCounter.add(jobStateCountMap.get(JobState.SUCCEEDED), attributes);
     failedJobCounter.add(jobStateCountMap.get(JobState.FAILED), attributes);
     cancelledJobCounter.add(jobStateCountMap.get(JobState.CANCELLED), attributes);
+    runningJobCounter.add(jobStateCountMap.get(JobState.RUNNING), attributes);
+    queuedJobCounter.add(jobStateCountMap.get(JobState.QUEUED), attributes);
     METER
         .gaugeBuilder(AppConstants.RUN_DURATION_SCHEDULER)
         .ofLongs()
@@ -491,8 +500,15 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
+            .longOpt("taskQueuedTimeoutMs")
+            .desc("Timeout in milliseconds for an individual task in queued state")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
             .longOpt("taskTimeoutMs")
-            .desc("Timeout in milliseconds for an individual task")
+            .desc("Timeout in milliseconds for an individual task to poll jobs status")
             .build());
     // TODO: move these to ODD specific config
     options.addOption(
@@ -1034,15 +1050,18 @@ public class JobsScheduler {
           executors.getQueue().clear();
         }
         log.warn(
-            "Attempting to cancel job for {} because of timeout of {} hours", task, tasksWaitHours);
+            "Attempting to cancel task for {} because of timeout of {} hours",
+            task,
+            tasksWaitHours);
         if (taskFuture.cancel(true)) {
-          log.warn("Cancelled job for {} because of timeout of {} hours", task, tasksWaitHours);
+          log.warn("Cancelled task for {} because of timeout of {} hours", task, tasksWaitHours);
         }
       } finally {
         if (!skipStateCountUpdate) {
           if (jobState.isPresent()) {
             jobStateCountMap.put(jobState.get(), jobStateCountMap.get(jobState.get()) + 1);
           } else if (taskFuture.isCancelled()) {
+            // Even though the jobs are reported as cancelled, they might be queued or running.
             jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
           } else {
             // Jobs that are skipped due to replica or missing retention policy, etc.

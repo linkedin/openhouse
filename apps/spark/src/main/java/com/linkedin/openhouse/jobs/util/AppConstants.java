@@ -38,6 +38,8 @@ public final class AppConstants {
   public static final String SUCCESSFUL_JOB_COUNT = "succeeded_job_count";
   public static final String FAILED_JOB_COUNT = "failed_job_count";
   public static final String CANCELLED_JOB_COUNT = "cancelled_job_count";
+  public static final String RUNNING_JOB_COUNT = "running_job_count";
+  public static final String QUEUED_JOB_COUNT = "queued_job_count";
 
   public static final String JOBS_CLIENT_INITIALIZATION_ERROR = "jobs_client_initialization_error";
 

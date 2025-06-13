@@ -17,8 +17,9 @@ public class TableStagedFilesDeletionTask extends TableOperationTask<TableMetada
       TablesClient tablesClient,
       TableMetadata metadata,
       long pollIntervalMs,
-      long timeoutMs) {
-    super(jobsClient, tablesClient, metadata, pollIntervalMs, timeoutMs);
+      long queuedTimeoutMs,
+      long taskTimeoutMs) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs);
   }
 
   public TableStagedFilesDeletionTask(
