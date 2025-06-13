@@ -369,7 +369,8 @@ public class JobsScheduler {
         jobStateCountMap.get(JobState.CANCELLED),
         jobStateCountMap.get(JobState.FAILED),
         jobStateCountMap.get(JobState.SKIPPED));
-    long totalRunDuration = TimeUnit.HOURS.toHours(System.currentTimeMillis() - startTimeMillis);
+    long totalRunDuration =
+        TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis() - startTimeMillis);
     log.info(
         "The total run duration of job scheduler for job type {} is : {} hours",
         jobType,
@@ -752,7 +753,7 @@ public class JobsScheduler {
                     if (!operationTaskManager.isEmpty()) {
                       log.info(
                           "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
-                          TimeUnit.HOURS.toHours(passedTimeMillis),
+                          TimeUnit.MILLISECONDS.toHours(passedTimeMillis),
                           jobType);
                       log.info(
                           "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
@@ -856,7 +857,7 @@ public class JobsScheduler {
                     if (!jobInfoManager.isEmpty()) {
                       log.info(
                           "Reached job scheduler execution SLA while submitting job status tasks. Total time elapsed: {} hrs for job type: {}",
-                          TimeUnit.HOURS.toHours(passedTimeMillis),
+                          TimeUnit.MILLISECONDS.toHours(passedTimeMillis),
                           jobType);
                       log.info(
                           "The remaining jobs status tasks: {} could not be submitted due to SLA signal for job type: {}",
@@ -923,7 +924,7 @@ public class JobsScheduler {
           if (!operationTaskManager.isEmpty()) {
             log.info(
                 "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
-                TimeUnit.HOURS.toHours(passedTimeMillis),
+                TimeUnit.MILLISECONDS.toHours(passedTimeMillis),
                 jobType);
             log.info(
                 "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
