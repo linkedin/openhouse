@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.spark.MockHelpers.*;
 import static com.linkedin.openhouse.spark.SparkTestBase.*;
 
 import com.linkedin.openhouse.spark.SparkTestBase;
-import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.spark.sql.catalyst.parser.ParseException;
@@ -34,6 +33,7 @@ public class RenameTableTest {
 
     // Mock the API responses
     mockTableService.enqueue(mockResponse(200, sourceTable));
+    mockTableService.enqueue(mockResponse(200, sourceTable));
 
     // Execute the rename statement
     String renameStatement = "ALTER TABLE openhouse.dbRename.t1 RENAME TO openhouse.dbRename.t2";
@@ -60,6 +60,7 @@ public class RenameTableTest {
             null);
 
     // Mock the API responses
+    mockTableService.enqueue(mockResponse(200, sourceTable));
     mockTableService.enqueue(mockResponse(200, sourceTable));
 
     // Execute the rename statement
@@ -98,13 +99,11 @@ public class RenameTableTest {
 
     // Missing target table
     Assertions.assertThrows(
-        OpenhouseParseException.class,
-        () -> spark.sql("ALTER TABLE openhouse.dbRename.t3 RENAME TO"));
+        ParseException.class, () -> spark.sql("ALTER TABLE openhouse.dbRename.t3 RENAME TO"));
 
     // Missing source table
     Assertions.assertThrows(
-        OpenhouseParseException.class,
-        () -> spark.sql("ALTER TABLE RENAME TO openhouse.dbRename.t4"));
+        ParseException.class, () -> spark.sql("ALTER TABLE RENAME TO openhouse.dbRename.t4"));
   }
 
   @Test
@@ -161,6 +160,7 @@ public class RenameTableTest {
             null,
             null);
     // Mock the API responses
+    mockTableService.enqueue(mockResponse(200, sourceTable));
     mockTableService.enqueue(mockResponse(200, sourceTable));
 
     spark.sql("USE openhouse");

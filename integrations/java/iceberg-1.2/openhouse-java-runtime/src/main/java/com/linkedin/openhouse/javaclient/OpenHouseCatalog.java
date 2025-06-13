@@ -246,7 +246,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
       // Assume that the namespace in the target table identifier contains the catalog name,
       // validate it
       if (!to.namespace().level(0).equalsIgnoreCase(this.name())) {
-        throw new ValidationException(
+        throw new UnsupportedOperationException(
             String.format(
                 "Cannot rename tables across catalogs: from=%s, to=%s",
                 this.name(), to.namespace().level(0)));
