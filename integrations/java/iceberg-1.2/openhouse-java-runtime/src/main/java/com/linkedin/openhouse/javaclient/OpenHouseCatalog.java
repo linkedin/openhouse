@@ -241,14 +241,24 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
               + String.join(".", from.namespace().levels()));
     }
 
-    if (to.namespace().levels().length > 1) {
+    String toNamespace = to.namespace().toString();
+    if (to.namespace().levels().length == 2) {
+      // Assume that the namespace in the target table identifier contains the catalog name,
+      // validate it
+      if (!to.namespace().level(0).equalsIgnoreCase(this.name())) {
+        throw new ValidationException(
+            String.format(
+                "Cannot rename tables across catalogs: from=%s, to=%s",
+                this.name(), to.namespace().level(0)));
+      }
+      toNamespace = to.namespace().level(1);
+    } else if (to.namespace().levels().length > 2) {
       throw new ValidationException(
-          "Renamed namespace has unexpected levels " + String.join(".", to.namespace().levels()));
+          "Target namespace has unexpected levels " + String.join(".", to.namespace().levels()));
     }
 
     tableApi
-        .renameTableV1(
-            from.namespace().toString(), from.name(), to.namespace().toString(), to.name())
+        .renameTableV1(from.namespace().toString(), from.name(), toNamespace, to.name())
         .onErrorResume(
             WebClientResponseException.NotFound.class,
             e -> Mono.error(new NoSuchTableException("Table " + from + " does not exist")))

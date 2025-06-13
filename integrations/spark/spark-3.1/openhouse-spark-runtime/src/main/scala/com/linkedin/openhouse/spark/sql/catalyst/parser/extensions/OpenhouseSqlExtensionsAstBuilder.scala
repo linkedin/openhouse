@@ -178,13 +178,7 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     val (granularity, maxAge, versions) = typedVisit[(Option[String], Int, Int)](ctx.historyPolicy())
     SetHistoryPolicy(tableName, granularity, maxAge, versions)
   }
-  
-  override def visitRenameTable(ctx: RenameTableContext): RenameTable = {
-    val fromTable = typedVisit[Seq[String]](ctx.multipartIdentifier(0))
-    val toTable = typedVisit[Seq[String]](ctx.multipartIdentifier(1))
-    RenameTable(fromTable, toTable)
-  }
-  
+
   override def visitHistoryPolicy(ctx: HistoryPolicyContext): (Option[String], Int, Int) = {
     val maxAgePolicy = if (ctx.maxAge() != null)
         typedVisit[(String, Int)](ctx.maxAge().duration())

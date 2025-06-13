@@ -68,7 +68,6 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
     (normalized.startsWith("alter table") &&
       (normalized.contains("set policy")) ||
       (normalized.contains("unset policy")) ||
-      (normalized.contains("rename to"))  ||
       (normalized.contains("modify column") &&
         normalized.contains("set tag"))) ||
       normalized.startsWith("grant") ||
