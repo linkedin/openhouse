@@ -164,7 +164,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     return Optional.of(JobState.SUBMITTED);
   }
 
-  private Optional<JobState> pollJobStatus(Attributes typeAttributes) {
+  protected Optional<JobState> pollJobStatus(Attributes typeAttributes) {
     long startTime = System.currentTimeMillis();
     try {
       Optional<JobState> jobState;
@@ -200,7 +200,12 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     } else {
       log.warn("Job: {} for {} has empty state", jobId, metadata);
     }
-    return Optional.of(Enum.valueOf(JobState.class, ret.get().getState().getValue()));
+    return Optional.of(
+        Enum.valueOf(
+            JobState.class,
+            ret.map(JobResponseBody::getState)
+                .map(JobResponseBody.StateEnum::getValue)
+                .orElse(JobState.SKIPPED.toString())));
   }
 
   private void moveJobToSubmittedStage() {
