@@ -137,7 +137,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
     // Preserve existing case if databases are the same
     String toDatabaseName =
-        from.namespace().toString().equalsIgnoreCase(from.namespace().toString())
+        from.namespace().toString().equalsIgnoreCase(to.namespace().toString())
             ? from.namespace().toString()
             : to.namespace().toString();
 
