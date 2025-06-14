@@ -28,7 +28,12 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
         .ifPresent(
             houseTable -> {
               HouseTable renamedTable =
-                  houseTable.toBuilder().tableId(toTableId).tableLocation(metadataLocation).build();
+                  houseTable
+                      .toBuilder()
+                      .databaseId(toDatabaseId)
+                      .tableId(toTableId)
+                      .tableLocation(metadataLocation)
+                      .build();
               this.save(renamedTable);
               this.delete(houseTable);
             });

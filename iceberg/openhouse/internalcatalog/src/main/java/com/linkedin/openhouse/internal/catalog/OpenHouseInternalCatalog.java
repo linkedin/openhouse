@@ -132,15 +132,22 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
-    TableIdentifier fromTableId = TableIdentifier.of(from.namespace().toString(), from.name());
-    Table fromTable = loadTable(fromTableId);
+    Table fromTable = loadTable(from);
     String tableClusterId = fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+
+    // Preserve existing case if databases are the same
+    String toDatabaseName =
+        from.namespace().toString().equalsIgnoreCase(to.namespace().toString())
+            ? from.namespace().toString()
+            : to.namespace().toString();
+
     TableUri tableUri =
         TableUri.builder()
             .clusterId(tableClusterId)
-            .databaseId(to.namespace().toString())
+            .databaseId(toDatabaseName)
             .tableId(to.name())
             .build();
+
     Transaction transaction = fromTable.newTransaction();
     UpdateProperties updateProperties = transaction.updateProperties();
     log.info(
@@ -148,11 +155,11 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         CatalogConstants.OPENHOUSE_TABLEID_KEY,
         to.name(),
         CatalogConstants.OPENHOUSE_DATABASEID_KEY,
-        to.namespace().toString(),
+        toDatabaseName,
         CatalogConstants.OPENHOUSE_TABLEURI_KEY,
         tableUri.toString());
     updateProperties.set(CatalogConstants.OPENHOUSE_TABLEID_KEY, to.name());
-    updateProperties.set(CatalogConstants.OPENHOUSE_DATABASEID_KEY, to.namespace().toString());
+    updateProperties.set(CatalogConstants.OPENHOUSE_DATABASEID_KEY, toDatabaseName);
     updateProperties.set(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri.toString());
     updateProperties.commit();
     transaction.commitTransaction();
