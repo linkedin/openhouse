@@ -738,6 +738,39 @@ public class RepositoryTest {
             .isPresent());
   }
 
+  @Test
+  public void testRenameTablePreserveExistingCase() {
+    /* create the base table */
+    TableDto createdDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
+    openHouseInternalRepository.save(createdDTO);
+
+    // Rename using upper case DB name
+    TableIdentifier fromTableIdentifier =
+        TableIdentifier.of(createdDTO.getDatabaseId(), createdDTO.getTableId());
+    TableIdentifier toTableIdentifier =
+        TableIdentifier.of(
+            createdDTO.getDatabaseId().toUpperCase(), createdDTO.getTableId() + "_renamed");
+    catalog.renameTable(fromTableIdentifier, toTableIdentifier);
+
+    // Search with original casing on database
+    Optional<TableDto> renamedTable =
+        openHouseInternalRepository.findById(
+            TableDtoPrimaryKey.builder()
+                .databaseId(fromTableIdentifier.namespace().toString())
+                .tableId(toTableIdentifier.name())
+                .build());
+
+    Assertions.assertTrue(renamedTable.isPresent());
+
+    // Validate metadata is storing the preserved case
+    Assertions.assertEquals(renamedTable.get().getDatabaseId(), "d1");
+    Assertions.assertEquals(
+        renamedTable.get().getTableProperties().get("openhouse.databaseId"), "d1");
+    Assertions.assertEquals(
+        renamedTable.get().getTableProperties().get("openhouse.tableUri"),
+        "local-cluster.d1.t1_renamed");
+  }
+
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {
     return TableDtoPrimaryKey.builder()
         .databaseId(tableDto.getDatabaseId())
