@@ -54,6 +54,7 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.lang.math.NumberUtils;
+import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.reflections.Reflections;
 
 /**
@@ -84,6 +85,7 @@ public class JobsScheduler {
   private static final int JOB_SUBMISSION_PAUSE_IN_MILLIS_DEFAULT = 60000;
   private static final int SUBMIT_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 30;
   private static final int STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 15;
+  private static final String DURATION_FORMAT_DEFAULT = "HH:mm";
 
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
@@ -369,10 +371,11 @@ public class JobsScheduler {
         jobStateCountMap.get(JobState.CANCELLED),
         jobStateCountMap.get(JobState.FAILED),
         jobStateCountMap.get(JobState.SKIPPED));
-    long totalRunDuration =
-        TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis() - startTimeMillis);
+    String totalRunDuration =
+        DurationFormatUtils.formatDuration(
+            System.currentTimeMillis() - startTimeMillis, DURATION_FORMAT_DEFAULT);
     log.info(
-        "The total run duration of job scheduler for job type {} is : {} hours",
+        "The total run duration of job scheduler for job type {} is : {} hours (HH:mm format)",
         jobType,
         totalRunDuration);
     jobExecutors.shutdown();
@@ -752,8 +755,9 @@ public class JobsScheduler {
                   if (remainingTimeMillis <= 0) {
                     if (!operationTaskManager.isEmpty()) {
                       log.info(
-                          "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
-                          TimeUnit.MILLISECONDS.toHours(passedTimeMillis),
+                          "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hours (HH:mm format) for job type: {}",
+                          DurationFormatUtils.formatDuration(
+                              passedTimeMillis, DURATION_FORMAT_DEFAULT),
                           jobType);
                       log.info(
                           "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
@@ -856,8 +860,9 @@ public class JobsScheduler {
                   if (remainingTimeMillis <= 0) {
                     if (!jobInfoManager.isEmpty()) {
                       log.info(
-                          "Reached job scheduler execution SLA while submitting job status tasks. Total time elapsed: {} hrs for job type: {}",
-                          TimeUnit.MILLISECONDS.toHours(passedTimeMillis),
+                          "Reached job scheduler execution SLA while submitting job status tasks. Total time elapsed: {} hours (HH:mm format) for job type: {}",
+                          DurationFormatUtils.formatDuration(
+                              passedTimeMillis, DURATION_FORMAT_DEFAULT),
                           jobType);
                       log.info(
                           "The remaining jobs status tasks: {} could not be submitted due to SLA signal for job type: {}",
@@ -923,8 +928,8 @@ public class JobsScheduler {
         if (remainingTimeMillis <= 0) {
           if (!operationTaskManager.isEmpty()) {
             log.info(
-                "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hrs for job type: {}",
-                TimeUnit.MILLISECONDS.toHours(passedTimeMillis),
+                "Reached pre SLA grace period while submitting job launch tasks. Total time elapsed: {} hours (HH:mm format) for job type: {}",
+                DurationFormatUtils.formatDuration(passedTimeMillis, DURATION_FORMAT_DEFAULT),
                 jobType);
             log.info(
                 "The remaining jobs launch tasks: {} could not be submitted due to pre SLA signal for job type: {}",
