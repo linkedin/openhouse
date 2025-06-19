@@ -50,8 +50,8 @@ public class OperationTasksBuilder {
   protected final TablesClient tablesClient;
 
   private final int numParallelMetadataFetch;
-  private final OperationTaskManager operationTaskManager;
-  private final JobInfoManager jobInfoManager;
+  protected final OperationTaskManager operationTaskManager;
+  protected final JobInfoManager jobInfoManager;
 
   private List<OperationTask<?>> prepareTableOperationTaskList(
       JobConf.JobTypeEnum jobType, OperationMode operationMode) {
