@@ -326,6 +326,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.getTableType() != null) {
       propertiesMap.put(getCanonicalFieldName(TABLE_TYPE_KEY), tableDto.getTableType().toString());
     }
+    // add a default property to indicate replicationState for table.
+    // Required in addition to tableType to indicate if primary table is replicated or not
+    propertiesMap.put(
+        OPENHOUSE_IS_TABLE_REPLICATED_KEY,
+        tableDto.getTableProperties().getOrDefault(OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"));
 
     if (tableDto.isStageCreate()) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR_STAGED).increment();
