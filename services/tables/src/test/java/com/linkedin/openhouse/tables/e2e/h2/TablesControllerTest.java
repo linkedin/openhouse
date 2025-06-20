@@ -310,9 +310,9 @@ public class TablesControllerTest {
     // drop a prop under openhouse namespace
     container = GetTableResponseBody.builder().tableProperties(null).build();
     GetTableResponseBody dropOpenhouseProp = buildGetTableResponseBody(mvcResult, container);
-    dropOpenhouseProp.getTableProperties().remove("openhouse.clusterId");
+    dropOpenhouseProp.getTableProperties().remove("openhouse.tableUri");
     RequestAndValidateHelper.updateTableWithReservedPropsAndValidateResponse(
-        mvc, dropOpenhouseProp, "openhouse.clusterId");
+        mvc, dropOpenhouseProp, "openhouse.tableUri");
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
@@ -1058,6 +1058,7 @@ public class TablesControllerTest {
         propertiesFromResult.get("openhouse.tableType"), TableType.PRIMARY_TABLE.toString());
     Assertions.assertEquals(
         propertiesFromResult.get("openhouse.tableUUID"), responseBody.getTableUUID());
+    Assertions.assertEquals(propertiesFromResult.get("openhouse.isTableReplicated"), "true");
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
