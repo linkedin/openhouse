@@ -32,4 +32,6 @@ public class UserTableRow {
   String storageType;
 
   Long creationTime;
+
+  Boolean deleted;
 }

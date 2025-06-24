@@ -310,11 +310,12 @@ public class UserTablesServiceTest {
   }
 
   private void testUserTableDeleteHelper(String databaseId, String tableId) {
-    Assertions.assertDoesNotThrow(() -> userTablesService.deleteUserTable(databaseId, tableId));
+    Assertions.assertDoesNotThrow(
+        () -> userTablesService.deleteUserTable(databaseId, tableId, false));
     NoSuchUserTableException noSuchUserTableException =
         Assertions.assertThrows(
             NoSuchUserTableException.class,
-            () -> userTablesService.deleteUserTable(databaseId, tableId));
+            () -> userTablesService.deleteUserTable(databaseId, tableId, false));
     Assertions.assertEquals(noSuchUserTableException.getTableId(), tableId);
     Assertions.assertEquals(noSuchUserTableException.getDatabaseId(), databaseId);
   }
@@ -347,7 +348,7 @@ public class UserTablesServiceTest {
         TEST_TUPLE_1_0.getTableId(),
         TEST_TUPLE_1_0.getDatabaseId(),
         newTableName,
-        newMetadataLocation);
+        newMetadataLocation); // deleted parameter
 
     // check if the table is renamed
     UserTableDto result =
@@ -377,7 +378,7 @@ public class UserTablesServiceTest {
               TEST_TUPLE_1_0.getTableId(),
               TEST_TUPLE_1_0.getDatabaseId(),
               TEST_TUPLE_2_0.getTableId(),
-              TEST_TUPLE_2_0.getTableLoc());
+              TEST_TUPLE_2_0.getTableLoc()); // deleted parameter
         });
 
     Assertions.assertThrows(

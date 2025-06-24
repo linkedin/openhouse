@@ -37,6 +37,10 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Autowired UserTablesMapper userTablesMapper;
 
+  // Max length for tableId is 128, minus 22 characters for the suffix "_deleted_" and current
+  // timestamp in millis
+  private static int MAX_TABLE_ID_LENGTH_DELETE = 106;
+
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.HOUSETABLES_SERVICE);
 
@@ -150,21 +154,56 @@ public class UserTablesServiceImpl implements UserTablesService {
       // TODO: Use toDataBaseId for destination instead of fromDatabaseId once rename across
       // databases is supported
       htsJdbcRepository.renameTableId(
-          fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation);
+          fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation, false);
     } catch (DataIntegrityViolationException e) {
       throw new AlreadyExistsException("Table", toTableId);
     }
   }
 
   @Override
-  public void deleteUserTable(String databaseId, String tableId) {
-    if (!htsJdbcRepository.existsById(
-        UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())) {
-      throw new NoSuchUserTableException(databaseId, tableId);
+  public void deleteUserTable(String databaseId, String tableId, boolean isSoftDeleted) {
+    if (!isSoftDeleted) {
+      if (!htsJdbcRepository.existsById(
+          UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())) {
+        throw new NoSuchUserTableException(databaseId, tableId);
+      }
+      htsJdbcRepository.deleteById(
+          UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+    } else {
+      UserTableRow existingTable =
+          htsJdbcRepository
+              .findById(
+                  UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+              .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+      String deletedTableId =
+          shortenTableIdIfNecessary(tableId) + "_deleted_" + System.currentTimeMillis();
+      htsJdbcRepository.renameTableId(
+          databaseId,
+          tableId,
+          databaseId,
+          deletedTableId,
+          existingTable.getMetadataLocation(),
+          true);
     }
+  }
 
-    htsJdbcRepository.deleteById(
-        UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+  /**
+   * Since soft deletes require renaming a tableId internally, we want to ensure that the tableId
+   * does not exceed the column size This method truncates the tableId and appends a hash for
+   * uniqueness If the tableId does not exceed the limit, this is a noop
+   *
+   * @param tableId The original table ID.
+   * @return A unique hashed table ID for the deleted table.
+   */
+  private String shortenTableIdIfNecessary(String tableId) {
+    String tableIdForDelete =
+        tableId.length() > MAX_TABLE_ID_LENGTH_DELETE
+            ? tableId.substring(
+                    0, MAX_TABLE_ID_LENGTH_DELETE - String.valueOf(tableId.hashCode()).length())
+                + tableId.hashCode()
+            : tableId;
+
+    return tableId;
   }
 
   private List<UserTableDto> listDatabases() {

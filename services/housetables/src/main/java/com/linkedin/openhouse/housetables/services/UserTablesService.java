@@ -40,8 +40,12 @@ public interface UserTablesService {
    */
   Page<UserTableDto> getAllUserTables(UserTable userTable, int page, int size, String sortBy);
 
-  /** Given a databaseId and tableId, delete the user table entry from the House Table. */
-  void deleteUserTable(String databaseId, String tableId);
+  /**
+   * Given a databaseId and tableId, delete the user table entry from the House Table. If soft
+   * delete is enabled, then the entry will be renamed instead internally and marked with a boolean
+   * to delete
+   */
+  void deleteUserTable(String databaseId, String tableId, boolean isDeleted);
 
   /**
    * Create or update a {@link UserTable} row in House table.

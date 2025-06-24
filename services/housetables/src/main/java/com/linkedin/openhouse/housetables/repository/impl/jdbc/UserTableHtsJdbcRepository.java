@@ -115,12 +115,13 @@ public interface UserTableHtsJdbcRepository
   @Transactional
   @Modifying
   @Query(
-      "UPDATE UserTableRow table SET table.tableId = :toTableId, table.metadataLocation = :metadataLocation, table.databaseId = :toDatabaseId "
+      "UPDATE UserTableRow table SET table.tableId = :toTableId, table.metadataLocation = :metadataLocation, table.databaseId = :toDatabaseId, table.deleted = :deleted "
           + "WHERE lower(table.databaseId) = lower(:fromDatabaseId) AND lower(table.tableId) = lower(:fromTableId)")
   void renameTableId(
       @Param("fromDatabaseId") String fromDatabaseId,
       @Param("fromTableId") String fromTableId,
       @Param("toDatabaseId") String toDatabaseId,
       @Param("toTableId") String toTableId,
-      @Param("metadataLocation") String metadataLocation);
+      @Param("metadataLocation") String metadataLocation,
+      @Param("deleted") boolean deleted);
 }

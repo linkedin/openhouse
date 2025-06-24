@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS user_table_row (
                          creation_time       BIGINT            DEFAULT NULL,
                          last_modified_time  TIMESTAMP         DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                          ETL_TS              DATETIME(6)       DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                         deleted             BOOLEAN           DEFAULT FALSE,
                          PRIMARY KEY (database_id, table_id)
 );
 

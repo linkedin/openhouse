@@ -186,7 +186,8 @@ public class HtsRepositoryTest {
         TEST_TUPLE_1_1.getTableId(),
         TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId() + "_renamed",
-        newTableMetadata);
+        newTableMetadata,
+        false);
 
     UserTableRow result =
         htsRepository
@@ -228,7 +229,8 @@ public class HtsRepositoryTest {
         TEST_TUPLE_1_1.getTableId(),
         TEST_TUPLE_1_1.getDatabaseId().toUpperCase(),
         renamedUpperCaseTableId,
-        TEST_TUPLE_1_1.getTableLoc());
+        TEST_TUPLE_1_1.getTableLoc(),
+        false);
 
     // Try fetching with lower case ID, should still work
     UserTableRow result =

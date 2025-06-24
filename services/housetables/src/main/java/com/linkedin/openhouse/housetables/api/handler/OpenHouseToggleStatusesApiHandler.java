@@ -43,7 +43,7 @@ public class OpenHouseToggleStatusesApiHandler implements ToggleStatusesApiHandl
   }
 
   @Override
-  public ApiResponse<Void> deleteEntity(TableToggleStatusKey key) {
+  public ApiResponse<Void> deleteEntity(TableToggleStatusKey key, boolean isSoftDelete) {
     throw new UnsupportedOperationException("Delete toggle status is unsupported");
   }
 

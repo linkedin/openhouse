@@ -89,7 +89,7 @@ public class JobTablesController {
   @DeleteMapping(value = HTS_JOBS_GENERAL_ENDPOINT)
   public ResponseEntity<Void> deleteJob(@RequestParam(value = "jobId") String jobId) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse;
-    apiResponse = jobTableHtsApiHandler.deleteEntity(JobKey.builder().jobId(jobId).build());
+    apiResponse = jobTableHtsApiHandler.deleteEntity(JobKey.builder().jobId(jobId).build(), false);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

@@ -61,6 +61,12 @@ public class UserTable {
   @JsonProperty(value = "creationTime")
   private Long creationTime;
 
+  @Schema(
+      description = "Indicates whether the table is soft deleted.",
+      example = "false",
+      defaultValue = "false")
+  private Boolean deleted;
+
   public String toJson() {
     return new Gson().toJson(this);
   }

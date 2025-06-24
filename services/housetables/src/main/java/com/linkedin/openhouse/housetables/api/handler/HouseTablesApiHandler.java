@@ -46,9 +46,10 @@ public interface HouseTablesApiHandler<K, V> {
    * Function to Delete a row in a House Table given the key of the row.
    *
    * @param key The key object to identify the row to delete.
+   * @param isSoftDelete flag to indicate if the table should be soft deleted
    * @return the row as part of response body that would be returned to the client.
    */
-  ApiResponse<Void> deleteEntity(K key);
+  ApiResponse<Void> deleteEntity(K key, boolean isSoftDelete);
 
   /**
    * Function to update or insert a row in a House Table.
