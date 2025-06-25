@@ -234,7 +234,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
-                        .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId())
+                        .findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(userTable.getDatabaseId())
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
@@ -248,7 +248,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
+                .findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(userTable.getDatabaseId(), pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
@@ -259,7 +259,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
-                        .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                        .findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
                             userTable.getDatabaseId(), userTable.getTableId())
                         .spliterator(),
                     false)
@@ -275,7 +275,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                .findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
                     userTable.getDatabaseId(), userTable.getTableId(), pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);

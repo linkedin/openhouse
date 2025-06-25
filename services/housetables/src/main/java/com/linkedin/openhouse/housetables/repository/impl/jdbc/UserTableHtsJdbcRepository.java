@@ -42,9 +42,9 @@ public interface UserTableHtsJdbcRepository
   @Query("SELECT DISTINCT databaseId FROM UserTableRow")
   Iterable<String> findAllDistinctDatabaseIds();
 
-  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId);
+  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(String databaseId);
 
-  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
       String databaseId, String tableIdPattern);
 
   @Query(
@@ -52,9 +52,10 @@ public interface UserTableHtsJdbcRepository
           + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
   Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
 
-  Page<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId, Pageable pageable);
+  Page<UserTableRow> findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(
+      String databaseId, Pageable pageable);
 
-  Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+  Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
       String databaseId, String tableIdPattern, Pageable pageable);
 
   @Query(
@@ -81,7 +82,8 @@ public interface UserTableHtsJdbcRepository
           + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
+          + "u.deleted = false")
   Iterable<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,

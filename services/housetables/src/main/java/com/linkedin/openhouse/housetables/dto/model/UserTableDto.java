@@ -22,4 +22,6 @@ public class UserTableDto {
   String storageType;
 
   Long creationTime;
+
+  Boolean deleted;
 }
