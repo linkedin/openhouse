@@ -85,7 +85,7 @@ public interface UserTableHtsJdbcRepository
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
           + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
-          + "(:deleted IS FALSE OR u.deleted = :deleted)")
+          + "(u.deleted = :deleted)")
   Iterable<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,

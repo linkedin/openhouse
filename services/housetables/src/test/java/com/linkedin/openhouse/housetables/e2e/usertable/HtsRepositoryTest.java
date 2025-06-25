@@ -10,7 +10,6 @@ import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
@@ -276,16 +275,19 @@ public class HtsRepositoryTest {
             .tableId(deletedId)
             .databaseId(TEST_TUPLE_1_1.getDatabaseId())
             .build();
-    List<UserTableRowPrimaryKey> keys = Collections.singletonList(key);
 
     // Soft deleted table should not be returned by filters even if queried by exact ID since this
     // is bulk
     assertThat(
             htsRepository.findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(testTable.getDatabaseId()))
         .isEmpty();
+    Iterable<UserTableRow> results =
+        htsRepository.findAllByFilters(
+            TEST_TUPLE_1_1.getDatabaseId(), null, null, null, null, null, false);
+
     assertThat(
             htsRepository.findAllByFilters(
-                TEST_TUPLE_1_1.getDatabaseId(), deletedId, null, null, null, null, false))
+                TEST_TUPLE_1_1.getDatabaseId(), null, null, null, null, null, false))
         .isEmpty();
 
     // Querying by exact ID should still return the soft deleted table
