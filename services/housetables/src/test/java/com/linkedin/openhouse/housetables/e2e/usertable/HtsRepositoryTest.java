@@ -285,7 +285,7 @@ public class HtsRepositoryTest {
         .isEmpty();
     assertThat(
             htsRepository.findAllByFilters(
-                TEST_TUPLE_1_1.getDatabaseId(), deletedId, null, null, null, null))
+                TEST_TUPLE_1_1.getDatabaseId(), deletedId, null, null, null, null, false))
         .isEmpty();
 
     // Querying by exact ID should still return the soft deleted table

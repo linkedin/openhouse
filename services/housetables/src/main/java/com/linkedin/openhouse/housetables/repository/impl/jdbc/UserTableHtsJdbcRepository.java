@@ -65,7 +65,8 @@ public interface UserTableHtsJdbcRepository
           + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
+          + "(:deleted IS FALSE OR u.deleted = :deleted)")
   Page<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,
@@ -73,6 +74,7 @@ public interface UserTableHtsJdbcRepository
       String metadataLocation,
       String storageType,
       Long creationTime,
+      Boolean deleted,
       Pageable pageable);
 
   @Query(
@@ -83,14 +85,15 @@ public interface UserTableHtsJdbcRepository
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
           + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
-          + "u.deleted = false")
+          + "(:deleted IS FALSE OR u.deleted = :deleted)")
   Iterable<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,
       String tableVersion,
       String metadataLocation,
       String storageType,
-      Long creationTime);
+      Long creationTime,
+      Boolean deleted);
 
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}

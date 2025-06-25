@@ -11,6 +11,7 @@ import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -176,7 +177,7 @@ public class UserTablesServiceImpl implements UserTablesService {
                   UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
               .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
       String deletedTableId =
-          shortenTableIdIfNecessary(tableId) + "_deleted_" + System.currentTimeMillis();
+          shortenTableIdIfNecessary(tableId) + "_deleted_" + Instant.now().toEpochMilli();
       htsJdbcRepository.renameTableId(
           databaseId,
           tableId,
@@ -196,14 +197,11 @@ public class UserTablesServiceImpl implements UserTablesService {
    * @return A unique hashed table ID for the deleted table.
    */
   private String shortenTableIdIfNecessary(String tableId) {
-    String tableIdForDelete =
-        tableId.length() > MAX_TABLE_ID_LENGTH_DELETE
-            ? tableId.substring(
-                    0, MAX_TABLE_ID_LENGTH_DELETE - String.valueOf(tableId.hashCode()).length())
-                + tableId.hashCode()
-            : tableId;
-
-    return tableId;
+    return tableId.length() >= MAX_TABLE_ID_LENGTH_DELETE
+        ? tableId.substring(
+                0, MAX_TABLE_ID_LENGTH_DELETE - String.valueOf(tableId.hashCode()).length())
+            + tableId.hashCode()
+        : tableId;
   }
 
   private List<UserTableDto> listDatabases() {
@@ -296,6 +294,7 @@ public class UserTablesServiceImpl implements UserTablesService {
                     userTable.getMetadataLocation(),
                     userTable.getStorageType(),
                     userTable.getCreationTime(),
+                    false,
                     pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
@@ -323,7 +322,8 @@ public class UserTablesServiceImpl implements UserTablesService {
                             userTable.getTableVersion(),
                             userTable.getMetadataLocation(),
                             userTable.getStorageType(),
-                            userTable.getCreationTime())
+                            userTable.getCreationTime(),
+                            false)
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))

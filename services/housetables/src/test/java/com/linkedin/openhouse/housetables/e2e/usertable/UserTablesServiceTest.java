@@ -12,8 +12,11 @@ import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -318,6 +321,102 @@ public class UserTablesServiceTest {
             () -> userTablesService.deleteUserTable(databaseId, tableId, false));
     Assertions.assertEquals(noSuchUserTableException.getTableId(), tableId);
     Assertions.assertEquals(noSuchUserTableException.getDatabaseId(), databaseId);
+  }
+
+  @Test
+  public void testUserTableSoftDelete() {
+    UserTable searchByTable =
+        UserTable.builder().databaseId(TEST_TUPLE_1_0.getDatabaseId()).build();
+    int sizeBeforeSoftDelete = userTablesService.getAllUserTables(searchByTable).size();
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+
+    // Cannot double delete the same table by exact ID
+    NoSuchUserTableException noSuchUserTableException =
+        Assertions.assertThrows(
+            NoSuchUserTableException.class,
+            () ->
+                userTablesService.deleteUserTable(
+                    TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+    Assertions.assertEquals(noSuchUserTableException.getTableId(), TEST_TUPLE_1_0.getTableId());
+    Assertions.assertEquals(
+        noSuchUserTableException.getDatabaseId(), TEST_TUPLE_1_0.getDatabaseId());
+
+    Assertions.assertEquals(
+        userTablesService.getAllUserTables(searchByTable).size(), sizeBeforeSoftDelete - 1);
+    Page<UserTableRow> softDeletedTables =
+        ((UserTableHtsJdbcRepository) htsRepository)
+            .findAllByFilters(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                true, // deleted
+                null);
+    Assertions.assertEquals(softDeletedTables.getTotalElements(), 1);
+    Assertions.assertTrue(softDeletedTables.stream().findFirst().isPresent());
+    UserTableRow deletedTable = softDeletedTables.stream().findFirst().get();
+    Assertions.assertTrue(
+        deletedTable.getTableId().startsWith(TEST_TUPLE_1_0.getTableId() + "_deleted"));
+    // Check that recreating the table and soft deleting it again is valid
+    Assertions.assertDoesNotThrow(
+        () -> userTablesService.putUserTable(TEST_TUPLE_1_0.get_userTable()));
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+    softDeletedTables =
+        ((UserTableHtsJdbcRepository) htsRepository)
+            .findAllByFilters(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                true, // deleted
+                null);
+    Assertions.assertEquals(softDeletedTables.getTotalElements(), 2);
+  }
+
+  @Test
+  public void testUserTableSoftDeleteLongTableId() {
+    String longTableId =
+        String.join("", Collections.nCopies(128, "a")); // 128 characters long table ID
+    UserTableRow longTable =
+        TEST_TUPLE_1_0.get_userTableRow().toBuilder().tableId(longTableId).build();
+    htsRepository.save(longTable);
+
+    Assertions.assertDoesNotThrow(
+        () -> userTablesService.deleteUserTable(TEST_TUPLE_1_0.getDatabaseId(), longTableId, true));
+
+    Page<UserTableRow> softDeletedTables =
+        ((UserTableHtsJdbcRepository) htsRepository)
+            .findAllByFilters(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                true, // deleted
+                null);
+    Assertions.assertEquals(softDeletedTables.getTotalElements(), 1);
+    Assertions.assertTrue(softDeletedTables.stream().findFirst().isPresent());
+    UserTableRow deletedTable = softDeletedTables.stream().findFirst().get();
+    // Check that a long table ID has the formatting for deleted tables
+    Assertions.assertTrue(deletedTable.getTableId().contains("_deleted_"));
+    Assertions.assertDoesNotThrow(
+        () ->
+            Instant.ofEpochMilli(
+                Long.parseLong(
+                    deletedTable
+                        .getTableId()
+                        .substring(deletedTable.getTableId().lastIndexOf("_") + 1))));
   }
 
   @Test
