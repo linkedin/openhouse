@@ -45,7 +45,7 @@ public interface UserTablesService {
    * delete is enabled, then the entry will be renamed instead internally and marked with a boolean
    * to delete
    */
-  void deleteUserTable(String databaseId, String tableId, boolean isDeleted);
+  void deleteUserTable(String databaseId, String tableId, boolean isSoftDelete);
 
   /**
    * Create or update a {@link UserTable} row in House table.
