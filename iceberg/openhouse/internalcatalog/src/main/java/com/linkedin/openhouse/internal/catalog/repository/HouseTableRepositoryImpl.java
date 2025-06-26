@@ -180,7 +180,23 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
             context ->
                 apiInstance
                     .deleteTable(
-                        houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
+                        houseTablePrimaryKey.getDatabaseId(),
+                        houseTablePrimaryKey.getTableId(),
+                        false)
+                    .onErrorResume(e -> handleHtsHttpError(e).then())
+                    .block());
+  }
+
+  @Override
+  public void softDeleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .deleteTable(
+                        houseTablePrimaryKey.getDatabaseId(),
+                        houseTablePrimaryKey.getTableId(),
+                        true)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
   }

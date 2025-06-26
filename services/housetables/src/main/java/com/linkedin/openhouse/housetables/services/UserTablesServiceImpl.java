@@ -11,6 +11,7 @@ import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -36,6 +37,10 @@ public class UserTablesServiceImpl implements UserTablesService {
   @Autowired UserTableHtsJdbcRepository htsJdbcRepository;
 
   @Autowired UserTablesMapper userTablesMapper;
+
+  // Max length for tableId is 128, minus 22 characters for the suffix "_deleted_" and current
+  // timestamp in millis
+  private static int MAX_TABLE_ID_LENGTH_DELETE = 106;
 
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.HOUSETABLES_SERVICE);
@@ -150,21 +155,53 @@ public class UserTablesServiceImpl implements UserTablesService {
       // TODO: Use toDataBaseId for destination instead of fromDatabaseId once rename across
       // databases is supported
       htsJdbcRepository.renameTableId(
-          fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation);
+          fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation, false);
     } catch (DataIntegrityViolationException e) {
       throw new AlreadyExistsException("Table", toTableId);
     }
   }
 
   @Override
-  public void deleteUserTable(String databaseId, String tableId) {
-    if (!htsJdbcRepository.existsById(
-        UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())) {
-      throw new NoSuchUserTableException(databaseId, tableId);
+  public void deleteUserTable(String databaseId, String tableId, boolean isSoftDeleted) {
+    if (!isSoftDeleted) {
+      if (!htsJdbcRepository.existsById(
+          UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())) {
+        throw new NoSuchUserTableException(databaseId, tableId);
+      }
+      htsJdbcRepository.deleteById(
+          UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+    } else {
+      UserTableRow existingTable =
+          htsJdbcRepository
+              .findById(
+                  UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+              .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+      String deletedTableId =
+          shortenTableIdIfNecessary(tableId) + "_deleted_" + Instant.now().toEpochMilli();
+      htsJdbcRepository.renameTableId(
+          databaseId,
+          tableId,
+          databaseId,
+          deletedTableId,
+          existingTable.getMetadataLocation(),
+          true);
     }
+  }
 
-    htsJdbcRepository.deleteById(
-        UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+  /**
+   * Since soft deletes require renaming a tableId internally, we want to ensure that the tableId
+   * does not exceed the column size This method truncates the tableId and appends a hash for
+   * uniqueness If the tableId does not exceed the limit, this is a noop
+   *
+   * @param tableId The original table ID.
+   * @return A unique hashed table ID for the deleted table.
+   */
+  private String shortenTableIdIfNecessary(String tableId) {
+    return tableId.length() >= MAX_TABLE_ID_LENGTH_DELETE
+        ? tableId.substring(
+                0, MAX_TABLE_ID_LENGTH_DELETE - String.valueOf(tableId.hashCode()).length())
+            + tableId.hashCode()
+        : tableId;
   }
 
   private List<UserTableDto> listDatabases() {
@@ -194,9 +231,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
-                    htsJdbcRepository
-                        .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId())
-                        .spliterator(),
+                    htsJdbcRepository.findAllByDatabaseId(userTable.getDatabaseId()).spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
                 .collect(Collectors.toList()),
@@ -209,7 +244,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
+                .findAllByFilters(
+                    userTable.getDatabaseId(), null, null, null, null, null, false, pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
@@ -220,7 +256,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
-                        .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                        .findAllByDatabaseIdTableIdPattern(
                             userTable.getDatabaseId(), userTable.getTableId())
                         .spliterator(),
                     false)
@@ -236,7 +272,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                .findAllByDatabaseIdTableIdPattern(
                     userTable.getDatabaseId(), userTable.getTableId(), pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
@@ -257,6 +293,7 @@ public class UserTablesServiceImpl implements UserTablesService {
                     userTable.getMetadataLocation(),
                     userTable.getStorageType(),
                     userTable.getCreationTime(),
+                    false,
                     pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
@@ -284,7 +321,8 @@ public class UserTablesServiceImpl implements UserTablesService {
                             userTable.getTableVersion(),
                             userTable.getMetadataLocation(),
                             userTable.getStorageType(),
-                            userTable.getCreationTime())
+                            userTable.getCreationTime(),
+                            false)
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))

@@ -56,8 +56,7 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
     htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    List<UserTableRow> result =
-        Lists.newArrayList(htsRepository.findAllByDatabaseIdIgnoreCase("test_db0"));
+    List<UserTableRow> result = Lists.newArrayList(htsRepository.findAllByDatabaseId("test_db0"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -70,8 +69,7 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                "test_db0", "test_table%"));
+            htsRepository.findAllByDatabaseIdTableIdPattern("test_db0", "test_table%"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -84,8 +82,7 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                "test_db0", "test_table1"));
+            htsRepository.findAllByDatabaseIdTableIdPattern("test_db0", "test_table1"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -186,7 +183,8 @@ public class HtsRepositoryTest {
         TEST_TUPLE_1_1.getTableId(),
         TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId() + "_renamed",
-        newTableMetadata);
+        newTableMetadata,
+        false);
 
     UserTableRow result =
         htsRepository
@@ -228,7 +226,8 @@ public class HtsRepositoryTest {
         TEST_TUPLE_1_1.getTableId(),
         TEST_TUPLE_1_1.getDatabaseId().toUpperCase(),
         renamedUpperCaseTableId,
-        TEST_TUPLE_1_1.getTableLoc());
+        TEST_TUPLE_1_1.getTableLoc(),
+        false);
 
     // Try fetching with lower case ID, should still work
     UserTableRow result =
@@ -245,5 +244,61 @@ public class HtsRepositoryTest {
 
     // verify testTuple1_1 doesn't exist any more.
     assertThat(htsRepository.existsById(key)).isFalse();
+  }
+
+  @Test
+  public void testSoftDeletedTablesCannotBeQueriedWithBulk() {
+    UserTableRow testTable =
+        TEST_TUPLE_1_1
+            .get_userTableRow()
+            .toBuilder()
+            .tableId(TEST_TUPLE_1_1.getTableId())
+            .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+            .build();
+    htsRepository.save(testTable);
+
+    String deletedId = testTable.getTableId() + "_deleted_" + "1";
+    htsRepository.renameTableId(
+        TEST_TUPLE_1_1.getDatabaseId(),
+        TEST_TUPLE_1_1.getTableId(),
+        TEST_TUPLE_1_1.getDatabaseId(),
+        deletedId,
+        TEST_TUPLE_1_1.getTableLoc(),
+        true);
+
+    UserTableRowPrimaryKey key =
+        UserTableRowPrimaryKey.builder()
+            .tableId(deletedId)
+            .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+            .build();
+
+    // Soft deleted table should not be returned by filters even if queried by exact ID since this
+    // is bulk
+    assertThat(htsRepository.findAllByDatabaseId(testTable.getDatabaseId())).isEmpty();
+    assertThat(
+            htsRepository.findAllByDatabaseIdTableIdPattern(
+                testTable.getDatabaseId(), testTable.getTableId()))
+        .isEmpty();
+    Iterable<UserTableRow> results =
+        htsRepository.findAllByFilters(
+            TEST_TUPLE_1_1.getDatabaseId(), null, null, null, null, null, false);
+
+    assertThat(
+            htsRepository.findAllByFilters(
+                TEST_TUPLE_1_1.getDatabaseId(), null, null, null, null, null, false))
+        .isEmpty();
+
+    // Querying by exact ID should still return the soft deleted table
+    assertThat(
+            htsRepository.existsById(
+                UserTableRowPrimaryKey.builder()
+                    .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+                    .tableId(deletedId)
+                    .build()))
+        .isTrue();
+
+    // Ensure that the soft deleted table can be fully deleted
+    htsRepository.deleteById(key);
+    assertThat(htsRepository.count()).isEqualTo(0);
   }
 }

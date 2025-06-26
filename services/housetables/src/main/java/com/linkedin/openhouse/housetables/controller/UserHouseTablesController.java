@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class UserHouseTablesController {
   private static final String HTS_TABLES_GENERAL_ENDPOINT = "/hts/tables";
+  private static final String HTS_TABLES_GENERAL_ENDPOINT_V1 = "/v1/hts/tables/";
   private static final String HTS_TABLES_QUERY_ENDPOINT = "/hts/tables/query";
   private static final String HTS_TABLES_QUERY_ENDPOINT_V1 = "/v1/hts/tables/query";
 
@@ -122,7 +123,30 @@ public class UserHouseTablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse;
     apiResponse =
         tableHtsApiHandler.deleteEntity(
-            UserTableKey.builder().tableId(tableId).databaseId(databaseId).build());
+            UserTableKey.builder().tableId(tableId).databaseId(databaseId).build(), false);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Delete a User Table",
+      description = "Delete a User House Table entry identified by databaseID and tableId.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "User Table DELETE: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "User Table DELETE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "User Table DELETE: TBL_DB_NOT_FOUND")
+      })
+  @DeleteMapping(value = HTS_TABLES_GENERAL_ENDPOINT_V1)
+  public ResponseEntity<Void> deleteTable(
+      @RequestParam(value = "databaseId") String databaseId,
+      @RequestParam(value = "tableId") String tableId,
+      @RequestParam(value = "isSoftDelete") boolean isSoftDelete) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse;
+    apiResponse =
+        tableHtsApiHandler.deleteEntity(
+            UserTableKey.builder().tableId(tableId).databaseId(databaseId).build(), isSoftDelete);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
