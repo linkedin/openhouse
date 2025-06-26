@@ -145,7 +145,7 @@ public class RepositoryTest {
     Map<String, String> userProps = new HashMap<>();
     userProps.put("tableId", "foo"); /* make sure such key shouldn't confuse table service*/
     userProps.put(
-        TableProperties.DEFAULT_FILE_FORMAT, "avro"); /* make sure such key will be overwritten */
+        TableProperties.DEFAULT_FILE_FORMAT, "avro"); /* make sure such key will be preserved */
     userProps.put(TableProperties.FORMAT_VERSION, "1"); /* make sure such key will be overwritten */
     TableDto createDto =
         TABLE_DTO
@@ -162,7 +162,7 @@ public class RepositoryTest {
         returnedDto.getTableProperties().get("openhouse.tableId"), TABLE_DTO.getTableId());
     Assertions.assertEquals(
         returnedDto.getTableProperties().get(TableProperties.DEFAULT_FILE_FORMAT).toLowerCase(),
-        "orc");
+        "avro");
     Table table =
         catalog.loadTable(TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()));
     Assertions.assertEquals(((BaseTable) table).operations().current().formatVersion(), 2);
