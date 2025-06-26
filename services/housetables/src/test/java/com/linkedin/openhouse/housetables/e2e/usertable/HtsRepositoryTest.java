@@ -281,6 +281,10 @@ public class HtsRepositoryTest {
     assertThat(
             htsRepository.findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(testTable.getDatabaseId()))
         .isEmpty();
+    assertThat(
+            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
+                testTable.getDatabaseId(), testTable.getTableId()))
+        .isEmpty();
     Iterable<UserTableRow> results =
         htsRepository.findAllByFilters(
             TEST_TUPLE_1_1.getDatabaseId(), null, null, null, null, null, false);
