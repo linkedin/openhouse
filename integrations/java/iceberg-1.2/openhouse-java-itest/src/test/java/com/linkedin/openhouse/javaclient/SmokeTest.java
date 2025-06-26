@@ -16,6 +16,7 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.metrics.MetricsReporter;
@@ -171,6 +172,63 @@ public class SmokeTest {
     Assertions.assertThrows(
         NoSuchTableException.class,
         () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));
+  }
+
+  @Test
+  public void testNamespaceExistsWhenNamespaceExists() {
+    // Mock response for successful ACL policies fetch (indicating namespace exists)
+    mockTableService.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody("{\"results\":[]}")
+            .addHeader("Content-Type", "application/json"));
+
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+
+    boolean exists = openHouseCatalog.namespaceExists(Namespace.of("test_db"));
+    Assertions.assertTrue(exists, "Namespace should exist when API returns 200");
+  }
+
+  @Test
+  public void testNamespaceExistsWhenNamespaceDoesNotExist() {
+    // Mock response for 404 Not Found (indicating namespace doesn't exist)
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(404).addHeader("Content-Type", "application/json"));
+
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+
+    boolean exists = openHouseCatalog.namespaceExists(Namespace.of("nonexistent_db"));
+    Assertions.assertFalse(exists, "Namespace should not exist when API returns 404");
+  }
+
+  @Test
+  public void testNamespaceExistsWithEmptyAclPoliciesResponse() {
+    // Mock response for successful ACL policies fetch with empty results
+    mockTableService.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody("{\"results\":[]}")
+            .addHeader("Content-Type", "application/json"));
+
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+
+    boolean exists = openHouseCatalog.namespaceExists(Namespace.of("db_with_no_policies"));
+    Assertions.assertTrue(exists, "Namespace should exist even when it has no ACL policies");
+  }
+
+  @Test
+  public void testNamespaceExistsWithMultiLevelNamespace() {
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+
+    // Test with multi-level namespace (should throw ValidationException)
+    Assertions.assertThrows(
+        org.apache.iceberg.exceptions.ValidationException.class,
+        () -> openHouseCatalog.namespaceExists(Namespace.of("level1", "level2")),
+        "Should throw ValidationException for multi-level namespace");
   }
 
   @AfterAll

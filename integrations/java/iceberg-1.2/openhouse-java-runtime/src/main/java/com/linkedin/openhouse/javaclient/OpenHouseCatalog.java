@@ -25,6 +25,7 @@ import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLException;
@@ -384,7 +385,29 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public boolean namespaceExists(Namespace namespace) throws NoSuchNamespaceException {
-    throw new UnsupportedOperationException("Checking if database exists is not supported");
+    log.info("Calling namespaceExists with identifier: {}", namespace.toString());
+    if (namespace.levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
+    }
+
+    Optional<GetAclPoliciesResponseBody> result =
+        databaseApi
+            .getDatabaseAclPoliciesV1(namespace.toString())
+            .onErrorResume(
+                WebClientResponseException.NotFound.class,
+                e -> Mono.empty()) // Convert 404 to empty result
+            .onErrorResume(
+                WebClientResponseException.class,
+                e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
+            .blockOptional();
+
+    boolean exists = result.isPresent();
+    log.debug("Calling namespaceExists succeeded - namespace exists: {}", exists);
+    return exists;
   }
 
   @Override
