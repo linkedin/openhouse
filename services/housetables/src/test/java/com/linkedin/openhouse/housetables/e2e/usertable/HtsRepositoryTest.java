@@ -56,9 +56,7 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
     htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    List<UserTableRow> result =
-        Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse("test_db0"));
+    List<UserTableRow> result = Lists.newArrayList(htsRepository.findAllByDatabaseId("test_db0"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -71,8 +69,7 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
-                "test_db0", "test_table%"));
+            htsRepository.findAllByDatabaseIdTableIdPattern("test_db0", "test_table%"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -85,8 +82,7 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
-                "test_db0", "test_table1"));
+            htsRepository.findAllByDatabaseIdTableIdPattern("test_db0", "test_table1"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -278,11 +274,9 @@ public class HtsRepositoryTest {
 
     // Soft deleted table should not be returned by filters even if queried by exact ID since this
     // is bulk
+    assertThat(htsRepository.findAllByDatabaseId(testTable.getDatabaseId())).isEmpty();
     assertThat(
-            htsRepository.findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(testTable.getDatabaseId()))
-        .isEmpty();
-    assertThat(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
+            htsRepository.findAllByDatabaseIdTableIdPattern(
                 testTable.getDatabaseId(), testTable.getTableId()))
         .isEmpty();
     Iterable<UserTableRow> results =

@@ -45,8 +45,8 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   }
 
   @Override
-  default void softDeleteById(HouseTablePrimaryKey id) {
-    this.findById(id)
+  default void softDeleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    this.findById(houseTablePrimaryKey)
         .ifPresent(
             houseTable -> {
               HouseTable softDeletedTable =

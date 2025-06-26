@@ -42,9 +42,18 @@ public interface UserTableHtsJdbcRepository
   @Query("SELECT DISTINCT databaseId FROM UserTableRow")
   Iterable<String> findAllDistinctDatabaseIds();
 
-  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(String databaseId);
+  @Query(
+      "SELECT DISTINCT u FROM UserTableRow u"
+          + " WHERE lower(u.databaseId) = lower(:databaseId)"
+          + " AND u.deleted = false")
+  Iterable<UserTableRow> findAllByDatabaseId(String databaseId);
 
-  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
+  @Query(
+      "SELECT DISTINCT u FROM UserTableRow u"
+          + " WHERE lower(u.databaseId) = lower(:databaseId)"
+          + " AND lower(u.tableId) LIKE lower(:tableIdPattern)"
+          + " AND u.deleted = false")
+  Iterable<UserTableRow> findAllByDatabaseIdTableIdPattern(
       String databaseId, String tableIdPattern);
 
   @Query(
@@ -52,10 +61,12 @@ public interface UserTableHtsJdbcRepository
           + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
   Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
 
-  Page<UserTableRow> findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(
-      String databaseId, Pageable pageable);
-
-  Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
+  @Query(
+      "SELECT DISTINCT u FROM UserTableRow u"
+          + " WHERE lower(u.databaseId) = lower(:databaseId)"
+          + " AND lower(u.tableId) LIKE lower(:tableIdPattern)"
+          + " AND u.deleted = false")
+  Page<UserTableRow> findAllByDatabaseIdTableIdPattern(
       String databaseId, String tableIdPattern, Pageable pageable);
 
   @Query(

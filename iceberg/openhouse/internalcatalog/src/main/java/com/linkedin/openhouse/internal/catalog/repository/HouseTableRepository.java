@@ -22,5 +22,5 @@ public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTa
       String toTableId,
       String metadataLocation);
 
-  void softDeleteById(HouseTablePrimaryKey id);
+  void softDeleteById(HouseTablePrimaryKey houseTablePrimaryKey);
 }

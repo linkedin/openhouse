@@ -231,9 +231,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
-                    htsJdbcRepository
-                        .findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(userTable.getDatabaseId())
-                        .spliterator(),
+                    htsJdbcRepository.findAllByDatabaseId(userTable.getDatabaseId()).spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
                 .collect(Collectors.toList()),
@@ -246,7 +244,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdIgnoreCaseAndDeletedIsFalse(userTable.getDatabaseId(), pageable)
+                .findAllByFilters(
+                    userTable.getDatabaseId(), null, null, null, null, null, false, pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
@@ -257,7 +256,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
-                        .findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
+                        .findAllByDatabaseIdTableIdPattern(
                             userTable.getDatabaseId(), userTable.getTableId())
                         .spliterator(),
                     false)
@@ -273,7 +272,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdAndTableIdLikeAllIgnoreCaseAndDeletedIsFalse(
+                .findAllByDatabaseIdTableIdPattern(
                     userTable.getDatabaseId(), userTable.getTableId(), pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
