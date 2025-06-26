@@ -302,6 +302,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             .filter(entry -> preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
+    // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
+    // (which means either they didn't specify it, or the feature toggle filtered it out)
+    if (!propertiesMap.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+      propertiesMap.put(
+          TableProperties.DEFAULT_FILE_FORMAT,
+          clusterProperties.getClusterIcebergWriteFormatDefault());
+    }
+
     // Populate server reserved properties
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String htsFieldName : HTS_FIELD_NAMES) {
@@ -338,12 +346,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       propertiesMap.put(IS_STAGE_CREATE_KEY, String.valueOf(tableDto.isStageCreate()));
     }
 
-    // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
-    if (!propertiesMap.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
-      propertiesMap.put(
-          TableProperties.DEFAULT_FILE_FORMAT,
-          clusterProperties.getClusterIcebergWriteFormatDefault());
-    }
     propertiesMap.put(
         TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
         Boolean.toString(

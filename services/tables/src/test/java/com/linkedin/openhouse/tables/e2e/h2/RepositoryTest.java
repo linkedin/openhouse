@@ -819,7 +819,7 @@ public class RepositoryTest {
 
     TableDto createdDto2 = openHouseInternalRepository.save(tableDto2);
 
-    // Should use user provided value
+    // Should use user provided value when toggle is enabled
     Assertions.assertEquals(
         USER_PROVIDED_FORMAT,
         createdDto2.getTableProperties().get(TableProperties.DEFAULT_FILE_FORMAT));
