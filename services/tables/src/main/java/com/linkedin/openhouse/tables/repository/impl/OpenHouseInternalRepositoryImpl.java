@@ -326,6 +326,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.getTableType() != null) {
       propertiesMap.put(getCanonicalFieldName(TABLE_TYPE_KEY), tableDto.getTableType().toString());
     }
+
     // add a default property to indicate replicationState for table.
     // Required in addition to tableType to indicate if primary table is replicated or not
     propertiesMap.put(
@@ -337,9 +338,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       propertiesMap.put(IS_STAGE_CREATE_KEY, String.valueOf(tableDto.isStageCreate()));
     }
 
-    propertiesMap.put(
-        TableProperties.DEFAULT_FILE_FORMAT,
-        clusterProperties.getClusterIcebergWriteFormatDefault());
+    // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
+    if (!propertiesMap.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+      propertiesMap.put(
+          TableProperties.DEFAULT_FILE_FORMAT,
+          clusterProperties.getClusterIcebergWriteFormatDefault());
+    }
     propertiesMap.put(
         TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
         Boolean.toString(

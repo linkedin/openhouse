@@ -771,6 +771,105 @@ public class RepositoryTest {
         "local-cluster.d1.t1_renamed");
   }
 
+  @Test
+  public void testDefaultFileFormatWithFeatureToggle() {
+    final String ENABLE_DEFAULT_FILE_FORMAT = "enableDefaultFileFormat";
+    final String CLUSTER_DEFAULT_FORMAT = "orc"; // This should match the cluster default
+    final String USER_PROVIDED_FORMAT = "parquet";
+
+    // Scenario 1: DB does NOT have toggle enabled, user provides DEFAULT_FILE_FORMAT
+    // Expected: User's value should be ignored, cluster default should be used
+    Map<String, String> userPropsWithFormat = new HashMap<>();
+    userPropsWithFormat.put(TableProperties.DEFAULT_FILE_FORMAT, USER_PROVIDED_FORMAT);
+
+    TableDto tableDto1 =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("test_toggle_disabled")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(userPropsWithFormat)
+            .build();
+
+    // Mock the preservedKeyChecker to simulate toggle disabled (don't allow user override)
+    Mockito.doReturn(false)
+        .when(preservedKeyChecker)
+        .allowKeyInCreation(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
+
+    TableDto createdDto1 = openHouseInternalRepository.save(tableDto1);
+
+    // Should use cluster default, not user provided value
+    Assertions.assertEquals(
+        CLUSTER_DEFAULT_FORMAT.toLowerCase(),
+        createdDto1.getTableProperties().get(TableProperties.DEFAULT_FILE_FORMAT).toLowerCase());
+
+    // Scenario 2: DB DOES have toggle enabled, user provides DEFAULT_FILE_FORMAT
+    // Expected: User's value should override cluster default
+    TableDto tableDto2 =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("test_toggle_enabled")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(userPropsWithFormat)
+            .build();
+
+    // Mock the preservedKeyChecker to simulate toggle enabled (allow user override)
+    Mockito.doReturn(true)
+        .when(preservedKeyChecker)
+        .allowKeyInCreation(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
+
+    TableDto createdDto2 = openHouseInternalRepository.save(tableDto2);
+
+    // Should use user provided value
+    Assertions.assertEquals(
+        USER_PROVIDED_FORMAT,
+        createdDto2.getTableProperties().get(TableProperties.DEFAULT_FILE_FORMAT));
+
+    // Scenario 3: User does not provide DEFAULT_FILE_FORMAT at all
+    // Expected: Cluster default should be used regardless of toggle state
+    Map<String, String> userPropsWithoutFormat = new HashMap<>();
+    userPropsWithoutFormat.put("someOtherProperty", "someValue");
+
+    TableDto tableDto3 =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("test_no_format_provided")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(userPropsWithoutFormat)
+            .build();
+
+    TableDto createdDto3 = openHouseInternalRepository.save(tableDto3);
+
+    // Should use cluster default when no value provided
+    Assertions.assertEquals(
+        CLUSTER_DEFAULT_FORMAT.toLowerCase(),
+        createdDto3.getTableProperties().get(TableProperties.DEFAULT_FILE_FORMAT).toLowerCase());
+
+    // Clean up test tables
+    TableDtoPrimaryKey key1 =
+        TableDtoPrimaryKey.builder()
+            .tableId("test_toggle_disabled")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    TableDtoPrimaryKey key2 =
+        TableDtoPrimaryKey.builder()
+            .tableId("test_toggle_enabled")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    TableDtoPrimaryKey key3 =
+        TableDtoPrimaryKey.builder()
+            .tableId("test_no_format_provided")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+
+    openHouseInternalRepository.deleteById(key1);
+    openHouseInternalRepository.deleteById(key2);
+    openHouseInternalRepository.deleteById(key3);
+
+    Assertions.assertFalse(openHouseInternalRepository.existsById(key1));
+    Assertions.assertFalse(openHouseInternalRepository.existsById(key2));
+    Assertions.assertFalse(openHouseInternalRepository.existsById(key3));
+  }
+
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {
     return TableDtoPrimaryKey.builder()
         .databaseId(tableDto.getDatabaseId())
