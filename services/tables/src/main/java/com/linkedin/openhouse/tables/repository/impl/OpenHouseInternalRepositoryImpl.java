@@ -302,6 +302,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             .filter(entry -> preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
+    // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
+    // (which means either they didn't specify it, or the feature toggle filtered it out)
+    if (!propertiesMap.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+      propertiesMap.put(
+          TableProperties.DEFAULT_FILE_FORMAT,
+          clusterProperties.getClusterIcebergWriteFormatDefault());
+    }
+
     // Populate server reserved properties
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String htsFieldName : HTS_FIELD_NAMES) {
@@ -326,20 +334,20 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.getTableType() != null) {
       propertiesMap.put(getCanonicalFieldName(TABLE_TYPE_KEY), tableDto.getTableType().toString());
     }
+
     // add a default property to indicate replicationState for table.
     // Required in addition to tableType to indicate if primary table is replicated or not
     propertiesMap.put(
         OPENHOUSE_IS_TABLE_REPLICATED_KEY,
-        tableDto.getTableProperties().getOrDefault(OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"));
+        tableDto.getTableProperties() != null
+            ? tableDto.getTableProperties().getOrDefault(OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false")
+            : "false");
 
     if (tableDto.isStageCreate()) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR_STAGED).increment();
       propertiesMap.put(IS_STAGE_CREATE_KEY, String.valueOf(tableDto.isStageCreate()));
     }
 
-    propertiesMap.put(
-        TableProperties.DEFAULT_FILE_FORMAT,
-        clusterProperties.getClusterIcebergWriteFormatDefault());
     propertiesMap.put(
         TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
         Boolean.toString(
