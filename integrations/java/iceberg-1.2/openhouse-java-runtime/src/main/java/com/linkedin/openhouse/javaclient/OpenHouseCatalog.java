@@ -405,7 +405,11 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
 
-    boolean exists = result.isPresent();
+    // Namespace exists only if we got a response AND there are ACL policies
+    boolean exists =
+        result.isPresent()
+            && result.get().getResults() != null
+            && !result.get().getResults().isEmpty();
     log.debug("Calling namespaceExists succeeded - namespace exists: {}", exists);
     return exists;
   }

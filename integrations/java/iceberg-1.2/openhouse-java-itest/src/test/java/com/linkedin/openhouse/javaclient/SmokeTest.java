@@ -176,18 +176,19 @@ public class SmokeTest {
 
   @Test
   public void testNamespaceExistsWhenNamespaceExists() {
-    // Mock response for successful ACL policies fetch (indicating namespace exists)
+    // Mock response for successful ACL policies fetch with actual policies (indicating namespace
+    // exists)
     mockTableService.enqueue(
         new MockResponse()
             .setResponseCode(200)
-            .setBody("{\"results\":[]}")
+            .setBody("{\"results\":[{\"principal\":\"user1\",\"privilege\":\"READ\"}]}")
             .addHeader("Content-Type", "application/json"));
 
     OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
     openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
 
     boolean exists = openHouseCatalog.namespaceExists(Namespace.of("test_db"));
-    Assertions.assertTrue(exists, "Namespace should exist when API returns 200");
+    Assertions.assertTrue(exists, "Namespace should exist when API returns 200 with ACL policies");
   }
 
   @Test
@@ -205,7 +206,7 @@ public class SmokeTest {
 
   @Test
   public void testNamespaceExistsWithEmptyAclPoliciesResponse() {
-    // Mock response for successful ACL policies fetch with empty results
+    // Mock response for successful ACL policies fetch with empty results (should return false)
     mockTableService.enqueue(
         new MockResponse()
             .setResponseCode(200)
@@ -216,7 +217,7 @@ public class SmokeTest {
     openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
 
     boolean exists = openHouseCatalog.namespaceExists(Namespace.of("db_with_no_policies"));
-    Assertions.assertTrue(exists, "Namespace should exist even when it has no ACL policies");
+    Assertions.assertFalse(exists, "Namespace should not exist when it has no ACL policies");
   }
 
   @Test
