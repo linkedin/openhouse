@@ -46,6 +46,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.AccessLevel;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -113,17 +115,28 @@ public class JobsScheduler {
   private static final String SUPPORTED_OPERATIONS_STRING =
       String.join(",", OPERATIONS_REGISTRY.keySet());
 
-  protected final ThreadPoolExecutor jobExecutors;
-  protected final ThreadPoolExecutor statusExecutors;
+  @Getter(AccessLevel.PROTECTED)
+  private final ThreadPoolExecutor jobExecutors;
+
+  @Getter(AccessLevel.PROTECTED)
+  private final ThreadPoolExecutor statusExecutors;
+
   protected final OperationTaskFactory<? extends OperationTask> taskFactory;
   private final TablesClient tablesClient;
   private final JobsClient jobsClient;
   private AtomicBoolean jobLaunchTasksSubmissionCompleted = new AtomicBoolean(false);
   private AtomicBoolean jobStatusTasksSubmissionCompleted = new AtomicBoolean(false);
-  protected final OperationTaskManager operationTaskManager;
-  protected final JobInfoManager jobInfoManager;
-  protected final OperationTasksBuilder tasksBuilder;
-  protected Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
+
+  @Getter(AccessLevel.PROTECTED)
+  private final OperationTaskManager operationTaskManager;
+
+  private final JobInfoManager jobInfoManager;
+
+  @Getter(AccessLevel.PROTECTED)
+  private final OperationTasksBuilder tasksBuilder;
+
+  @Getter(AccessLevel.PROTECTED)
+  private Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
 
   public JobsScheduler(
       ThreadPoolExecutor jobExecutors,

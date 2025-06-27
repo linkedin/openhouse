@@ -46,10 +46,10 @@ public class OperationTasksBuilder {
 
   private final int numParallelMetadataFetch;
 
-  @Getter(AccessLevel.PUBLIC)
+  @Getter(AccessLevel.PROTECTED)
   private final OperationTaskManager operationTaskManager;
 
-  @Getter(AccessLevel.PUBLIC)
+  @Getter(AccessLevel.PROTECTED)
   private final JobInfoManager jobInfoManager;
 
   private List<OperationTask<?>> prepareTableOperationTaskList(
@@ -244,6 +244,7 @@ public class OperationTasksBuilder {
       Meter meter,
       OperationMode operationMode) {
     if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
+      // DLO execution job needs to fetch all table metadata before submission
       buildDataLayoutOperationTaskListInParallel(jobType, properties, meter, operationMode);
     } else {
       buildOperationTaskListInParallelInternal(jobType, operationMode);
@@ -329,7 +330,6 @@ public class OperationTasksBuilder {
                 Optional<OperationTask<?>> optionalOperationTask =
                     processMetadata(tableDataLayoutMetadata, jobType, operationMode);
                 if (optionalOperationTask.isPresent()) {
-                  // Put tableMetadata into operation task manager
                   operationTaskManager.addData(optionalOperationTask.get());
                 }
               } catch (InterruptedException e) {

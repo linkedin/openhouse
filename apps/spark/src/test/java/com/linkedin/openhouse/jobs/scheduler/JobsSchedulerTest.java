@@ -42,7 +42,6 @@ import org.mockito.MockitoAnnotations;
 public class JobsSchedulerTest {
   @Mock private TablesClient tablesClient;
   @Mock private JobsClient jobsClient;
-  @Mock private JobResponseBody jobResponseBody;
   private int dbCount = 4;
   private int tableCount = 4;
   private List<TableMetadata> tableMetadataList = new ArrayList<>();
@@ -56,6 +55,9 @@ public class JobsSchedulerTest {
           put(JobConf.JobTypeEnum.TABLE_STATS_COLLECTION, TableStatsCollectionTask.class);
           put(
               JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION,
+              TableDataLayoutStrategyGenerationTask.class);
+          put(
+              JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
               TableDataLayoutStrategyGenerationTask.class);
         }
       };
@@ -117,14 +119,16 @@ public class JobsSchedulerTest {
             invocation -> {
               for (TableMetadata metadata : tableMetadataList) {
                 Optional<OperationTask<?>> optionalOperationTask =
-                    jobsScheduler.tasksBuilder.processMetadata(
-                        metadata, invocation.getArgument(0), invocation.getArgument(3));
-                jobsScheduler.operationTaskManager.addData(optionalOperationTask.get());
+                    jobsScheduler
+                        .getTasksBuilder()
+                        .processMetadata(
+                            metadata, invocation.getArgument(0), invocation.getArgument(3));
+                jobsScheduler.getOperationTaskManager().addData(optionalOperationTask.get());
               }
-              jobsScheduler.operationTaskManager.updateDataGenerationCompletion();
+              jobsScheduler.getOperationTaskManager().updateDataGenerationCompletion();
               return null;
             })
-        .when(jobsScheduler.tasksBuilder)
+        .when(jobsScheduler.getTasksBuilder())
         .buildOperationTaskListInParallel(
             Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
   }
@@ -136,14 +140,14 @@ public class JobsSchedulerTest {
               for (TableMetadata metadata : tableMetadataList) {
                 operationTasks.add(
                     jobsScheduler
-                        .tasksBuilder
+                        .getTasksBuilder()
                         .processMetadata(
                             metadata, invocation.getArgument(0), invocation.getArgument(3))
                         .get());
               }
               return operationTasks;
             })
-        .when(jobsScheduler.tasksBuilder)
+        .when(jobsScheduler.getTasksBuilder())
         .buildOperationTaskList(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
   }
 
@@ -158,6 +162,7 @@ public class JobsSchedulerTest {
                 Mockito.anyMap(),
                 Mockito.anyList()))
         .thenReturn(Optional.of(jobId));
+    JobResponseBody jobResponseBody = Mockito.mock(JobResponseBody.class);
     Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(jobState));
     Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
     Mockito.when(jobResponseBody.getState()).thenReturn(jobResponseState);
@@ -166,8 +171,8 @@ public class JobsSchedulerTest {
   }
 
   private void shutDownJobScheduler(JobsScheduler jobsScheduler) {
-    jobsScheduler.jobExecutors.shutdownNow();
-    jobsScheduler.statusExecutors.shutdownNow();
+    jobsScheduler.getJobExecutors().shutdownNow();
+    jobsScheduler.getStatusExecutors().shutdownNow();
   }
 
   @Test
@@ -190,8 +195,8 @@ public class JobsSchedulerTest {
           1000,
           30,
           15);
-      Assertions.assertEquals(16, jobsScheduler.jobStateCountMap.get(JobState.SUCCEEDED));
-      Assertions.assertEquals(7, jobsScheduler.jobStateCountMap.size());
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
       shutDownJobScheduler(jobsScheduler);
     }
   }
@@ -216,8 +221,8 @@ public class JobsSchedulerTest {
           1000,
           30,
           15);
-      Assertions.assertEquals(16, jobsScheduler.jobStateCountMap.get(JobState.FAILED));
-      Assertions.assertEquals(7, jobsScheduler.jobStateCountMap.size());
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.FAILED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
       shutDownJobScheduler(jobsScheduler);
     }
   }
@@ -242,8 +247,8 @@ public class JobsSchedulerTest {
           1000,
           30,
           15);
-      Assertions.assertEquals(16, jobsScheduler.jobStateCountMap.get(JobState.SUCCEEDED));
-      Assertions.assertEquals(7, jobsScheduler.jobStateCountMap.size());
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
       shutDownJobScheduler(jobsScheduler);
     }
   }
@@ -268,8 +273,8 @@ public class JobsSchedulerTest {
           1000,
           30,
           15);
-      Assertions.assertEquals(16, jobsScheduler.jobStateCountMap.get(JobState.SUCCEEDED));
-      Assertions.assertEquals(7, jobsScheduler.jobStateCountMap.size());
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
       shutDownJobScheduler(jobsScheduler);
     }
   }

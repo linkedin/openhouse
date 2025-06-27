@@ -335,6 +335,7 @@ public class TablesClient {
         Collections.emptyList());
   }
 
+  @VisibleForTesting
   public Optional<TableMetadata> mapTableResponseToTableMetadata(
       GetTableResponseBody shallowResponseBody) {
     GetTableResponseBody tableResponseBody =
@@ -365,7 +366,8 @@ public class TablesClient {
     return Optional.of(builder.build());
   }
 
-  protected List<TableDataLayoutMetadata> mapTableResponseToTableDataLayoutMetadataList(
+  @VisibleForTesting
+  public List<TableDataLayoutMetadata> mapTableResponseToTableDataLayoutMetadataList(
       GetTableResponseBody shallowResponseBody) {
     GetTableResponseBody tableResponseBody =
         getTable(shallowResponseBody.getDatabaseId(), shallowResponseBody.getTableId());
@@ -492,7 +494,7 @@ public class TablesClient {
    * Fetch table data layout metadata for a table asynchronously using Mono.
    *
    * @param getTableResponseBody
-   * @return Mono<TableMetadata>
+   * @return Mono<List<TableDataLayoutMetadata>
    */
   public Mono<List<TableDataLayoutMetadata>> getTableDataLayoutMetadataListAsync(
       GetTableResponseBody getTableResponseBody) {
