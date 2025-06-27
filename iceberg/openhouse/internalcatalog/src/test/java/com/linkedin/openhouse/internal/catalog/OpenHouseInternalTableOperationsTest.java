@@ -9,6 +9,7 @@ import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.SneakyThrows;
@@ -69,8 +71,10 @@ public class OpenHouseInternalTableOperationsTest {
   @Mock private HouseTable mockHouseTable;
   @Captor private ArgumentCaptor<TableMetadata> tblMetadataCaptor;
   @Mock private FileIOManager fileIOManager;
+  @Mock private MetricsReporter mockMetricsReporter;
 
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
+  private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithMockMetrics;
 
   @SneakyThrows
   private static String getTempLocation() {
@@ -91,6 +95,17 @@ public class OpenHouseInternalTableOperationsTest {
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()));
+
+    // Create a separate instance with mock metrics reporter for testing metrics
+    openHouseInternalTableOperationsWithMockMetrics =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            fileIO,
+            Mockito.mock(SnapshotInspector.class),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            mockMetricsReporter);
+
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
@@ -820,5 +835,68 @@ public class OpenHouseInternalTableOperationsTest {
 
     Assertions.assertEquals(
         "Field field1 does not exist in the new schema", exception.getMessage());
+  }
+
+  @Test
+  void testRefreshMetadataIncludesDatabaseAndTableTags() {
+    // Create a real SimpleMeterRegistry to capture metrics
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    MetricsReporter realMetricsReporter =
+        new MetricsReporter(meterRegistry, "TEST_CATALOG", Lists.newArrayList());
+
+    // Create instance with real metrics reporter
+    OpenHouseInternalTableOperations operationsWithRealMetrics =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            Mockito.mock(SnapshotInspector.class),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            realMetricsReporter);
+
+    // Setup mock behavior
+    HouseTablePrimaryKey primaryKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
+            .tableId(TEST_TABLE_IDENTIFIER.name())
+            .build();
+    when(mockHouseTableRepository.findById(primaryKey)).thenReturn(Optional.of(mockHouseTable));
+    when(mockHouseTable.getTableLocation()).thenReturn("test_metadata_location");
+
+    // Call refreshMetadata directly to avoid the full doRefresh flow
+    try {
+      operationsWithRealMetrics.refreshMetadata("test_metadata_location");
+    } catch (Exception e) {
+      // We expect this to fail since it's not a real metadata file, but the timer should still be
+      // recorded
+    }
+
+    // Verify that the timer was created with the correct metric name and tags
+    String expectedMetricName =
+        "TEST_CATALOG_" + InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY;
+
+    // Find the timer in the registry
+    io.micrometer.core.instrument.Timer timer = meterRegistry.find(expectedMetricName).timer();
+    Assertions.assertNotNull(timer, "Timer should be created");
+
+    // Verify the tags are present
+    boolean hasDatabaseTag =
+        timer.getId().getTags().stream()
+            .anyMatch(
+                tag ->
+                    tag.getKey().equals(InternalCatalogMetricsConstant.DATABASE_TAG)
+                        && tag.getValue().equals("test_db"));
+    boolean hasTableTag =
+        timer.getId().getTags().stream()
+            .anyMatch(
+                tag ->
+                    tag.getKey().equals(InternalCatalogMetricsConstant.TABLE_TAG)
+                        && tag.getValue().equals("test_table"));
+
+    Assertions.assertTrue(hasDatabaseTag, "Timer should have database tag with value 'test_db'");
+    Assertions.assertTrue(hasTableTag, "Timer should have table tag with value 'test_table'");
+
+    // Verify the timer was actually used (count > 0)
+    Assertions.assertTrue(timer.count() > 0, "Timer should have been used at least once");
   }
 }

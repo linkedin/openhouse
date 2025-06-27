@@ -118,7 +118,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc);
     if (needToReload) {
       metricsReporter.executeWithStats(
-          r, InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY);
+          r,
+          InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY,
+          InternalCatalogMetricsConstant.DATABASE_TAG,
+          tableIdentifier.namespace().toString(),
+          InternalCatalogMetricsConstant.TABLE_TAG,
+          tableIdentifier.name());
     } else {
       r.run();
     }
