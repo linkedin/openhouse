@@ -1,8 +1,6 @@
-package com.linkedin.openhouse.jobs.clients;
+package com.linkedin.openhouse.jobs.client;
 
 import com.linkedin.openhouse.common.JobState;
-import com.linkedin.openhouse.jobs.client.JobsClient;
-import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.api.JobApi;
 import com.linkedin.openhouse.jobs.client.model.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
