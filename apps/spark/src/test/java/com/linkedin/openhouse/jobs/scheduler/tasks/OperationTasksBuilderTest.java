@@ -25,6 +25,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
+import reactor.core.publisher.Mono;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.MethodName.class)
@@ -112,8 +113,8 @@ public class OperationTasksBuilderTest {
     OperationTasksBuilder operationTasksBuilder =
         createOperationTasksBuilder(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
     operationTasksBuilder.buildOperationTaskListInParallel(
-        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, OperationMode.SUBMIT);
-    OperationTaskManager operationTaskManager = operationTasksBuilder.operationTaskManager;
+        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, null, null, OperationMode.SUBMIT);
+    OperationTaskManager operationTaskManager = operationTasksBuilder.getOperationTaskManager();
     // Make sure operation task build is completed
     int count = 16;
     // Make sure operation task build is completed
@@ -151,9 +152,10 @@ public class OperationTasksBuilderTest {
     for (JobConf.JobTypeEnum jobType : jobList) {
       prepareMockitoForParallelFetch();
       OperationTasksBuilder operationTasksBuilder = createOperationTasksBuilder(jobType);
-      operationTasksBuilder.buildOperationTaskListInParallel(jobType, OperationMode.SUBMIT);
+      operationTasksBuilder.buildOperationTaskListInParallel(
+          jobType, null, null, OperationMode.SUBMIT);
       // Make sure operation task build is completed
-      OperationTaskManager operationTaskManager = operationTasksBuilder.operationTaskManager;
+      OperationTaskManager operationTaskManager = operationTasksBuilder.getOperationTaskManager();
       do {} while (!operationTaskManager.isDataGenerationCompleted());
       Assertions.assertFalse(operationTaskManager.isEmpty());
       Assertions.assertEquals(16, operationTaskManager.getCurrentDataCount());
@@ -246,10 +248,14 @@ public class OperationTasksBuilderTest {
       List<GetTableResponseBody> getTableResponseBodyList =
           allTablesBodyToGetTableList.get(getAllTablesResponseBody);
       Mockito.when(getAllTablesResponseBody.getResults()).thenReturn(getTableResponseBodyList);
+      Mockito.when(tablesClient.getAllTablesAsync("db" + i))
+          .thenReturn(Mono.just(getTableResponseBodyList));
       for (int j = 0; j < tableCount; j++) {
         GetTableResponseBody getTableResponseBody = getTableResponseBodyList.get(j);
         Mockito.when(tablesClient.mapTableResponseToTableMetadata(getTableResponseBody))
             .thenReturn(getTableResponseToTableMetadata.get(getTableResponseBody));
+        Mockito.when(tablesClient.getTableMetadataAsync(getTableResponseBody))
+            .thenReturn(Mono.just(getTableResponseToTableMetadata.get(getTableResponseBody).get()));
       }
     }
     Mockito.when(tablesClient.applyDatabaseFilter(Mockito.anyString())).thenReturn(true);

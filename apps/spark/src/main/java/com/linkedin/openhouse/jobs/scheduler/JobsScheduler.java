@@ -113,16 +113,16 @@ public class JobsScheduler {
   private static final String SUPPORTED_OPERATIONS_STRING =
       String.join(",", OPERATIONS_REGISTRY.keySet());
 
-  private final ThreadPoolExecutor jobExecutors;
-  private final ThreadPoolExecutor statusExecutors;
-  private final OperationTaskFactory<? extends OperationTask> taskFactory;
+  protected final ThreadPoolExecutor jobExecutors;
+  protected final ThreadPoolExecutor statusExecutors;
+  protected final OperationTaskFactory<? extends OperationTask> taskFactory;
   private final TablesClient tablesClient;
   private final JobsClient jobsClient;
   private AtomicBoolean jobLaunchTasksSubmissionCompleted = new AtomicBoolean(false);
   private AtomicBoolean jobStatusTasksSubmissionCompleted = new AtomicBoolean(false);
   protected final OperationTaskManager operationTaskManager;
   protected final JobInfoManager jobInfoManager;
-  private OperationTasksBuilder builder = null;
+  protected final OperationTasksBuilder tasksBuilder;
   protected Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
 
   public JobsScheduler(
@@ -132,7 +132,8 @@ public class JobsScheduler {
       TablesClient tablesClient,
       JobsClient jobsClient,
       OperationTaskManager operationTaskManager,
-      JobInfoManager jobInfoManager) {
+      JobInfoManager jobInfoManager,
+      OperationTasksBuilder tasksBuilder) {
     this.jobExecutors = jobExecutors;
     this.statusExecutors = statusExecutors;
     this.taskFactory = taskFactory;
@@ -140,6 +141,7 @@ public class JobsScheduler {
     this.jobsClient = jobsClient;
     this.operationTaskManager = operationTaskManager;
     this.jobInfoManager = jobInfoManager;
+    this.tasksBuilder = tasksBuilder;
   }
 
   public static void main(String[] args) {
@@ -152,19 +154,14 @@ public class JobsScheduler {
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);
-    OperationTaskFactory<? extends OperationTask> tasksFactory =
+    OperationTaskFactory<? extends OperationTask> taskFactory =
         new OperationTaskFactory<>(
             operationTaskCls,
             jobsClient,
             tablesClient,
-            NumberUtils.toLong(
-                cmdLine.getOptionValue("taskPollIntervalMs"),
-                OperationTask.POLL_INTERVAL_MS_DEFAULT),
-            NumberUtils.toLong(
-                cmdLine.getOptionValue("taskQueuedTimeoutMs"),
-                OperationTask.QUEUED_TIMEOUT_MS_DEFAULT),
-            NumberUtils.toLong(
-                cmdLine.getOptionValue("taskTimeoutMs"), OperationTask.TASK_TIMEOUT_MS_DEFAULT));
+            getTaskPollIntervalMs(cmdLine),
+            getTaskQueuedTimeoutMs(cmdLine),
+            getTaskTimeoutMs(cmdLine));
     ThreadPoolExecutor jobExecutors = null;
     ThreadPoolExecutor statusExecutors = null;
     if (isMultiOperationMode(cmdLine)) {
@@ -191,31 +188,32 @@ public class JobsScheduler {
               TimeUnit.MILLISECONDS,
               new LinkedBlockingQueue<Runnable>());
     }
+    OperationTaskManager operationTaskManager = new OperationTaskManager(operationType);
+    JobInfoManager jobInfoManager = new JobInfoManager(operationType);
+    OperationTasksBuilder tasksBuilder =
+        new OperationTasksBuilder(
+            taskFactory,
+            tablesClient,
+            getNumParallelMetadataFetch(cmdLine),
+            operationTaskManager,
+            jobInfoManager);
     JobsScheduler app =
         new JobsScheduler(
             jobExecutors,
             statusExecutors,
-            tasksFactory,
+            taskFactory,
             tablesClient,
             jobsClient,
-            new OperationTaskManager(operationType),
-            new JobInfoManager(operationType));
-    OperationTasksBuilder builder =
-        new OperationTasksBuilder(
-            tasksFactory,
-            app.tablesClient,
-            getNumParallelMetadataFetch(cmdLine),
-            app.operationTaskManager,
-            app.jobInfoManager);
+            operationTaskManager,
+            jobInfoManager,
+            tasksBuilder);
     app.run(
         operationType,
         operationTaskCls.toString(),
         properties,
-        builder,
         isDryRun(cmdLine),
         getTasksWaitHours(cmdLine),
         isParallelMetadataFetchModeEnabled(cmdLine),
-        getNumParallelMetadataFetch(cmdLine),
         isMultiOperationMode(cmdLine),
         getConcurrentJobsLimit(cmdLine),
         getNumJobsSubmitter(cmdLine),
@@ -228,42 +226,9 @@ public class JobsScheduler {
       JobConf.JobTypeEnum jobType,
       String taskType,
       Properties properties,
-      OperationTasksBuilder builder,
       boolean isDryRun,
       int tasksWaitHours,
       boolean parallelMetadataFetchMode,
-      int numParallelMetadataFetch,
-      boolean isMultiOperationMode,
-      int concurrentJobsLimit,
-      int jobsSubmissionBatchSize,
-      int jobSubmissionPauseInMillis,
-      int submitOperationPreSlaGracePeriodInMinutes,
-      int statusOperationPreSlaGracePeriodInMinutes) {
-    this.builder = builder;
-    this.run(
-        jobType,
-        taskType,
-        properties,
-        isDryRun,
-        tasksWaitHours,
-        parallelMetadataFetchMode,
-        numParallelMetadataFetch,
-        isMultiOperationMode,
-        concurrentJobsLimit,
-        jobsSubmissionBatchSize,
-        jobSubmissionPauseInMillis,
-        submitOperationPreSlaGracePeriodInMinutes,
-        statusOperationPreSlaGracePeriodInMinutes);
-  }
-
-  protected void run(
-      JobConf.JobTypeEnum jobType,
-      String taskType,
-      Properties properties,
-      boolean isDryRun,
-      int tasksWaitHours,
-      boolean parallelMetadataFetchMode,
-      int numParallelMetadataFetch,
       boolean isMultiOperationMode,
       int concurrentJobsLimit,
       int jobsSubmissionBatchSize,
@@ -274,15 +239,6 @@ public class JobsScheduler {
     METER.counterBuilder("scheduler_start_count").build().add(1);
     jobStateCountMap = new ConcurrentHashMap<>();
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
-    if (builder == null) {
-      builder =
-          new OperationTasksBuilder(
-              taskFactory,
-              tablesClient,
-              numParallelMetadataFetch,
-              operationTaskManager,
-              jobInfoManager);
-    }
     log.info("Fetching task list based on the job type: {}", jobType);
     List<OperationTask<?>> taskList = new ArrayList<>();
     List<OperationTask<?>> statusTaskList = new ArrayList<>();
@@ -298,7 +254,7 @@ public class JobsScheduler {
       // table metadata is fetched in parallel and add to a queue. On the other, hand
       // metadata is read from queue and jobs are submitted in parallel as they arrive.
       // Asynchronously fetches operation tasks and adds them to a queue
-      builder.buildOperationTaskListInParallel(jobType, operationMode);
+      tasksBuilder.buildOperationTaskListInParallel(jobType, properties, METER, operationMode);
       log.info("Submitting and running jobs for job type: {}", jobType);
       // Asynchronously submit jobs
       submitLaunchJobTasks(
@@ -326,7 +282,7 @@ public class JobsScheduler {
       completableFuture.join();
     } else if (parallelMetadataFetchMode) {
       // Table metadata is fetched in parallel and job submission works in SINGLE mode
-      builder.buildOperationTaskListInParallel(jobType, operationMode);
+      tasksBuilder.buildOperationTaskListInParallel(jobType, properties, METER, operationMode);
       submitJobs(
           jobType,
           jobExecutors,
@@ -341,7 +297,7 @@ public class JobsScheduler {
     } else {
       // Sequential metadata fetch continues to work with existing SINGLE operation mode.
       // all the table metadata are fetched first and then jobs are submitted.
-      taskList = builder.buildOperationTaskList(jobType, properties, METER, operationMode);
+      taskList = tasksBuilder.buildOperationTaskList(jobType, properties, METER, operationMode);
       if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
         log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
         for (OperationTask<?> operationTask : taskList) {
@@ -841,7 +797,7 @@ public class JobsScheduler {
                   log.debug("Received job info: {} from submitted job queue", jobInfo);
                   if (jobInfo != null) {
                     Optional<OperationTask<?>> optionalOperationTask =
-                        builder.createStatusOperationTask(
+                        tasksBuilder.createStatusOperationTask(
                             jobType, jobInfo.getMetadata(), jobInfo.getJobId(), OperationMode.POLL);
                     if (optionalOperationTask.isPresent()) {
                       log.info("Submitting status task {}", optionalOperationTask.get());
@@ -1018,6 +974,27 @@ public class JobsScheduler {
       return Integer.parseInt(cmdLine.getOptionValue("statusOperationPreSlaGracePeriodInMinutes"));
     }
     return STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT;
+  }
+
+  protected static long getTaskPollIntervalMs(CommandLine cmdLine) {
+    if (cmdLine.hasOption("taskPollIntervalMs")) {
+      return Long.parseLong(cmdLine.getOptionValue("taskPollIntervalMs"));
+    }
+    return OperationTask.POLL_INTERVAL_MS_DEFAULT;
+  }
+
+  protected static long getTaskQueuedTimeoutMs(CommandLine cmdLine) {
+    if (cmdLine.hasOption("taskQueuedTimeoutMs")) {
+      return Long.parseLong(cmdLine.getOptionValue("taskQueuedTimeoutMs"));
+    }
+    return OperationTask.QUEUED_TIMEOUT_MS_DEFAULT;
+  }
+
+  protected static long getTaskTimeoutMs(CommandLine cmdLine) {
+    if (cmdLine.hasOption("taskTimeoutMs")) {
+      return Long.parseLong(cmdLine.getOptionValue("taskTimeoutMs"));
+    }
+    return OperationTask.TASK_TIMEOUT_MS_DEFAULT;
   }
 
   private void updateJobStateFromTaskFutures(
