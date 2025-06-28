@@ -98,6 +98,38 @@ public class TablesController {
   }
 
   @Operation(
+      summary = "Search Tables in a Database",
+      description =
+          "Returns a list of Table resources present in a database. Only filter supported is 'database_id'.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table SEARCH: OK"),
+        @ApiResponse(responseCode = "400", description = "Table SEARCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "Table SEARCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Table SEARCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Table SEARCH: NOT_FOUND")
+      })
+  @PostMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/search",
+        "/v1/databases/{databaseId}/tables/search"
+      },
+      produces = {"application/json"})
+  public ResponseEntity<GetAllTablesResponseBody> searchTablesPaginated(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Page index", required = true) @PathVariable int page,
+      @Parameter(description = "Page size", required = true) @PathVariable int size,
+      @Parameter(description = "SortBy field") @PathVariable String sortBy) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllTablesResponseBody> apiResponse =
+        tablesApiHandler.searchTablesPaginated(databaseId, page, size, sortBy);
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
       summary = "Create a Table",
       description = "Creates and returns a Table resource in a database identified by databaseId",
       tags = {"Table"})

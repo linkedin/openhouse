@@ -102,6 +102,28 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
   }
 
+  @Override
+  public List<HouseTable> findAllByDatabaseIdPaginated(
+      String databaseId, int page, int size, String sortBy) {
+    Map<String, String> params = new HashMap<>();
+    if (Strings.isNotEmpty(databaseId)) {
+      params.put("databaseId", databaseId);
+    }
+
+    return getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .getPaginatedUserTables(params, page, size, sortBy)
+                    .map(GetAllEntityResponseBodyUserTable::getResults)
+                    .flatMapMany(Flux::fromIterable)
+                    .map(houseTableMapper::toHouseTable)
+                    .collectList()
+                    .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+  }
+
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
       justification = "Handled in switchIfEmpty")
@@ -231,6 +253,22 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
             context ->
                 apiInstance
                     .getUserTables(new HashMap<>())
+                    .map(GetAllEntityResponseBodyUserTable::getResults)
+                    .flatMapMany(Flux::fromIterable)
+                    .map(houseTableMapper::toHouseTableWithDatabaseId)
+                    .collectList()
+                    .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+  }
+
+  @Override
+  public Iterable<HouseTable> findAllPaginated(int page, int size, String sortBy) {
+    return getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .getPaginatedUserTables(new HashMap<>(), page, size, sortBy)
                     .map(GetAllEntityResponseBodyUserTable::getResults)
                     .flatMapMany(Flux::fromIterable)
                     .map(houseTableMapper::toHouseTableWithDatabaseId)

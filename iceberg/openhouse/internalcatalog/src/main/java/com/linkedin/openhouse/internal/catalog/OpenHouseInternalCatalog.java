@@ -98,6 +98,24 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         .collect(Collectors.toList());
   }
 
+  public List<TableIdentifier> listTablesPaginated(
+      Namespace namespace, int page, int size, String sortBy) {
+    if (namespace.levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
+    }
+    if (namespace.isEmpty()) {
+      return StreamSupport.stream(
+              houseTableRepository.findAllPaginated(page, size, sortBy).spliterator(), false)
+          .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"))
+          .collect(Collectors.toList());
+    }
+    return houseTableRepository
+        .findAllByDatabaseIdPaginated(namespace.toString(), page, size, sortBy).stream()
+        .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
+        .collect(Collectors.toList());
+  }
+
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
     String tableLocation = loadTable(identifier).location();

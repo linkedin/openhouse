@@ -17,6 +17,7 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -549,6 +550,20 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return catalog.listTables(Namespace.of(databaseId)).stream()
         .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
         .collect(Collectors.toList());
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_PAGINATED_TIME)
+  @Override
+  public List<TableDto> searchTablesPaginated(
+      String databaseId, int page, int size, String sortBy) {
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "Does not support paginated search for getting all tables");
+    }
+    return ((OpenHouseInternalCatalog) catalog)
+        .listTablesPaginated(Namespace.of(databaseId), page, size, sortBy).stream()
+            .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
+            .collect(Collectors.toList());
   }
 
   @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)

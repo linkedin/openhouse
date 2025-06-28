@@ -59,6 +59,12 @@ public class MockTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
+  public ApiResponse<GetAllTablesResponseBody> searchTablesPaginated(
+      String databaseId, int page, int size, String sortBy) {
+    return null;
+  }
+
+  @Override
   public ApiResponse<GetTableResponseBody> createTable(
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody,

@@ -27,6 +27,15 @@ public interface TablesApiValidator {
   void validateSearchTables(String databaseId);
 
   /**
+   * Function to validate a request to get a Page of Table Resources in a given databaseId.
+   *
+   * @param databaseId
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
+   */
+  void validateSearchTablesPaginated(String databaseId, int page, int size, String sortBy);
+
+  /**
    * Function to validate a request to create a Table Resource.
    *
    * @param clusterId

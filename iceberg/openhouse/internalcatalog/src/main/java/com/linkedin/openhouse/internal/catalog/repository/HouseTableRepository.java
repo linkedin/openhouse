@@ -23,6 +23,11 @@ public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTa
    */
   void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean purge);
 
+  List<HouseTable> findAllByDatabaseIdPaginated(
+      String databaseId, int page, int size, String sortBy);
+
+  Iterable<HouseTable> findAllPaginated(int page, int size, String sortBy);
+
   void rename(
       String fromDatabaseId,
       String fromTableId,

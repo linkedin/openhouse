@@ -74,6 +74,12 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
+  public List<TableDto> searchTablesPaginated(
+      String databaseId, int page, int size, String sortBy) {
+    return openHouseInternalRepository.searchTablesPaginated(databaseId, page, size, sortBy);
+  }
+
+  @Override
   public Pair<TableDto, Boolean> putTable(
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
       String tableCreatorUpdater,

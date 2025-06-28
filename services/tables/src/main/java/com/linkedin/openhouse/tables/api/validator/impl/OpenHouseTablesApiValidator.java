@@ -58,6 +58,21 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
+  @Override
+  public void validateSearchTablesPaginated(String databaseId, int page, int size, String sortBy) {
+    List<String> validationFailures = new ArrayList<>();
+    validateDatabaseId(databaseId, validationFailures);
+    if (page < 0) {
+      validationFailures.add(String.format("page : provided %s, cannot be negative", page));
+    }
+    if (size <= 0) {
+      validationFailures.add(String.format("size : provided %s, cannot be non-positive", size));
+    }
+    if (!validationFailures.isEmpty()) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
   @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateCreateTable(
