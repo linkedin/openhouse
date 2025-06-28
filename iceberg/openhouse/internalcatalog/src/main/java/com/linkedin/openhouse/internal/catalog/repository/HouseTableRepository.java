@@ -15,6 +15,11 @@ public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTa
 
   List<HouseTable> findAllByDatabaseId(String databaseId);
 
+  List<HouseTable> findAllByDatabaseIdPaginated(
+      String databaseId, int page, int size, String sortBy);
+
+  Iterable<HouseTable> findAllPaginated(int page, int size, String sortBy);
+
   void rename(
       String fromDatabaseId,
       String fromTableId,

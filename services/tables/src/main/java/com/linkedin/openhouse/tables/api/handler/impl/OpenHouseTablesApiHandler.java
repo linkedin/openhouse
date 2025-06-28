@@ -61,6 +61,22 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
+  public ApiResponse<GetAllTablesResponseBody> searchTablesPaginated(
+      String databaseId, int page, int size, String sortBy) {
+    tablesApiValidator.validateSearchTablesPaginated(databaseId, page, size, sortBy);
+    return ApiResponse.<GetAllTablesResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            GetAllTablesResponseBody.builder()
+                .results(
+                    tableService.searchTablesPaginated(databaseId, page, size, sortBy).stream()
+                        .map(tableDto -> tablesMapper.toGetTableResponseBody(tableDto))
+                        .collect(Collectors.toList()))
+                .build())
+        .build();
+  }
+
+  @Override
   public ApiResponse<GetTableResponseBody> createTable(
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody,

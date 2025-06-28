@@ -31,6 +31,14 @@ public interface TablesService {
   List<TableDto> searchTables(String databaseId);
 
   /**
+   * Given a databaseId, prepare list of {@link TableDto}s.
+   *
+   * @param databaseId
+   * @return list of {@link TableDto}
+   */
+  List<TableDto> searchTablesPaginated(String databaseId, int page, int size, String sortBy);
+
+  /**
    * Given a {@link CreateUpdateTableRequestBody}, create or update a Openhouse table for it
    *
    * @param createUpdateTableRequestBody
