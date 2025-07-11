@@ -54,7 +54,7 @@ public class OpenHouseSoftDeletedUserTableHtsApiHandler implements SoftDeletedTa
             GetAllEntityResponseBody.<UserTable>builder()
                 .pageResults(
                     userTableService
-                        .getAllUserTables(userTable, page, size, sortBy)
+                        .getAllSoftDeletedTables(userTable, page, size, sortBy)
                         .map(userTableDto -> userTablesMapper.toUserTable(userTableDto)))
                 .build())
         .build();

@@ -35,7 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class UserHouseTablesController {
   private static final String HTS_TABLES_GENERAL_ENDPOINT = "/hts/tables";
-  private static final String HTS_TABLES_GENERAL_ENDPOINT_V1 = "/v1/hts/tables/";
+  private static final String HTS_TABLES_GENERAL_ENDPOINT_V1 = "/v1/hts/tables";
   private static final String HTS_TABLES_QUERY_ENDPOINT = "/hts/tables/query";
   private static final String HTS_TABLES_QUERY_ENDPOINT_V1 = "/v1/hts/tables/query";
   private static final String HTS_TABLES_QUERY_ENDPOINT_SOFT_DELETED =

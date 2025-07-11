@@ -2,6 +2,8 @@ package com.linkedin.openhouse.housetables.e2e.usertable;
 
 import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants.*;
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
@@ -10,8 +12,8 @@ import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
-import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
-import com.linkedin.openhouse.housetables.repository.HtsRepository;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -23,8 +25,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
 
@@ -38,8 +42,9 @@ public class UserTablesServiceTest {
 
   @Autowired UserTablesService userTablesService;
 
-  // USE THIS ONLY FOR SETUP AND TEAR-DOWN
-  @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
+  @SpyBean UserTableHtsJdbcRepository htsRepository;
+
+  @SpyBean SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
 
   @BeforeEach
   public void setup() {
@@ -71,11 +76,15 @@ public class UserTablesServiceTest {
             .tableId(CASE_TBL_2)
             .databaseId(CASE_DB_2)
             .build());
+    // Clear any mocks
+    Mockito.reset(htsRepository);
+    Mockito.reset(softDeletedHtsJdbcRepository);
   }
 
   @AfterEach
   public void tearDown() {
     htsRepository.deleteAll();
+    softDeletedHtsJdbcRepository.deleteAll();
   }
 
   @Test
@@ -424,6 +433,148 @@ public class UserTablesServiceTest {
         () -> {
           userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), "no_such_table");
         });
+  }
+
+  @Test
+  public void testUserTableRecover() {
+    UserTable searchByTable =
+        UserTable.builder().databaseId(TEST_TUPLE_1_0.getDatabaseId()).build();
+    int sizeBeforeSoftDelete = userTablesService.getAllUserTables(searchByTable).size();
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+
+    Assertions.assertDoesNotThrow(
+        () -> userTablesService.putUserTable(TEST_TUPLE_1_0.get_userTable()));
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+
+    // Validate table sizes are expected
+    Assertions.assertEquals(
+        userTablesService.getAllUserTables(searchByTable).size(), sizeBeforeSoftDelete - 1);
+    Page<UserTableDto> softDeletedTablePage =
+        userTablesService.getAllSoftDeletedTables(searchByTable, 0, 1, null);
+    Assertions.assertEquals(2, softDeletedTablePage.getTotalElements());
+    Assertions.assertTrue(softDeletedTablePage.get().findFirst().isPresent());
+    UserTableDto softDeletedTable = softDeletedTablePage.get().findFirst().get();
+    UserTableDto recoveredUserTable =
+        userTablesService.recoverUserTable(
+            TEST_TUPLE_1_0.getDatabaseId(),
+            TEST_TUPLE_1_0.getTableId(),
+            softDeletedTable.getDeletedAtMs());
+    Assertions.assertNull(recoveredUserTable.getDeletedAtMs());
+    Assertions.assertNull(recoveredUserTable.getTimeToLive());
+    Assertions.assertEquals(recoveredUserTable.getTableId(), TEST_TUPLE_1_0.getTableId());
+    Assertions.assertEquals(recoveredUserTable.getDatabaseId(), TEST_TUPLE_1_0.getDatabaseId());
+    Assertions.assertEquals(
+        userTablesService.getAllUserTables(searchByTable).size(), sizeBeforeSoftDelete);
+  }
+
+  @Test
+  public void testUserTableSoftDeleteIsAtomic() {
+    UserTableDto table =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId());
+    Assertions.assertNotNull(table);
+    doThrow(new RuntimeException("Mocked exception for testing atomicity"))
+        .when(htsRepository)
+        .deleteById(any());
+
+    Assertions.assertThrows(
+        RuntimeException.class,
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+
+    UserTable searchByTableId =
+        UserTable.builder()
+            .tableId(TEST_TUPLE_1_0.getTableId())
+            .databaseId(TEST_TUPLE_1_0.getDatabaseId())
+            .build();
+    // Assert that the insertion into soft deleted table is rolled back when a failure occurs
+    Assertions.assertEquals(
+        0,
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.getUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId()));
+  }
+
+  @Test
+  public void testUserTableRecoverIsAtomic() {
+    UserTableDto table =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId());
+    Assertions.assertNotNull(table);
+    doThrow(new RuntimeException("Mocked exception for testing atomicity"))
+        .when(softDeletedHtsJdbcRepository)
+        .deleteById(any());
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+    // Get the deleted timestamp
+    UserTable searchByTableId =
+        UserTable.builder()
+            .tableId(TEST_TUPLE_1_0.getTableId())
+            .databaseId(TEST_TUPLE_1_0.getDatabaseId())
+            .build();
+    Page<UserTableDto> softDeletedTablePage =
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 1, null);
+    Assertions.assertEquals(1, softDeletedTablePage.getTotalElements());
+    Assertions.assertTrue(softDeletedTablePage.get().findFirst().isPresent());
+    UserTableDto softDeletedTable = softDeletedTablePage.get().findFirst().get();
+
+    Assertions.assertThrows(
+        RuntimeException.class,
+        () ->
+            userTablesService.recoverUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                TEST_TUPLE_1_0.getTableId(),
+                softDeletedTable.getDeletedAtMs()));
+
+    // Assert that soft deleted table is not inserted into the active user tables
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            userTablesService.getUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId()));
+    Assertions.assertEquals(
+        1,
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
+  }
+
+  @Test
+  public void testUserTablePurge() {
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+    // Get the deleted timestamp
+    UserTable searchByTableId =
+        UserTable.builder()
+            .tableId(TEST_TUPLE_1_0.getTableId())
+            .databaseId(TEST_TUPLE_1_0.getDatabaseId())
+            .build();
+    Page<UserTableDto> softDeletedTablePage =
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 1, null);
+    Assertions.assertEquals(1, softDeletedTablePage.getTotalElements());
+    Assertions.assertTrue(softDeletedTablePage.get().findFirst().isPresent());
+    UserTableDto softDeletedTable = softDeletedTablePage.get().findFirst().get();
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.purgeSoftDeletedUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                TEST_TUPLE_1_0.getTableId(),
+                softDeletedTable.getDeletedAtMs()));
+
+    // Validate the row is deleted
+    Assertions.assertEquals(
+        0,
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
   }
 
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {
