@@ -37,6 +37,9 @@ import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * A read-only client for interacting with /tables service. Supports limited operations necessary
@@ -50,7 +53,7 @@ public class TablesClient {
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
-  private final DatabaseTableFilter databaseFilter;
+  private final DatabaseTableFilter databaseTableFilter;
   @VisibleForTesting private final StorageClient storageClient;
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
@@ -140,7 +143,7 @@ public class TablesClient {
    * @return
    */
   public boolean applyDatabaseFilter(String dbName) {
-    return databaseFilter.applyDatabaseName(dbName);
+    return databaseTableFilter.applyDatabaseName(dbName);
   }
 
   /**
@@ -150,7 +153,7 @@ public class TablesClient {
    * @return
    */
   public boolean applyTableMetadataFilter(TableMetadata tableMetadata) {
-    return databaseFilter.apply(tableMetadata);
+    return databaseTableFilter.apply(tableMetadata);
   }
 
   /**
@@ -183,7 +186,7 @@ public class TablesClient {
   public List<TableMetadata> getTableMetadataList() {
     List<TableMetadata> tableMetadataList = new ArrayList<>();
     for (String dbName : getDatabases()) {
-      if (databaseFilter.applyDatabaseName(dbName)) {
+      if (databaseTableFilter.applyDatabaseName(dbName)) {
         tableMetadataList.addAll(
             RetryUtil.executeWithRetry(
                 retryTemplate,
@@ -202,7 +205,7 @@ public class TablesClient {
                           .flatMap(
                               shallowResponseBody ->
                                   mapTableResponseToTableMetadata(shallowResponseBody)
-                                      .filter(databaseFilter::apply)
+                                      .filter(databaseTableFilter::apply)
                                       .map(Stream::of)
                                       .orElseGet(Stream::empty))
                           .collect(Collectors.toList());
@@ -216,7 +219,7 @@ public class TablesClient {
   public List<TableDataLayoutMetadata> getTableDataLayoutMetadataList() {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList = new ArrayList<>();
     for (String dbName : getDatabases()) {
-      if (databaseFilter.applyDatabaseName(dbName)) {
+      if (databaseTableFilter.applyDatabaseName(dbName)) {
         tableDataLayoutMetadataList.addAll(
             RetryUtil.executeWithRetry(
                 retryTemplate,
@@ -236,7 +239,7 @@ public class TablesClient {
                               shallowResponseBody ->
                                   mapTableResponseToTableDataLayoutMetadataList(shallowResponseBody)
                                       .stream()
-                                      .filter(databaseFilter::apply))
+                                      .filter(databaseTableFilter::apply))
                           .collect(Collectors.toList());
                     },
                 Collections.emptyList()));
@@ -253,7 +256,7 @@ public class TablesClient {
    */
   public Set<String> getTableNamesForDbName(String dbName) {
     Set<String> tableNames = new HashSet<>();
-    if (databaseFilter.applyDatabaseName(dbName)) {
+    if (databaseTableFilter.applyDatabaseName(dbName)) {
       tableNames.addAll(
           RetryUtil.executeWithRetry(
               retryTemplate,
@@ -270,7 +273,7 @@ public class TablesClient {
                         .map(Collection::stream)
                         .orElseGet(Stream::empty)
                         .map(this::mapTableResponseToTableDirectoryName)
-                        .filter(databaseFilter::applyTableDirectoryPath)
+                        .filter(databaseTableFilter::applyTableDirectoryPath)
                         .collect(Collectors.toSet());
                   },
               Collections.emptySet()));
@@ -306,7 +309,7 @@ public class TablesClient {
     // we use getDatabases interface to avoid accidentally deleting essential directories on the
     // database level
     for (String dbName : getDatabases()) {
-      if (databaseFilter.applyDatabaseName(dbName)) {
+      if (databaseTableFilter.applyDatabaseName(dbName)) {
         Path dbPath = new Path(storageClient.getRootPath(), dbName);
         orphanTableDirectories.addAll(getOrphanTableDirectories(dbPath));
       }
@@ -332,6 +335,7 @@ public class TablesClient {
         Collections.emptyList());
   }
 
+  @VisibleForTesting
   public Optional<TableMetadata> mapTableResponseToTableMetadata(
       GetTableResponseBody shallowResponseBody) {
     GetTableResponseBody tableResponseBody =
@@ -357,12 +361,13 @@ public class TablesClient {
             .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
             .replicationConfig(getTableReplication(tableResponseBody).orElse(null))
-            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
-    builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
+            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody))
+            .creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     return Optional.of(builder.build());
   }
 
-  protected List<TableDataLayoutMetadata> mapTableResponseToTableDataLayoutMetadataList(
+  @VisibleForTesting
+  public List<TableDataLayoutMetadata> mapTableResponseToTableDataLayoutMetadataList(
       GetTableResponseBody shallowResponseBody) {
     GetTableResponseBody tableResponseBody =
         getTable(shallowResponseBody.getDatabaseId(), shallowResponseBody.getTableId());
@@ -386,8 +391,8 @@ public class TablesClient {
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
-            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody));
-    builder.creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
+            .jobExecutionProperties(getJobExecutionProperties(tableResponseBody))
+            .creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     List<TableDataLayoutMetadata> result = new ArrayList<>();
     for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody)) {
       result.add(builder.dataLayoutStrategy(strategy).build());
@@ -431,5 +436,114 @@ public class TablesClient {
             .build();
     String location = getTable(metadata).getTableLocation();
     return new Path(Objects.requireNonNull(location)).getParent().getName();
+  }
+
+  // Below are asynchronous methods
+  /**
+   * Fetch all tables for the given database asynchronously using Mono.
+   *
+   * @param database
+   * @return Mono<List<GetTableResponseBody>>
+   */
+  public Mono<List<GetTableResponseBody>> getAllTablesAsync(String database) {
+    return Mono.fromCallable(
+            () -> {
+              GetAllTablesResponseBody allTablesResponseBody = getAllTables(database);
+              log.debug("Got all tables: {} for database {}", allTablesResponseBody, database);
+              if (allTablesResponseBody == null) {
+                return Collections.<GetTableResponseBody>emptyList();
+              }
+              return allTablesResponseBody.getResults();
+            })
+        .onErrorResume(
+            ex -> {
+              log.error("Error while fetching tables for database {}", database, ex);
+              return Mono.just(Collections.emptyList());
+            })
+        .subscribeOn(
+            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+  }
+
+  /**
+   * Fetch table metadata for a table asynchronously using Mono.
+   *
+   * @param getTableResponseBody
+   * @return Mono<TableMetadata>
+   */
+  public Mono<TableMetadata> getTableMetadataAsync(GetTableResponseBody getTableResponseBody) {
+    return Mono.fromCallable(() -> mapTableResponseToTableMetadata(getTableResponseBody))
+        .flatMap(
+            optionalTableMetadata -> {
+              if (optionalTableMetadata.isPresent()) {
+                log.debug("Got table metadata for : {}", optionalTableMetadata.get());
+                return Mono.just(optionalTableMetadata.get());
+              } else {
+                return Mono.empty();
+              }
+            })
+        .onErrorResume(
+            ex -> {
+              log.error("Error while fetching table metadata for : {}", getTableResponseBody, ex);
+              return Mono.empty();
+            })
+        .subscribeOn(
+            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+  }
+
+  /**
+   * Fetch table data layout metadata for a table asynchronously using Mono.
+   *
+   * @param getTableResponseBody
+   * @return Mono<List<TableDataLayoutMetadata>
+   */
+  public Mono<List<TableDataLayoutMetadata>> getTableDataLayoutMetadataListAsync(
+      GetTableResponseBody getTableResponseBody) {
+    return Mono.fromCallable(
+            () -> mapTableResponseToTableDataLayoutMetadataList(getTableResponseBody))
+        .flatMap(
+            tableDataLayoutMetadataList -> {
+              if (!tableDataLayoutMetadataList.isEmpty()) {
+                log.debug("Got table data layout metadata for : {}", tableDataLayoutMetadataList);
+                return Mono.just(tableDataLayoutMetadataList);
+              } else {
+                return Mono.empty();
+              }
+            })
+        .onErrorResume(
+            ex -> {
+              log.error(
+                  "Error while fetching table data layout metadata for : {}",
+                  getTableResponseBody,
+                  ex);
+              return Mono.empty();
+            })
+        .subscribeOn(
+            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+  }
+
+  /**
+   * Fetch table data layout metadata for all tables in parallel using Flux.
+   *
+   * @param numParallelMetadataFetch
+   * @return List<TableDataLayoutMetadata>
+   */
+  public List<TableDataLayoutMetadata> getTableDataLayoutMetadataListInParallel(
+      int numParallelMetadataFetch) {
+    return Flux.fromIterable(getDatabases())
+        .parallel(numParallelMetadataFetch)
+        .runOn(Schedulers.boundedElastic())
+        .filter(databaseTableFilter::applyDatabaseName)
+        .flatMap(
+            database ->
+                getAllTablesAsync(database)
+                    .flatMapMany(Flux::fromIterable)
+                    .parallel(numParallelMetadataFetch)
+                    .runOn(Schedulers.boundedElastic())
+                    .flatMap(this::getTableDataLayoutMetadataListAsync)
+                    .flatMap(Flux::fromIterable)
+                    .filter(databaseTableFilter::apply))
+        .sequential()
+        .collectList()
+        .block();
   }
 }

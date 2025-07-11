@@ -1,14 +1,13 @@
-package com.linkedin.openhouse.jobs.clients;
+package com.linkedin.openhouse.jobs.client;
 
 import static org.mockito.ArgumentMatchers.*;
 
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
-import com.linkedin.openhouse.jobs.client.StorageClient;
-import com.linkedin.openhouse.jobs.client.TablesClient;
-import com.linkedin.openhouse.jobs.client.TablesClientFactory;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
+import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
@@ -80,11 +79,12 @@ public class TablesClientTest {
     RetryPolicy retryPolicy = new NeverRetryPolicy();
 
     client =
-        clientFactory.create(
-            RetryTemplate.builder().customPolicy(retryPolicy).build(),
-            apiMock,
-            dbApiMock,
-            storageClient);
+        Mockito.spy(
+            clientFactory.create(
+                RetryTemplate.builder().customPolicy(retryPolicy).build(),
+                apiMock,
+                dbApiMock,
+                storageClient));
   }
 
   @Test
@@ -472,6 +472,39 @@ public class TablesClientTest {
     Mockito.when(dbApiMock.getAllDatabasesV1()).thenReturn(dbResponseMock);
     Assertions.assertEquals(client.getDatabases().size(), 0);
     Mockito.verify(dbResponseMock, Mockito.times(1)).block(any(Duration.class));
+  }
+
+  @Test
+  void testGetTableDataLayoutMetadataListInParallel() {
+    Mockito.doReturn(Arrays.asList("db1", "db2")).when(client).getDatabases();
+    Mockito.doReturn(
+            Mono.just(
+                Arrays.asList(
+                    createTableResponseBodyMock("db1", "table1"),
+                    createTableResponseBodyMock("db1", "table2"))))
+        .when(client)
+        .getAllTablesAsync("db1");
+    Mockito.doReturn(
+            Mono.just(
+                Arrays.asList(
+                    createTableResponseBodyMock("db2", "table1"),
+                    createTableResponseBodyMock("db2", "table2"))))
+        .when(client)
+        .getAllTablesAsync("db2");
+    Mockito.doReturn(Arrays.asList(createTableDataLayoutMetadataMock()))
+        .when(client)
+        .mapTableResponseToTableDataLayoutMetadataList(any());
+    Assertions.assertEquals(4, client.getTableDataLayoutMetadataListInParallel(2).size());
+  }
+
+  private TableDataLayoutMetadata createTableDataLayoutMetadataMock() {
+    TableDataLayoutMetadata metadata = Mockito.mock(TableDataLayoutMetadata.class);
+    Mockito.when(metadata.getDataLayoutStrategy())
+        .thenReturn(Mockito.mock(DataLayoutStrategy.class));
+    Mockito.when(metadata.getDbName()).thenReturn("db");
+    Mockito.when(metadata.getTableName()).thenReturn("table");
+    Mockito.when(metadata.getCreationTimeMs()).thenReturn(1L);
+    return metadata;
   }
 
   private GetTableResponseBody createTableResponseBodyMock(String dbName, String tableName) {

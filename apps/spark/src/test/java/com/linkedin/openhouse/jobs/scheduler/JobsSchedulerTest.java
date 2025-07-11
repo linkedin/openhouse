@@ -2,25 +2,23 @@ package com.linkedin.openhouse.jobs.scheduler;
 
 import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.jobs.client.JobsClient;
-import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
-import com.linkedin.openhouse.jobs.client.TablesClientFactory;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
 import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfoManager;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskFactory;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
+import com.linkedin.openhouse.jobs.scheduler.tasks.TableDataLayoutStrategyGenerationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOrphanFilesDeletionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableRetentionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableSnapshotsExpirationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableStatsCollectionTask;
-import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
-import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
-import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,143 +27,45 @@ import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.mockito.Mock;
 import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @Disabled(
     "The jobs scheduler test class is disabled as it takes time to run. Enable it to test jobs scheduler locally")
 public class JobsSchedulerTest {
-
-  private TablesClient tablesClient;
-  private JobsClient jobsClient;
-  private Metadata tableMetadata;
-  private ThreadPoolExecutor jobExecutors;
-  private ThreadPoolExecutor statusExecutors;
-  private OperationTasksBuilder operationTasksBuilderSnapshotExpiration;
-  private OperationTasksBuilder operationTasksBuilderRetention;
-  private OperationTasksBuilder operationTasksBuilderOrphanFileDeletion;
-  private OperationTasksBuilder operationTasksBuilderStatsCollection;
-  private OperationTaskFactory<TableSnapshotsExpirationTask> tasksFactorySnapshotExpiration;
-  private OperationTaskFactory<TableRetentionTask> tasksFactoryRetention;
-  private OperationTaskFactory<TableStatsCollectionTask> tasksFactoryStatsCollection;
-  private OperationTaskFactory<TableOrphanFilesDeletionTask> tasksFactoryOrphanFileDeletion;
-  private Class<TableSnapshotsExpirationTask> operationTaskClsSnapshotExpiration =
-      TableSnapshotsExpirationTask.class;
-  private Class<TableRetentionTask> operationTaskClsRetention = TableRetentionTask.class;
-  private Class<TableStatsCollectionTask> operationTaskClsStatsCollection =
-      TableStatsCollectionTask.class;
-  private Class<TableOrphanFilesDeletionTask> operationTaskClsOrphanFileDeletion =
-      TableOrphanFilesDeletionTask.class;
-  private OperationTaskManager operationTaskManagerSnapshotExpiration;
-  private OperationTaskManager operationTaskManagerOrphanFileDeletion;
-  private JobInfoManager jobInfoManagerSnapshotExpiration;
-  private JobInfoManager jobInfoManagerOrphanFileDeletion;
-  private List<String> databases = new ArrayList<>();
-  private Map<String, GetAllTablesResponseBody> dbAllTables = new HashMap();
-  private Map<GetAllTablesResponseBody, List<GetTableResponseBody>> allTablesBodyToGetTableList =
-      new HashMap();
-  private Map<GetTableResponseBody, Optional<TableMetadata>> getTableResponseToTableMetadata =
-      new HashMap();
+  @Mock private TablesClient tablesClient;
+  @Mock private JobsClient jobsClient;
   private int dbCount = 4;
   private int tableCount = 4;
   private List<TableMetadata> tableMetadataList = new ArrayList<>();
-  private JobsScheduler jobsSchedulerSnapshotExpiration;
-  private JobsScheduler jobsSchedulerOrphanFileDeletion;
-  private JobResponseBody jobResponseBody;
-  private TablesClientFactory tablesClientFactory;
-  private JobsClientFactory jobsClientFactory;
+
+  Map<JobConf.JobTypeEnum, Class<? extends OperationTask<?>>> jobTypeToClassMap =
+      new HashMap() {
+        {
+          put(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, TableSnapshotsExpirationTask.class);
+          put(JobConf.JobTypeEnum.RETENTION, TableRetentionTask.class);
+          put(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION, TableOrphanFilesDeletionTask.class);
+          put(JobConf.JobTypeEnum.TABLE_STATS_COLLECTION, TableStatsCollectionTask.class);
+          put(
+              JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION,
+              TableDataLayoutStrategyGenerationTask.class);
+          put(
+              JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
+              TableDataLayoutStrategyGenerationTask.class);
+        }
+      };
 
   @BeforeAll
   void setup() {
-    tablesClient = Mockito.mock(TablesClient.class);
-    jobsClient = Mockito.mock(JobsClient.class);
-    tableMetadata =
-        TableMetadata.builder().dbName("db1").tableName("test_table").isPrimary(true).build();
-    tablesClientFactory = Mockito.mock(TablesClientFactory.class);
-    jobsClientFactory = Mockito.mock(JobsClientFactory.class);
-    tasksFactorySnapshotExpiration =
-        new OperationTaskFactory<>(
-            operationTaskClsSnapshotExpiration, jobsClient, tablesClient, 60000L, 60000L, 120000L);
-    tasksFactoryRetention =
-        new OperationTaskFactory<>(
-            operationTaskClsRetention, jobsClient, tablesClient, 60000L, 60000L, 120000L);
-    tasksFactoryStatsCollection =
-        new OperationTaskFactory<>(
-            operationTaskClsStatsCollection, jobsClient, tablesClient, 60000L, 60000L, 120000L);
-    tasksFactoryOrphanFileDeletion =
-        new OperationTaskFactory<>(
-            operationTaskClsOrphanFileDeletion, jobsClient, tablesClient, 60000L, 60000L, 120000L);
-    for (int i = 0; i < dbCount; i++) {
-      databases.add("db" + i);
-    }
-    populateDbAllTables(dbCount, tableCount);
+    MockitoAnnotations.openMocks(this);
     prepareTableMetadata();
-    jobExecutors =
-        new ThreadPoolExecutor(
-            2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
-    statusExecutors =
-        new ThreadPoolExecutor(
-            2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
-    operationTaskManagerSnapshotExpiration =
-        new OperationTaskManager(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
-    operationTaskManagerOrphanFileDeletion =
-        new OperationTaskManager(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION);
-    jobInfoManagerSnapshotExpiration = new JobInfoManager(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
-    jobInfoManagerOrphanFileDeletion =
-        new JobInfoManager(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION);
-    jobsSchedulerSnapshotExpiration =
-        new JobsScheduler(
-            jobExecutors,
-            statusExecutors,
-            tasksFactorySnapshotExpiration,
-            tablesClient,
-            jobsClient,
-            operationTaskManagerSnapshotExpiration,
-            jobInfoManagerSnapshotExpiration);
-    jobsSchedulerOrphanFileDeletion =
-        new JobsScheduler(
-            jobExecutors,
-            statusExecutors,
-            tasksFactoryOrphanFileDeletion,
-            tablesClient,
-            jobsClient,
-            operationTaskManagerOrphanFileDeletion,
-            jobInfoManagerOrphanFileDeletion);
-    operationTasksBuilderSnapshotExpiration =
-        new OperationTasksBuilder(
-            tasksFactorySnapshotExpiration,
-            tablesClient,
-            2,
-            jobsSchedulerSnapshotExpiration.operationTaskManager,
-            jobsSchedulerSnapshotExpiration.jobInfoManager);
-    operationTasksBuilderOrphanFileDeletion =
-        new OperationTasksBuilder(
-            tasksFactoryOrphanFileDeletion,
-            tablesClient,
-            2,
-            jobsSchedulerSnapshotExpiration.operationTaskManager,
-            jobsSchedulerSnapshotExpiration.jobInfoManager);
-    jobResponseBody = Mockito.mock(JobResponseBody.class);
-  }
-
-  private void populateDbAllTables(int dbCount, int tableCount) {
-    for (int i = 0; i < dbCount; i++) {
-      GetAllTablesResponseBody allTablesResponseBody = Mockito.mock(GetAllTablesResponseBody.class);
-      dbAllTables.put("db" + i, allTablesResponseBody);
-      List<GetTableResponseBody> tableResponseBodyList = new ArrayList<>();
-      for (int j = 0; j < tableCount; j++) {
-        GetTableResponseBody getTableResponseBody = Mockito.mock(GetTableResponseBody.class);
-        getTableResponseToTableMetadata.put(getTableResponseBody, getTableMetadata(i, j));
-        tableResponseBodyList.add(getTableResponseBody);
-      }
-      allTablesBodyToGetTableList.put(allTablesResponseBody, tableResponseBodyList);
-    }
   }
 
   private Optional<TableMetadata> getTableMetadata(int dbIndex, int tableIndex) {
@@ -187,234 +87,196 @@ public class JobsSchedulerTest {
     }
   }
 
-  private void prepareMockitoForParallelFetch() {
-    Mockito.when(tablesClient.getDatabases()).thenReturn(databases);
-    Mockito.when(tablesClient.applyDatabaseFilter(Mockito.anyString())).thenReturn(true);
-    for (int i = 0; i < dbCount; i++) {
-      GetAllTablesResponseBody getAllTablesResponseBody = dbAllTables.get("db" + i);
-      Mockito.when(tablesClient.getAllTables("db" + i)).thenReturn(getAllTablesResponseBody);
-      List<GetTableResponseBody> getTableResponseBodyList =
-          allTablesBodyToGetTableList.get(getAllTablesResponseBody);
-      Mockito.when(getAllTablesResponseBody.getResults()).thenReturn(getTableResponseBodyList);
-      for (int j = 0; j < tableCount; j++) {
-        GetTableResponseBody getTableResponseBody = getTableResponseBodyList.get(j);
-        Mockito.when(tablesClient.mapTableResponseToTableMetadata(getTableResponseBody))
-            .thenReturn(getTableResponseToTableMetadata.get(getTableResponseBody));
-      }
+  private JobsScheduler createJobsScheduler(JobConf.JobTypeEnum jobType) {
+    OperationTaskFactory<? extends OperationTask<?>> taskFactory =
+        new OperationTaskFactory<>(
+            jobTypeToClassMap.get(jobType), jobsClient, tablesClient, 1000L, 2000L, 3000L);
+    OperationTaskManager operationTaskManager = new OperationTaskManager(jobType);
+    JobInfoManager jobInfoManager = new JobInfoManager(jobType);
+    OperationTasksBuilder operationTasksBuilder =
+        Mockito.spy(
+            new OperationTasksBuilder(
+                taskFactory, tablesClient, 2, operationTaskManager, jobInfoManager));
+    ThreadPoolExecutor jobExecutors =
+        new ThreadPoolExecutor(
+            4, 4, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+    ThreadPoolExecutor statusExecutors =
+        new ThreadPoolExecutor(
+            4, 4, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+    return new JobsScheduler(
+        jobExecutors,
+        statusExecutors,
+        taskFactory,
+        tablesClient,
+        jobsClient,
+        operationTaskManager,
+        jobInfoManager,
+        operationTasksBuilder);
+  }
+
+  private void mockbuildOperationTaskListInParallel(JobsScheduler jobsScheduler) {
+    Mockito.doAnswer(
+            invocation -> {
+              for (TableMetadata metadata : tableMetadataList) {
+                Optional<OperationTask<?>> optionalOperationTask =
+                    jobsScheduler
+                        .getTasksBuilder()
+                        .processMetadata(
+                            metadata, invocation.getArgument(0), invocation.getArgument(3));
+                jobsScheduler.getOperationTaskManager().addData(optionalOperationTask.get());
+              }
+              jobsScheduler.getOperationTaskManager().updateDataGenerationCompletion();
+              return null;
+            })
+        .when(jobsScheduler.getTasksBuilder())
+        .buildOperationTaskListInParallel(
+            Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+  }
+
+  private void mockbuildOperationTaskList(JobsScheduler jobsScheduler) {
+    Mockito.doAnswer(
+            invocation -> {
+              List<OperationTask<?>> operationTasks = new ArrayList<>();
+              for (TableMetadata metadata : tableMetadataList) {
+                operationTasks.add(
+                    jobsScheduler
+                        .getTasksBuilder()
+                        .processMetadata(
+                            metadata, invocation.getArgument(0), invocation.getArgument(3))
+                        .get());
+              }
+              return operationTasks;
+            })
+        .when(jobsScheduler.getTasksBuilder())
+        .buildOperationTaskList(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+  }
+
+  private void mockLaunchJobAndPollStatus(
+      JobState jobState, JobResponseBody.StateEnum jobResponseState) {
+    String jobId = UUID.randomUUID().toString();
+    Mockito.when(
+            jobsClient.launch(
+                Mockito.anyString(),
+                Mockito.any(),
+                Mockito.anyString(),
+                Mockito.anyMap(),
+                Mockito.anyList()))
+        .thenReturn(Optional.of(jobId));
+    JobResponseBody jobResponseBody = Mockito.mock(JobResponseBody.class);
+    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(jobState));
+    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
+    Mockito.when(jobResponseBody.getState()).thenReturn(jobResponseState);
+    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
+    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
+  }
+
+  private void shutDownJobScheduler(JobsScheduler jobsScheduler) {
+    jobsScheduler.getJobExecutors().shutdownNow();
+    jobsScheduler.getStatusExecutors().shutdownNow();
+  }
+
+  @Test
+  public void testRunParallelFetchMultiMode() {
+    List<JobConf.JobTypeEnum> jobList = Arrays.asList(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    for (JobConf.JobTypeEnum jobType : jobList) {
+      mockLaunchJobAndPollStatus(JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
+      JobsScheduler jobsScheduler = createJobsScheduler(jobType);
+      mockbuildOperationTaskListInParallel(jobsScheduler);
+      jobsScheduler.run(
+          jobType,
+          jobTypeToClassMap.get(jobType).toString(),
+          null,
+          false,
+          1,
+          true,
+          true,
+          16,
+          4,
+          1000,
+          30,
+          15);
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
+      shutDownJobScheduler(jobsScheduler);
     }
-    Mockito.when(tablesClient.applyDatabaseFilter(Mockito.anyString())).thenReturn(true);
-    Mockito.when(tablesClient.applyTableMetadataFilter(Mockito.any(TableMetadata.class)))
-        .thenReturn(true);
   }
 
   @Test
-  public void testRunSnapshotExpirationParallelFetchMultiMode() {
-    String jobId = UUID.randomUUID().toString();
-    Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
-    Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
-    Mockito.when(
-            jobsClient.launch(
-                Mockito.anyString(),
-                Mockito.eq(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION),
-                Mockito.anyString(),
-                Mockito.anyMap(),
-                Mockito.anyList()))
-        .thenReturn(Optional.of(jobId));
-    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(JobState.SUCCEEDED));
-    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
-    Mockito.when(jobResponseBody.getState()).thenReturn(JobResponseBody.StateEnum.SUCCEEDED);
-    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
-    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
-    prepareMockitoForParallelFetch();
-    jobsSchedulerSnapshotExpiration.run(
-        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
-        operationTaskClsSnapshotExpiration.toString(),
-        null,
-        operationTasksBuilderSnapshotExpiration,
-        false,
-        1,
-        true,
-        4,
-        true,
-        16,
-        2,
-        1000,
-        30,
-        15);
-    Assertions.assertEquals(
-        16, jobsSchedulerSnapshotExpiration.jobStateCountMap.get(JobState.SUCCEEDED));
-    Assertions.assertEquals(7, jobsSchedulerSnapshotExpiration.jobStateCountMap.size());
+  public void testRunParallelFetchMultiModeFailure() {
+    List<JobConf.JobTypeEnum> jobList = Arrays.asList(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    for (JobConf.JobTypeEnum jobType : jobList) {
+      mockLaunchJobAndPollStatus(JobState.FAILED, JobResponseBody.StateEnum.FAILED);
+      JobsScheduler jobsScheduler = createJobsScheduler(jobType);
+      mockbuildOperationTaskListInParallel(jobsScheduler);
+      jobsScheduler.run(
+          jobType,
+          jobTypeToClassMap.get(jobType).toString(),
+          null,
+          false,
+          1,
+          true,
+          true,
+          16,
+          4,
+          1000,
+          30,
+          15);
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.FAILED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
+      shutDownJobScheduler(jobsScheduler);
+    }
   }
 
   @Test
-  public void testRunSnapshotExpirationParallelFetchMultiModeFailure() {
-    String jobId = UUID.randomUUID().toString();
-    Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
-    Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
-    Mockito.when(
-            jobsClient.launch(
-                Mockito.anyString(),
-                Mockito.eq(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION),
-                Mockito.anyString(),
-                Mockito.anyMap(),
-                Mockito.anyList()))
-        .thenReturn(Optional.of(jobId));
-    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(JobState.FAILED));
-    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
-    Mockito.when(jobResponseBody.getState()).thenReturn(JobResponseBody.StateEnum.FAILED);
-    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
-    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
-    prepareMockitoForParallelFetch();
-    jobsSchedulerSnapshotExpiration.run(
-        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
-        operationTaskClsSnapshotExpiration.toString(),
-        null,
-        operationTasksBuilderSnapshotExpiration,
-        false,
-        1,
-        true,
-        4,
-        true,
-        16,
-        2,
-        1000,
-        30,
-        15);
-    Assertions.assertEquals(
-        16, jobsSchedulerSnapshotExpiration.jobStateCountMap.get(JobState.FAILED));
-    Assertions.assertEquals(7, jobsSchedulerSnapshotExpiration.jobStateCountMap.size());
+  public void testRunParallelFetchSingleMode() {
+    List<JobConf.JobTypeEnum> jobList = Arrays.asList(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    for (JobConf.JobTypeEnum jobType : jobList) {
+      mockLaunchJobAndPollStatus(JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
+      JobsScheduler jobsScheduler = createJobsScheduler(jobType);
+      mockbuildOperationTaskListInParallel(jobsScheduler);
+      jobsScheduler.run(
+          jobType,
+          jobTypeToClassMap.get(jobType).toString(),
+          null,
+          false,
+          1,
+          true,
+          false,
+          16,
+          4,
+          1000,
+          30,
+          15);
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
+      shutDownJobScheduler(jobsScheduler);
+    }
   }
 
   @Test
-  public void testRunSnapshotExpirationParallelFetchSingleMode() {
-    String jobId = UUID.randomUUID().toString();
-    Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
-    Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
-    Mockito.when(
-            jobsClient.launch(
-                Mockito.anyString(),
-                Mockito.eq(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION),
-                Mockito.anyString(),
-                Mockito.anyMap(),
-                Mockito.anyList()))
-        .thenReturn(Optional.of(jobId));
-    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(JobState.SUCCEEDED));
-    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
-    Mockito.when(jobResponseBody.getState()).thenReturn(JobResponseBody.StateEnum.SUCCEEDED);
-    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
-    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
-    prepareMockitoForParallelFetch();
-    jobsSchedulerSnapshotExpiration.run(
-        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
-        operationTaskClsSnapshotExpiration.toString(),
-        null,
-        operationTasksBuilderSnapshotExpiration,
-        false,
-        1,
-        true,
-        4,
-        false,
-        16,
-        2,
-        1000,
-        30,
-        15);
-    Assertions.assertEquals(
-        16, jobsSchedulerSnapshotExpiration.jobStateCountMap.get(JobState.SUCCEEDED));
-    Assertions.assertEquals(7, jobsSchedulerSnapshotExpiration.jobStateCountMap.size());
-  }
-
-  @Test
-  public void testRunSnapshotExpirationSequentialFetchSingleMode() {
-    String jobId = UUID.randomUUID().toString();
-    Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
-    Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
-    Mockito.when(tablesClient.getTableMetadataList()).thenReturn(tableMetadataList);
-    Mockito.when(
-            jobsClient.launch(
-                Mockito.anyString(),
-                Mockito.eq(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION),
-                Mockito.anyString(),
-                Mockito.anyMap(),
-                Mockito.anyList()))
-        .thenReturn(Optional.of(jobId));
-    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(JobState.SUCCEEDED));
-    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
-    Mockito.when(jobResponseBody.getState()).thenReturn(JobResponseBody.StateEnum.SUCCEEDED);
-    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
-    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
-    prepareMockitoForParallelFetch();
-    jobsSchedulerSnapshotExpiration.run(
-        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
-        operationTaskClsSnapshotExpiration.toString(),
-        null,
-        operationTasksBuilderSnapshotExpiration,
-        false,
-        1,
-        false,
-        4,
-        false,
-        16,
-        2,
-        1000,
-        30,
-        15);
-    Assertions.assertEquals(
-        16, jobsSchedulerSnapshotExpiration.jobStateCountMap.get(JobState.SUCCEEDED));
-    Assertions.assertEquals(7, jobsSchedulerSnapshotExpiration.jobStateCountMap.size());
-  }
-
-  @Test
-  public void testRunOrphanFileDeletionParallelFetchMultiMode() {
-    String jobId = UUID.randomUUID().toString();
-    Mockito.when(tablesClientFactory.create()).thenReturn(tablesClient);
-    Mockito.when(jobsClientFactory.create()).thenReturn(jobsClient);
-    Mockito.when(
-            jobsClient.launch(
-                Mockito.anyString(),
-                Mockito.eq(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION),
-                Mockito.anyString(),
-                Mockito.anyMap(),
-                Mockito.anyList()))
-        .thenReturn(Optional.of(jobId));
-    Mockito.when(jobsClient.getState(jobId)).thenReturn(Optional.of(JobState.SUCCEEDED));
-    Mockito.when(jobsClient.getJob(jobId)).thenReturn(Optional.of(jobResponseBody));
-    Mockito.when(jobResponseBody.getState()).thenReturn(JobResponseBody.StateEnum.SUCCEEDED);
-    Mockito.when(jobResponseBody.getJobId()).thenReturn(jobId);
-    Mockito.when(jobResponseBody.getStartTimeMs()).thenReturn(0L);
-    prepareMockitoForParallelFetch();
-    jobsSchedulerOrphanFileDeletion.run(
-        JobConf.JobTypeEnum.ORPHAN_FILES_DELETION,
-        operationTaskClsOrphanFileDeletion.toString(),
-        null,
-        operationTasksBuilderOrphanFileDeletion,
-        false,
-        1,
-        true,
-        4,
-        true,
-        16,
-        2,
-        1000,
-        30,
-        15);
-    Assertions.assertEquals(7, jobsSchedulerOrphanFileDeletion.jobStateCountMap.size());
-    Assertions.assertEquals(
-        16, jobsSchedulerOrphanFileDeletion.jobStateCountMap.get(JobState.SUCCEEDED));
-  }
-
-  @AfterEach
-  public void reset() {
-    operationTaskManagerSnapshotExpiration.resetAll();
-    operationTaskManagerOrphanFileDeletion.resetAll();
-    jobInfoManagerSnapshotExpiration.resetAll();
-    jobInfoManagerOrphanFileDeletion.resetAll();
-    jobExecutors =
-        new ThreadPoolExecutor(
-            2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
-    statusExecutors =
-        new ThreadPoolExecutor(
-            2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+  public void testRunSequentialFetchSingleMode() {
+    List<JobConf.JobTypeEnum> jobList = Arrays.asList(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    for (JobConf.JobTypeEnum jobType : jobList) {
+      mockLaunchJobAndPollStatus(JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
+      JobsScheduler jobsScheduler = createJobsScheduler(jobType);
+      mockbuildOperationTaskList(jobsScheduler);
+      jobsScheduler.run(
+          jobType,
+          jobTypeToClassMap.get(jobType).toString(),
+          null,
+          false,
+          1,
+          false,
+          false,
+          16,
+          4,
+          1000,
+          30,
+          15);
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+      Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
+      shutDownJobScheduler(jobsScheduler);
+    }
   }
 
   @Test
@@ -423,7 +285,7 @@ public class JobsSchedulerTest {
         new String[] {
           "--type", TableRetentionTask.OPERATION_TYPE.getValue(),
           "--tablesURL", "http://test.openhouse.com",
-          "--jobsURL", "unused",
+          "--jobsURL", "http://test.openhouse.com",
           "--cluster", "unused",
         });
   }

@@ -12,11 +12,8 @@ import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
-import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
-import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -27,7 +24,6 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.math.NumberUtils;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
@@ -44,13 +40,16 @@ public class OperationTasksBuilder {
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
 
-  @Getter(AccessLevel.NONE)
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 
   protected final TablesClient tablesClient;
 
   private final int numParallelMetadataFetch;
+
+  @Getter(AccessLevel.PROTECTED)
   private final OperationTaskManager operationTaskManager;
+
+  @Getter(AccessLevel.PROTECTED)
   private final JobInfoManager jobInfoManager;
 
   private List<OperationTask<?>> prepareTableOperationTaskList(
@@ -88,6 +87,16 @@ public class OperationTasksBuilder {
       OperationMode operationMode) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataList();
+    List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
+        rankAndSelectFromTableDataLayoutMetadataList(
+            tableDataLayoutMetadataList, properties, meter);
+    return processMetadataList(selectedTableDataLayoutMetadataList, jobType, operationMode);
+  }
+
+  private List<TableDataLayoutMetadata> rankAndSelectFromTableDataLayoutMetadataList(
+      List<TableDataLayoutMetadata> tableDataLayoutMetadataList,
+      Properties properties,
+      Meter meter) {
     DataLayoutStrategyScorer scorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(
             COMPACTION_GAIN_WEIGHT_DEFAULT, COMPUTE_COST_WEIGHT_DEFAULT);
@@ -129,7 +138,7 @@ public class OperationTasksBuilder {
         .counterBuilder("data_layout_optimization_estimated_reduced_file_count")
         .build()
         .add((long) totalReducedFileCount);
-    return processMetadataList(selectedTableDataLayoutMetadataList, jobType, operationMode);
+    return selectedTableDataLayoutMetadataList;
   }
 
   private List<OperationTask<?>> processMetadataList(
@@ -149,7 +158,7 @@ public class OperationTasksBuilder {
   }
 
   @VisibleForTesting
-  protected Optional<OperationTask<?>> processMetadata(
+  public Optional<OperationTask<?>> processMetadata(
       Metadata metadata, JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     try {
       OperationTask<?> task = taskFactory.create(metadata);
@@ -230,6 +239,22 @@ public class OperationTasksBuilder {
   }
 
   /**
+   * Fetches table metadata, builds the operation tasks, and add them to the task queue in parallel.
+   */
+  public void buildOperationTaskListInParallel(
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      Meter meter,
+      OperationMode operationMode) {
+    if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
+      // DLO execution job needs to fetch all table metadata before submission
+      buildDataLayoutOperationTaskListInParallel(jobType, properties, meter, operationMode);
+    } else {
+      buildOperationTaskListInParallelInternal(jobType, operationMode);
+    }
+  }
+
+  /**
    * Uses Flux to iterate the databases list in parallel. For each database, list tables
    * asynchronously(using Mono) and then for each table get table metadata asynchronously (using
    * Mono) and add to the queue. On after terminate (when all the parallel threads finishes and were
@@ -238,26 +263,24 @@ public class OperationTasksBuilder {
    * @param jobType
    * @param operationMode
    */
-  public void buildOperationTaskListInParallel(
+  private void buildOperationTaskListInParallelInternal(
       JobConf.JobTypeEnum jobType, OperationMode operationMode) {
     List<String> databases = tablesClient.getDatabases();
     Flux.fromIterable(databases) // iterate databases list
         .parallel(
             numParallelMetadataFetch) // Parallelize the databases list processing with N threads
         .runOn(Schedulers.boundedElastic()) // Use boundedElastic scheduler for IO-bound tasks
-        .filter(database -> tablesClient.applyDatabaseFilter(database))
+        .filter(tablesClient::applyDatabaseFilter)
         .flatMap(
             database ->
-                getAllTables(database)
+                tablesClient
+                    .getAllTablesAsync(database)
                     .flatMapMany(Flux::fromIterable)
                     .parallel(numParallelMetadataFetch) // Parallelize the get table metadate with N
                     // threads
                     .runOn(Schedulers.boundedElastic())
-                    .flatMap(
-                        tableResponseBody ->
-                            getTableMetadata(
-                                tableResponseBody)) // Get tableMetadata asynchronously for each
-            // table
+                    .flatMap(tablesClient::getTableMetadataAsync)
+            // Get tableMetadata asynchronously for each table
             )
         .doOnNext(
             tableMetadata -> {
@@ -291,54 +314,46 @@ public class OperationTasksBuilder {
   }
 
   /**
-   * Fetch all tables for the given database asynchronously using Mono.
-   *
-   * @param database
-   * @return Mono<List<GetTableResponseBody>>
+   * Fetches table data layout metadata for all tables in parallel first, then do rank and select.
+   * Then create a task for each metadata in the list, and set the flag to true on terminate.
    */
-  private Mono<List<GetTableResponseBody>> getAllTables(String database) {
-    return Mono.fromCallable(
+  private void buildDataLayoutOperationTaskListInParallel(
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      Meter meter,
+      OperationMode operationMode) {
+    List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
+        tablesClient.getTableDataLayoutMetadataListInParallel(numParallelMetadataFetch);
+    List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
+        rankAndSelectFromTableDataLayoutMetadataList(
+            tableDataLayoutMetadataList, properties, meter);
+    Flux.fromIterable(selectedTableDataLayoutMetadataList)
+        .parallel(numParallelMetadataFetch)
+        .runOn(Schedulers.boundedElastic())
+        .doOnNext(
+            tableDataLayoutMetadata -> {
+              try {
+                log.debug(
+                    "Got table data layout metadata {} ",
+                    tableDataLayoutMetadata.getDataLayoutStrategy());
+                Optional<OperationTask<?>> optionalOperationTask =
+                    processMetadata(tableDataLayoutMetadata, jobType, operationMode);
+                if (optionalOperationTask.isPresent()) {
+                  operationTaskManager.addData(optionalOperationTask.get());
+                }
+              } catch (InterruptedException e) {
+                log.warn("Interrupted while waiting for table metadata to be processed", e);
+              }
+            })
+        .sequential()
+        .doAfterTerminate(
             () -> {
-              GetAllTablesResponseBody allTablesResponseBody = tablesClient.getAllTables(database);
-              log.debug("Got all tables: {} for database {}", allTablesResponseBody, database);
-              if (allTablesResponseBody == null) {
-                return Collections.<GetTableResponseBody>emptyList();
-              }
-              return allTablesResponseBody.getResults();
+              operationTaskManager.updateDataGenerationCompletion();
+              log.info(
+                  "The metadata fetched count: {} for the job type: {}",
+                  operationTaskManager.getTotalDataCount(),
+                  jobType);
             })
-        .onErrorResume(
-            ex -> {
-              log.error("Error while fetching tables for database {}", database, ex);
-              return Mono.just(Collections.emptyList());
-            })
-        .subscribeOn(
-            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
-  }
-
-  /**
-   * Fetch table metadata for a table asynchronously using Mono.
-   *
-   * @param getTableResponseBody
-   * @return Mono<TableMetadata>
-   */
-  private Mono<TableMetadata> getTableMetadata(GetTableResponseBody getTableResponseBody) {
-    return Mono.fromCallable(
-            () -> tablesClient.mapTableResponseToTableMetadata(getTableResponseBody))
-        .flatMap(
-            optionalTableMetadata -> {
-              if (optionalTableMetadata.isPresent()) {
-                log.debug("Got table metadata for : {}", optionalTableMetadata.get());
-                return Mono.just(optionalTableMetadata.get());
-              } else {
-                return Mono.empty();
-              }
-            })
-        .onErrorResume(
-            ex -> {
-              log.error("Error while fetching table metadata for : {}", getTableResponseBody, ex);
-              return Mono.empty();
-            })
-        .subscribeOn(
-            Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
+        .subscribe();
   }
 }
