@@ -47,7 +47,4 @@ public class HouseTable {
    * with this table.
    */
   private String storageType;
-
-  // Column to indicate if the table was soft deleted
-  private boolean deleted;
 }
