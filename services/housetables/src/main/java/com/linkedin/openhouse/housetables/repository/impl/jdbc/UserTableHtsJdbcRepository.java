@@ -43,16 +43,13 @@ public interface UserTableHtsJdbcRepository
   Iterable<String> findAllDistinctDatabaseIds();
 
   @Query(
-      "SELECT DISTINCT u FROM UserTableRow u"
-          + " WHERE lower(u.databaseId) = lower(:databaseId)"
-          + " AND u.deleted = false")
+      "SELECT DISTINCT u FROM UserTableRow u" + " WHERE lower(u.databaseId) = lower(:databaseId)")
   Iterable<UserTableRow> findAllByDatabaseId(String databaseId);
 
   @Query(
       "SELECT DISTINCT u FROM UserTableRow u"
           + " WHERE lower(u.databaseId) = lower(:databaseId)"
-          + " AND lower(u.tableId) LIKE lower(:tableIdPattern)"
-          + " AND u.deleted = false")
+          + " AND lower(u.tableId) LIKE lower(:tableIdPattern)")
   Iterable<UserTableRow> findAllByDatabaseIdTableIdPattern(
       String databaseId, String tableIdPattern);
 
@@ -64,8 +61,7 @@ public interface UserTableHtsJdbcRepository
   @Query(
       "SELECT DISTINCT u FROM UserTableRow u"
           + " WHERE lower(u.databaseId) = lower(:databaseId)"
-          + " AND lower(u.tableId) LIKE lower(:tableIdPattern)"
-          + " AND u.deleted = false")
+          + " AND lower(u.tableId) LIKE lower(:tableIdPattern)")
   Page<UserTableRow> findAllByDatabaseIdTableIdPattern(
       String databaseId, String tableIdPattern, Pageable pageable);
 
@@ -76,8 +72,7 @@ public interface UserTableHtsJdbcRepository
           + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
-          + "(u.deleted = :deleted)")
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
   Page<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,
@@ -85,7 +80,6 @@ public interface UserTableHtsJdbcRepository
       String metadataLocation,
       String storageType,
       Long creationTime,
-      Boolean deleted,
       Pageable pageable);
 
   @Query(
@@ -95,16 +89,14 @@ public interface UserTableHtsJdbcRepository
           + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
-          + "(u.deleted = :deleted)")
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
   Iterable<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,
       String tableVersion,
       String metadataLocation,
       String storageType,
-      Long creationTime,
-      Boolean deleted);
+      Long creationTime);
 
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}
@@ -131,13 +123,12 @@ public interface UserTableHtsJdbcRepository
   @Transactional
   @Modifying
   @Query(
-      "UPDATE UserTableRow table SET table.tableId = :toTableId, table.metadataLocation = :metadataLocation, table.databaseId = :toDatabaseId, table.deleted = :deleted "
+      "UPDATE UserTableRow table SET table.tableId = :toTableId, table.metadataLocation = :metadataLocation, table.databaseId = :toDatabaseId "
           + "WHERE lower(table.databaseId) = lower(:fromDatabaseId) AND lower(table.tableId) = lower(:fromTableId)")
   void renameTableId(
       @Param("fromDatabaseId") String fromDatabaseId,
       @Param("fromTableId") String fromTableId,
       @Param("toDatabaseId") String toDatabaseId,
       @Param("toTableId") String toTableId,
-      @Param("metadataLocation") String metadataLocation,
-      @Param("deleted") boolean deleted);
+      @Param("metadataLocation") String metadataLocation);
 }

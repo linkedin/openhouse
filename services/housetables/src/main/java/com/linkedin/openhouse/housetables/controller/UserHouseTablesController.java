@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.housetables.controller;
 
+import com.linkedin.openhouse.housetables.api.handler.SoftDeletedTablesHtsApiHandler;
 import com.linkedin.openhouse.housetables.api.handler.UserTableHtsApiHandler;
+import com.linkedin.openhouse.housetables.api.spec.model.SoftDeletedUserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
@@ -11,8 +13,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import java.time.LocalDateTime;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,10 +38,15 @@ public class UserHouseTablesController {
   private static final String HTS_TABLES_GENERAL_ENDPOINT_V1 = "/v1/hts/tables/";
   private static final String HTS_TABLES_QUERY_ENDPOINT = "/hts/tables/query";
   private static final String HTS_TABLES_QUERY_ENDPOINT_V1 = "/v1/hts/tables/query";
-
+  private static final String HTS_TABLES_QUERY_ENDPOINT_SOFT_DELETED =
+      "/v1/hts/tables/querySoftDeleted";
   private static final String HTS_TABLES_RENAME_ENDPOINT = "/hts/tables/rename";
+  private static final String HTS_TABLES_RECOVER_ENDPOINT = "/hts/tables/recover";
+  private static final String HTS_TABLES_PURGE_ENDPOINT = "/hts/tables/purge";
 
   @Autowired private UserTableHtsApiHandler tableHtsApiHandler;
+
+  @Autowired private SoftDeletedTablesHtsApiHandler softDeletedTablesHtsApiHandler;
 
   @Autowired private UserTablesMapper userTablesMapper;
 
@@ -107,6 +116,33 @@ public class UserHouseTablesController {
   }
 
   @Operation(
+      summary = "Search soft deleted user tables by databaseId, tableId, or time-to-live.",
+      description =
+          "Returns paginated soft deleted user tables given databaseId, tableId, and/or timeToLive. "
+              + "If timeToLive is provided, it will return all soft deleted tables that expire before the given timestamp",
+      tags = {"UserTable"})
+  @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "User Table GET: OK")})
+  @GetMapping(
+      value = HTS_TABLES_QUERY_ENDPOINT_SOFT_DELETED,
+      produces = {"application/json"})
+  public ResponseEntity<GetAllEntityResponseBody<UserTable>> getSoftDeletedUserTables(
+      @RequestParam String databaseId,
+      @RequestParam(required = false) String tableId,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          LocalDateTime timeToLive,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "50") int size,
+      @RequestParam(defaultValue = "databaseId") String sortBy) {
+    UserTable tablesToSearch =
+        UserTable.builder().databaseId(databaseId).tableId(tableId).timeToLive(timeToLive).build();
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllEntityResponseBody<UserTable>>
+        apiResponse =
+            softDeletedTablesHtsApiHandler.getEntities(tablesToSearch, page, size, sortBy);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
       summary = "Delete a User Table",
       description = "Delete a User House Table entry identified by databaseID and tableId.",
       tags = {"UserTable"})
@@ -130,7 +166,9 @@ public class UserHouseTablesController {
 
   @Operation(
       summary = "Delete a User Table",
-      description = "Delete a User House Table entry identified by databaseID and tableId.",
+      description =
+          "Delete a User House Table entry identified by databaseID and tableId. "
+              + "Soft delete will store the User House Table entry in a separate table and cleaned up at a later time unless recovered.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -210,6 +248,64 @@ public class UserHouseTablesController {
             .build();
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tableHtsApiHandler.renameEntity(fromUserTable, toUserTable);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Recover a Soft Deleted User Table",
+      description =
+          "Restores an existing soft-deleted User House Table identified by databaseID, tableId, and deletedAtMs. "
+              + " Will fail if the table's databaseId and tableId is currently in use.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "User Table PUT: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "User Table PUT: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "User Table PUT: TBL_DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "User Table PUT: CONFLICT")
+      })
+  @PutMapping(value = HTS_TABLES_RECOVER_ENDPOINT)
+  public ResponseEntity<EntityResponseBody<UserTable>> recoverUserTable(
+      @RequestParam(value = "databaseId") String databaseId,
+      @RequestParam(value = "tableId") String tableId,
+      @RequestParam(value = "deletedAtMs") Long deletedAtMs) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse;
+    apiResponse =
+        softDeletedTablesHtsApiHandler.recoverEntity(
+            SoftDeletedUserTableKey.builder()
+                .databaseId(databaseId)
+                .tableId(tableId)
+                .deletedAtMs(deletedAtMs)
+                .build());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Purge a Soft Deleted User Table",
+      description = "Permanently deletes an existing soft-deleted User Table",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "User Table PUT: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "User Table PUT: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "User Table PUT: TBL_DB_NOT_FOUND")
+      })
+  @DeleteMapping(value = HTS_TABLES_PURGE_ENDPOINT)
+  public ResponseEntity<Void> purgeSoftDeletedUserTable(
+      @RequestParam(value = "databaseId") String databaseId,
+      @RequestParam(value = "tableId") String tableId,
+      @RequestParam(value = "deletedAtMs") Long deletedAtMs) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse;
+    apiResponse =
+        softDeletedTablesHtsApiHandler.deleteEntity(
+            SoftDeletedUserTableKey.builder()
+                .databaseId(databaseId)
+                .tableId(tableId)
+                .deletedAtMs(deletedAtMs)
+                .build(),
+            false);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

@@ -41,9 +41,9 @@ public interface UserTablesService {
   Page<UserTableDto> getAllUserTables(UserTable userTable, int page, int size, String sortBy);
 
   /**
-   * Given a databaseId and tableId, delete the user table entry from the House Table. If soft
-   * delete is enabled, then the entry will be renamed instead internally and marked with a boolean
-   * to delete
+   * Given a databaseId and tableId, delete the user table entry from the House Table. If a
+   * deletedAtMs is provided, it will be used to delete the entry in the softDeletedUserTable db
+   * table
    */
   void deleteUserTable(String databaseId, String tableId, boolean isSoftDelete);
 
@@ -73,4 +73,25 @@ public interface UserTablesService {
       String toDatabaseId,
       String toTableId,
       String metadataLocation);
+
+  /**
+   * Recover a soft-deleted user table identified by its databaseId, tableId, and deletedAtMs
+   *
+   * @param databaseId
+   * @param tableId
+   * @param deletedAtMs
+   */
+  UserTableDto recoverUserTable(String databaseId, String tableId, Long deletedAtMs);
+
+  void purgeSoftDeletedUserTable(String databaseId, String tableId, Long deletedAtMs);
+
+  /**
+   * Get all soft-deleted user tables that match the provided filters in the {@link UserTable}
+   * Currently the filters supported are limited to databaseId, tableId, and timeToLive.
+   *
+   * @param userTable
+   * @return List of {@link UserTableDto} that matches the provided {@link UserTable}
+   */
+  Page<UserTableDto> getAllSoftDeletedTables(
+      UserTable userTable, int page, int size, String sortBy);
 }

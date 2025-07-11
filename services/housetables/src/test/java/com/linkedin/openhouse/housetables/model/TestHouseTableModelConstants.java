@@ -82,7 +82,6 @@ public final class TestHouseTableModelConstants {
               .metadataLocation(tableLoc)
               .storageType(storageType)
               .creationTime(TEST_CREATION_TIME)
-              .deleted(false)
               .build();
 
       this._userTableDto =
@@ -93,7 +92,6 @@ public final class TestHouseTableModelConstants {
               .metadataLocation(tableLoc)
               .storageType(storageType)
               .creationTime(TEST_CREATION_TIME)
-              .deleted(false)
               .build();
 
       this._userTableRow =
@@ -104,7 +102,6 @@ public final class TestHouseTableModelConstants {
               .metadataLocation(tableLoc)
               .storageType(storageType)
               .creationTime(TEST_CREATION_TIME)
-              .deleted(false)
               .build();
     }
   }

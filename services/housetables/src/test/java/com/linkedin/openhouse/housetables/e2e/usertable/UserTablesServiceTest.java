@@ -12,12 +12,13 @@ import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
-import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -346,77 +347,15 @@ public class UserTablesServiceTest {
 
     Assertions.assertEquals(
         userTablesService.getAllUserTables(searchByTable).size(), sizeBeforeSoftDelete - 1);
-    Page<UserTableRow> softDeletedTables =
-        ((UserTableHtsJdbcRepository) htsRepository)
-            .findAllByFilters(
-                TEST_TUPLE_1_0.getDatabaseId(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                true, // deleted
-                null);
-    Assertions.assertEquals(softDeletedTables.getTotalElements(), 1);
-    Assertions.assertTrue(softDeletedTables.stream().findFirst().isPresent());
-    UserTableRow deletedTable = softDeletedTables.stream().findFirst().get();
-    Assertions.assertTrue(
-        deletedTable.getTableId().startsWith(TEST_TUPLE_1_0.getTableId() + "_deleted"));
-    // Check that recreating the table and soft deleting it again is valid
-    Assertions.assertDoesNotThrow(
-        () -> userTablesService.putUserTable(TEST_TUPLE_1_0.get_userTable()));
-    Assertions.assertDoesNotThrow(
-        () ->
-            userTablesService.deleteUserTable(
-                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
-    softDeletedTables =
-        ((UserTableHtsJdbcRepository) htsRepository)
-            .findAllByFilters(
-                TEST_TUPLE_1_0.getDatabaseId(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                true, // deleted
-                null);
-    Assertions.assertEquals(softDeletedTables.getTotalElements(), 2);
-  }
-
-  @Test
-  public void testUserTableSoftDeleteLongTableId() {
-    String longTableId =
-        String.join("", Collections.nCopies(128, "a")); // 128 characters long table ID
-    UserTableRow longTable =
-        TEST_TUPLE_1_0.get_userTableRow().toBuilder().tableId(longTableId).build();
-    htsRepository.save(longTable);
-
-    Assertions.assertDoesNotThrow(
-        () -> userTablesService.deleteUserTable(TEST_TUPLE_1_0.getDatabaseId(), longTableId, true));
-
-    Page<UserTableRow> softDeletedTables =
-        ((UserTableHtsJdbcRepository) htsRepository)
-            .findAllByFilters(
-                TEST_TUPLE_1_0.getDatabaseId(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                true, // deleted
-                null);
-    Assertions.assertEquals(softDeletedTables.getTotalElements(), 1);
-    Assertions.assertTrue(softDeletedTables.stream().findFirst().isPresent());
-    UserTableRow deletedTable = softDeletedTables.stream().findFirst().get();
-    // Check that a long table ID has the formatting for deleted tables
-    Assertions.assertTrue(deletedTable.getTableId().contains("_deleted_"));
-    Assertions.assertDoesNotThrow(
-        () ->
-            Instant.ofEpochMilli(
-                Long.parseLong(
-                    deletedTable
-                        .getTableId()
-                        .substring(deletedTable.getTableId().lastIndexOf("_") + 1))));
+    Page<UserTableDto> softDeletedTablePage =
+        userTablesService.getAllSoftDeletedTables(searchByTable, 0, 1, null);
+    Assertions.assertEquals(1, softDeletedTablePage.getTotalElements());
+    Optional<UserTableDto> softDeletedTable = softDeletedTablePage.get().findFirst();
+    Assertions.assertTrue(softDeletedTable.isPresent());
+    // Validate soft deleted table TTL is correct
+    Assertions.assertEquals(
+        softDeletedTable.get().getTimeToLive().toInstant(ZoneOffset.UTC),
+        Instant.ofEpochMilli(softDeletedTable.get().getDeletedAtMs()).plus(7, ChronoUnit.DAYS));
   }
 
   @Test
