@@ -16,5 +16,7 @@ public interface OpenHouseInternalRepository extends CrudRepository<TableDto, Ta
 
   List<TableDto> searchTables(String databaseId);
 
+  List<TableDto> searchTablesPaginated(String databaseId, int page, int size, String sortBy);
+
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 }
