@@ -238,6 +238,9 @@ public class OperationTasksBuilder {
     }
   }
 
+  /**
+   * Fetches table metadata, builds the operation tasks, and add them to the task queue in parallel.
+   */
   public void buildOperationTaskListInParallel(
       JobConf.JobTypeEnum jobType,
       Properties properties,
@@ -310,6 +313,10 @@ public class OperationTasksBuilder {
         .subscribe();
   }
 
+  /**
+   * Fetches table data layout metadata for all tables in parallel first, then do rank and select.
+   * Then create a task for each metadata in the list, and set the flag to true on terminate.
+   */
   private void buildDataLayoutOperationTaskListInParallel(
       JobConf.JobTypeEnum jobType,
       Properties properties,
@@ -321,6 +328,8 @@ public class OperationTasksBuilder {
         rankAndSelectFromTableDataLayoutMetadataList(
             tableDataLayoutMetadataList, properties, meter);
     Flux.fromIterable(selectedTableDataLayoutMetadataList)
+        .parallel(numParallelMetadataFetch)
+        .runOn(Schedulers.boundedElastic())
         .doOnNext(
             tableDataLayoutMetadata -> {
               try {
@@ -336,6 +345,7 @@ public class OperationTasksBuilder {
                 log.warn("Interrupted while waiting for table metadata to be processed", e);
               }
             })
+        .sequential()
         .doAfterTerminate(
             () -> {
               operationTaskManager.updateDataGenerationCompletion();

@@ -521,6 +521,12 @@ public class TablesClient {
             Schedulers.boundedElastic()); // Offload the blocking call to boundedElastic scheduler
   }
 
+  /**
+   * Fetch table data layout metadata for all tables in parallel using Flux.
+   *
+   * @param numParallelMetadataFetch
+   * @return List<TableDataLayoutMetadata>
+   */
   public List<TableDataLayoutMetadata> getTableDataLayoutMetadataListInParallel(
       int numParallelMetadataFetch) {
     return Flux.fromIterable(getDatabases())
