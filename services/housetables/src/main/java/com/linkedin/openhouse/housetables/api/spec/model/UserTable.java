@@ -4,8 +4,9 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALP
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.gson.Gson;
+import com.linkedin.openhouse.housetables.util.GsonBuilderWithLocalDateTimeAdapter;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDateTime;
 import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.Pattern;
 import lombok.Builder;
@@ -61,7 +62,23 @@ public class UserTable {
   @JsonProperty(value = "creationTime")
   private Long creationTime;
 
+  @Schema(
+      description =
+          "Timestamp in milliseconds when the table was soft-deleted. "
+              + "If null, then the table is active",
+      example = "1751907524",
+      defaultValue = "null")
+  private Long deletedAtMs;
+
+  @Schema(
+      description =
+          "Datetime in UTC indicating when the table will be deleted permanently by another process. "
+              + "If the current time is past the TTL, then the table could be arbitrarily deleted at any time.",
+      example = "2023-10-01",
+      defaultValue = "null")
+  private LocalDateTime timeToLive;
+
   public String toJson() {
-    return new Gson().toJson(this);
+    return GsonBuilderWithLocalDateTimeAdapter.createGson().toJson(this);
   }
 }

@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.dto.model;
 
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
+import java.time.LocalDateTime;
 import lombok.Builder;
 import lombok.Value;
 
@@ -22,4 +23,8 @@ public class UserTableDto {
   String storageType;
 
   Long creationTime;
+
+  Long deletedAtMs;
+
+  LocalDateTime timeToLive;
 }
