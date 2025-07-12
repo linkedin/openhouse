@@ -47,10 +47,6 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Autowired SoftDeletedUserTablesMapper softDeletedUserTablesMapper;
 
-  // Max length for tableId is 128, minus 22 characters for the suffix "_deleted_" and current
-  // timestamp in millis
-  private static int MAX_TABLE_ID_LENGTH_DELETE = 106;
-
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.HOUSETABLES_SERVICE);
 
