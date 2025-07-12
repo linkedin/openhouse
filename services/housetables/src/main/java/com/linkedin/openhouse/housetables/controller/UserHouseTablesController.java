@@ -304,8 +304,7 @@ public class UserHouseTablesController {
                 .databaseId(databaseId)
                 .tableId(tableId)
                 .deletedAtMs(deletedAtMs)
-                .build(),
-            false);
+                .build());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

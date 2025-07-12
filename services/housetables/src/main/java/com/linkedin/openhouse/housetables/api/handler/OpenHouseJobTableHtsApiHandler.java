@@ -58,7 +58,7 @@ public class OpenHouseJobTableHtsApiHandler implements JobTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> deleteEntity(JobKey key, boolean isSoftDelete) {
+  public ApiResponse<Void> deleteEntity(JobKey key) {
     jobsHTSApiValidator.validateDeleteEntity(key);
     jobsService.deleteJob(key.getJobId());
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();

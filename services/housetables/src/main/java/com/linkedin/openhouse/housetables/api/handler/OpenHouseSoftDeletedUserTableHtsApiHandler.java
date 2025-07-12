@@ -61,8 +61,7 @@ public class OpenHouseSoftDeletedUserTableHtsApiHandler implements SoftDeletedTa
   }
 
   @Override
-  public ApiResponse<Void> deleteEntity(
-      SoftDeletedUserTableKey softDeletedUserTableKey, boolean isSoftDelete) {
+  public ApiResponse<Void> deleteEntity(SoftDeletedUserTableKey softDeletedUserTableKey) {
     UserTableKey userTableKey =
         UserTableKey.builder()
             .databaseId(softDeletedUserTableKey.getDatabaseId())

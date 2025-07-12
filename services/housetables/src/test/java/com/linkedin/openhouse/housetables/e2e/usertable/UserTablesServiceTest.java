@@ -401,7 +401,7 @@ public class UserTablesServiceTest {
         TEST_TUPLE_1_0.getTableId(),
         TEST_TUPLE_1_0.getDatabaseId(),
         newTableName,
-        newMetadataLocation); // deleted parameter
+        newMetadataLocation);
 
     // check if the table is renamed
     UserTableDto result =
@@ -431,7 +431,7 @@ public class UserTablesServiceTest {
               TEST_TUPLE_1_0.getTableId(),
               TEST_TUPLE_1_0.getDatabaseId(),
               TEST_TUPLE_2_0.getTableId(),
-              TEST_TUPLE_2_0.getTableLoc()); // deleted parameter
+              TEST_TUPLE_2_0.getTableLoc());
         });
 
     Assertions.assertThrows(

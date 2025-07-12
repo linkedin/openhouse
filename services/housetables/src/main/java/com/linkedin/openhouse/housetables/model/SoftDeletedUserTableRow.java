@@ -7,16 +7,15 @@ import javax.persistence.IdClass;
 import javax.persistence.Version;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
-import lombok.experimental.SuperBuilder;
 
 /** Data Model for persisting a Soft Deleted User Table Object in the HouseTable. */
 @Entity
 @IdClass(SoftDeletedUserTableRowPrimaryKey.class)
-@SuperBuilder(toBuilder = true)
+@Builder(toBuilder = true)
 @Getter
 @EqualsAndHashCode
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -37,5 +36,5 @@ public class SoftDeletedUserTableRow {
 
   Long creationTime;
 
-  @Setter Timestamp timeToLive;
+  Timestamp timeToLive;
 }
