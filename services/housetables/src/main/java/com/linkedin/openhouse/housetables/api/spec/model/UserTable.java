@@ -4,7 +4,7 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALP
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.gson.Gson;
+import com.linkedin.openhouse.housetables.util.GsonBuilderWithLocalDateTimeAdapter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import javax.validation.constraints.NotEmpty;
@@ -79,6 +79,6 @@ public class UserTable {
   private LocalDateTime timeToLive;
 
   public String toJson() {
-    return new Gson().toJson(this);
+    return GsonBuilderWithLocalDateTimeAdapter.createGson().toJson(this);
   }
 }

@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.housetables.api.spec.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.gson.Gson;
+import com.linkedin.openhouse.housetables.util.GsonBuilderWithLocalDateTimeAdapter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Getter;
@@ -21,6 +21,6 @@ public class EntityResponseBody<T> {
   protected T entity;
 
   public String toJson() {
-    return new Gson().toJson(this);
+    return GsonBuilderWithLocalDateTimeAdapter.createGson().toJson(this);
   }
 }

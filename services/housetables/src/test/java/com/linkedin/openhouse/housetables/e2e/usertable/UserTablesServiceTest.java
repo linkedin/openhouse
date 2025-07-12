@@ -363,8 +363,14 @@ public class UserTablesServiceTest {
     Assertions.assertTrue(softDeletedTable.isPresent());
     // Validate soft deleted table TTL is correct
     Assertions.assertEquals(
-        softDeletedTable.get().getTimeToLive().toInstant(ZoneOffset.UTC),
-        Instant.ofEpochMilli(softDeletedTable.get().getDeletedAtMs()).plus(7, ChronoUnit.DAYS));
+        softDeletedTable
+            .get()
+            .getTimeToLive()
+            .toInstant(ZoneOffset.UTC)
+            .truncatedTo(ChronoUnit.SECONDS),
+        Instant.ofEpochMilli(softDeletedTable.get().getDeletedAtMs())
+            .plus(7, ChronoUnit.DAYS)
+            .truncatedTo(ChronoUnit.SECONDS));
   }
 
   @Test
