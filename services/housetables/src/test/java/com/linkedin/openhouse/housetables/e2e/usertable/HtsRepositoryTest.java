@@ -56,7 +56,8 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
     htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    List<UserTableRow> result = Lists.newArrayList(htsRepository.findAllByDatabaseId("test_db0"));
+    List<UserTableRow> result =
+        Lists.newArrayList(htsRepository.findAllByDatabaseIdIgnoreCase("test_db0"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -69,7 +70,8 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdTableIdPattern("test_db0", "test_table%"));
+            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                "test_db0", "test_table%"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -82,7 +84,8 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdTableIdPattern("test_db0", "test_table1"));
+            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                "test_db0", "test_table1"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));

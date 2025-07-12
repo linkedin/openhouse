@@ -22,6 +22,11 @@ public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
+  public ApiResponse<Void> deleteEntity(UserTableKey key) {
+    return null;
+  }
+
+  @Override
   public ApiResponse<Void> deleteEntity(UserTableKey key, boolean isSoftDelete) {
     return null;
   }
