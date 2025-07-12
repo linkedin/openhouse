@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tablestest;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
-import java.time.Instant;
 import java.util.Optional;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
@@ -40,24 +39,6 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
               HouseTable renamedTable =
                   houseTable.toBuilder().tableId(toTableId).tableLocation(metadataLocation).build();
               this.save(renamedTable);
-              this.delete(houseTable);
-            });
-  }
-
-  @Override
-  default void softDeleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    this.findById(houseTablePrimaryKey)
-        .ifPresent(
-            houseTable -> {
-              HouseTable softDeletedTable =
-                  houseTable
-                      .toBuilder()
-                      .databaseId(houseTable.getDatabaseId())
-                      .tableId(houseTable.getTableId() + "_deleted_" + Instant.now().toEpochMilli())
-                      .tableLocation(houseTable.getTableLocation())
-                      .deleted(true)
-                      .build();
-              this.save(softDeletedTable);
               this.delete(houseTable);
             });
   }

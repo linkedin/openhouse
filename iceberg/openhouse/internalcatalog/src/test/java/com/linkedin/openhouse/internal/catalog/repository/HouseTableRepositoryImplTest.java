@@ -332,47 +332,6 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
-  public void testRepoSoftDelete() {
-    mockHtsServer.enqueue(
-        new MockResponse()
-            .setResponseCode(204)
-            .setBody("")
-            .addHeader("Content-Type", "application/json"));
-
-    Assertions.assertDoesNotThrow(
-        () ->
-            htsRepo.softDeleteById(
-                HouseTablePrimaryKey.builder()
-                    .tableId(HOUSE_TABLE.getTableId())
-                    .databaseId(HOUSE_TABLE.getDatabaseId())
-                    .build()));
-  }
-
-  @Test
-  public void testRepoSoftDeleteExceptions() {
-    HashMap<Integer, Class> map = new HashMap<>();
-    map.put(404, HouseTableNotFoundException.class);
-    map.put(409, HouseTableConcurrentUpdateException.class);
-    map.put(400, HouseTableCallerException.class);
-
-    for (HashMap.Entry<Integer, Class> entry : map.entrySet()) {
-      mockHtsServer.enqueue(
-          new MockResponse()
-              .setResponseCode(entry.getKey())
-              .setBody("")
-              .addHeader("Content-Type", "application/json"));
-      Assertions.assertThrowsExactly(
-          entry.getValue(),
-          () ->
-              htsRepo.softDeleteById(
-                  HouseTablePrimaryKey.builder()
-                      .databaseId(HOUSE_TABLE.getDatabaseId())
-                      .tableId(HOUSE_TABLE.getTableId())
-                      .build()));
-    }
-  }
-
-  @Test
   public void testListOfTablesInDatabase() {
     List<UserTable> tables = new ArrayList<>();
     tables.add(houseTableMapper.toUserTable(HOUSE_TABLE));
