@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.housetables.api.spec.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.linkedin.openhouse.housetables.util.GsonBuilderWithLocalDateTimeAdapter;
+import com.linkedin.openhouse.common.api.util.GsonBuilderWithLocalDateTimeAdapter;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
@@ -13,7 +13,7 @@ import org.springframework.data.domain.Page;
 public class GetAllEntityResponseBody<T> {
 
   @Schema(description = "List of user table objects in House table", example = "")
-  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY, defaultValue = "[]")
   @SuppressFBWarnings(
       value = "URF_UNREAD_FIELD",
       justification = "Value referenced in generated client code.")

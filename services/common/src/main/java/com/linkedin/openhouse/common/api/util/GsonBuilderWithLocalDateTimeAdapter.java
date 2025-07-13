@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.housetables.util;
+package com.linkedin.openhouse.common.api.util;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
