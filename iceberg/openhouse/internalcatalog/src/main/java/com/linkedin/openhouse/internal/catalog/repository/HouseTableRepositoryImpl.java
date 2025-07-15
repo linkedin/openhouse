@@ -303,7 +303,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
             PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
             pageResults.getTotalElements());
 
-    return page.map(houseTableMapper::toHouseTable);
+    return page.map(houseTableMapper::toHouseTableWithDatabaseId);
   }
 
   @Override
