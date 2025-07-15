@@ -94,7 +94,7 @@ public class OpenHouseUserTableHtsApiValidator
       validationFailures.add(String.format("page : provided %s, cannot be negative", page));
     }
     if (size <= 0) {
-      validationFailures.add(String.format("size : provided %s, cannot be non-positive", size));
+      validationFailures.add(String.format("size : provided %s, must be greater than 0", size));
     }
     if (sortBy != null && (sortBy.contains(",") || sortBy.contains(":"))) {
       validationFailures.add(
