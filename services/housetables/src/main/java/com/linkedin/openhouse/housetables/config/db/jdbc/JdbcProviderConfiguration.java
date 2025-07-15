@@ -58,13 +58,12 @@ public class JdbcProviderConfiguration {
     DataSourceProperties properties = dataSourceProperties();
 
     // Set database-specific properties
-    if (dbType == DatabaseConfiguration.SupportedDbTypes.ICEBERG) {
-      properties.setUrl(H2_DEFAULT_URL);
-    } else {
-      properties.setUrl(clusterProperties.getClusterHouseTablesDatabaseUrl());
-      properties.setUsername(clusterProperties.getClusterHouseTablesDatabaseUsername());
-      properties.setPassword(clusterProperties.getClusterHouseTablesDatabasePassword());
-    }
+    properties.setUrl(
+        dbType == DatabaseConfiguration.SupportedDbTypes.ICEBERG
+            ? H2_DEFAULT_URL
+            : clusterProperties.getClusterHouseTablesDatabaseUrl());
+    properties.setUsername(clusterProperties.getClusterHouseTablesDatabaseUsername());
+    properties.setPassword(clusterProperties.getClusterHouseTablesDatabasePassword());
 
     return properties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
   }
