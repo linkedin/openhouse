@@ -100,7 +100,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         .collect(Collectors.toList());
   }
 
-  public Page<TableIdentifier> listTablesPaginated(Namespace namespace, Pageable pageable) {
+  public Page<TableIdentifier> listTables(Namespace namespace, Pageable pageable) {
     if (namespace.levels().length > 1) {
       throw new ValidationException(
           "Input namespace has more than one levels " + String.join(".", namespace.levels()));

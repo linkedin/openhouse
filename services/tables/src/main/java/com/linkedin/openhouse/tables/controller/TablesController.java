@@ -100,7 +100,7 @@ public class TablesController {
   @Operation(
       summary = "Search Tables in a Database",
       description =
-          "Returns a list of Table resources present in a database. Only filter supported is 'database_id'.",
+          "Returns a Page of Table resources present in a database. Only filter supported is 'database_id'.",
       tags = {"Table"})
   @ApiResponses(
       value = {

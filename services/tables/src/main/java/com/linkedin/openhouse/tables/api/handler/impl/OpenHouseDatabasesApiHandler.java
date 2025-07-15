@@ -10,6 +10,9 @@ import com.linkedin.openhouse.tables.dto.mapper.DatabasesMapper;
 import com.linkedin.openhouse.tables.services.DatabasesService;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
@@ -31,6 +34,24 @@ public class OpenHouseDatabasesApiHandler implements DatabasesApiHandler {
                     databasesService.getAllDatabases().stream()
                         .map(databaseDto -> databasesMapper.toGetDatabaseResponseBody(databaseDto))
                         .collect(Collectors.toList()))
+                .build())
+        .build();
+  }
+
+  @Override
+  public ApiResponse<GetAllDatabasesResponseBody> getAllDatabases(
+      int page, int size, String sortBy) {
+    databasesApiValidator.validateGetAllDatabases(page, size, sortBy);
+    Pageable pageable =
+        PageRequest.of(page, size, sortBy == null ? Sort.unsorted() : Sort.by(sortBy).ascending());
+    return ApiResponse.<GetAllDatabasesResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            GetAllDatabasesResponseBody.builder()
+                .pageResults(
+                    databasesService
+                        .getAllDatabases(pageable)
+                        .map(databaseDto -> databasesMapper.toGetDatabaseResponseBody(databaseDto)))
                 .build())
         .build();
   }

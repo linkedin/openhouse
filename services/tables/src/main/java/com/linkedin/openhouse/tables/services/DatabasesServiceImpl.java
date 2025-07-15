@@ -12,6 +12,8 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +35,15 @@ public class DatabasesServiceImpl implements DatabasesService {
                     tableDtoPrimaryKey.getDatabaseId(), clusterProperties.getClusterName()))
         .distinct()
         .collect(Collectors.toList());
+  }
+
+  @Override
+  public Page<DatabaseDto> getAllDatabases(Pageable pageable) {
+    Page<TableDtoPrimaryKey> tableIdentifiers = openHouseInternalRepository.findAllIds(pageable);
+    return tableIdentifiers.map(
+        tableDtoPrimaryKey ->
+            databasesMapper.toDatabaseDto(
+                tableDtoPrimaryKey.getDatabaseId(), clusterProperties.getClusterName()));
   }
 
   @Override

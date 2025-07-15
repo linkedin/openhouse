@@ -17,6 +17,8 @@ public interface OpenHouseInternalRepository
     extends PagingAndSortingRepository<TableDto, TableDtoPrimaryKey> {
   List<TableDtoPrimaryKey> findAllIds();
 
+  Page<TableDtoPrimaryKey> findAllIds(Pageable pageable);
+
   List<TableDto> searchTables(String databaseId);
 
   Page<TableDto> searchTables(String databaseId, Pageable pageable);

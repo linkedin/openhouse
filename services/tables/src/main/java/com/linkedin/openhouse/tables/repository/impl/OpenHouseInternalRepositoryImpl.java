@@ -560,10 +560,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   public Page<TableDto> searchTables(String databaseId, Pageable pageable) {
     if (!(catalog instanceof OpenHouseInternalCatalog)) {
       throw new UnsupportedOperationException(
-          "Does not support paginated search for getting all tables");
+          "Does not support paginated search for getting all tables in a database");
     }
     return ((OpenHouseInternalCatalog) catalog)
-        .listTablesPaginated(Namespace.of(databaseId), pageable)
+        .listTables(Namespace.of(databaseId), pageable)
         .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier));
   }
 
@@ -573,6 +573,18 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return catalog.listTables(Namespace.empty()).stream()
         .map(key -> mapper.toTableDtoPrimaryKey(key))
         .collect(Collectors.toList());
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)
+  @Override
+  public Page<TableDtoPrimaryKey> findAllIds(Pageable pageable) {
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "Does not support paginated search for getting all databases");
+    }
+    return ((OpenHouseInternalCatalog) catalog)
+        .listTables(Namespace.empty(), pageable)
+        .map(key -> mapper.toTableDtoPrimaryKey(key));
   }
 
   /* IMPLEMENT AS NEEDED */

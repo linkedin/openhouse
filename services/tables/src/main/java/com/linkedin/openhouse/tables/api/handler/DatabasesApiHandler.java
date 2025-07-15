@@ -14,6 +14,16 @@ public interface DatabasesApiHandler {
   ApiResponse<GetAllDatabasesResponseBody> getAllDatabases();
 
   /**
+   * Function to Get a Page of Database Resources in openhouse
+   *
+   * @param page
+   * @param size
+   * @param sortBy
+   * @return Response containing a Page of Databases that would be returned to the client.
+   */
+  ApiResponse<GetAllDatabasesResponseBody> getAllDatabases(int page, int size, String sortBy);
+
+  /**
    * Function to update aclPolicies on a Database Resource identified by databaseId.
    *
    * @param databaseId

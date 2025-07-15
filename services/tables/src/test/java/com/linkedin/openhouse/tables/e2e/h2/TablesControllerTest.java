@@ -68,6 +68,9 @@ import org.mockito.internal.matchers.apachecommons.ReflectionEquals;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
@@ -914,6 +917,9 @@ public class TablesControllerTest {
     for (int i = 0; i < 3; i++) {
       int fromIndex = i * pageSize;
       int toIndex = Math.min(fromIndex + pageSize, tableIdentifiers.size());
+      Page<GetTableResponseBody> expectedResults =
+          new PageImpl<>(
+              tableIdentifiers.subList(fromIndex, toIndex), PageRequest.of(i, pageSize), 10);
       mvc.perform(
               MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
                   .param("page", String.valueOf(i))
@@ -926,7 +932,7 @@ public class TablesControllerTest {
               content()
                   .json(
                       GetAllTablesResponseBody.builder()
-                          .results(tableIdentifiers.subList(fromIndex, toIndex))
+                          .pageResults(expectedResults)
                           .build()
                           .toJson()));
     }

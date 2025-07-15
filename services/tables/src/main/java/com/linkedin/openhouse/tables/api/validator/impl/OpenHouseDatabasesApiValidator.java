@@ -44,6 +44,25 @@ public class OpenHouseDatabasesApiValidator implements DatabasesApiValidator {
     validateDatabaseId(databaseId);
   }
 
+  @Override
+  public void validateGetAllDatabases(int page, int size, String sortBy) {
+    List<String> validationFailures = new ArrayList<>();
+    if (page < 0) {
+      validationFailures.add(String.format("page : provided %s, cannot be negative", page));
+    }
+    if (size <= 0) {
+      validationFailures.add(String.format("size : provided %s, cannot be non-positive", size));
+    }
+    if (sortBy != null && (sortBy.contains(",") || sortBy.contains(":"))) {
+      validationFailures.add(
+          String.format(
+              "sortBy : provided %s, does not support multiple sort fields or directions", sortBy));
+    }
+    if (!validationFailures.isEmpty()) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
   private void validateDatabaseId(String databaseId) {
     List<String> validationFailures = new ArrayList<>();
     if (StringUtils.isEmpty(databaseId)) {
