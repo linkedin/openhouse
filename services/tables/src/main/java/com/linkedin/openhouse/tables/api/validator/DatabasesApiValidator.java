@@ -22,4 +22,13 @@ public interface DatabasesApiValidator {
    * @param databaseId
    */
   void validateGetAclPolicies(String databaseId);
+
+  /**
+   * Function to validate a request to get all Database Resources with pagination and sorting
+   *
+   * @param page
+   * @param size
+   * @param sortBy
+   */
+  void validateGetAllDatabases(int page, int size, String sortBy);
 }
