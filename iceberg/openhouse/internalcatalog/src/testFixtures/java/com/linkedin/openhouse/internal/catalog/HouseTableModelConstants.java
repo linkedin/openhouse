@@ -53,4 +53,17 @@ public final class HouseTableModelConstants {
           .tableUUID(UUID.randomUUID().toString())
           .storageType("local")
           .build();
+
+  public static HouseTable buildHouseTableWithDbTbl(String db, String table) {
+    return HouseTable.builder()
+        .tableId(table)
+        .databaseId(db)
+        .clusterId("c1")
+        .tableUri(String.format("c1.%s.%s", db, table))
+        .tableLocation("loc3")
+        .tableVersion(String.valueOf(new Random().nextLong()))
+        .tableUUID(UUID.randomUUID().toString())
+        .storageType("local")
+        .build();
+  }
 }
