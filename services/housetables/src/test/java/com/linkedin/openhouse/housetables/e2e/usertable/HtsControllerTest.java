@@ -590,7 +590,7 @@ public class HtsControllerTest {
     params = new MultiValueMapAdapter(paramsInternal);
 
     // Should return the soft deleted table due to default purgeAfterMs being 7 days in the future
-    mvc.perform(MockMvcRequestBuilders.get("/v1/hts/tables/querySoftDeleted").params(params))
+    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted").params(params))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pageResults.content", hasSize(1)))
         .andExpect(jsonPath("$.pageResults.content[0].databaseId", is(TEST_DB_ID)))
@@ -603,7 +603,7 @@ public class HtsControllerTest {
     paramsInternal.put("purgeAfterMs", Collections.singletonList(String.valueOf(pastTimestamp)));
     params = new MultiValueMapAdapter(paramsInternal);
 
-    mvc.perform(MockMvcRequestBuilders.get("/v1/hts/tables/querySoftDeleted").params(params))
+    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted").params(params))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pageResults.content", hasSize(0)));
   }
@@ -654,7 +654,7 @@ public class HtsControllerTest {
     queryParams.put("tableId", Collections.singletonList(tableId));
     MultiValueMap<String, String> params = new MultiValueMapAdapter(queryParams);
     mvc.perform(
-            MockMvcRequestBuilders.get("/v1/hts/tables/querySoftDeleted")
+            MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
@@ -706,7 +706,7 @@ public class HtsControllerTest {
 
     // Verify it's no longer in soft deleted tables
     mvc.perform(
-            MockMvcRequestBuilders.get("/v1/hts/tables/querySoftDeleted")
+            MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
