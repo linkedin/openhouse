@@ -519,7 +519,7 @@ public class HtsControllerTest {
     MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
 
     mvc.perform(
-            MockMvcRequestBuilders.get("/v1/hts/tables/querySoftDeleted")
+            MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
@@ -556,7 +556,7 @@ public class HtsControllerTest {
     MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
 
     mvc.perform(
-            MockMvcRequestBuilders.get("/v1/hts/tables/querySoftDeleted")
+            MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())

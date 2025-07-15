@@ -26,8 +26,3 @@ dependencies {
 }
 
 spotbugsTestFixtures.enabled = false
-
-// Needed due to reflection usage causing issues with LocalDateTime serialization in tests
-test {
-  jvmArgs '--add-opens=java.base/java.time=ALL-UNNAMED'
-}

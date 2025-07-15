@@ -37,7 +37,7 @@ public class UserHouseTablesController {
   private static final String HTS_TABLES_QUERY_ENDPOINT = "/hts/tables/query";
   private static final String HTS_TABLES_QUERY_ENDPOINT_V1 = "/v1/hts/tables/query";
   private static final String HTS_TABLES_QUERY_ENDPOINT_SOFT_DELETED =
-      "/v1/hts/tables/querySoftDeleted";
+      "/hts/tables/querySoftDeleted";
   private static final String HTS_TABLES_RENAME_ENDPOINT = "/hts/tables/rename";
   private static final String HTS_TABLES_RESTORE_ENDPOINT = "/hts/tables/restore";
   private static final String HTS_TABLES_PURGE_ENDPOINT = "/hts/tables/purge";
