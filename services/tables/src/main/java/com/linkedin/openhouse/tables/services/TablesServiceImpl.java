@@ -29,6 +29,8 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
@@ -74,9 +76,8 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
-  public List<TableDto> searchTablesPaginated(
-      String databaseId, int page, int size, String sortBy) {
-    return openHouseInternalRepository.searchTablesPaginated(databaseId, page, size, sortBy);
+  public Page<TableDto> searchTables(String databaseId, Pageable pageable) {
+    return openHouseInternalRepository.searchTables(databaseId, pageable);
   }
 
   @Override

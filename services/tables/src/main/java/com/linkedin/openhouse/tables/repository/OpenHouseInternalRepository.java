@@ -3,7 +3,9 @@ package com.linkedin.openhouse.tables.repository;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.List;
-import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.repository.PagingAndSortingRepository;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -11,12 +13,13 @@ import org.springframework.stereotype.Repository;
  * {@link TableDto} object.
  */
 @Repository
-public interface OpenHouseInternalRepository extends CrudRepository<TableDto, TableDtoPrimaryKey> {
+public interface OpenHouseInternalRepository
+    extends PagingAndSortingRepository<TableDto, TableDtoPrimaryKey> {
   List<TableDtoPrimaryKey> findAllIds();
 
   List<TableDto> searchTables(String databaseId);
 
-  List<TableDto> searchTablesPaginated(String databaseId, int page, int size, String sortBy);
+  Page<TableDto> searchTables(String databaseId, Pageable pageable);
 
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 }
