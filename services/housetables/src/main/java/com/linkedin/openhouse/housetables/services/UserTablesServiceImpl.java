@@ -21,7 +21,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -81,16 +80,15 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public Page<UserTableDto> getAllUserTables(
-      UserTable userTable, int page, int size, String sortBy) {
+  public Page<UserTableDto> getAllUserTables(UserTable userTable, Pageable pageable) {
     if (isListDatabases(userTable)) {
-      return listDatabases(page, size, sortBy);
+      return listDatabases(pageable);
     } else if (isListTables(userTable)) {
-      return listTables(userTable, page, size, sortBy);
+      return listTables(userTable, pageable);
     } else if (isListTablesWithPattern(userTable)) {
-      return listTablesWithPattern(userTable, page, size, sortBy);
+      return listTablesWithPattern(userTable, pageable);
     } else {
-      return searchTables(userTable, page, size, sortBy);
+      return searchTables(userTable, pageable);
     }
   }
 
@@ -236,7 +234,7 @@ public class UserTablesServiceImpl implements UserTablesService {
   public Page<UserTableDto> getAllSoftDeletedTables(
       UserTable userTable, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_TABLES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "tableId");
+    Pageable pageable = injectDefaultSort(PageRequest.of(page, size, Sort.by(sortBy)), "tableId");
 
     return METRICS_REPORTER.executeWithStats(
         () ->
@@ -263,13 +261,12 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_LIST_DATABASES_TIME);
   }
 
-  private Page<UserTableDto> listDatabases(int page, int size, String sortBy) {
+  private Page<UserTableDto> listDatabases(Pageable pageable) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_DATABASES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "databaseId");
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllDistinctDatabaseIds(null, pageable)
+                .findAllDistinctDatabaseIds(null, injectDefaultSort(pageable, "databaseId"))
                 .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build()),
         MetricsConstant.HTS_PAGE_DATABASES_TIME);
   }
@@ -288,13 +285,12 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_LIST_TABLES_TIME);
   }
 
-  private Page<UserTableDto> listTables(UserTable userTable, int page, int size, String sortBy) {
+  private Page<UserTableDto> listTables(UserTable userTable, Pageable pageable) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_TABLES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByFilters(userTable.getDatabaseId(), null, null, null, null, null, pageable)
+                .findAllByFilters(userTable.getDatabaseId(), null, null, null, null, null, injectDefaultSort(pageable, "tableId"))
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
@@ -314,22 +310,21 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_LIST_TABLES_TIME);
   }
 
-  private Page<UserTableDto> listTablesWithPattern(
-      UserTable userTable, int page, int size, String sortBy) {
+  private Page<UserTableDto> listTablesWithPattern(UserTable userTable, Pageable pageable) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_TABLES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
                 .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    userTable.getDatabaseId(), userTable.getTableId(), pageable)
+                    userTable.getDatabaseId(),
+                    userTable.getTableId(),
+                    injectDefaultSort(pageable, "tableId"))
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
 
-  private Page<UserTableDto> searchTables(UserTable userTable, int page, int size, String sortBy) {
+  private Page<UserTableDto> searchTables(UserTable userTable, Pageable pageable) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_TABLES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "tableId");
     log.warn(
         "Reaching general search for user table which is not expected: {}", userTable.toJson());
     return METRICS_REPORTER.executeWithStats(
@@ -342,17 +337,14 @@ public class UserTablesServiceImpl implements UserTablesService {
                     userTable.getMetadataLocation(),
                     userTable.getStorageType(),
                     userTable.getCreationTime(),
-                    pageable)
+                    injectDefaultSort(pageable, "tableId"))
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
   }
 
-  private Pageable createPageable(int page, int size, String sortBy, String defaultSortBy) {
-    Sort sort =
-        StringUtils.isEmpty(sortBy)
-            ? Sort.by(defaultSortBy).ascending()
-            : Sort.by(sortBy).ascending();
-    return PageRequest.of(page, size, sort);
+  private Pageable injectDefaultSort(Pageable pageable, String defaultSortBy) {
+    Sort sort = pageable.getSortOr(Sort.by(defaultSortBy).ascending());
+    return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
   }
 
   private List<UserTableDto> searchTables(UserTable userTable) {

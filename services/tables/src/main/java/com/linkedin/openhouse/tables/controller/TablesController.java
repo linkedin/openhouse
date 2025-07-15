@@ -111,19 +111,16 @@ public class TablesController {
         @ApiResponse(responseCode = "404", description = "Table SEARCH: NOT_FOUND")
       })
   @PostMapping(
-      value = {
-        "/v0/databases/{databaseId}/tables/search",
-        "/v1/databases/{databaseId}/tables/search"
-      },
+      value = {"/v2/databases/{databaseId}/tables/search"},
       produces = {"application/json"})
   public ResponseEntity<GetAllTablesResponseBody> searchTablesPaginated(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
-      @Parameter(description = "Page index", required = true) @PathVariable int page,
-      @Parameter(description = "Page size", required = true) @PathVariable int size,
-      @Parameter(description = "SortBy field") @PathVariable String sortBy) {
+      @RequestParam(required = false, defaultValue = "0") int page,
+      @RequestParam(required = false, defaultValue = "50") int size,
+      @RequestParam(required = false) String sortBy) {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllTablesResponseBody> apiResponse =
-        tablesApiHandler.searchTablesPaginated(databaseId, page, size, sortBy);
+        tablesApiHandler.searchTables(databaseId, page, size, sortBy);
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

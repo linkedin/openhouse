@@ -54,6 +54,9 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 /**
@@ -554,16 +557,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_PAGINATED_TIME)
   @Override
-  public List<TableDto> searchTablesPaginated(
-      String databaseId, int page, int size, String sortBy) {
+  public Page<TableDto> searchTables(String databaseId, Pageable pageable) {
     if (!(catalog instanceof OpenHouseInternalCatalog)) {
       throw new UnsupportedOperationException(
           "Does not support paginated search for getting all tables");
     }
     return ((OpenHouseInternalCatalog) catalog)
-        .listTablesPaginated(Namespace.of(databaseId), page, size, sortBy).stream()
-            .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
-            .collect(Collectors.toList());
+        .listTablesPaginated(Namespace.of(databaseId), pageable)
+        .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier));
   }
 
   @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)
@@ -624,6 +625,16 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Override
   public void deleteAll() {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public Iterable<TableDto> findAll(Sort sort) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public Page<TableDto> findAll(Pageable pageable) {
     throw getUnsupportedException();
   }
 

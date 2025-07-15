@@ -377,6 +377,9 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
+  public void testListOfTablesInDatabasePaginated() {}
+
+  @Test
   public void testListWithEmptyResult() {
     // Shouldn't expect failure but gracefully getting an empty list.
     List<UserTable> tables = new ArrayList<>();

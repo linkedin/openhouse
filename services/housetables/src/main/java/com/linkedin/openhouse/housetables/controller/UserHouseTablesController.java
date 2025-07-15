@@ -102,9 +102,9 @@ public class UserHouseTablesController {
       produces = {"application/json"})
   public ResponseEntity<GetAllEntityResponseBody<UserTable>> getPaginatedUserTables(
       @RequestParam Map<String, String> parameters,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "50") int size,
-      @RequestParam(defaultValue = "databaseId") String sortBy) {
+      @RequestParam(required = false, defaultValue = "0") int page,
+      @RequestParam(required = false, defaultValue = "50") int size,
+      @RequestParam(required = false) String sortBy) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllEntityResponseBody<UserTable>>
         apiResponse =
             tableHtsApiHandler.getEntities(

@@ -44,7 +44,7 @@ public interface TablesApiHandler {
    * @param sortBy
    * @return A page of tables in the given database.
    */
-  ApiResponse<GetAllTablesResponseBody> searchTablesPaginated(
+  ApiResponse<GetAllTablesResponseBody> searchTables(
       String databaseId, int page, int size, String sortBy);
 
   /**
