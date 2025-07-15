@@ -15,7 +15,6 @@ import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
-import java.sql.Timestamp;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -184,7 +183,7 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   @Transactional
-  public UserTableDto recoverUserTable(String databaseId, String tableId, Long deletedAt) {
+  public UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAt) {
     SoftDeletedUserTableRowPrimaryKey softDeletedTableKey =
         SoftDeletedUserTableRowPrimaryKey.builder()
             .databaseId(databaseId)
@@ -223,15 +222,15 @@ public class UserTablesServiceImpl implements UserTablesService {
       UserTable userTable, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_TABLES_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
-    Timestamp expirationTime =
-        userTable.getTimeToLive() != null
-            ? java.sql.Timestamp.valueOf(userTable.getTimeToLive())
-            : null;
+
     return METRICS_REPORTER.executeWithStats(
         () ->
             softDeletedHtsJdbcRepository
                 .findAllByFilters(
-                    userTable.getDatabaseId(), userTable.getTableId(), expirationTime, pageable)
+                    userTable.getDatabaseId(),
+                    userTable.getTableId(),
+                    userTable.getPurgeAfterMs(),
+                    pageable)
                 .map(
                     softDeletedUserTableRow ->
                         softDeletedUserTablesMapper.toUserTableDto(softDeletedUserTableRow)),

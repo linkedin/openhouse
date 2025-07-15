@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.model;
 
-import java.sql.Timestamp;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
@@ -36,5 +35,5 @@ public class SoftDeletedUserTableRow {
 
   Long creationTime;
 
-  Timestamp timeToLive;
+  Long purgeAfterMs;
 }

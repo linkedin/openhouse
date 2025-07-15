@@ -54,6 +54,6 @@ CREATE TABLE IF NOT EXISTS soft_deleted_user_table_row (
     creation_time       BIGINT            DEFAULT NULL,
     last_modified_time  TIMESTAMP         DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     ETL_TS              DATETIME(6)       DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    time_to_live        DATETIME          NOT NULL,
+    purge_after_ms      BIGINT          NOT NULL,
     PRIMARY KEY (database_id, table_id, deleted_at_ms)
 );

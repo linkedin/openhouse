@@ -16,7 +16,6 @@ import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTa
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -363,14 +362,10 @@ public class UserTablesServiceTest {
     Assertions.assertTrue(softDeletedTable.isPresent());
     // Validate soft deleted table TTL is correct
     Assertions.assertEquals(
-        softDeletedTable
-            .get()
-            .getTimeToLive()
-            .toInstant(ZoneOffset.UTC)
-            .truncatedTo(ChronoUnit.SECONDS),
+        softDeletedTable.get().getPurgeAfterMs(),
         Instant.ofEpochMilli(softDeletedTable.get().getDeletedAtMs())
             .plus(7, ChronoUnit.DAYS)
-            .truncatedTo(ChronoUnit.SECONDS));
+            .toEpochMilli());
   }
 
   @Test
@@ -442,7 +437,7 @@ public class UserTablesServiceTest {
   }
 
   @Test
-  public void testUserTableRecover() {
+  public void testUserTableRestore() {
     UserTable searchByTable =
         UserTable.builder().databaseId(TEST_TUPLE_1_0.getDatabaseId()).build();
     int sizeBeforeSoftDelete = userTablesService.getAllUserTables(searchByTable).size();
@@ -467,12 +462,12 @@ public class UserTablesServiceTest {
     Assertions.assertTrue(softDeletedTablePage.get().findFirst().isPresent());
     UserTableDto softDeletedTable = softDeletedTablePage.get().findFirst().get();
     UserTableDto recoveredUserTable =
-        userTablesService.recoverUserTable(
+        userTablesService.restoreUserTable(
             TEST_TUPLE_1_0.getDatabaseId(),
             TEST_TUPLE_1_0.getTableId(),
             softDeletedTable.getDeletedAtMs());
     Assertions.assertNull(recoveredUserTable.getDeletedAtMs());
-    Assertions.assertNull(recoveredUserTable.getTimeToLive());
+    Assertions.assertNull(recoveredUserTable.getPurgeAfterMs());
     Assertions.assertEquals(recoveredUserTable.getTableId(), TEST_TUPLE_1_0.getTableId());
     Assertions.assertEquals(recoveredUserTable.getDatabaseId(), TEST_TUPLE_1_0.getDatabaseId());
     Assertions.assertEquals(
@@ -510,7 +505,7 @@ public class UserTablesServiceTest {
   }
 
   @Test
-  public void testUserTableRecoverIsAtomic() {
+  public void testUserTableRestoreIsAtomic() {
     UserTableDto table =
         userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId());
     Assertions.assertNotNull(table);
@@ -537,7 +532,7 @@ public class UserTablesServiceTest {
     Assertions.assertThrows(
         RuntimeException.class,
         () ->
-            userTablesService.recoverUserTable(
+            userTablesService.restoreUserTable(
                 TEST_TUPLE_1_0.getDatabaseId(),
                 TEST_TUPLE_1_0.getTableId(),
                 softDeletedTable.getDeletedAtMs()));

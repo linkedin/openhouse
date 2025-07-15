@@ -5,7 +5,6 @@ import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
-import java.sql.Timestamp;
 import java.util.Optional;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.data.domain.Page;
@@ -32,12 +31,12 @@ public interface SoftDeletedUserTableHtsJdbcRepository
       String databaseId, String tableId, Long deletedAt);
 
   /**
-   * Find all soft deleted tables by any combination of filters If timeToLive is provided, it will
-   * return all soft deleted tables that are before than the given timestamp.
+   * Find all soft deleted tables by any combination of filters If purgeAfterMs is provided, it will
+   * return all soft deleted tables that expire before the given timestamp
    *
    * @param databaseId
    * @param tableId
-   * @param timeToLive
+   * @param purgeAfterMs
    * @param pageable
    * @return
    */
@@ -45,9 +44,9 @@ public interface SoftDeletedUserTableHtsJdbcRepository
       "select DISTINCT u from SoftDeletedUserTableRow u where "
           + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
           + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
-          + "(:timeToLive IS NULL OR u.timeToLive < :timeToLive)")
+          + "(:purgeAfterMs IS NULL OR u.purgeAfterMs < :purgeAfterMs)")
   Page<SoftDeletedUserTableRow> findAllByFilters(
-      String databaseId, String tableId, Timestamp timeToLive, Pageable pageable);
+      String databaseId, String tableId, Long purgeAfterMs, Pageable pageable);
 
   @Query(
       "DELETE FROM SoftDeletedUserTableRow u"

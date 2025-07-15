@@ -7,7 +7,6 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
-import java.sql.Timestamp;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -32,7 +31,7 @@ public class SoftDeletedHtsRepositoryTest {
           .metadataLocation(TEST_TUPLE_1_1.getTableLoc())
           .storageType(TEST_TUPLE_1_1.getStorageType())
           .deletedAtMs(deletedTimestamp)
-          .timeToLive(Timestamp.from(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(3600)))
+          .purgeAfterMs(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(3600).toEpochMilli())
           .build();
 
   @Autowired private SoftDeletedUserTableHtsJdbcRepository softDeletedUserTableHtsJdbcRepository;
@@ -96,7 +95,7 @@ public class SoftDeletedHtsRepositoryTest {
             .metadataLocation(TEST_TUPLE_1_1.getTableLoc() + "_2")
             .storageType(TEST_TUPLE_1_1.getStorageType())
             .deletedAtMs(deletedTimestamp)
-            .timeToLive(Timestamp.from(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(7200)))
+            .purgeAfterMs(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(7200).toEpochMilli())
             .build();
     softDeletedUserTableHtsJdbcRepository.save(secondSoftDeletedUserTableRow);
 
@@ -119,8 +118,7 @@ public class SoftDeletedHtsRepositoryTest {
     // Test filtering by TTL
     assertThat(
             softDeletedUserTableHtsJdbcRepository
-                .findAllByFilters(
-                    null, null, Timestamp.from(Instant.ofEpochMilli(0)), Pageable.ofSize(10))
+                .findAllByFilters(null, null, 0L, Pageable.ofSize(10))
                 .getTotalElements())
         .isEqualTo(0);
 
@@ -129,7 +127,7 @@ public class SoftDeletedHtsRepositoryTest {
                 .findAllByFilters(
                     null,
                     null,
-                    Timestamp.from(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(100000)),
+                    Instant.ofEpochMilli(deletedTimestamp).plusSeconds(100000).toEpochMilli(),
                     Pageable.ofSize(10))
                 .getTotalElements())
         .isEqualTo(2);
@@ -138,7 +136,7 @@ public class SoftDeletedHtsRepositoryTest {
         softDeletedUserTableHtsJdbcRepository.findAllByFilters(
             null,
             null,
-            Timestamp.from(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(7000)),
+            Instant.ofEpochMilli(deletedTimestamp).plusSeconds(7000).toEpochMilli(),
             Pageable.ofSize(10));
     assertThat(page.getTotalElements()).isEqualTo(1);
     assertThat(page.get().findFirst().isPresent()).isTrue();

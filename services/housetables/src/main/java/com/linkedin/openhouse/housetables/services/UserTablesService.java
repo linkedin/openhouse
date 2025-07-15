@@ -75,22 +75,26 @@ public interface UserTablesService {
       String metadataLocation);
 
   /**
-   * Recover a soft-deleted user table identified by its databaseId, tableId, and deletedAtMs
+   * restore a soft-deleted user table identified by its databaseId, tableId, and deletedAtMs
    *
    * @param databaseId
    * @param tableId
    * @param deletedAtMs
    */
-  UserTableDto recoverUserTable(String databaseId, String tableId, Long deletedAtMs);
+  UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAtMs);
 
   void purgeSoftDeletedUserTable(String databaseId, String tableId, Long deletedAtMs);
 
   /**
-   * Get all soft-deleted user tables that match the provided filters in the {@link UserTable}
-   * Currently the filters supported are limited to databaseId, tableId, and timeToLive.
+   * Get all soft deleted tables by filters.
+   *
+   * <p>Currently the filters supported are limited to databaseId, tableId, and purgeAfterMs.
    *
    * @param userTable
-   * @return List of {@link UserTableDto} that matches the provided {@link UserTable}
+   * @param page
+   * @param size
+   * @param sortBy
+   * @return
    */
   Page<UserTableDto> getAllSoftDeletedTables(
       UserTable userTable, int page, int size, String sortBy);

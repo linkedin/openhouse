@@ -86,7 +86,7 @@ public class OpenHouseSoftDeletedUserTableHtsApiHandler implements SoftDeletedTa
   }
 
   @Override
-  public ApiResponse<EntityResponseBody<UserTable>> recoverEntity(
+  public ApiResponse<EntityResponseBody<UserTable>> restoreEntity(
       SoftDeletedUserTableKey softDeletedUserTable) {
     UserTableKey userTableKey =
         UserTableKey.builder()
@@ -101,7 +101,7 @@ public class OpenHouseSoftDeletedUserTableHtsApiHandler implements SoftDeletedTa
             EntityResponseBody.<UserTable>builder()
                 .entity(
                     userTablesMapper.toUserTable(
-                        userTableService.recoverUserTable(
+                        userTableService.restoreUserTable(
                             softDeletedUserTable.getDatabaseId(),
                             softDeletedUserTable.getTableId(),
                             softDeletedUserTable.getDeletedAtMs())))

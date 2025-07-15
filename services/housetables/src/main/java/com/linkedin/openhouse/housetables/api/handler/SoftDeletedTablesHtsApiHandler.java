@@ -8,6 +8,6 @@ import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 public interface SoftDeletedTablesHtsApiHandler
     extends HouseTablesApiHandler<SoftDeletedUserTableKey, UserTable> {
 
-  ApiResponse<EntityResponseBody<UserTable>> recoverEntity(
+  ApiResponse<EntityResponseBody<UserTable>> restoreEntity(
       SoftDeletedUserTableKey softDeletedUserTable);
 }
