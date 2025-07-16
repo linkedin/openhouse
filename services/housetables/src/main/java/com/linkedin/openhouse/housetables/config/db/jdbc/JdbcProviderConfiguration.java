@@ -4,7 +4,6 @@ import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -38,7 +37,6 @@ public class JdbcProviderConfiguration {
 
   @Bean
   @Primary
-  @ConfigurationProperties("spring.datasource")
   public DataSourceProperties dataSourceProperties() {
     DatabaseConfiguration.SupportedDbTypes dbType =
         DatabaseConfiguration.SupportedDbTypes.valueOf(
