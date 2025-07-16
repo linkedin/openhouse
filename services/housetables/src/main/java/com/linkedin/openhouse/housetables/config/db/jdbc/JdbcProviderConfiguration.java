@@ -2,8 +2,6 @@ package com.linkedin.openhouse.housetables.config.db.jdbc;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration;
-import com.zaxxer.hikari.HikariDataSource;
-import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -14,9 +12,9 @@ import org.springframework.context.annotation.Primary;
 /**
  * Configure JDBC sources such as h2, mysql, postgres
  *
- * <p>Such sources are configured by providing a bean for appropriate {@link DataSource} and then
- * annotating the repository implementation sources with {@link
- * org.springframework.data.jpa.repository.config.EnableJpaRepositories}
+ * <p>Spring Boot will automatically create and configure HikariCP DataSource based on
+ * spring.datasource.* properties. Additional HikariCP-specific settings can be configured using
+ * spring.datasource.hikari.* properties.
  *
  * @see <a href="https://howtodoinjava.com/spring-boot2/datasource-configuration/">Datasource
  *     Configuration</a>
@@ -31,13 +29,6 @@ public class JdbcProviderConfiguration {
     this.clusterProperties = clusterProperties;
   }
 
-  @Bean
-  @Primary
-  @ConfigurationProperties("spring.datasource")
-  public DataSourceProperties dataSourceProperties() {
-    return new DataSourceProperties();
-  }
-
   /**
    * jdbc url is database specific. Here an "H2" database is chosen to work with in-"mem"ory mode on
    * "htsdb" database. With DB_CLOSE_DELAY=-1, the database is kept alive as long as the JVM lives,
@@ -47,15 +38,15 @@ public class JdbcProviderConfiguration {
 
   @Bean
   @Primary
-  @ConfigurationProperties("spring.datasource.hikari")
-  public DataSource dataSource() {
+  @ConfigurationProperties("spring.datasource")
+  public DataSourceProperties dataSourceProperties() {
     DatabaseConfiguration.SupportedDbTypes dbType =
         DatabaseConfiguration.SupportedDbTypes.valueOf(
             clusterProperties.getClusterHouseTablesDatabaseType());
 
     log.info("Using {} database for HouseTables service", dbType);
 
-    DataSourceProperties properties = dataSourceProperties();
+    DataSourceProperties properties = new DataSourceProperties();
 
     // Set database-specific properties
     properties.setUrl(
@@ -65,6 +56,6 @@ public class JdbcProviderConfiguration {
     properties.setUsername(clusterProperties.getClusterHouseTablesDatabaseUsername());
     properties.setPassword(clusterProperties.getClusterHouseTablesDatabasePassword());
 
-    return properties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
+    return properties;
   }
 }
