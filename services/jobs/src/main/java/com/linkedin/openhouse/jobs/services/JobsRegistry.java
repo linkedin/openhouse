@@ -148,7 +148,6 @@ public class JobsRegistry {
      * @return Map of arguments.
      */
     public Map<String, String> getArgs() {
-      Collections.unmodifiableMap(keyValues);
       return Collections.unmodifiableMap(keyValues);
     }
 
