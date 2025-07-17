@@ -690,6 +690,7 @@ public class RepositoryTest {
             .tableVersion(savedTblDto.getTableLocation())
             .tableProperties(destTblMap)
             .policies(TABLE_POLICIES)
+            .sortOrder("SortOrder")
             .build();
     // Demonstrated that the replica table updates are not blocked with table properties from
     // primary table

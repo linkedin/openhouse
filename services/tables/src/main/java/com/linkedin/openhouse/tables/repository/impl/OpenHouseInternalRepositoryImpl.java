@@ -41,6 +41,7 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
@@ -142,6 +143,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
           doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+      boolean sortOrderUpdated = doUpdateSortOrderIfNeeded(updateProperties, tableDto, table);
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
@@ -149,7 +151,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       updateProperties.commit();
 
       // No new metadata.json shall be generated if nothing changed.
-      if (schemaUpdated || propsUpdated || snapshotsUpdated || policiesUpdated || tableTypeAdded) {
+      if (schemaUpdated
+          || propsUpdated
+          || snapshotsUpdated
+          || policiesUpdated
+          || sortOrderUpdated
+          || tableTypeAdded) {
         transaction.commitTransaction();
         meterRegistry.counter(MetricsConstant.REPO_TABLE_UPDATED_CTR).increment();
       }
@@ -160,6 +167,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
     return convertToTableDto(
         table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
+  }
+
+  private boolean doUpdateSortOrderIfNeeded(
+      UpdateProperties updateProperties, TableDto providedTableDto, Table existingTable) {
+    if (providedTableDto.getSortOrder().equals(SortOrderParser.toJson(existingTable.sortOrder()))) {
+      return false;
+    }
+    updateProperties.set(SORT_ORDER_KEY, providedTableDto.getSortOrder());
+    return true;
   }
 
   private boolean skipEligibilityCheck(

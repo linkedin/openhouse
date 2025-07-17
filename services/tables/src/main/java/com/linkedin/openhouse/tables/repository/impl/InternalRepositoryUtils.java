@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateProperties;
 
@@ -150,6 +151,7 @@ public final class InternalRepositoryUtils {
             .tableType(tableTypeMapper.toTableType(table))
             .jsonSnapshots(null)
             .tableProperties(megaProps)
+            .sortOrder(SortOrderParser.toJson(table.sortOrder()))
             .build();
 
     return tableDto;
