@@ -116,7 +116,7 @@ public class UserHouseTablesController {
   @Operation(
       summary = "Get Soft Deleted User Tables",
       description =
-          "Returns paginated soft deleted user tables given databaseId, tableId, and/or purgeAfterMs. "
+          "Returns paginated soft deleted user tables given databaseId, and/or tableId, and/or purgeAfterMs. "
               + "If purgeAfterMs is provided, it will return all soft deleted tables that expire before the given timestamp",
       tags = {"UserTable"})
   @ApiResponses(
@@ -147,7 +147,8 @@ public class UserHouseTablesController {
 
   @Operation(
       summary = "Delete a User Table",
-      description = "Delete a User House Table entry identified by databaseID and tableId.",
+      description =
+          "Delete a User House Table entry identified by databaseID and tableId. This endpoint will default softDelete to false",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -171,8 +172,8 @@ public class UserHouseTablesController {
       summary = "Delete a User Table",
       description =
           "Delete a User House Table entry identified by databaseID and tableId. "
-              + "Soft delete will store the User House Table entry in a separate table and cleaned up at a later time "
-              + "(configured TTL) unless restored.",
+              + "Soft delete will remove the User House Table entry and store it in Soft Deleted User Table. with additional metadata deletedAtMs and "
+              + "purgeFromMs. Tables soft deleted will be configured with a TTL (purgeAfterMs) to be permanently deleted unless restored.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -257,7 +258,7 @@ public class UserHouseTablesController {
   }
 
   @Operation(
-      summary = "restore a Soft Deleted User Table",
+      summary = "Restore a Soft Deleted User Table",
       description =
           "Restores an existing soft-deleted User House Table identified by databaseID, tableId, and deletedAtMs. "
               + " Will fail if the table's databaseId and tableId is currently in use.",
@@ -273,7 +274,7 @@ public class UserHouseTablesController {
   public ResponseEntity<EntityResponseBody<UserTable>> restoreUserTable(
       @RequestParam(value = "databaseId") String databaseId,
       @RequestParam(value = "tableId") String tableId,
-      @RequestParam(value = "deletedAtMs") Long deletedAtMs) {
+      @RequestParam(value = "deletedAtMs") long deletedAtMs) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse;
     apiResponse =
         softDeletedTablesHtsApiHandler.restoreEntity(
@@ -287,10 +288,10 @@ public class UserHouseTablesController {
   }
 
   @Operation(
-      summary = "Purge a Soft Deleted User Tables older than purgeFromMs",
+      summary = "Purge Soft Deleted User Tables older than purgeFromMs",
       description =
           "Permanently deletes existing Soft Deleted User Tables older than purgeFromMs that match "
-              + "databaseId and tableId. Can be called with purgeFromMs=0 to delete all soft deleted user tables.",
+              + "databaseId and tableId. If purgeAfterMs is not provided, it will delete all soft deleted tables for the given table id",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -299,10 +300,10 @@ public class UserHouseTablesController {
         @ApiResponse(responseCode = "404", description = "User Table PUT: TBL_DB_NOT_FOUND")
       })
   @DeleteMapping(value = HTS_TABLES_PURGE_ENDPOINT)
-  public ResponseEntity<Void> purgeSoftDeletedUserTable(
+  public ResponseEntity<Void> purgeSoftDeletedUserTables(
       @RequestParam(value = "databaseId") String databaseId,
       @RequestParam(value = "tableId") String tableId,
-      @RequestParam(value = "purgeFromMs") Long purgeFromMs) {
+      @RequestParam(value = "purgeFromMs", required = false) Long purgeFromMs) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse;
     apiResponse = softDeletedTablesHtsApiHandler.deleteEntities(databaseId, tableId, purgeFromMs);
     return new ResponseEntity<>(

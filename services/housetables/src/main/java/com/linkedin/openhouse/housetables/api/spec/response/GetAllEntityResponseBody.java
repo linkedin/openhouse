@@ -13,7 +13,7 @@ import org.springframework.data.domain.Page;
 public class GetAllEntityResponseBody<T> {
 
   @Schema(description = "List of user table objects in House table", example = "")
-  @JsonProperty(access = JsonProperty.Access.READ_ONLY, defaultValue = "[]")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   @SuppressFBWarnings(
       value = "URF_UNREAD_FIELD",
       justification = "Value referenced in generated client code.")

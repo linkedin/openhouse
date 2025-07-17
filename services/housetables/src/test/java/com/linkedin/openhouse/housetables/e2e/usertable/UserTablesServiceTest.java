@@ -589,6 +589,15 @@ public class UserTablesServiceTest {
     Assertions.assertEquals(
         1,
         userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
+
+    // Delete all
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.purgeSoftDeletedUserTables(
+                TEST_TUPLE_2_0.getDatabaseId(), TEST_TUPLE_2_0.getTableId(), null));
+    Assertions.assertEquals(
+        0,
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
   }
 
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {

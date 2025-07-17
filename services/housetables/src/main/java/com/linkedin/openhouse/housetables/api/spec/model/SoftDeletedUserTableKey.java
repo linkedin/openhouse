@@ -11,7 +11,7 @@ import javax.validation.constraints.Pattern;
 import lombok.Builder;
 import lombok.Value;
 
-/** The key type for the House table storing user tables. */
+/** The key type for the House table storing user soft deleted tables. */
 @Builder
 @Value
 public class SoftDeletedUserTableKey {
@@ -24,19 +24,20 @@ public class SoftDeletedUserTableKey {
   private String tableId;
 
   @Schema(
-      description =
-          "Unique Resource identifier for the Database containing the Table. Together with tableID"
-              + " they form a composite primary key for a user table.",
+      description = "Unique Resource identifier for the Database containing the Table.",
       example = "my_database")
   @JsonProperty(value = "databaseId")
   @NotEmpty(message = "databaseId cannot be empty")
   @Pattern(regexp = ALPHA_NUM_UNDERSCORE_REGEX, message = ALPHA_NUM_UNDERSCORE_ERROR_MSG)
   private String databaseId;
 
-  @Schema(description = "Delete time in unix epoch milliseconds", example = "1651002318265")
+  @Schema(
+      description =
+          "Delete time in unix epoch milliseconds. Needed as part of primary key to support multiple versions of a deleted table",
+      example = "1651002318265")
   @JsonProperty(value = "deletedAtMs")
   @NotEmpty(message = "deletedAtMs cannot be empty")
-  private Long deletedAtMs;
+  private long deletedAtMs;
 
   public String toJson() {
     return new Gson().toJson(this);

@@ -48,6 +48,7 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.HOUSETABLES_SERVICE);
+  @Autowired private SoftDeletedUserTableHtsJdbcRepository softDeletedUserTableHtsJdbcRepository;
 
   @Override
   public UserTableDto getUserTable(String databaseId, String tableId) {
@@ -181,6 +182,14 @@ public class UserTablesServiceImpl implements UserTablesService {
         UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
   }
 
+  /**
+   * Moves a soft deleted user table back to the user tables repository.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param deletedAt
+   * @return
+   */
   @Override
   @Transactional
   public UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAt) {
@@ -203,10 +212,24 @@ public class UserTablesServiceImpl implements UserTablesService {
     }
   }
 
+  /**
+   * Deletes all soft deleted user tables for a given databaseId and tableId that have a
+   * purgeAfterMs earlier than purgeFromMs.
+   *
+   * @param databaseId The database ID of the soft deleted user table.
+   * @param tableId The table ID of the soft deleted user table.
+   * @param purgeFromMs The timestamp in milliseconds after which all soft deleted user tables
+   *     should be deleted. If null, all soft deleted user tables for the given databaseId and
+   *     tableId will be deleted.
+   */
   @Override
   public void purgeSoftDeletedUserTables(String databaseId, String tableId, Long purgeFromMs) {
-    softDeletedHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
-        databaseId, tableId, purgeFromMs);
+    if (purgeFromMs == null) {
+      softDeletedHtsJdbcRepository.deleteAllByDatabaseIdTableId(databaseId, tableId);
+    } else {
+      softDeletedHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
+          databaseId, tableId, purgeFromMs);
+    }
   }
 
   @Override

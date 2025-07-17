@@ -701,7 +701,7 @@ public class HtsControllerTest {
             MockMvcRequestBuilders.delete("/hts/tables/purge")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", TEST_TABLE_ID)
-                .param("deletedAtMs", String.valueOf(deletedAtMs)))
+                .param("purgeFromMs", String.valueOf(purgeAfterMs + 1)))
         .andExpect(status().isNoContent());
 
     // Verify it's no longer in soft deleted tables
@@ -714,13 +714,50 @@ public class HtsControllerTest {
   }
 
   @Test
-  public void testPurgeNonExistentSoftDeletedTable() throws Exception {
-    // Try to purge a non-existent soft deleted table
+  public void testPurgeAllSoftDeletedTables() throws Exception {
+    // Insert a soft deleted entry directly into repository
+    long deletedAtMs = System.currentTimeMillis();
+    long purgeAfterMs = deletedAtMs + 604800000L; // 7 days from deletion
+    SoftDeletedUserTableRow softDeletedEntry =
+        SoftDeletedUserTableRow.builder()
+            .tableId(TEST_TABLE_ID)
+            .databaseId(TEST_DB_ID)
+            .deletedAtMs(deletedAtMs)
+            .version(1L)
+            .metadataLocation("test-location")
+            .storageType("HDFS")
+            .creationTime(System.currentTimeMillis())
+            .purgeAfterMs(purgeAfterMs)
+            .build();
+    softDeletedHtsJdbcRepository.save(softDeletedEntry);
+    softDeletedHtsJdbcRepository.save(
+        softDeletedEntry.toBuilder().deletedAtMs(deletedAtMs + 1).purgeAfterMs(0L).build());
+    softDeletedHtsJdbcRepository.save(
+        softDeletedEntry
+            .toBuilder()
+            .deletedAtMs(deletedAtMs + 2)
+            .purgeAfterMs(purgeAfterMs + 1)
+            .build());
+
+    // Get the soft deleted table to obtain deletedAtMs
+    Map<String, List<String>> queryParams = new HashMap<>();
+    queryParams.put("databaseId", Collections.singletonList(TEST_DB_ID));
+    queryParams.put("tableId", Collections.singletonList(TEST_TABLE_ID));
+    MultiValueMap<String, String> params = new MultiValueMapAdapter(queryParams);
+
+    // Purge the soft deleted table
     mvc.perform(
             MockMvcRequestBuilders.delete("/hts/tables/purge")
-                .param("databaseId", "non_existent_db")
-                .param("tableId", "non_existent_table")
-                .param("deletedAtMs", "1234567890"))
-        .andExpect(status().isNotFound());
+                .param("databaseId", TEST_DB_ID)
+                .param("tableId", TEST_TABLE_ID))
+        .andExpect(status().isNoContent());
+
+    // Verify it's no longer in soft deleted tables
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
+                .params(params)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(0)));
   }
 }

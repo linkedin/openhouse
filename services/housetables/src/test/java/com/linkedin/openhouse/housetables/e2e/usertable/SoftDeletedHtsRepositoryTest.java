@@ -70,7 +70,7 @@ public class SoftDeletedHtsRepositoryTest {
   }
 
   @Test
-  public void testPurgeSoftDeletedTables() {
+  public void testPurgeSoftDeletedTablesWithPurgeAfterMs() {
     softDeletedUserTableHtsJdbcRepository.save(softDeletedUserTableRowTestTuple1_1);
     SoftDeletedUserTableRow tableWithLongerTTL =
         softDeletedUserTableRowTestTuple1_1
@@ -129,6 +129,48 @@ public class SoftDeletedHtsRepositoryTest {
         softDeletedUserTableHtsJdbcRepository
             .findAllByFilters(TEST_TUPLE_1_1.getDatabaseId(), null, null, Pageable.ofSize(10))
             .getTotalElements());
+  }
+
+  @Test
+  public void testPurgeSoftDeletedTables() {
+    softDeletedUserTableHtsJdbcRepository.save(softDeletedUserTableRowTestTuple1_1);
+    SoftDeletedUserTableRow tableWithLongerTTL =
+        softDeletedUserTableRowTestTuple1_1
+            .toBuilder()
+            .purgeAfterMs(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(10000).toEpochMilli())
+            .deletedAtMs(deletedTimestamp + 1)
+            .build();
+    softDeletedUserTableHtsJdbcRepository.save(tableWithLongerTTL);
+    String otherTableId = TEST_TUPLE_1_1.getTableId() + "_2";
+    SoftDeletedUserTableRow tableWithSeparateTableName =
+        softDeletedUserTableRowTestTuple1_1.toBuilder().tableId(otherTableId).build();
+    softDeletedUserTableHtsJdbcRepository.save(tableWithSeparateTableName);
+    // Validate is case insensitive
+    SoftDeletedUserTableRowPrimaryKey key =
+        SoftDeletedUserTableRowPrimaryKey.builder()
+            .tableId(TEST_TUPLE_1_1.getTableId().toUpperCase())
+            .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+            .deletedAtMs(deletedTimestamp)
+            .build();
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            softDeletedUserTableHtsJdbcRepository.deleteAllByDatabaseIdTableId(
+                TEST_TUPLE_1_1.getDatabaseId(), TEST_TUPLE_1_1.getTableId()));
+
+    // Only the table with the otherTableId would be left
+    Page<SoftDeletedUserTableRow> results =
+        softDeletedUserTableHtsJdbcRepository.findAllByFilters(
+            TEST_TUPLE_1_1.getDatabaseId(), null, null, Pageable.ofSize(10));
+
+    assertThat(1)
+        .isEqualTo(
+            softDeletedUserTableHtsJdbcRepository
+                .findAllByFilters(TEST_TUPLE_1_1.getDatabaseId(), null, null, Pageable.ofSize(10))
+                .getTotalElements());
+
+    assertThat(results.get().findFirst().isPresent()).isTrue();
+    assertThat(results.get().findFirst().get().getTableId().equals(otherTableId)).isTrue();
   }
 
   @Test
