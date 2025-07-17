@@ -107,6 +107,10 @@ public class CreateUpdateTableRequestBody {
   @Builder.Default
   private TableType tableType = TableType.PRIMARY_TABLE;
 
+  @Schema(description = "The sort order of a table")
+  @Valid
+  private String sortOrder;
+
   public String toJson() {
     return new GsonBuilder().serializeNulls().create().toJson(this);
   }
