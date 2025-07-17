@@ -99,12 +99,18 @@ public class JobsRegistryTest {
     Map<String, String> executionConf = new HashMap<>();
     executionConf.put("spark.driver.memory", "5G");
     executionConf.put("spark.driver.maxResultSize", "0");
+    JobConf originalJobConf =
+        JobConf.builder().jobType(JobConf.JobType.ORPHAN_FILES_DELETION).build();
+    JobLaunchConf originalLaunchConf = jobsRegistry.createLaunchConf("jobId", originalJobConf);
+    Assertions.assertNotEquals(-1, originalLaunchConf.getArgs().indexOf(".trash"));
+
     List<String> listArgs = new ArrayList<>(Arrays.asList("--trashDir", ".updatedTrash"));
     JobConf overwriteJobConf =
         JobConf.builder().jobType(JobConf.JobType.ORPHAN_FILES_DELETION).args(listArgs).build();
     JobLaunchConf launchConf = jobsRegistry.createLaunchConf("jobId", overwriteJobConf);
     int index = launchConf.getArgs().indexOf("--trashDir");
     Assertions.assertEquals(".updatedTrash", launchConf.getArgs().get(index + 1));
+    Assertions.assertEquals(-1, launchConf.getArgs().indexOf(".trash"));
   }
 
   @Test
