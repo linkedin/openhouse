@@ -72,7 +72,17 @@ public class SoftDeletedHtsRepositoryTest {
   @Test
   public void testPurgeSoftDeletedTables() {
     softDeletedUserTableHtsJdbcRepository.save(softDeletedUserTableRowTestTuple1_1);
-
+    SoftDeletedUserTableRow tableWithLongerTTL =
+        softDeletedUserTableRowTestTuple1_1
+            .toBuilder()
+            .purgeAfterMs(Instant.ofEpochMilli(deletedTimestamp).plusSeconds(10000).toEpochMilli())
+            .deletedAtMs(deletedTimestamp + 1)
+            .build();
+    softDeletedUserTableHtsJdbcRepository.save(tableWithLongerTTL);
+    String otherTableId = TEST_TUPLE_1_1.getTableId() + "_2";
+    SoftDeletedUserTableRow tableWithSeparateTableName =
+        softDeletedUserTableRowTestTuple1_1.toBuilder().tableId(otherTableId).build();
+    softDeletedUserTableHtsJdbcRepository.save(tableWithSeparateTableName);
     // Validate is case insensitive
     SoftDeletedUserTableRowPrimaryKey key =
         SoftDeletedUserTableRowPrimaryKey.builder()
@@ -81,7 +91,44 @@ public class SoftDeletedHtsRepositoryTest {
             .deletedAtMs(deletedTimestamp)
             .build();
 
-    Assertions.assertDoesNotThrow(() -> softDeletedUserTableHtsJdbcRepository.deleteById(key));
+    // Does not delete any soft deleted user tables because purgeFromMs
+    Assertions.assertDoesNotThrow(
+        () ->
+            softDeletedUserTableHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
+                TEST_TUPLE_1_1.getDatabaseId(), TEST_TUPLE_1_1.getTableId(), deletedTimestamp));
+
+    Assertions.assertEquals(
+        3,
+        softDeletedUserTableHtsJdbcRepository
+            .findAllByFilters(TEST_TUPLE_1_1.getDatabaseId(), null, null, Pageable.ofSize(10))
+            .getTotalElements());
+    // Does not delete any soft deleted user tables because purgeFromMs
+    Assertions.assertDoesNotThrow(
+        () ->
+            softDeletedUserTableHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
+                TEST_TUPLE_1_1.getDatabaseId(),
+                otherTableId,
+                Instant.ofEpochMilli(deletedTimestamp).plusSeconds(3601).toEpochMilli()));
+
+    Assertions.assertEquals(
+        0,
+        softDeletedUserTableHtsJdbcRepository
+            .findAllByFilters(
+                TEST_TUPLE_1_1.getDatabaseId(), otherTableId, null, Pageable.ofSize(10))
+            .getTotalElements());
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            softDeletedUserTableHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
+                TEST_TUPLE_1_1.getDatabaseId(),
+                TEST_TUPLE_1_1.getTableId(),
+                Instant.ofEpochMilli(deletedTimestamp).plusSeconds(100000).toEpochMilli()));
+
+    Assertions.assertEquals(
+        0,
+        softDeletedUserTableHtsJdbcRepository
+            .findAllByFilters(TEST_TUPLE_1_1.getDatabaseId(), null, null, Pageable.ofSize(10))
+            .getTotalElements());
   }
 
   @Test

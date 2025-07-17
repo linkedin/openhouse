@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.housetables.controller;
 
-import com.linkedin.openhouse.housetables.api.handler.SoftDeletedTablesHtsApiHandler;
+import com.linkedin.openhouse.housetables.api.handler.SoftDeletedUserTableHtsApiHandler;
 import com.linkedin.openhouse.housetables.api.handler.UserTableHtsApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.model.SoftDeletedUserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
@@ -44,7 +44,7 @@ public class UserHouseTablesController {
 
   @Autowired private UserTableHtsApiHandler tableHtsApiHandler;
 
-  @Autowired private SoftDeletedTablesHtsApiHandler softDeletedTablesHtsApiHandler;
+  @Autowired private SoftDeletedUserTableHtsApiHandler softDeletedTablesHtsApiHandler;
 
   @Autowired private UserTablesMapper userTablesMapper;
 
@@ -171,7 +171,8 @@ public class UserHouseTablesController {
       summary = "Delete a User Table",
       description =
           "Delete a User House Table entry identified by databaseID and tableId. "
-              + "Soft delete will store the User House Table entry in a separate table and cleaned up at a later time unless restoreed.",
+              + "Soft delete will store the User House Table entry in a separate table and cleaned up at a later time "
+              + "(configured TTL) unless restored.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -286,8 +287,10 @@ public class UserHouseTablesController {
   }
 
   @Operation(
-      summary = "Purge a Soft Deleted User Table",
-      description = "Permanently deletes an existing soft-deleted User Table",
+      summary = "Purge a Soft Deleted User Tables older than purgeFromMs",
+      description =
+          "Permanently deletes existing Soft Deleted User Tables older than purgeFromMs that match "
+              + "databaseId and tableId. Can be called with purgeFromMs=0 to delete all soft deleted user tables.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -299,15 +302,9 @@ public class UserHouseTablesController {
   public ResponseEntity<Void> purgeSoftDeletedUserTable(
       @RequestParam(value = "databaseId") String databaseId,
       @RequestParam(value = "tableId") String tableId,
-      @RequestParam(value = "deletedAtMs") Long deletedAtMs) {
+      @RequestParam(value = "purgeFromMs") Long purgeFromMs) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse;
-    apiResponse =
-        softDeletedTablesHtsApiHandler.deleteEntity(
-            SoftDeletedUserTableKey.builder()
-                .databaseId(databaseId)
-                .tableId(tableId)
-                .deletedAtMs(deletedAtMs)
-                .build());
+    apiResponse = softDeletedTablesHtsApiHandler.deleteEntities(databaseId, tableId, purgeFromMs);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

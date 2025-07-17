@@ -204,17 +204,9 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public void purgeSoftDeletedUserTable(String databaseId, String tableId, Long deletedAt) {
-    SoftDeletedUserTableRowPrimaryKey softDeletedTableKey =
-        SoftDeletedUserTableRowPrimaryKey.builder()
-            .databaseId(databaseId)
-            .tableId(tableId)
-            .deletedAtMs(deletedAt)
-            .build();
-    if (!softDeletedHtsJdbcRepository.existsById(softDeletedTableKey)) {
-      throw new NoSuchUserTableException(databaseId, tableId);
-    }
-    softDeletedHtsJdbcRepository.deleteById(softDeletedTableKey);
+  public void purgeSoftDeletedUserTables(String databaseId, String tableId, Long purgeFromMs) {
+    softDeletedHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
+        databaseId, tableId, purgeFromMs);
   }
 
   @Override

@@ -9,13 +9,13 @@ import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponse
 import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
-import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 @Component
-public class OpenHouseSoftDeletedUserTableHtsApiHandler implements SoftDeletedTablesHtsApiHandler {
+public class OpenHouseSoftDeletedUserTableHtsApiHandler
+    implements SoftDeletedUserTableHtsApiHandler {
 
   @Autowired private HouseTablesApiValidator<UserTableKey, UserTable> userTablesHtsApiValidator;
 
@@ -26,22 +26,13 @@ public class OpenHouseSoftDeletedUserTableHtsApiHandler implements SoftDeletedTa
   @Override
   public ApiResponse<EntityResponseBody<UserTable>> getEntity(
       SoftDeletedUserTableKey userTableKey) {
-    throw new UnsupportedOperationException("Get Soft deleted user table is unsupported");
+    throw new UnsupportedOperationException("Get soft deleted user table is unsupported");
   }
 
   @Override
   public ApiResponse<GetAllEntityResponseBody<UserTable>> getEntities(UserTable userTable) {
-    userTablesHtsApiValidator.validateGetEntities(userTable);
-    return ApiResponse.<GetAllEntityResponseBody<UserTable>>builder()
-        .httpStatus(HttpStatus.OK)
-        .responseBody(
-            GetAllEntityResponseBody.<UserTable>builder()
-                .results(
-                    userTableService.getAllUserTables(userTable).stream()
-                        .map(userTableDto -> userTablesMapper.toUserTable(userTableDto))
-                        .collect(Collectors.toList()))
-                .build())
-        .build();
+    throw new UnsupportedOperationException(
+        "Get soft deleted table by userTable is unsupported, use the paginated version instead.");
   }
 
   @Override
@@ -62,16 +53,15 @@ public class OpenHouseSoftDeletedUserTableHtsApiHandler implements SoftDeletedTa
 
   @Override
   public ApiResponse<Void> deleteEntity(SoftDeletedUserTableKey softDeletedUserTableKey) {
-    UserTableKey userTableKey =
-        UserTableKey.builder()
-            .databaseId(softDeletedUserTableKey.getDatabaseId())
-            .tableId(softDeletedUserTableKey.getTableId())
-            .build();
-    userTablesHtsApiValidator.validateDeleteEntity(userTableKey);
-    userTableService.purgeSoftDeletedUserTable(
-        softDeletedUserTableKey.getDatabaseId(),
-        softDeletedUserTableKey.getTableId(),
-        softDeletedUserTableKey.getDeletedAtMs());
+    throw new UnsupportedOperationException(
+        "Delete individual soft deleted user table is unsupported");
+  }
+
+  @Override
+  public ApiResponse<Void> deleteEntities(String databaseId, String tableId, Long purgeFromMs) {
+    userTablesHtsApiValidator.validateDeleteEntity(
+        UserTableKey.builder().databaseId(databaseId).tableId(tableId).build());
+    userTableService.purgeSoftDeletedUserTables(databaseId, tableId, purgeFromMs);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 

@@ -20,6 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -554,27 +555,39 @@ public class UserTablesServiceTest {
         () ->
             userTablesService.deleteUserTable(
                 TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_2_0.getDatabaseId(), TEST_TUPLE_2_0.getTableId(), true));
+    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_2_0.getDatabaseId(), TEST_TUPLE_2_0.getTableId(), true));
     // Get the deleted timestamp
     UserTable searchByTableId =
         UserTable.builder()
-            .tableId(TEST_TUPLE_1_0.getTableId())
-            .databaseId(TEST_TUPLE_1_0.getDatabaseId())
+            .tableId(TEST_TUPLE_2_0.getTableId())
+            .databaseId(TEST_TUPLE_2_0.getDatabaseId())
             .build();
     Page<UserTableDto> softDeletedTablePage =
-        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 1, null);
-    Assertions.assertEquals(1, softDeletedTablePage.getTotalElements());
-    Assertions.assertTrue(softDeletedTablePage.get().findFirst().isPresent());
-    UserTableDto softDeletedTable = softDeletedTablePage.get().findFirst().get();
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 2, "purgeAfterMs");
+    Assertions.assertEquals(2, softDeletedTablePage.getTotalElements());
+    List<UserTableDto> softDeletedTables_2_0 =
+        softDeletedTablePage.get().collect(Collectors.toList());
+    Assertions.assertTrue(
+        softDeletedTables_2_0.get(0).getPurgeAfterMs()
+            < softDeletedTables_2_0.get(1).getPurgeAfterMs());
     Assertions.assertDoesNotThrow(
         () ->
-            userTablesService.purgeSoftDeletedUserTable(
-                TEST_TUPLE_1_0.getDatabaseId(),
-                TEST_TUPLE_1_0.getTableId(),
-                softDeletedTable.getDeletedAtMs()));
+            userTablesService.purgeSoftDeletedUserTables(
+                TEST_TUPLE_2_0.getDatabaseId(),
+                TEST_TUPLE_2_0.getTableId(),
+                softDeletedTables_2_0.get(0).getPurgeAfterMs() + 1));
 
     // Validate the row is deleted
     Assertions.assertEquals(
-        0,
+        1,
         userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
   }
 

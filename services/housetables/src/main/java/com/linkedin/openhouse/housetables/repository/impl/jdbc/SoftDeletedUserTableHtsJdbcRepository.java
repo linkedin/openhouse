@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * JDBC-backed {@link HtsRepository} for CRUDing {@link UserTableRow}
@@ -55,6 +56,15 @@ public interface SoftDeletedUserTableHtsJdbcRepository
           + " AND u.deletedAtMs = :deletedAt")
   @Modifying
   void deleteByDatabaseIdTableIdDeletedAt(String databaseId, String tableId, Long deletedAt);
+
+  @Transactional
+  @Query(
+      "DELETE FROM SoftDeletedUserTableRow u"
+          + " WHERE lower(u.databaseId) = lower(:databaseId)"
+          + " AND lower(u.tableId) = lower(:tableId)"
+          + " AND u.purgeAfterMs < :purgeFromMs")
+  @Modifying
+  void deleteByDatabaseIdTableIdPurgeAfterMs(String databaseId, String tableId, Long purgeFromMs);
 
   @Query(
       "SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END FROM SoftDeletedUserTableRow u"
