@@ -12,9 +12,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
@@ -37,16 +41,15 @@ public class JobsRegistry {
     populateAllSparkProperties(
         requestConf.getExecutionConf(), extendedRequestConf.getSparkProperties());
     // required arguments
-    List<String> extendedArgs =
-        new ArrayList<>(Arrays.asList("--jobId", jobId, "--storageURL", storageUri));
+    ArgMap extendedArgs = new ArgMap(Arrays.asList("--jobId", jobId, "--storageURL", storageUri));
     // arguments coming from yaml config
-    extendedArgs.addAll(extendedRequestConf.getArgs());
+    extendedArgs.update(extendedRequestConf.getArgs());
     // runtime arguments provided in the request
-    extendedArgs.addAll(requestConf.getArgs());
+    extendedArgs.update(requestConf.getArgs());
     return extendedRequestConf
         .toBuilder()
         .proxyUser(requestConf.getProxyUser())
-        .args(extendedArgs)
+        .args(extendedArgs.toStringList())
         .build();
   }
 
@@ -81,6 +84,101 @@ public class JobsRegistry {
       map.put(conf.getType(), conf);
     }
     return new JobsRegistry(properties.getStorageUri(), properties.getAuthTokenPath(), map);
+  }
+
+  public static class ArgMap {
+    private final LinkedHashMap<String, String> keyValues = new LinkedHashMap<>();
+    private final Set<String> flags = new LinkedHashSet<>();
+
+    /**
+     * ArgMap is a utility class for parsing, managing, and updating command-line style arguments.
+     * It supports arguments in the form of flags (e.g., "--verbose") and key-value pairs (e.g.,
+     * "--mode prod").
+     *
+     * <p>Flags are stored without associated values and are deduplicated. Key-value pairs are
+     * stored in insertion order and can be updated by calling the {@code update()} method. The
+     * class provides a {@code toStringList()} method to serialize the arguments back into a {@code
+     * List<String>} format, preserving order and structure.
+     */
+    public ArgMap(List<String> input) {
+      parse(input);
+    }
+
+    private void parse(List<String> args) {
+      for (int i = 0; i < args.size(); i++) {
+        String token = args.get(i);
+        if (token.startsWith("--")) {
+          String key = token;
+          String value = null;
+          if (i + 1 < args.size() && !args.get(i + 1).startsWith("--")) {
+            value = args.get(++i);
+            keyValues.put(key, value);
+          } else {
+            flags.add(key);
+          }
+        }
+      }
+    }
+
+    public void update(List<String> updates) {
+      for (int i = 0; i < updates.size(); i++) {
+        String token = updates.get(i);
+        if (token.startsWith("--")) {
+          String key = token;
+          // Remove from both maps/sets in case type changed
+          keyValues.remove(key);
+          flags.remove(key);
+
+          if (i + 1 < updates.size() && !updates.get(i + 1).startsWith("--")) {
+            String value = updates.get(++i);
+            keyValues.put(key, value);
+          } else {
+            flags.add(key);
+          }
+        }
+      }
+    }
+
+    /**
+     * Returns the value for a given key.
+     *
+     * @param key Key (e.g., "--jobId")
+     * @return Associated value or null if not present.
+     */
+    public String get(String key) {
+      return keyValues.get(key);
+    }
+
+    /**
+     * Returns the parsed flags.
+     *
+     * @return Set of flags (e.g., "--verbose").
+     */
+    public Set<String> getFlags() {
+      return Collections.unmodifiableSet(flags);
+    }
+
+    /**
+     * Returns the parsed key-value pairs.
+     *
+     * @return Map of arguments.
+     */
+    public Map<String, String> getArgs() {
+      Collections.unmodifiableMap(keyValues);
+      return Collections.unmodifiableMap(keyValues);
+    }
+
+    public List<String> toStringList() {
+      List<String> result = new ArrayList<>();
+      for (Map.Entry<String, String> entry : keyValues.entrySet()) {
+        result.add(entry.getKey());
+        result.add(entry.getValue());
+      }
+      for (String flag : flags) {
+        result.add(flag);
+      }
+      return result;
+    }
   }
 
   private static void setStorageProviderConf(JobLaunchConf conf, Map<String, String> storageProps) {
