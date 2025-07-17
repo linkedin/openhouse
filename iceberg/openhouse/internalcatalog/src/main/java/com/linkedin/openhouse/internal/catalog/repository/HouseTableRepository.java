@@ -3,7 +3,9 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import java.util.List;
-import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.repository.PagingAndSortingRepository;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -11,9 +13,12 @@ import org.springframework.stereotype.Repository;
  * HouseTable} object.
  */
 @Repository
-public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTablePrimaryKey> {
+public interface HouseTableRepository
+    extends PagingAndSortingRepository<HouseTable, HouseTablePrimaryKey> {
 
   List<HouseTable> findAllByDatabaseId(String databaseId);
+
+  Page<HouseTable> findAllByDatabaseId(String databaseId, Pageable pageable);
 
   void rename(
       String fromDatabaseId,

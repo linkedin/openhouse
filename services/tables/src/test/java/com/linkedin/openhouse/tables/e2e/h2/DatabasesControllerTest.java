@@ -3,19 +3,19 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.GET_DATABASE_RESPONSE_BODY;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.GET_DATABASE_RESPONSE_BODY_DIFF_DB;
-import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
-import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY_DIFF_DB;
-import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY_SAME_DB;
+import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.AfterEach;
@@ -25,6 +25,9 @@ import org.junit.jupiter.api.TestInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
@@ -100,6 +103,50 @@ public class DatabasesControllerTest {
                         .results(new ArrayList<>())
                         .build()
                         .toJson()));
+  }
+
+  @Test
+  public void testGetAllDatabasesPaginated() throws Exception {
+    List<GetTableResponseBody> tables = new ArrayList<>();
+    List<GetDatabaseResponseBody> databases = new ArrayList<>();
+    // Create 10 tables in different databases.
+    for (int i = 0; i < 10; i++) {
+      String databaseId = "d" + i;
+      GetTableResponseBody table = buildGetTableResponseBodyWithDbTbl(databaseId, "t1");
+      tables.add(table);
+      RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+      databases.add(
+          GetDatabaseResponseBody.builder()
+              .databaseId(databaseId)
+              .clusterId("test-cluster")
+              .build());
+    }
+    // Get all databases with page size = 4. Number of databases in each page should be 4,4,2.
+    int pageSize = 4;
+    for (int i = 0; i < 3; i++) {
+      int fromIndex = i * pageSize;
+      int toIndex = Math.min(fromIndex + pageSize, databases.size());
+      Page<GetDatabaseResponseBody> expectedResults =
+          new PageImpl<>(databases.subList(fromIndex, toIndex), PageRequest.of(i, pageSize), 10);
+      mvc.perform(
+              MockMvcRequestBuilders.get("/v2/databases")
+                  .param("page", String.valueOf(i))
+                  .param("size", String.valueOf(pageSize))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isOk())
+          .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+          .andExpect(
+              content()
+                  .json(
+                      GetAllDatabasesResponseBody.builder()
+                          .pageResults(expectedResults)
+                          .build()
+                          .toJson()));
+    }
+    for (int i = 0; i < 10; i++) {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, tables.get(i));
+    }
   }
 
   @Test

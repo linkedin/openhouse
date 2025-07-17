@@ -35,6 +35,19 @@ public interface TablesApiHandler {
   ApiResponse<GetAllTablesResponseBody> searchTables(String databaseId);
 
   /**
+   * Function to Get one Page of Table Resources in a given databaseId given the page size and sort
+   * the results by the sortBy field.
+   *
+   * @param databaseId
+   * @param page
+   * @param size
+   * @param sortBy
+   * @return A page of tables in the given database.
+   */
+  ApiResponse<GetAllTablesResponseBody> searchTables(
+      String databaseId, int page, int size, String sortBy);
+
+  /**
    * Function to Create Table Resource in a given databaseId
    *
    * @param databaseId

@@ -31,6 +31,18 @@ public interface HouseTablesApiValidator<K, V> {
   void validateGetEntities(V entity);
 
   /**
+   * Function to validate a request to get all rows that matches the given entity.
+   *
+   * @param entity The complete entity to be retrieved from House table.
+   * @param page The page number for pagination.
+   * @param size The size of the page for pagination.
+   * @param sortBy The field to sort the results by.
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if the
+   *     request is invalid.
+   */
+  void validateGetEntities(V entity, int page, int size, String sortBy);
+
+  /**
    * Function to validate a request for upsert of a row in a House Table.
    *
    * @param entity The complete entity to be upsert-ed into target House table.

@@ -5,6 +5,8 @@ import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.model.CreateUpdateEntityRequestBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
+import com.linkedin.openhouse.housetables.client.model.PageUserTable;
+import com.linkedin.openhouse.housetables.client.model.UserTable;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -20,9 +22,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.directory.api.util.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.retry.support.RetryTemplateBuilder;
 import org.springframework.stereotype.Repository;
@@ -36,6 +44,7 @@ import reactor.core.publisher.Mono;
  */
 @SuppressWarnings("unchecked")
 @Repository
+@Slf4j
 public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   /**
@@ -100,6 +109,38 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .map(houseTableMapper::toHouseTable)
                     .collectList()
                     .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+  }
+
+  @Override
+  public Page<HouseTable> findAllByDatabaseId(String databaseId, Pageable pageable) {
+    Map<String, String> params = new HashMap<>();
+    if (Strings.isNotEmpty(databaseId)) {
+      params.put("databaseId", databaseId);
+    }
+
+    GetAllEntityResponseBodyUserTable result =
+        getHtsRetryTemplate(
+                Arrays.asList(
+                    HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+            .execute(
+                context ->
+                    apiInstance
+                        .getPaginatedUserTables(
+                            params,
+                            pageable.getPageNumber(),
+                            pageable.getPageSize(),
+                            pageable.getSort().isUnsorted() ? null : pageable.getSort().toString())
+                        .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+
+    // Construct Page<UserTable> from PageUserTable
+    PageUserTable pageResults = result.getPageResults();
+    Page<UserTable> page =
+        new PageImpl<>(
+            pageResults.getContent(),
+            PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
+            pageResults.getTotalElements());
+
+    return page.map(houseTableMapper::toHouseTable);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -228,6 +269,38 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .map(houseTableMapper::toHouseTableWithDatabaseId)
                     .collectList()
                     .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+  }
+
+  @Override
+  public Page<HouseTable> findAll(Pageable pageable) {
+    GetAllEntityResponseBodyUserTable result =
+        getHtsRetryTemplate(
+                Arrays.asList(
+                    HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+            .execute(
+                context ->
+                    apiInstance
+                        .getPaginatedUserTables(
+                            new HashMap<>(),
+                            pageable.getPageNumber(),
+                            pageable.getPageSize(),
+                            pageable.getSort().isUnsorted() ? null : pageable.getSort().toString())
+                        .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+
+    // Construct Page<UserTable> from PageUserTable
+    PageUserTable pageResults = result.getPageResults();
+    Page<UserTable> page =
+        new PageImpl<>(
+            pageResults.getContent(),
+            PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
+            pageResults.getTotalElements());
+
+    return page.map(houseTableMapper::toHouseTableWithDatabaseId);
+  }
+
+  @Override
+  public Page<HouseTable> findAll(Sort sort) {
+    throw new UnsupportedOperationException("FindAll by Sort is not supported.");
   }
 
   @Override
