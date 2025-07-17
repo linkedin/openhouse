@@ -87,7 +87,7 @@ public class JobsRegistry {
   }
 
   public static class ArgMap {
-    private final LinkedHashMap<String, String> keyValues = new LinkedHashMap<>();
+    private final Map<String, String> keyValues = new LinkedHashMap<>();
     private final Set<String> flags = new LinkedHashSet<>();
 
     /**
@@ -101,23 +101,7 @@ public class JobsRegistry {
      * List<String>} format, preserving order and structure.
      */
     public ArgMap(List<String> input) {
-      parse(input);
-    }
-
-    private void parse(List<String> args) {
-      for (int i = 0; i < args.size(); i++) {
-        String token = args.get(i);
-        if (token.startsWith("--")) {
-          String key = token;
-          String value = null;
-          if (i + 1 < args.size() && !args.get(i + 1).startsWith("--")) {
-            value = args.get(++i);
-            keyValues.put(key, value);
-          } else {
-            flags.add(key);
-          }
-        }
-      }
+      update(input);
     }
 
     public void update(List<String> updates) {
