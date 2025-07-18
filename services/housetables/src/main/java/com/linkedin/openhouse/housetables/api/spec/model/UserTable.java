@@ -61,6 +61,22 @@ public class UserTable {
   @JsonProperty(value = "creationTime")
   private Long creationTime;
 
+  @Schema(
+      description =
+          "Timestamp in milliseconds when the table was soft-deleted. "
+              + "If null, then the table is active",
+      example = "1751907524",
+      defaultValue = "null")
+  private Long deletedAtMs;
+
+  @Schema(
+      description =
+          "Unix timestamp in milliseconds indicating when the table will be deleted permanently by another process. "
+              + "If the current time is past the TTL, then the table could be arbitrarily deleted at any time.",
+      example = "1751907524",
+      defaultValue = "null")
+  private Long purgeAfterMs;
+
   public String toJson() {
     return new Gson().toJson(this);
   }
