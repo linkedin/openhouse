@@ -91,7 +91,7 @@ public class SoftDeletedHtsRepositoryTest {
             .deletedAtMs(deletedTimestamp)
             .build();
 
-    // Does not delete any soft deleted user tables because purgeFromMs
+    // Does not delete any soft deleted user tables because purgeAfterMs
     Assertions.assertDoesNotThrow(
         () ->
             softDeletedUserTableHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
@@ -102,7 +102,7 @@ public class SoftDeletedHtsRepositoryTest {
         softDeletedUserTableHtsJdbcRepository
             .findAllByFilters(TEST_TUPLE_1_1.getDatabaseId(), null, null, Pageable.ofSize(10))
             .getTotalElements());
-    // Does not delete any soft deleted user tables because purgeFromMs
+    // Does not delete any soft deleted user tables because purgeAfterMs
     Assertions.assertDoesNotThrow(
         () ->
             softDeletedUserTableHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(

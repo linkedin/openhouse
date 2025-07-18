@@ -81,13 +81,13 @@ public interface UserTablesService {
 
   /**
    * Delete soft deleted user tables given a databaseId, tableId that are older than the given
-   * purgeFromMs
+   * purgeAfterMs
    *
    * @param databaseId
    * @param tableId
-   * @param purgeFromMs
+   * @param purgeAfterMs
    */
-  void purgeSoftDeletedUserTables(String databaseId, String tableId, Long purgeFromMs);
+  void purgeSoftDeletedUserTables(String databaseId, String tableId, Long purgeAfterMs);
 
   /**
    * Get all soft deleted tables by filters.

@@ -11,6 +11,10 @@ import org.mapstruct.MappingTarget;
 @Mapper(componentModel = "spring")
 public interface SoftDeletedUserTablesMapper {
 
+  // TODO: This should be a configurable value based off of database-level configurations
+  // Default to 7 days in seconds
+  static final int DEFAULT_PURGE_AFTER_SECONDS = 7 * 24 * 60 * 60;
+
   SoftDeletedUserTableRow toSoftDeletedUserTableRow(UserTableRow userTableRow);
 
   UserTableDto toUserTableDto(SoftDeletedUserTableRow softDeletedUserTableRow);
@@ -22,8 +26,7 @@ public interface SoftDeletedUserTablesMapper {
     Instant deleteTime = Instant.now();
     softDeletedUserTableRowBuilder.deletedAtMs(deleteTime.toEpochMilli());
 
-    // TODO: This should be a configurable value based off of database-level configurations
     softDeletedUserTableRowBuilder.purgeAfterMs(
-        deleteTime.plus(7, java.time.temporal.ChronoUnit.DAYS).toEpochMilli());
+        deleteTime.plusSeconds(DEFAULT_PURGE_AFTER_SECONDS).toEpochMilli());
   }
 }

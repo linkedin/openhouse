@@ -173,7 +173,7 @@ public class UserHouseTablesController {
       description =
           "Delete a User House Table entry identified by databaseID and tableId. "
               + "Soft delete will remove the User House Table entry and store it in Soft Deleted User Table. with additional metadata deletedAtMs and "
-              + "purgeFromMs. Tables soft deleted will be configured with a TTL (purgeAfterMs) to be permanently deleted unless restored.",
+              + "purgeAfterMs. Tables soft deleted will be configured with a TTL (purgeAfterMs) to be permanently deleted unless restored.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -288,9 +288,9 @@ public class UserHouseTablesController {
   }
 
   @Operation(
-      summary = "Purge Soft Deleted User Tables older than purgeFromMs",
+      summary = "Purge Soft Deleted User Tables older than purgeAfterMs",
       description =
-          "Permanently deletes existing Soft Deleted User Tables older than purgeFromMs that match "
+          "Permanently deletes existing Soft Deleted User Tables older than purgeAfterMs that match "
               + "databaseId and tableId. If purgeAfterMs is not provided, it will delete all soft deleted tables for the given table id",
       tags = {"UserTable"})
   @ApiResponses(
@@ -303,9 +303,9 @@ public class UserHouseTablesController {
   public ResponseEntity<Void> purgeSoftDeletedUserTables(
       @RequestParam(value = "databaseId") String databaseId,
       @RequestParam(value = "tableId") String tableId,
-      @RequestParam(value = "purgeFromMs", required = false) Long purgeFromMs) {
+      @RequestParam(value = "purgeAfterMs", required = false) Long purgeAfterMs) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse;
-    apiResponse = softDeletedTablesHtsApiHandler.deleteEntities(databaseId, tableId, purgeFromMs);
+    apiResponse = softDeletedTablesHtsApiHandler.deleteEntities(databaseId, tableId, purgeAfterMs);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

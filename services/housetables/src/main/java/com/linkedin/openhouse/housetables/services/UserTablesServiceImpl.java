@@ -214,21 +214,21 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   /**
    * Deletes all soft deleted user tables for a given databaseId and tableId that have a
-   * purgeAfterMs earlier than purgeFromMs.
+   * purgeAfterMs earlier than purgeAfterMs.
    *
    * @param databaseId The database ID of the soft deleted user table.
    * @param tableId The table ID of the soft deleted user table.
-   * @param purgeFromMs The timestamp in milliseconds after which all soft deleted user tables
+   * @param purgeAfterMs The timestamp in milliseconds after which all soft deleted user tables
    *     should be deleted. If null, all soft deleted user tables for the given databaseId and
    *     tableId will be deleted.
    */
   @Override
-  public void purgeSoftDeletedUserTables(String databaseId, String tableId, Long purgeFromMs) {
-    if (purgeFromMs == null) {
+  public void purgeSoftDeletedUserTables(String databaseId, String tableId, Long purgeAfterMs) {
+    if (purgeAfterMs == null) {
       softDeletedHtsJdbcRepository.deleteAllByDatabaseIdTableId(databaseId, tableId);
     } else {
       softDeletedHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
-          databaseId, tableId, purgeFromMs);
+          databaseId, tableId, purgeAfterMs);
     }
   }
 

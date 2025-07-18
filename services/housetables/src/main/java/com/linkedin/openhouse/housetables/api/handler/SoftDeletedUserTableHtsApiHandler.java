@@ -8,7 +8,7 @@ import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 /**
  * {@link SoftDeletedUserTableHtsApiHandler} is the API handler for soft deleted user tables. It
  * provides additional methods to restore soft deleted user tables and bulk delete them based on
- * purgeFromMs.
+ * purgeAfterMs.
  */
 public interface SoftDeletedUserTableHtsApiHandler
     extends HouseTablesApiHandler<SoftDeletedUserTableKey, UserTable> {
@@ -24,12 +24,12 @@ public interface SoftDeletedUserTableHtsApiHandler
 
   /**
    * Deletes all soft deleted user tables that match the given tableId and databaseId, and are older
-   * than purgeFromMs
+   * than purgeAfterMs
    *
    * @param databaseId
    * @param tableId
-   * @param purgeFromMs
+   * @param purgeAfterMs
    * @return
    */
-  ApiResponse<Void> deleteEntities(String databaseId, String tableId, Long purgeFromMs);
+  ApiResponse<Void> deleteEntities(String databaseId, String tableId, Long purgeAfterMs);
 }

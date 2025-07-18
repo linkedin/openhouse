@@ -701,7 +701,7 @@ public class HtsControllerTest {
             MockMvcRequestBuilders.delete("/hts/tables/purge")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", TEST_TABLE_ID)
-                .param("purgeFromMs", String.valueOf(purgeAfterMs + 1)))
+                .param("purgeAfterMs", String.valueOf(purgeAfterMs + 1)))
         .andExpect(status().isNoContent());
 
     // Verify it's no longer in soft deleted tables

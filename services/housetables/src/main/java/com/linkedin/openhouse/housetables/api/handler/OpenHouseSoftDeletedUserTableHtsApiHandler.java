@@ -58,10 +58,10 @@ public class OpenHouseSoftDeletedUserTableHtsApiHandler
   }
 
   @Override
-  public ApiResponse<Void> deleteEntities(String databaseId, String tableId, Long purgeFromMs) {
+  public ApiResponse<Void> deleteEntities(String databaseId, String tableId, Long purgeAfterMs) {
     userTablesHtsApiValidator.validateDeleteEntity(
         UserTableKey.builder().databaseId(databaseId).tableId(tableId).build());
-    userTableService.purgeSoftDeletedUserTables(databaseId, tableId, purgeFromMs);
+    userTableService.purgeSoftDeletedUserTables(databaseId, tableId, purgeAfterMs);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 

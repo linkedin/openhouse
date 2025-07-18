@@ -11,7 +11,7 @@ import javax.validation.constraints.Pattern;
 import lombok.Builder;
 import lombok.Value;
 
-/** The key type for the House table storing user soft deleted tables. */
+/** The key type for the House table for storing soft deleted user tables. */
 @Builder
 @Value
 public class SoftDeletedUserTableKey {

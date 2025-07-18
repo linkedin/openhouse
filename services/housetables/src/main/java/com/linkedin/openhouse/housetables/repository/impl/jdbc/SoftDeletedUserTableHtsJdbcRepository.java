@@ -76,20 +76,20 @@ public interface SoftDeletedUserTableHtsJdbcRepository
 
   /**
    * Delete all soft deleted table rows for a given databaseId and tableId that have a purgeAfterMs
-   * that is before purgeFromMs
+   * that is before purgeAfterMs
    *
    * @param databaseId
    * @param tableId
-   * @param purgeFromMs
+   * @param purgeAfterMs
    */
   @Transactional
   @Query(
       "DELETE FROM SoftDeletedUserTableRow u"
           + " WHERE lower(u.databaseId) = lower(:databaseId)"
           + " AND lower(u.tableId) = lower(:tableId)"
-          + " AND u.purgeAfterMs < :purgeFromMs")
+          + " AND u.purgeAfterMs < :purgeAfterMs")
   @Modifying
-  void deleteByDatabaseIdTableIdPurgeAfterMs(String databaseId, String tableId, Long purgeFromMs);
+  void deleteByDatabaseIdTableIdPurgeAfterMs(String databaseId, String tableId, Long purgeAfterMs);
 
   /**
    * Delete all soft deleted table rows for a given databaseId and tableId
