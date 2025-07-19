@@ -41,8 +41,10 @@ public class PartitionSpecMapper {
               Arrays.asList(
                   Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG, Type.TypeID.DATE)));
   private static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
+  private static final String BUCKET_REGEX = "bucket\\[(\\d+)\\]";
   private static final Set<String> SUPPORTED_TRANSFORMS =
-      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));
+      Collections.unmodifiableSet(
+          new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX, BUCKET_REGEX)));
 
   /**
    * Given an Iceberg {@link Table}, extract OpenHouse {@link TimePartitionSpec} If Table is
@@ -209,6 +211,11 @@ public class PartitionSpecMapper {
                     clusteringField.getColumnName(),
                     Integer.parseInt(transform.getTransformParams().get(0)));
                 break;
+              case BUCKET:
+                partitionSpecBuilder.bucket(
+                    clusteringField.getColumnName(),
+                    Integer.parseInt(transform.getTransformParams().get(0)));
+                break;
               default:
                 throw new IllegalArgumentException(
                     String.format(
@@ -261,7 +268,7 @@ public class PartitionSpecMapper {
 
   /**
    * Given a {@link PartitionField}, determine if its transformation is a clustering one, ie.
-   * truncate, and return the corresponding transform.
+   * truncate, bucket, and return the corresponding transform.
    *
    * @param partitionField partitionField
    * @return Transform
@@ -271,12 +278,21 @@ public class PartitionSpecMapper {
     Transform transform = null;
     String icebergTransform = partitionField.transform().toString();
     Matcher truncateMatcher = Pattern.compile(TRUNCATE_REGEX).matcher(icebergTransform);
+    Matcher bucketMatcher = Pattern.compile(BUCKET_REGEX).matcher(icebergTransform);
+
     if (truncateMatcher.matches()) {
       String width = truncateMatcher.group(1);
       transform =
           Transform.builder()
               .transformType(Transform.TransformType.TRUNCATE)
               .transformParams(Arrays.asList(width))
+              .build();
+    } else if (bucketMatcher.matches()) {
+      String bucketCount = bucketMatcher.group(1);
+      transform =
+          Transform.builder()
+              .transformType(Transform.TransformType.BUCKET)
+              .transformParams(Arrays.asList(bucketCount))
               .build();
     }
     return Optional.ofNullable(transform);
