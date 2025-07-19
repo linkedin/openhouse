@@ -51,12 +51,17 @@ public final class ClusteringSpecBuilder extends PartitionSpecBuilder {
   private Optional<Transform> buildTransform(String transformStr) {
     Transform transform = new Transform();
     Matcher truncateMatcher = Pattern.compile(TRUNCATE_REGEX).matcher(transformStr);
+    Matcher bucketMatcher = Pattern.compile(BUCKET_REGEX).matcher(transformStr);
     if ("identity".equals(transformStr)) {
       return Optional.empty();
     } else if (truncateMatcher.matches()) {
       String width = truncateMatcher.group(1);
       transform.setTransformType(Transform.TransformTypeEnum.TRUNCATE);
       transform.setTransformParams(Arrays.asList(width));
+    } else if (bucketMatcher.matches()) {
+      String bucketCount = bucketMatcher.group(1);
+      transform.setTransformType(Transform.TransformTypeEnum.BUCKET);
+      transform.setTransformParams(Arrays.asList(bucketCount));
     }
     return Optional.of(transform);
   }

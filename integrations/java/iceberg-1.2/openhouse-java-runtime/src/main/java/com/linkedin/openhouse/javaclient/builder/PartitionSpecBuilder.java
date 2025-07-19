@@ -26,8 +26,10 @@ public abstract class PartitionSpecBuilder {
               Arrays.asList(
                   Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG, Type.TypeID.DATE)));
   protected static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
+  protected static final String BUCKET_REGEX = "bucket\\[(\\d+)\\]";
   public static final Set<String> SUPPORTED_TRANSFORMS =
-      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));
+      Collections.unmodifiableSet(
+          new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX, BUCKET_REGEX)));
 
   protected Schema schema;
   protected PartitionSpec partitionSpec;
@@ -46,7 +48,7 @@ public abstract class PartitionSpecBuilder {
   /**
    * Iterate through the partition spec and validate if it is a valid partition spec. Types and
    * Transforms supported: (x) TIMESTAMP type support hour, day, month, year. (x) STRING, INTEGER,
-   * LONG type support identity and truncate. No other types are supported.
+   * LONG, DATE type support identity, truncate, and bucket. No other types are supported.
    */
   private void validatePartitionSpec() {
     partitionSpec.fields().stream()
@@ -76,10 +78,10 @@ public abstract class PartitionSpecBuilder {
                     String.format(
                         "Unsupported column: %s, transform: %s provided, "
                             + "please provide one of the following transforms (%s), "
-                            + "for example: PARTITIONED BY category",
+                            + "for example: PARTITIONED BY category, bucket(2, name), truncate(5, name)",
                         partitionFieldName,
                         partitionField.transform().toString(),
-                        String.join(",", getSupportedTimePartitionTransforms())));
+                        String.join(",", SUPPORTED_TRANSFORMS)));
               }
               throw new IllegalArgumentException(
                   String.format(
