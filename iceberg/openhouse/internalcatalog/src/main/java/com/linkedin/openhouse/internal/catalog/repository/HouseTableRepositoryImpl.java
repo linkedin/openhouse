@@ -180,7 +180,9 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
             context ->
                 apiInstance
                     .deleteTable(
-                        houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
+                        houseTablePrimaryKey.getDatabaseId(),
+                        houseTablePrimaryKey.getTableId(),
+                        false)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
   }

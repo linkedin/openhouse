@@ -6,10 +6,14 @@ import com.linkedin.openhouse.common.exception.EntityConcurrentModificationExcep
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
+import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
+import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -28,6 +32,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @Slf4j
@@ -37,8 +42,13 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Autowired UserTablesMapper userTablesMapper;
 
+  @Autowired SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
+
+  @Autowired SoftDeletedUserTablesMapper softDeletedUserTablesMapper;
+
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.HOUSETABLES_SERVICE);
+  @Autowired private SoftDeletedUserTableHtsJdbcRepository softDeletedUserTableHtsJdbcRepository;
 
   @Override
   public UserTableDto getUserTable(String databaseId, String tableId) {
@@ -157,14 +167,89 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public void deleteUserTable(String databaseId, String tableId) {
-    if (!htsJdbcRepository.existsById(
-        UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())) {
-      throw new NoSuchUserTableException(databaseId, tableId);
+  @Transactional
+  public void deleteUserTable(String databaseId, String tableId, boolean isSoftDeleted) {
+    UserTableRow existingTable =
+        htsJdbcRepository
+            .findById(
+                UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    if (isSoftDeleted) {
+      softDeletedHtsJdbcRepository.save(
+          softDeletedUserTablesMapper.toSoftDeletedUserTableRow(existingTable));
     }
-
     htsJdbcRepository.deleteById(
         UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+  }
+
+  /**
+   * Moves a soft deleted user table back to the user tables repository.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param deletedAt
+   * @return
+   */
+  @Override
+  @Transactional
+  public UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAt) {
+    SoftDeletedUserTableRowPrimaryKey softDeletedTableKey =
+        SoftDeletedUserTableRowPrimaryKey.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .deletedAtMs(deletedAt)
+            .build();
+    SoftDeletedUserTableRow existingSoftDeletedTable =
+        softDeletedHtsJdbcRepository
+            .findById(softDeletedTableKey)
+            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    try {
+      softDeletedHtsJdbcRepository.deleteById(softDeletedTableKey);
+      return userTablesMapper.toUserTableDto(
+          htsJdbcRepository.save(userTablesMapper.toUserTableRow(existingSoftDeletedTable)));
+    } catch (DataIntegrityViolationException e) {
+      throw new AlreadyExistsException("Table", existingSoftDeletedTable.getTableId());
+    }
+  }
+
+  /**
+   * Deletes all soft deleted user tables for a given databaseId and tableId that have a
+   * purgeAfterMs earlier than purgeAfterMs.
+   *
+   * @param databaseId The database ID of the soft deleted user table.
+   * @param tableId The table ID of the soft deleted user table.
+   * @param purgeAfterMs The timestamp in milliseconds after which all soft deleted user tables
+   *     should be deleted. If null, all soft deleted user tables for the given databaseId and
+   *     tableId will be deleted.
+   */
+  @Override
+  public void purgeSoftDeletedUserTables(String databaseId, String tableId, Long purgeAfterMs) {
+    if (purgeAfterMs == null) {
+      softDeletedHtsJdbcRepository.deleteAllByDatabaseIdTableId(databaseId, tableId);
+    } else {
+      softDeletedHtsJdbcRepository.deleteByDatabaseIdTableIdPurgeAfterMs(
+          databaseId, tableId, purgeAfterMs);
+    }
+  }
+
+  @Override
+  public Page<UserTableDto> getAllSoftDeletedTables(
+      UserTable userTable, int page, int size, String sortBy) {
+    METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_TABLES_REQUEST);
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
+
+    return METRICS_REPORTER.executeWithStats(
+        () ->
+            softDeletedHtsJdbcRepository
+                .findAllByFilters(
+                    userTable.getDatabaseId(),
+                    userTable.getTableId(),
+                    userTable.getPurgeAfterMs(),
+                    pageable)
+                .map(
+                    softDeletedUserTableRow ->
+                        softDeletedUserTablesMapper.toUserTableDto(softDeletedUserTableRow)),
+        MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
   }
 
   private List<UserTableDto> listDatabases() {
@@ -209,7 +294,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
+                .findAllByFilters(userTable.getDatabaseId(), null, null, null, null, null, pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }

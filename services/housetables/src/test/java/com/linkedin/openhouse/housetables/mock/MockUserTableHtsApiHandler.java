@@ -27,6 +27,11 @@ public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
+  public ApiResponse<Void> deleteEntity(UserTableKey key, boolean isSoftDelete) {
+    return null;
+  }
+
+  @Override
   public ApiResponse<EntityResponseBody<UserTable>> putEntity(UserTable entity) {
     return ApiResponse.<EntityResponseBody<UserTable>>builder()
         .httpStatus(HttpStatus.OK)

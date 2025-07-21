@@ -22,4 +22,8 @@ public class UserTableDto {
   String storageType;
 
   Long creationTime;
+
+  Long deletedAtMs;
+
+  Long purgeAfterMs;
 }

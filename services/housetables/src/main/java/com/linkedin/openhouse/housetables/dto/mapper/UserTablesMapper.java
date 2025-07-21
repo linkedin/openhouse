@@ -4,6 +4,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.model.usertable.UserTableIcebergRow;
@@ -99,4 +100,7 @@ public interface UserTablesMapper {
 
   /** Map a {@link UserTableIcebergRow} to a {@link UserTableRow} */
   UserTableRow toUserTableRow(UserTableIcebergRow userTableIcebergRow);
+
+  /** Map a {@link SoftDeletedUserTableRow} to a {@link UserTableRow} */
+  UserTableRow toUserTableRow(SoftDeletedUserTableRow softDeletedUserTableRow);
 }

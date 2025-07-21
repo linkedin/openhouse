@@ -73,7 +73,16 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   @Override
   public ApiResponse<Void> deleteEntity(UserTableKey userTableKey) {
     userTablesHtsApiValidator.validateDeleteEntity(userTableKey);
-    userTableService.deleteUserTable(userTableKey.getDatabaseId(), userTableKey.getTableId());
+    userTableService.deleteUserTable(
+        userTableKey.getDatabaseId(), userTableKey.getTableId(), false);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
+  public ApiResponse<Void> deleteEntity(UserTableKey userTableKey, boolean isSoftDelete) {
+    userTablesHtsApiValidator.validateDeleteEntity(userTableKey);
+    userTableService.deleteUserTable(
+        userTableKey.getDatabaseId(), userTableKey.getTableId(), isSoftDelete);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 
