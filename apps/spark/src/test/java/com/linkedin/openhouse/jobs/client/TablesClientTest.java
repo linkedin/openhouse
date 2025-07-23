@@ -501,7 +501,8 @@ public class TablesClientTest {
 
   private TableDataLayoutMetadata createTableDataLayoutMetadataMock() {
     TableDataLayoutMetadata metadata = Mockito.mock(TableDataLayoutMetadata.class);
-    Mockito.when(metadata.getDataLayoutStrategy()).thenReturn(Mockito.mock(DataLayoutStrategy.class));
+    Mockito.when(metadata.getDataLayoutStrategy())
+        .thenReturn(Mockito.mock(DataLayoutStrategy.class));
     Mockito.when(metadata.getDbName()).thenReturn("db");
     Mockito.when(metadata.getTableName()).thenReturn("table");
     Mockito.when(metadata.getCreationTimeMs()).thenReturn(1L);
