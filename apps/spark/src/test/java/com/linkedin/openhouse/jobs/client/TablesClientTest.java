@@ -6,6 +6,7 @@ import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorag
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
+import com.linkedin.openhouse.jobs.util.HistoryConfig;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
@@ -16,6 +17,7 @@ import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.History;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Replication;
 import com.linkedin.openhouse.tables.client.model.ReplicationConfig;
@@ -499,12 +501,64 @@ public class TablesClientTest {
 
   private TableDataLayoutMetadata createTableDataLayoutMetadataMock() {
     TableDataLayoutMetadata metadata = Mockito.mock(TableDataLayoutMetadata.class);
-    Mockito.when(metadata.getDataLayoutStrategy())
-        .thenReturn(Mockito.mock(DataLayoutStrategy.class));
+    Mockito.when(metadata.getDataLayoutStrategy()).thenReturn(Mockito.mock(DataLayoutStrategy.class));
     Mockito.when(metadata.getDbName()).thenReturn("db");
     Mockito.when(metadata.getTableName()).thenReturn("table");
     Mockito.when(metadata.getCreationTimeMs()).thenReturn(1L);
     return metadata;
+  }
+
+  void testGetTableHistoryWithTimeBasedPolicy() {
+    GetTableResponseBody responseBody =
+        createTableWithTimeBasedHistoryMock(
+            testDbName, testTableName, 30, History.GranularityEnum.DAY, null);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(responseBody);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
+
+    Optional<HistoryConfig> result =
+        client.getTableHistory(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build());
+
+    Assertions.assertTrue(result.isPresent());
+    HistoryConfig historyConfig = result.get();
+    Assertions.assertEquals(30, historyConfig.getMaxAge());
+    Assertions.assertEquals(History.GranularityEnum.DAY, historyConfig.getGranularity());
+    Assertions.assertEquals(0, historyConfig.getVersions());
+  }
+
+  @Test
+  void testGetTableHistoryWithVersionBasedPolicy() {
+    GetTableResponseBody responseBody =
+        createTableWithVersionBasedHistoryMock(testDbName, testTableName, 5);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(responseBody);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
+
+    Optional<HistoryConfig> result =
+        client.getTableHistory(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build());
+
+    Assertions.assertTrue(result.isPresent());
+    HistoryConfig historyConfig = result.get();
+    Assertions.assertEquals(0, historyConfig.getMaxAge());
+    Assertions.assertNull(historyConfig.getGranularity());
+    Assertions.assertEquals(5, historyConfig.getVersions());
+  }
+
+  @Test
+  void testGetTableHistoryWithInvalidPolicy() {
+    GetTableResponseBody responseBody =
+        createTableWithInvalidHistoryMock(testDbName, testTableName);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(responseBody);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(responseMock);
+
+    Optional<HistoryConfig> result =
+        client.getTableHistory(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableName).build());
+
+    Assertions.assertFalse(result.isPresent());
   }
 
   private GetTableResponseBody createTableResponseBodyMock(String dbName, String tableName) {
@@ -724,6 +778,60 @@ public class TablesClientTest {
         setUpResponseBodyMock(dbName, tableName, partitionSpec, policies);
     Mockito.when(responseBody.getTableType())
         .thenReturn(GetTableResponseBody.TableTypeEnum.REPLICA_TABLE);
+    return responseBody;
+  }
+
+  private GetTableResponseBody createTableWithTimeBasedHistoryMock(
+      String dbName,
+      String tableName,
+      int maxAge,
+      History.GranularityEnum granularity,
+      Integer versions) {
+    GetTableResponseBody responseBody = Mockito.mock(GetTableResponseBody.class);
+    Policies policies = Mockito.mock(Policies.class);
+    History history = Mockito.mock(History.class);
+
+    Mockito.when(responseBody.getDatabaseId()).thenReturn(dbName);
+    Mockito.when(responseBody.getTableId()).thenReturn(tableName);
+    Mockito.when(responseBody.getPolicies()).thenReturn(policies);
+    Mockito.when(policies.getHistory()).thenReturn(history);
+    Mockito.when(history.getMaxAge()).thenReturn(maxAge);
+    Mockito.when(history.getGranularity()).thenReturn(granularity);
+    Mockito.when(history.getVersions()).thenReturn(versions);
+
+    return responseBody;
+  }
+
+  private GetTableResponseBody createTableWithVersionBasedHistoryMock(
+      String dbName, String tableName, int versions) {
+    GetTableResponseBody responseBody = Mockito.mock(GetTableResponseBody.class);
+    Policies policies = Mockito.mock(Policies.class);
+    History history = Mockito.mock(History.class);
+
+    Mockito.when(responseBody.getDatabaseId()).thenReturn(dbName);
+    Mockito.when(responseBody.getTableId()).thenReturn(tableName);
+    Mockito.when(responseBody.getPolicies()).thenReturn(policies);
+    Mockito.when(policies.getHistory()).thenReturn(history);
+    Mockito.when(history.getMaxAge()).thenReturn(null);
+    Mockito.when(history.getGranularity()).thenReturn(null);
+    Mockito.when(history.getVersions()).thenReturn(versions);
+
+    return responseBody;
+  }
+
+  private GetTableResponseBody createTableWithInvalidHistoryMock(String dbName, String tableName) {
+    GetTableResponseBody responseBody = Mockito.mock(GetTableResponseBody.class);
+    Policies policies = Mockito.mock(Policies.class);
+    History history = Mockito.mock(History.class);
+
+    Mockito.when(responseBody.getDatabaseId()).thenReturn(dbName);
+    Mockito.when(responseBody.getTableId()).thenReturn(tableName);
+    Mockito.when(responseBody.getPolicies()).thenReturn(policies);
+    Mockito.when(policies.getHistory()).thenReturn(history);
+    Mockito.when(history.getMaxAge()).thenReturn(0);
+    Mockito.when(history.getGranularity()).thenReturn(null);
+    Mockito.when(history.getVersions()).thenReturn(0);
+
     return responseBody;
   }
 }

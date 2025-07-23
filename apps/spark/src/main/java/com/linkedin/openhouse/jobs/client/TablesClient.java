@@ -4,6 +4,7 @@ import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
+import com.linkedin.openhouse.jobs.util.HistoryConfig;
 import com.linkedin.openhouse.jobs.util.ReplicationConfig;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
@@ -15,6 +16,7 @@ import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.History;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Replication;
 import java.time.Duration;
@@ -66,6 +68,11 @@ public class TablesClient {
     return getTableReplication(response);
   }
 
+  public Optional<HistoryConfig> getTableHistory(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    return getTableHistory(response);
+  }
+
   private Optional<RetentionConfig> getTableRetention(GetTableResponseBody response) {
     // timePartitionSpec or retention.ColumnPattern should be present to run Retention job on a
     // table.
@@ -93,6 +100,31 @@ public class TablesClient {
             .columnPattern(columnPattern)
             .count(policies.getRetention().getCount())
             .granularity(policies.getRetention().getGranularity())
+            .build());
+  }
+
+  private Optional<HistoryConfig> getTableHistory(GetTableResponseBody response) {
+    if (response == null
+        || response.getPolicies() == null
+        || response.getPolicies().getHistory() == null) {
+      return Optional.empty();
+    }
+    History history = response.getPolicies().getHistory();
+
+    // Validate that at least one of maxAge/granularity or versions is configured
+    boolean hasTimeBasedHistory =
+        history.getMaxAge() != null && history.getMaxAge() > 0 && history.getGranularity() != null;
+    boolean hasVersionBasedHistory = history.getVersions() != null && history.getVersions() > 0;
+
+    if (!hasTimeBasedHistory && !hasVersionBasedHistory) {
+      return Optional.empty();
+    }
+
+    return Optional.of(
+        HistoryConfig.builder()
+            .maxAge(hasTimeBasedHistory ? history.getMaxAge() : 0)
+            .granularity(hasTimeBasedHistory ? history.getGranularity() : null)
+            .versions(hasVersionBasedHistory ? history.getVersions() : 0)
             .build());
   }
 
@@ -360,6 +392,7 @@ public class TablesClient {
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
+            .historyConfig(getTableHistory(tableResponseBody).orElse(null))
             .replicationConfig(getTableReplication(tableResponseBody).orElse(null))
             .jobExecutionProperties(getJobExecutionProperties(tableResponseBody))
             .creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
@@ -391,6 +424,7 @@ public class TablesClient {
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
+            .historyConfig(getTableHistory(tableResponseBody).orElse(null))
             .jobExecutionProperties(getJobExecutionProperties(tableResponseBody))
             .creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     List<TableDataLayoutMetadata> result = new ArrayList<>();
