@@ -251,8 +251,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       TableMetadata updatedMetadata = metadata.replaceProperties(properties);
 
       if (sortOrderJson != null) {
-        SortOrder sortOrder = SortOrderParser.fromJson(metadata.schema(), sortOrderJson);
-        updatedMetadata = metadata.replaceSortOrder(sortOrder);
+        SortOrder sortOrder = SortOrderParser.fromJson(updatedMetadata.schema(), sortOrderJson);
+        updatedMetadata = updatedMetadata.replaceSortOrder(sortOrder);
       }
 
       if (serializedSnapshotsToPut != null) {
