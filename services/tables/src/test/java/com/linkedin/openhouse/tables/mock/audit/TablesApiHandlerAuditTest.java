@@ -171,7 +171,7 @@ public class TablesApiHandlerAuditTest {
   @Test
   public void testDeleteTableSuccessfulPath() throws Exception {
     mvc.perform(
-        MockMvcRequestBuilders.delete(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/tb1")
+        MockMvcRequestBuilders.delete("/v2/databases/d200/tables/tb1?purge=true")
             .accept(MediaType.APPLICATION_JSON));
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
@@ -183,7 +183,7 @@ public class TablesApiHandlerAuditTest {
   @Test
   public void testDeleteTableFailedPath() throws Exception {
     mvc.perform(
-        MockMvcRequestBuilders.delete(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d400/tables/tb1")
+        MockMvcRequestBuilders.delete("/v2/databases/d400/tables/tb1?purge=true")
             .accept(MediaType.APPLICATION_JSON));
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();

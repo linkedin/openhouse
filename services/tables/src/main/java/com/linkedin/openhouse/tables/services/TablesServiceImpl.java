@@ -185,7 +185,8 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
-  public void deleteTable(String databaseId, String tableId, String actingPrincipal) {
+  public void deleteTable(
+      String databaseId, String tableId, String actingPrincipal, boolean purge) {
     TableDtoPrimaryKey tableDtoPrimaryKey =
         TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
 
@@ -195,8 +196,11 @@ public class TablesServiceImpl implements TablesService {
     }
     authorizationUtils.checkTableWritePathPrivileges(
         tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
-
-    openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
+    if (purge) {
+      openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
+    } else {
+      openHouseInternalRepository.softDeleteById(tableDtoPrimaryKey);
+    }
   }
 
   @Override

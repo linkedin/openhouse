@@ -161,11 +161,11 @@ public class TablesServiceTest {
         stripPathScheme(putResultCreateDiffDB.getTableLocation()));
 
     // Delete Table
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
     tablesService.deleteTable(
-        TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER);
+        TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER, true);
     tablesService.deleteTable(
-        TABLE_DTO_DIFF_DB.getDatabaseId(), TABLE_DTO_DIFF_DB.getTableId(), TEST_USER);
+        TABLE_DTO_DIFF_DB.getDatabaseId(), TABLE_DTO_DIFF_DB.getTableId(), TEST_USER, true);
 
     // Read After Delete
     Assertions.assertThrows(
@@ -190,7 +190,7 @@ public class TablesServiceTest {
                 false));
 
     // Clean up
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
 
     Assertions.assertThrows(
         NoSuchUserTableException.class,
@@ -218,7 +218,7 @@ public class TablesServiceTest {
             .sameSchema(getSchemaFromSchemaJson(baseInt2Long)));
 
     // Clean up
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
 
     Assertions.assertThrows(
         NoSuchUserTableException.class,
@@ -239,7 +239,7 @@ public class TablesServiceTest {
         AlreadyExistsException.class,
         () ->
             tablesService.putTable(buildCreateUpdateTableRequestBody(TABLE_DTO), TEST_USER, true));
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -247,7 +247,7 @@ public class TablesServiceTest {
     verifyPutTableRequest(TABLE_DTO, null, true);
     Assertions.assertDoesNotThrow(
         () -> tablesService.putTable(CREATE_TABLE_REQUEST_BODY, TEST_USER, false));
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -260,12 +260,12 @@ public class TablesServiceTest {
   @Test
   public void testTableDeleteAlreadyDeleted() {
     verifyPutTableRequest(TABLE_DTO, null, true);
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
     Assertions.assertThrows(
         NoSuchUserTableException.class,
         () ->
             tablesService.deleteTable(
-                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true));
   }
 
   @Test
@@ -293,7 +293,7 @@ public class TablesServiceTest {
                 .build()),
         null,
         true);
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
 
     // Test nested column
     verifyPutTableRequest(
@@ -305,7 +305,7 @@ public class TablesServiceTest {
                 .build()),
         null,
         true);
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -369,7 +369,7 @@ public class TablesServiceTest {
                 null,
                 false));
 
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -400,7 +400,7 @@ public class TablesServiceTest {
                 TEST_USER));
 
     tablesService.deleteTable(
-        SHARED_TABLE_DTO.getDatabaseId(), SHARED_TABLE_DTO.getTableId(), TEST_USER);
+        SHARED_TABLE_DTO.getDatabaseId(), SHARED_TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -427,7 +427,7 @@ public class TablesServiceTest {
             tablesService.getAclPolicies(
                 TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
 
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -447,7 +447,7 @@ public class TablesServiceTest {
             tablesService.getAclPolicies(
                 TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, TEST_USER_PRINCIPAL));
 
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -487,7 +487,7 @@ public class TablesServiceTest {
                     .operation(UpdateAclPoliciesRequestBody.Operation.REVOKE)
                     .build(),
                 TEST_USER));
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -499,7 +499,7 @@ public class TablesServiceTest {
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.PRIMARY_TABLE);
     // Read Table
     verifyGetTableRequest(TABLE_DTO.toBuilder().tableType(TableType.PRIMARY_TABLE).build());
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
 
     for (TableType tableType : TableType.values()) {
       // Create Table
@@ -508,7 +508,7 @@ public class TablesServiceTest {
       Assertions.assertEquals(putResultCreate.getTableType(), tableType);
       // Read Table
       verifyGetTableRequest(TABLE_DTO.toBuilder().tableType(tableType).build());
-      tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+      tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
     }
   }
 
@@ -529,7 +529,7 @@ public class TablesServiceTest {
                     .build(),
                 null,
                 false));
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -560,7 +560,8 @@ public class TablesServiceTest {
         tablesService
             .getTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER)
             .getTableUUID());
-    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(
+        tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   /** Test that if tableType is REPLICA_TABLE only system admin can update the table. required. */
@@ -603,12 +604,13 @@ public class TablesServiceTest {
         AccessDeniedException.class,
         () ->
             tablesService.deleteTable(
-                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true));
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(true);
-    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    tablesService.deleteTable(
+        tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true);
   }
 
   @Test
@@ -625,7 +627,7 @@ public class TablesServiceTest {
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(
-                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true));
   }
 
   /** assert lock is created as policy object on createLock call */
@@ -656,7 +658,7 @@ public class TablesServiceTest {
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(
-                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true));
   }
 
   /** assert lock is created as policy object on createLock call */
@@ -683,7 +685,7 @@ public class TablesServiceTest {
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(
-                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true));
   }
 
   @Test
@@ -717,7 +719,7 @@ public class TablesServiceTest {
     Assertions.assertDoesNotThrow(
         () ->
             tablesService.deleteTable(
-                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+                tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, true));
   }
 
   @Test
@@ -773,8 +775,8 @@ public class TablesServiceTest {
         NoSuchUserTableException.class,
         () -> tablesService.getTable(TABLE_DTO.getDatabaseId(), "renamedTable", TEST_USER));
 
-    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), "secondRenamedTable", TEST_USER);
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), "secondRenamedTable", TEST_USER, true);
     tablesService.deleteTable(
-        TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER);
+        TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER, true);
   }
 }
