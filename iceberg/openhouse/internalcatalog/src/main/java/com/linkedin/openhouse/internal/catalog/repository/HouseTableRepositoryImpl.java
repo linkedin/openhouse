@@ -19,6 +19,7 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
