@@ -37,6 +37,8 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
@@ -611,6 +613,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
       createUpdateTableRequestBody.setClustering(
           ClusteringSpecBuilder.builderFor(schema, spec).build());
       createUpdateTableRequestBody.setTableProperties(propertiesBuilder.build());
+      createUpdateTableRequestBody.setSortOrder(SortOrderParser.toJson(SortOrder.unsorted()));
       String tableLocation =
           tableApi
               .createTableV1(identifier.namespace().toString(), createUpdateTableRequestBody)
