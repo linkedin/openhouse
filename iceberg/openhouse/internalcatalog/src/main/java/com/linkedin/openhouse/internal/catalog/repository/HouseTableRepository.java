@@ -34,4 +34,22 @@ public interface HouseTableRepository
       String toDatabaseId,
       String toTableId,
       String metadataLocation);
+
+  /**
+   * Find all soft-deleted tables by database ID in a paginated manner
+   *
+   * @param databaseId The database ID to filter by
+   * @return List of soft-deleted HouseTable objects matching the criteria
+   */
+  List<HouseTable> findAllSoftDeletedTablesByDatabaseId(String databaseId, int page, int pageSize);
+
+  /**
+   * Delete soft-deleted tables that are older than the specified timestamp.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param purgeAfterMs timestamp in milliseconds where tables older than this will be permanently
+   *     deleted
+   */
+  void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs);
 }

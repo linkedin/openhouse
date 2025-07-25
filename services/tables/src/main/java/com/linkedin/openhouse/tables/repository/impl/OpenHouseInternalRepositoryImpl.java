@@ -608,6 +608,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     throw getUnsupportedException();
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_SOFT_DELETE_TIME)
+  @Override
+  public List<TableDto> searchSoftDeletedTables(String databaseId) {
+    return catalog.listTables(Namespace.of(databaseId)).stream()
+        .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
+        .collect(Collectors.toList());
+  }
+
   @Override
   public <S extends TableDto> Iterable<S> saveAll(Iterable<S> entities) {
     throw getUnsupportedException();
@@ -656,6 +664,33 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     catalog.renameTable(
         TableIdentifier.of(from.getDatabaseId(), from.getTableId()),
         TableIdentifier.of(to.getDatabaseId(), to.getTableId()));
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_TIME)
+  @Override
+  public Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable) {
+    if (catalog instanceof OpenHouseInternalCatalog) {
+      return ((OpenHouseInternalCatalog) catalog)
+          .searchSoftDeletedTablesByDatabase(Namespace.of(databaseId), pageable);
+    } else {
+      throw new UnsupportedOperationException(
+          "searchSoftDeletedTablesByDatabaseId is not supported for this catalog type: "
+              + catalog.getClass().getName());
+    }
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_PURGE_SOFT_DELETED_TIME)
+  @Override
+  public void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs) {
+    if (catalog instanceof OpenHouseInternalCatalog) {
+      ((OpenHouseInternalCatalog) catalog)
+          .purgeSoftDeletedTables(
+              tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId(), purgeAfterMs);
+    } else {
+      throw new UnsupportedOperationException(
+          "purgeSoftDeletedTableById is not supported for this catalog type: "
+              + catalog.getClass().getName());
+    }
   }
 
   private UnsupportedOperationException getUnsupportedException() {

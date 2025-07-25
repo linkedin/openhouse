@@ -467,6 +467,64 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
+  public void testFindAllSoftDeletedTablesByDatabaseId() {
+    List<UserTable> tables = new ArrayList<>();
+    long currentTime = System.currentTimeMillis();
+    // Create a soft-deleted table by setting deletedAt to a positive timestamp
+    UserTable softDeletedTable = houseTableMapper.toUserTable(HOUSE_TABLE);
+    softDeletedTable.setDeletedAtMs(currentTime);
+    softDeletedTable.setPurgeAfterMs(currentTime + 10000);
+    tables.add(softDeletedTable);
+
+    // Create another soft-deleted table
+    UserTable anotherSoftDeletedTable = houseTableMapper.toUserTable(HOUSE_TABLE_SAME_DB);
+    anotherSoftDeletedTable.setDeletedAtMs(currentTime - 1000);
+    softDeletedTable.setPurgeAfterMs(currentTime + 10000);
+    tables.add(anotherSoftDeletedTable);
+
+    GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "results");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, listResponse, tables);
+
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(listResponse))
+            .addHeader("Content-Type", "application/json"));
+
+    List<HouseTable> returnList =
+        htsRepo.findAllSoftDeletedTablesByDatabaseId(HOUSE_TABLE.getDatabaseId(), 0, 10);
+
+    assertThat(returnList).hasSize(2);
+  }
+
+  @Test
+  public void testFindAllSoftDeletedTablesByDatabaseIdEmptyResult() {
+    List<UserTable> tables = new ArrayList<>();
+
+    GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "results");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, listResponse, tables);
+
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(listResponse))
+            .addHeader("Content-Type", "application/json"));
+
+    List<HouseTable> returnList =
+        htsRepo.findAllSoftDeletedTablesByDatabaseId(HOUSE_TABLE.getDatabaseId(), 0, 10);
+
+    assertThat(returnList).hasSize(0);
+  }
+
+  @Test
   public void testListOfAllTables() {
     List<UserTable> tables = new ArrayList<>();
     tables.add(houseTableMapper.toUserTableWithDatabaseId(HOUSE_TABLE));

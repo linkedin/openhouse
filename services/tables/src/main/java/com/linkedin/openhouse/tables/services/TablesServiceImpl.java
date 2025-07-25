@@ -385,6 +385,19 @@ public class TablesServiceImpl implements TablesService {
     }
   }
 
+  @Override
+  public Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable) {
+    return openHouseInternalRepository.searchSoftDeletedTablesByDatabaseId(databaseId, pageable);
+  }
+
+  @Override
+  public void purgeSoftDeletedTables(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal) {
+    authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.DELETE_TABLE);
+    openHouseInternalRepository.purgeSoftDeletedTableById(
+        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), purgeAfterMs);
+  }
+
   /** Whether sharing has been enabled for the table denoted by tableDto. */
   private boolean isTableSharingEnabled(TableDto tableDto) {
     return (tableDto.getPolicies() != null && tableDto.getPolicies().isSharingEnabled());

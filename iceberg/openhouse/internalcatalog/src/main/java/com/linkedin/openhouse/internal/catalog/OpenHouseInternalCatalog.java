@@ -14,6 +14,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
+import com.linkedin.openhouse.tables.model.TableDto;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,7 @@ import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
@@ -181,6 +183,40 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     updateProperties.set(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri.toString());
     updateProperties.commit();
     transaction.commitTransaction();
+  }
+
+  public Page<TableDto> searchSoftDeletedTablesByDatabase(Namespace namespace, Pageable pageable) {
+    if (namespace.levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
+    }
+
+    List<TableDto> softDeletedTables =
+        houseTableRepository
+            .findAllSoftDeletedTablesByDatabaseId(
+                namespace.toString(), pageable.getPageNumber(), pageable.getPageSize())
+            .stream()
+            .map(
+                houseTable ->
+                    TableDto.builder()
+                        .tableId(houseTable.getTableId())
+                        .databaseId(houseTable.getDatabaseId())
+                        .tableLocation(houseTable.getTableLocation())
+                        .deletedAtMs(houseTable.getDeletedAtMs())
+                        .build())
+            .collect(Collectors.toList());
+
+    return new PageImpl<>(softDeletedTables, pageable, softDeletedTables.size());
+  }
+
+  public void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
+    log.info(
+        "Purging soft deleted tables for databaseId: {}, tableId: {}, purgeAfterMs: {}",
+        databaseId,
+        tableId,
+        purgeAfterMs);
+
+    houseTableRepository.purgeSoftDeletedTables(databaseId, tableId, purgeAfterMs);
   }
 
   /**
