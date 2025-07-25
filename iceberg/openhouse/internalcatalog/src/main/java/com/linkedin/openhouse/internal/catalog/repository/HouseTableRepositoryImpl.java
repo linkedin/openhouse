@@ -175,6 +175,12 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public void deleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    // Default to hard delete (isSoftDelete = false) for backward compatibility
+    deleteById(houseTablePrimaryKey, false);
+  }
+
+  @Override
+  public void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean isSoftDelete) {
     getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
         .execute(
             context ->
@@ -182,7 +188,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .deleteTable(
                         houseTablePrimaryKey.getDatabaseId(),
                         houseTablePrimaryKey.getTableId(),
-                        false)
+                        isSoftDelete)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
   }

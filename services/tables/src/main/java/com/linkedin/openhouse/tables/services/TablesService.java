@@ -48,13 +48,14 @@ public interface TablesService {
 
   /**
    * Delete a table represented by databaseId and tableId if actingPrincipal has the right
-   * privilege.
+   * privilege, with option to purge (permanently delete) or soft delete.
    *
    * @param databaseId
    * @param tableId
    * @param actingPrincipal
+   * @param purge if true, the table will be permanently deleted; if false, it will be soft deleted
    */
-  void deleteTable(String databaseId, String tableId, String actingPrincipal);
+  void deleteTable(String databaseId, String tableId, String actingPrincipal, boolean purge);
 
   /**
    * Rename a table represented by databaseId and tableId if actingPrincipal has the right

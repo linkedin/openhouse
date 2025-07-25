@@ -168,7 +168,7 @@ public class TableAuditAspect {
     return result;
   }
 
-  /** Install the Around advice for deleteTable() method in OpenHouseTablesApiHandler */
+  /** TODO: Remove this method when deleteTableV1 is deprecated and removed */
   @Around(
       "execution("
           + "com.linkedin.openhouse.common.api.spec.ApiResponse<Void> "
@@ -176,6 +176,37 @@ public class TableAuditAspect {
           + "&& args(databaseId, tableId, actingPrincipal)")
   protected ApiResponse<Void> auditDeleteTable(
       ProceedingJoinPoint point, String databaseId, String tableId, String actingPrincipal)
+      throws Throwable {
+    ApiResponse<Void> result = null;
+    TableAuditEvent event =
+        TableAuditEvent.builder()
+            .eventTimestamp(Instant.now())
+            .databaseName(databaseId)
+            .tableName(tableId)
+            .operationType(OperationType.DELETE)
+            .build();
+    try {
+      result = (ApiResponse<Void>) point.proceed();
+      buildAndSendEvent(event, OperationStatus.SUCCESS, null);
+    } catch (Throwable t) {
+      buildAndSendEvent(event, OperationStatus.FAILED, null);
+      throw t;
+    }
+    return result;
+  }
+
+  /** Install the Around advice for deleteTable() method in OpenHouseTablesApiHandler */
+  @Around(
+      "execution("
+          + "com.linkedin.openhouse.common.api.spec.ApiResponse<Void> "
+          + "com.linkedin.openhouse.tables.api.handler.TablesApiHandler.deleteTable(..)) "
+          + "&& args(databaseId, tableId, actingPrincipal, purge)")
+  protected ApiResponse<Void> auditDeleteTableWithPurge(
+      ProceedingJoinPoint point,
+      String databaseId,
+      String tableId,
+      String actingPrincipal,
+      boolean purge)
       throws Throwable {
     ApiResponse<Void> result = null;
     TableAuditEvent event =
