@@ -3,6 +3,8 @@ package com.linkedin.openhouse.tables.repository;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 
@@ -17,4 +19,8 @@ public interface OpenHouseInternalRepository extends CrudRepository<TableDto, Ta
   List<TableDto> searchTables(String databaseId);
 
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
+
+  Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable);
+
+  void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
 }

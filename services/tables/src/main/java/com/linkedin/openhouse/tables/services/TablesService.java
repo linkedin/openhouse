@@ -6,6 +6,8 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 
 /** Service Interface for Implementing /tables endpoint. */
@@ -132,4 +134,25 @@ public interface TablesService {
    * @param actingPrincipal
    */
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
+
+  /**
+   * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.
+   *
+   * @param databaseId
+   * @param pageable
+   * @return list of {@link TableDto}
+   */
+  Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable);
+
+  /**
+   * Deletes soft-deleted tables that are older than the specified timestamp.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param purgeAfterMs
+   * @param actingPrincipal
+   * @return list of {@link TableDto}
+   */
+  void purgeSoftDeletedTables(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal);
 }

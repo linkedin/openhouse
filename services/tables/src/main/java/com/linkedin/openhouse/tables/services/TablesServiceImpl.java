@@ -29,6 +29,8 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
@@ -373,6 +375,19 @@ public class TablesServiceImpl implements TablesService {
               .build();
       saveTableDto(tableDtoToSave, Optional.of(tableDto));
     }
+  }
+
+  @Override
+  public Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable) {
+    return openHouseInternalRepository.searchSoftDeletedTablesByDatabaseId(databaseId, pageable);
+  }
+
+  @Override
+  public void purgeSoftDeletedTables(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal) {
+    authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.DELETE_TABLE);
+    openHouseInternalRepository.purgeSoftDeletedTableById(
+        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), purgeAfterMs);
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */
