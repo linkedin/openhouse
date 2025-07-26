@@ -2,15 +2,12 @@ package com.linkedin.openhouse.javaclient.builder;
 
 import com.linkedin.openhouse.tables.client.model.ClusteringColumn;
 import com.linkedin.openhouse.tables.client.model.Transform;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.types.Type;
 
 public final class ClusteringSpecBuilder extends PartitionSpecBuilder {
 
@@ -22,47 +19,56 @@ public final class ClusteringSpecBuilder extends PartitionSpecBuilder {
     return new ClusteringSpecBuilder(schema, spec);
   }
 
-  public List<ClusteringColumn> build() throws UnsupportedOperationException {
-    List<PartitionField> clusteringFields =
-        partitionSpec.fields().stream()
-            .filter(
-                col ->
-                    ALLOWED_CLUSTERING_TYPEIDS.contains(
-                        schema.findField(col.sourceId()).type().typeId()))
-            .collect(Collectors.toList());
-    List<ClusteringColumn> clustering = null;
-    if (!clusteringFields.isEmpty()) {
-      clustering =
-          clusteringFields.stream()
-              .map(
-                  col -> {
-                    ClusteringColumn clusteringColumn = new ClusteringColumn();
-                    clusteringColumn.columnName(
-                        partitionSpec.schema().findColumnName(col.sourceId()));
-                    clusteringColumn.transform(
-                        buildTransform(col.transform().toString()).orElse(null));
-                    return clusteringColumn;
-                  })
-              .collect(Collectors.toList());
-    }
-    return clustering;
+  public List<ClusteringColumn> build() {
+    return partitionSpec.fields().stream()
+        .flatMap(
+            field -> {
+              Type.TypeID typeId = schema.findField(field.sourceId()).type().typeId();
+
+              if (!ALLOWED_CLUSTERING_TYPEIDS.contains(typeId)) {
+                return java.util.stream.Stream.empty(); // Skip invalid fields
+              }
+
+              // Single string comparison to validate and determine transform type
+              String transformString = field.transform().toString();
+              Transform transform = null;
+
+              if (transformString.equals("identity")) {
+                // Identity transform - leave transform as null
+              } else if (transformString.startsWith("truncate[")) {
+                transform = new Transform();
+                transform.setTransformType(Transform.TransformTypeEnum.TRUNCATE);
+                transform.setTransformParams(extractClusterTransformParameters(field.transform()));
+              } else if (transformString.startsWith("bucket[")) {
+                transform = new Transform();
+                transform.setTransformType(Transform.TransformTypeEnum.BUCKET);
+                transform.setTransformParams(extractClusterTransformParameters(field.transform()));
+              } else {
+                // Unsupported transform - skip this field
+                return java.util.stream.Stream.empty();
+              }
+
+              // Build the clustering column
+              ClusteringColumn clusteringColumn = new ClusteringColumn();
+              clusteringColumn.columnName(partitionSpec.schema().findColumnName(field.sourceId()));
+              clusteringColumn.transform(transform);
+              return java.util.stream.Stream.of(clusteringColumn);
+            })
+        .collect(Collectors.toList());
   }
 
-  private Optional<Transform> buildTransform(String transformStr) {
-    Transform transform = new Transform();
-    Matcher truncateMatcher = Pattern.compile(TRUNCATE_REGEX).matcher(transformStr);
-    Matcher bucketMatcher = Pattern.compile(BUCKET_REGEX).matcher(transformStr);
-    if ("identity".equals(transformStr)) {
-      return Optional.empty();
-    } else if (truncateMatcher.matches()) {
-      String width = truncateMatcher.group(1);
-      transform.setTransformType(Transform.TransformTypeEnum.TRUNCATE);
-      transform.setTransformParams(Arrays.asList(width));
-    } else if (bucketMatcher.matches()) {
-      String bucketCount = bucketMatcher.group(1);
-      transform.setTransformType(Transform.TransformTypeEnum.BUCKET);
-      transform.setTransformParams(Arrays.asList(bucketCount));
+  /** Extract parameters from transform strings like "truncate[10]" or "bucket[4]" */
+  private List<String> extractClusterTransformParameters(
+      org.apache.iceberg.transforms.Transform<?, ?> transform) {
+    String transformString = transform.toString();
+    if (transformString.startsWith("truncate[") || transformString.startsWith("bucket[")) {
+      // Extract number from within brackets
+      int start = transformString.indexOf('[') + 1;
+      int end = transformString.indexOf(']');
+      if (start > 0 && end > start) {
+        return Collections.singletonList(transformString.substring(start, end));
+      }
     }
-    return Optional.of(transform);
+    return Collections.emptyList();
   }
 }

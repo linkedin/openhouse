@@ -275,26 +275,38 @@ public class PartitionSpecMapper {
    */
   private Optional<Transform> toTransform(PartitionField partitionField) {
     /* String based comparison is necessary as the classes are package-private */
-    Transform transform = null;
     String icebergTransform = partitionField.transform().toString();
-    Matcher truncateMatcher = Pattern.compile(TRUNCATE_REGEX).matcher(icebergTransform);
-    Matcher bucketMatcher = Pattern.compile(BUCKET_REGEX).matcher(icebergTransform);
 
-    if (truncateMatcher.matches()) {
-      String width = truncateMatcher.group(1);
-      transform =
+    String truncateParam = extractTransformParameter(icebergTransform, TRUNCATE_REGEX);
+    if (truncateParam != null) {
+      return Optional.of(
           Transform.builder()
               .transformType(Transform.TransformType.TRUNCATE)
-              .transformParams(Arrays.asList(width))
-              .build();
-    } else if (bucketMatcher.matches()) {
-      String bucketCount = bucketMatcher.group(1);
-      transform =
+              .transformParams(Arrays.asList(truncateParam))
+              .build());
+    }
+
+    String bucketParam = extractTransformParameter(icebergTransform, BUCKET_REGEX);
+    if (bucketParam != null) {
+      return Optional.of(
           Transform.builder()
               .transformType(Transform.TransformType.BUCKET)
-              .transformParams(Arrays.asList(bucketCount))
-              .build();
+              .transformParams(Arrays.asList(bucketParam))
+              .build());
     }
-    return Optional.ofNullable(transform);
+
+    return Optional.empty();
+  }
+
+  /**
+   * Extracts the parameter from a transform string using the given regex pattern.
+   *
+   * @param transformString the transform string (e.g., "truncate[10]", "bucket[5]")
+   * @param regexPattern the regex pattern to match against
+   * @return the extracted parameter or null if no match
+   */
+  private String extractTransformParameter(String transformString, String regexPattern) {
+    Matcher matcher = Pattern.compile(regexPattern).matcher(transformString);
+    return matcher.matches() ? matcher.group(1) : null;
   }
 }
