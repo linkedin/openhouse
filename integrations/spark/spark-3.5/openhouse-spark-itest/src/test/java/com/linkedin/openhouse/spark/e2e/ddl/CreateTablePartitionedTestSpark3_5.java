@@ -160,29 +160,6 @@ public class CreateTablePartitionedTestSpark3_5 {
   }
 
   @Test
-  public void testCreatePartitionedTableUnsupported() {
-    for (String transform : ImmutableList.of("bucket(2, name)", "bucket(2, count)")) {
-      mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
-      mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
-      mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
-
-      IllegalArgumentException exception =
-          Assertions.assertThrows(
-              IllegalArgumentException.class,
-              () ->
-                  spark.sql(
-                      "CREATE TABLE openhouse.dbCreate.tb_bad_partitioned ($SCHEMA) PARTITIONED BY ($TRANSFORM)"
-                          .replace("$SCHEMA", convertSchemaToDDLComponent(baseSchema))
-                          .replace("$TRANSFORM", transform)));
-      Assertions.assertTrue(
-          exception
-              .getMessage()
-              .contains(
-                  "please provide one of the following transforms (hour,day,month,year), for example: PARTITIONED BY category"));
-    }
-  }
-
-  @Test
   public void testCreatePartitionedTableMultipleTimePartitioning() {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()

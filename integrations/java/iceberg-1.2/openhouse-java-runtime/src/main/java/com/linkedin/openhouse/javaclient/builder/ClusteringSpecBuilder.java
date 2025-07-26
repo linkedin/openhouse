@@ -34,7 +34,8 @@ public final class ClusteringSpecBuilder extends PartitionSpecBuilder {
               Transform transform = null;
 
               if (transformString.equals("identity")) {
-                // Identity transform - leave transform as null
+                // Identity transform - should result in null transform in client model
+                transform = null;
               } else if (transformString.startsWith("truncate[")) {
                 transform = new Transform();
                 transform.setTransformType(Transform.TransformTypeEnum.TRUNCATE);
@@ -50,7 +51,7 @@ public final class ClusteringSpecBuilder extends PartitionSpecBuilder {
 
               // Build the clustering column
               ClusteringColumn clusteringColumn = new ClusteringColumn();
-              clusteringColumn.columnName(partitionSpec.schema().findColumnName(field.sourceId()));
+              clusteringColumn.columnName(schema.findColumnName(field.sourceId()));
               clusteringColumn.transform(transform);
               return java.util.stream.Stream.of(clusteringColumn);
             })
