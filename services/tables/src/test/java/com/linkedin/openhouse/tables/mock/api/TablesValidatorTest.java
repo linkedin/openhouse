@@ -654,6 +654,231 @@ public class TablesValidatorTest {
   }
 
   @Test
+  public void validateCreateTableRequestTruncateTransformZeroWidth() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.TRUNCATE)
+                                            .transformParams(Arrays.asList("0"))
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("TRUNCATE transform: width must be positive, got 0"));
+  }
+
+  @Test
+  public void validateCreateTableRequestBucketTransformEmptyParams() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.BUCKET)
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("BUCKET transform: parameters can not be empty"));
+  }
+
+  @Test
+  public void validateCreateTableRequestBucketTransformMoreThanOneParams() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.BUCKET)
+                                            .transformParams(Arrays.asList("2", "4"))
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("BUCKET transform: cannot have more than one parameter"));
+  }
+
+  @Test
+  public void validateCreateTableRequestBucketTransformNonNumericParams() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.BUCKET)
+                                            .transformParams(Arrays.asList("abc"))
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("BUCKET transform: parameters must be numeric string"));
+  }
+
+  @Test
+  public void validateCreateTableRequestBucketTransformZeroCount() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.BUCKET)
+                                            .transformParams(Arrays.asList("0"))
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("BUCKET transform: bucket count must be positive, got 0"));
+  }
+
+  @Test
+  public void validateCreateTableRequestBucketTransformNegativeCount() {
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "dC",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("dC")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .clustering(
+                            Arrays.asList(
+                                ClusteringColumn.builder()
+                                    .columnName("name")
+                                    .transform(
+                                        Transform.builder()
+                                            .transformType(Transform.TransformType.BUCKET)
+                                            .transformParams(Arrays.asList("-5"))
+                                            .build())
+                                    .build()))
+                        .tableProperties(ImmutableMap.of())
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        requestValidationFailureException
+            .getMessage()
+            .contains("BUCKET transform: bucket count must be positive, got -5"));
+  }
+
+  @Test
+  public void validateCreateTableRequestValidBucketTransform() {
+    // Test that valid bucket transforms don't throw exceptions
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "dC",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("dC")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .clustering(
+                        Arrays.asList(
+                            ClusteringColumn.builder()
+                                .columnName("name")
+                                .transform(
+                                    Transform.builder()
+                                        .transformType(Transform.TransformType.BUCKET)
+                                        .transformParams(Arrays.asList("4"))
+                                        .build())
+                                .build()))
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
   public void validateUpdateTableRequestParamNotMatchingRequestBody() {
     assertThrows(
         RequestValidationFailureException.class,

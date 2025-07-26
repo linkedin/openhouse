@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
@@ -20,14 +19,11 @@ public abstract class PartitionSpecBuilder {
   protected static final int MAX_TIME_PARTITIONING_COLUMNS = 1;
   protected static final Type.TypeID ALLOWED_PARTITION_TYPEID = Type.TypeID.TIMESTAMP;
 
-  public static final Set<Type.TypeID> ALLOWED_CLUSTERING_TYPEIDS =
+  protected static final Set<Type.TypeID> ALLOWED_CLUSTERING_TYPEIDS =
       Collections.unmodifiableSet(
-          new HashSet<Type.TypeID>(
+          new HashSet<>(
               Arrays.asList(
                   Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG, Type.TypeID.DATE)));
-  protected static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
-  public static final Set<String> SUPPORTED_TRANSFORMS =
-      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));
 
   protected Schema schema;
   protected PartitionSpec partitionSpec;
@@ -35,9 +31,8 @@ public abstract class PartitionSpecBuilder {
   PartitionSpecBuilder(Schema schema, PartitionSpec spec) {
     Preconditions.checkState(
         Collections.disjoint(
-            PartitionSpecBuilder.ALLOWED_CLUSTERING_TYPEIDS,
-            new HashSet<>(
-                Collections.singletonList(PartitionSpecBuilder.ALLOWED_PARTITION_TYPEID))));
+            ALLOWED_CLUSTERING_TYPEIDS,
+            new HashSet<>(Collections.singletonList(ALLOWED_PARTITION_TYPEID))));
     this.schema = schema;
     this.partitionSpec = spec;
     validatePartitionSpec();
@@ -49,65 +44,65 @@ public abstract class PartitionSpecBuilder {
    * LONG type support identity and truncate. No other types are supported.
    */
   private void validatePartitionSpec() {
-    partitionSpec.fields().stream()
+    partitionSpec
+        .fields()
         .forEach(
-            partitionField -> {
-              Type.TypeID typeID = schema.findField(partitionField.sourceId()).type().typeId();
-              String partitionFieldName =
-                  partitionSpec.schema().findField(partitionField.sourceId()).name();
-              if (ALLOWED_PARTITION_TYPEID == typeID) {
-                if (getSupportedTimePartitionTransforms()
-                    .contains(partitionField.transform().toString())) {
-                  return;
+            field -> {
+              Type.TypeID typeId = schema.findField(field.sourceId()).type().typeId();
+              String fieldName = partitionSpec.schema().findField(field.sourceId()).name();
+              String transformString = field.transform().toString();
+
+              if (ALLOWED_PARTITION_TYPEID == typeId) {
+                // TIMESTAMP type - check for supported time partition transforms
+                if (!getSupportedTimePartitionTransforms().contains(transformString)) {
+                  throw new IllegalArgumentException(
+                      String.format(
+                          "Unsupported column: %s, transform: %s provided, "
+                              + "please provide one of the following transforms (%s), "
+                              + "for example: PARTITIONED BY hours(timestampCol)",
+                          fieldName,
+                          transformString,
+                          String.join(",", getSupportedTimePartitionTransforms())));
                 }
+              } else if (ALLOWED_CLUSTERING_TYPEIDS.contains(typeId)) {
+                // Clustering types - check for supported clustering transforms
+                if (!isValidClusteringTransform(transformString)) {
+                  throw new IllegalArgumentException(
+                      String.format(
+                          "Unsupported column: %s, transform: %s provided, "
+                              + "please provide one of the following transforms (identity, truncate, bucket), "
+                              + "for example: PARTITIONED BY category",
+                          fieldName, transformString));
+                }
+              } else {
+                // Unsupported type
                 throw new IllegalArgumentException(
                     String.format(
-                        "Unsupported column: %s, transform: %s provided, "
-                            + "please provide one of the following transforms (%s), "
-                            + "for example: PARTITIONED BY hours(timestampCol)",
-                        partitionFieldName,
-                        partitionField.transform().toString(),
-                        String.join(",", getSupportedTimePartitionTransforms())));
-              } else if (ALLOWED_CLUSTERING_TYPEIDS.contains(typeID)) {
-                if (isClusteringSpec(partitionField)) {
-                  return;
-                }
-                throw new IllegalArgumentException(
-                    String.format(
-                        "Unsupported column: %s, transform: %s provided, "
-                            + "please provide one of the following transforms (%s), "
-                            + "for example: PARTITIONED BY category",
-                        partitionFieldName,
-                        partitionField.transform().toString(),
-                        String.join(",", getSupportedTimePartitionTransforms())));
+                        "For field %s supplied type %s and transform %s not supported. Supported types are (%s)",
+                        fieldName,
+                        typeId.name(),
+                        transformString,
+                        String.join(
+                            ",",
+                            Stream.concat(
+                                    Arrays.asList(ALLOWED_PARTITION_TYPEID.name()).stream(),
+                                    ALLOWED_CLUSTERING_TYPEIDS.stream().map(Enum::name))
+                                .collect(Collectors.toList()))));
               }
-              throw new IllegalArgumentException(
-                  String.format(
-                      "For field %s supplied type %s and transform %s not supported. Supported types are (%s)",
-                      partitionFieldName,
-                      typeID.name(),
-                      partitionField.transform().toString(),
-                      String.join(
-                          ",",
-                          Stream.concat(
-                                  Arrays.asList(ALLOWED_PARTITION_TYPEID.name()).stream(),
-                                  ALLOWED_CLUSTERING_TYPEIDS.stream()
-                                      .map(x -> x.name())
-                                      .collect(Collectors.toList())
-                                      .stream())
-                              .collect(Collectors.toList()))));
             });
   }
 
-  /** Get Supported transforms such as day(), hour(), month(), year() */
+  /** Get supported time partition transforms such as day, hour, month, year */
   private List<String> getSupportedTimePartitionTransforms() {
     return Arrays.stream(TimePartitionSpec.GranularityEnum.values())
         .map(x -> x.toString().toLowerCase())
         .collect(Collectors.toList());
   }
 
-  private boolean isClusteringSpec(PartitionField partitionField) {
-    String transform = partitionField.transform().toString();
-    return SUPPORTED_TRANSFORMS.stream().anyMatch(pattern -> transform.matches(pattern));
+  /** Check if transform is valid for clustering (identity, truncate, bucket) */
+  private boolean isValidClusteringTransform(String transformString) {
+    return transformString.equals("identity")
+        || transformString.startsWith("truncate[")
+        || transformString.startsWith("bucket[");
   }
 }
