@@ -22,6 +22,7 @@ import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
@@ -77,6 +78,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -1492,6 +1494,106 @@ public class TablesControllerTest {
             .matches(actualEvent));
     RequestAndValidateHelper.deleteTableAndValidateResponse(
         mvc, GET_TABLE_RESPONSE_BODY.toBuilder().tableId("t2").build());
+  }
+
+  @Test
+  public void testDeleteTableWithPurgeParameter() throws Exception {
+    HouseTablesH2Repository.softDeletedTables.clear();
+
+    MvcResult mvcResultSoftDelete =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    MvcResult mvcResultHardDelete =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY_SAME_DB, mvc, storageManager);
+
+    HouseTablePrimaryKey softDeleteKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(GET_TABLE_RESPONSE_BODY.getDatabaseId())
+            .tableId(GET_TABLE_RESPONSE_BODY.getTableId())
+            .build();
+
+    HouseTablePrimaryKey hardDeleteKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(GET_TABLE_RESPONSE_BODY_SAME_DB.getDatabaseId())
+            .tableId(GET_TABLE_RESPONSE_BODY_SAME_DB.getTableId())
+            .build();
+
+    // Soft delete the first table (purge=false)
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    String.format(
+                        "/v2/databases/%s/tables/%s?purge=false",
+                        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY.getTableId()))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(MockMvcResultMatchers.status().isNoContent());
+
+    // Hard delete the second table (purge=true)
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    String.format(
+                        "/v2/databases/%s/tables/%s?purge=true",
+                        GET_TABLE_RESPONSE_BODY_SAME_DB.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY_SAME_DB.getTableId()))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(MockMvcResultMatchers.status().isNoContent());
+
+    // Verify both tables are not accessible via GET
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    String.format(
+                        "/v1/databases/%s/tables/%s",
+                        GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY.getTableId()))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(MockMvcResultMatchers.status().isNotFound());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    String.format(
+                        "/v1/databases/%s/tables/%s",
+                        GET_TABLE_RESPONSE_BODY_SAME_DB.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY_SAME_DB.getTableId()))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(MockMvcResultMatchers.status().isNotFound());
+
+    // Verify soft deleted table exists in the softDeletedTables map
+    Assertions.assertTrue(
+        HouseTablesH2Repository.softDeletedTables.containsKey(softDeleteKey),
+        "Soft deleted table should be in softDeletedTables map");
+
+    // Verify hard deleted table does not exist in the softDeletedTables map
+    Assertions.assertFalse(
+        HouseTablesH2Repository.softDeletedTables.containsKey(hardDeleteKey),
+        "Hard deleted table should not be in softDeletedTables map");
+
+    // Test backward compatibility: Create a table and delete with v1 endpoint (should be hard
+    // delete)
+    MvcResult mvcResultBackwardCompat =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY_DIFF_DB, mvc, storageManager);
+
+    HouseTablePrimaryKey backwardCompatKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(GET_TABLE_RESPONSE_BODY_DIFF_DB.getDatabaseId())
+            .tableId(GET_TABLE_RESPONSE_BODY_DIFF_DB.getTableId())
+            .build();
+
+    // Delete with v1 endpoint (should default to purge=true)
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    String.format(
+                        "/v1/databases/%s/tables/%s",
+                        GET_TABLE_RESPONSE_BODY_DIFF_DB.getDatabaseId(),
+                        GET_TABLE_RESPONSE_BODY_DIFF_DB.getTableId()))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(MockMvcResultMatchers.status().isNoContent());
+
+    // Verify backward compatibility table is not in the softDeletedTables map (was hard deleted)
+    Assertions.assertFalse(
+        HouseTablesH2Repository.softDeletedTables.containsKey(backwardCompatKey),
+        "Table deleted with v1 endpoint should not be in softDeletedTables map (should be hard deleted)");
   }
 
   private MvcResult getTable(String databaseId, String tableId) throws Exception {
