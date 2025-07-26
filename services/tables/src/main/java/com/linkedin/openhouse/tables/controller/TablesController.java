@@ -192,8 +192,37 @@ public class TablesController {
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
 
+    // Maintain old behavior of delete table which always purges the table when dropped
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
-        tablesApiHandler.deleteTable(databaseId, tableId, extractAuthenticatedUserPrincipal());
+        tablesApiHandler.deleteTable(
+            databaseId, tableId, extractAuthenticatedUserPrincipal(), true);
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "DELETE Table with purge option",
+      description =
+          "Deletes a table resource with option to purge (permanently delete) or soft delete",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "Table DELETE: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "Table DELETE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "Table DELETE: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Table DELETE: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Table DELETE: TBL_DB_NOT_FOUND")
+      })
+  @DeleteMapping(value = {"/v2/databases/{databaseId}/tables/{tableId}"})
+  public ResponseEntity<Void> deleteTable(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @RequestParam(value = "purge") boolean purge) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.deleteTable(
+            databaseId, tableId, extractAuthenticatedUserPrincipal(), purge);
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
