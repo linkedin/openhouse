@@ -134,12 +134,12 @@ public class DropTableTest {
     Object existingTable =
         mockGetTableResponseBody(
             "dbDrop",
-            "t3",
+            "t4",
             "c1",
-            "dbDrop.t3",
+            "dbDrop.t4",
             "u1",
             mockTableLocation(
-                TableIdentifier.of("dbDrop", "t3"), convertSchemaToDDLComponent(baseSchema), ""),
+                TableIdentifier.of("dbDrop", "t4"), convertSchemaToDDLComponent(baseSchema), ""),
             "V1",
             baseSchema,
             null,
@@ -147,7 +147,7 @@ public class DropTableTest {
     mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(204, null)); // doRefresh()
 
-    String ddl = "DROP TABLE IF EXISTS openhouse.dbDrop.t1 PURGE";
+    String ddl = "DROP TABLE IF EXISTS openhouse.dbDrop.t4 PURGE";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddl));
   }
 }
