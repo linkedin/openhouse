@@ -39,9 +39,7 @@ public class SparkTestBase
                   "spark.sql.extensions",
                   ("org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
                       + "com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions"))
-              .config(
-                  "spark.sql.catalog.openhouse",
-                  "com.linkedin.openhouse.spark.OpenHouseSparkCatalog")
+              .config("spark.sql.catalog.openhouse", "org.apache.iceberg.spark.SparkCatalog")
               .config(
                   "spark.sql.catalog.openhouse.catalog-impl",
                   "com.linkedin.openhouse.spark.OpenHouseCatalog")
