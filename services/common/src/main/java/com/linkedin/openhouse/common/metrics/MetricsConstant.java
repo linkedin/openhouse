@@ -38,7 +38,6 @@ public final class MetricsConstant {
   public static final String REPO_TABLE_FIND_TIME = "repo_table_find_time";
   public static final String REPO_TABLE_EXISTS_TIME = "repo_table_exists_time";
   public static final String REPO_TABLE_DELETE_TIME = "repo_table_delete_time";
-  public static final String REPO_TABLE_SOFT_DELETE_TIME = "repo_table_soft_delete_time";
   public static final String REPO_TABLES_FIND_BY_DATABASE_TIME =
       "repo_tables_find_by_database_time";
   public static final String REPO_TABLES_SEARCH_BY_DATABASE_TIME =
