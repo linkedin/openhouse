@@ -175,7 +175,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public void deleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    // Default to hard delete (isSoftDelete = false) for backward compatibility
+    // Default to hard delete (purge = true for backward compatibility
     deleteById(houseTablePrimaryKey, true);
   }
 

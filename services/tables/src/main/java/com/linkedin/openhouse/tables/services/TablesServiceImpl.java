@@ -195,6 +195,8 @@ public class TablesServiceImpl implements TablesService {
     }
     authorizationUtils.checkTableWritePathPrivileges(
         tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
+
+    openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
   }
 
   @Override

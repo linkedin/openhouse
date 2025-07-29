@@ -113,8 +113,7 @@ public class MockTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> deleteTable(
-      String databaseId, String tableId, String actingPrincipal, boolean purge) {
+  public ApiResponse<Void> deleteTable(String databaseId, String tableId, String actingPrincipal) {
     switch (databaseId) {
       case "d204":
         return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();

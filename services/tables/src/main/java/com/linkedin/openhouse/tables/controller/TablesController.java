@@ -192,7 +192,6 @@ public class TablesController {
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
 
-    // Maintain old behavior of delete table which always purges the table when dropped
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteTable(databaseId, tableId, extractAuthenticatedUserPrincipal());
 

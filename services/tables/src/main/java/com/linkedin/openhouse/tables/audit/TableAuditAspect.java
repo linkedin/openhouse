@@ -168,6 +168,7 @@ public class TableAuditAspect {
     return result;
   }
 
+  /** Install the Around advice for deleteTable() method in OpenHouseTablesApiHandler */
   @Around(
       "execution("
           + "com.linkedin.openhouse.common.api.spec.ApiResponse<Void> "

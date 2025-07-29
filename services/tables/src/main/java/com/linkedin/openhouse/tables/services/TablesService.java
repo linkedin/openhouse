@@ -47,8 +47,7 @@ public interface TablesService {
       Boolean failOnExist);
 
   /**
-   * Delete a table represented by databaseId and tableId if actingPrincipal has the right
-   * privilege, with option to purge (permanently delete) or soft delete.
+   * Delete a table represented by databaseId and tableId if actingPrincipal has the right privilege
    *
    * @param databaseId
    * @param tableId
