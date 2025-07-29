@@ -16,10 +16,10 @@ public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTa
   List<HouseTable> findAllByDatabaseId(String databaseId);
 
   /**
-   * Delete a table by its primary key with soft delete option.
+   * Delete a table by its primary key with purge option
    *
    * @param houseTablePrimaryKey the primary key of the table
-   * @param isSoftDelete whether to perform a soft delete
+   * @param purge true if table should be deleted permanently, otherwise retain with soft delete
    */
   void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean purge);
 
