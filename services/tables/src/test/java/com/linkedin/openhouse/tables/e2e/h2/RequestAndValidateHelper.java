@@ -284,27 +284,6 @@ public final class RequestAndValidateHelper {
         .andExpect(content().string(""));
   }
 
-  /**
-   * Helper method to test the v2 deleteTable endpoint with purge parameter.
-   *
-   * @param mvc MockMvc instance
-   * @param getTableResponseBody Table to delete
-   * @param purge Whether to purge (permanently delete) the table or soft delete it
-   * @throws Exception if the request fails
-   */
-  static void deleteTableWithPurgeAndValidateResponse(
-      MockMvc mvc, GetTableResponseBody getTableResponseBody, boolean purge) throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.delete(
-                String.format(
-                    "/v2/databases/%s/tables/%s?purge=%s",
-                    getTableResponseBody.getDatabaseId(),
-                    getTableResponseBody.getTableId(),
-                    purge)))
-        .andExpect(status().isNoContent())
-        .andExpect(content().string(""));
-  }
-
   static void deleteLockOnTableAndValidate(MockMvc mvc, GetTableResponseBody getTableResponseBody)
       throws Exception {
     mvc.perform(

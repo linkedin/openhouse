@@ -61,8 +61,7 @@ public interface TablesApiHandler {
       String tableCreatorUpdator);
 
   /**
-   * Function to Delete a Table Resource identified by tableId in a given databaseId with option to
-   * purge (permanently delete) or soft delete
+   * Function to Delete a Table Resource identified by tableId in a given databaseId
    *
    * @param databaseId
    * @param tableId
