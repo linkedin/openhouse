@@ -109,7 +109,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
               .databaseId(identifier.namespace().toString())
               .tableId(identifier.name())
               .build();
-      houseTableRepository.deleteById(primaryKey, !purge);
+      houseTableRepository.deleteById(primaryKey, purge);
     } catch (HouseTableRepositoryException houseTableRepositoryException) {
       throw new RuntimeException(
           String.format("The table %s cannot be dropped due to the server side error:", identifier),

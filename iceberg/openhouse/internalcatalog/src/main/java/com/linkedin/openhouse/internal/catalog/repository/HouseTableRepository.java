@@ -21,7 +21,7 @@ public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTa
    * @param houseTablePrimaryKey the primary key of the table
    * @param isSoftDelete whether to perform a soft delete
    */
-  void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean isSoftDelete);
+  void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean purge);
 
   void rename(
       String fromDatabaseId,
