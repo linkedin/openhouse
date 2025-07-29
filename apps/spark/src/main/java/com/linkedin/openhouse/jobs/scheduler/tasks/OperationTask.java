@@ -170,6 +170,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
       Optional<JobState> jobState;
       do {
         jobState = jobsClient.getState(jobId);
+        Thread.sleep(pollIntervalMs);
         long elapsedTime = System.currentTimeMillis() - startTime;
         // Exit status check if a job is queued for more than queuedTimeoutMs.
         if (elapsedTime > queuedTimeoutMs) {
@@ -184,7 +185,6 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
           log.info("Exiting status check for {} for {} due to task timeout", getType(), metadata);
           break;
         }
-        Thread.sleep(pollIntervalMs);
       } while (!jobFinished(jobState));
     } catch (InterruptedException e) {
       // Exit status check if scheduler send out an interrupt signal.
