@@ -214,7 +214,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
     try {
       tableApi
-          .deleteTableV2(identifier.namespace().toString(), identifier.name(), true)
+          .deleteTableV1(identifier.namespace().toString(), identifier.name())
           .onErrorResume(
               WebClientResponseException.NotFound.class,
               e -> Mono.error(new NoSuchTableException("Table " + identifier + " does not exist")))

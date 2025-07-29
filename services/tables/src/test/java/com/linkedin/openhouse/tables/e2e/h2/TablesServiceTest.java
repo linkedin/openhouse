@@ -13,7 +13,6 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
-import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -779,54 +778,5 @@ public class TablesServiceTest {
     tablesService.deleteTable(TABLE_DTO.getDatabaseId(), "secondRenamedTable", TEST_USER, true);
     tablesService.deleteTable(
         TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER, true);
-  }
-
-  @Test
-  public void testTableDeleteWithPurge() {
-    HouseTablesH2Repository.softDeletedTables.clear();
-    TableDto softDeleteTable = verifyPutTableRequest(TABLE_DTO, null, true);
-    TableDto hardDeleteTable = verifyPutTableRequest(TABLE_DTO_SAME_DB, null, true);
-
-    // Verify all tables exist
-    verifyGetTableRequest(softDeleteTable);
-    verifyGetTableRequest(hardDeleteTable);
-
-    tablesService.deleteTable(
-        softDeleteTable.getDatabaseId(), softDeleteTable.getTableId(), TEST_USER, false);
-    tablesService.deleteTable(
-        hardDeleteTable.getDatabaseId(), hardDeleteTable.getTableId(), TEST_USER, true);
-
-    // Validate both tables cannot be queried after deletion
-    Assertions.assertThrows(
-        NoSuchUserTableException.class,
-        () ->
-            tablesService.getTable(
-                softDeleteTable.getDatabaseId(), softDeleteTable.getTableId(), TEST_USER));
-    Assertions.assertThrows(
-        NoSuchUserTableException.class,
-        () ->
-            tablesService.getTable(
-                hardDeleteTable.getDatabaseId(), hardDeleteTable.getTableId(), TEST_USER));
-
-    HouseTablePrimaryKey softDeleteKey =
-        HouseTablePrimaryKey.builder()
-            .databaseId(softDeleteTable.getDatabaseId())
-            .tableId(softDeleteTable.getTableId())
-            .build();
-    HouseTablePrimaryKey hardDeleteKey =
-        HouseTablePrimaryKey.builder()
-            .databaseId(hardDeleteTable.getDatabaseId())
-            .tableId(hardDeleteTable.getTableId())
-            .build();
-
-    // Verify soft deleted tables exist in the softDeletedTables map
-    Assertions.assertTrue(
-        HouseTablesH2Repository.softDeletedTables.containsKey(softDeleteKey),
-        "Soft deleted table should be in softDeletedTables map");
-
-    // Verify hard deleted table does not exist in the softDeletedTables map
-    Assertions.assertFalse(
-        HouseTablesH2Repository.softDeletedTables.containsKey(hardDeleteKey),
-        "Hard deleted table should not be in softDeletedTables map");
   }
 }

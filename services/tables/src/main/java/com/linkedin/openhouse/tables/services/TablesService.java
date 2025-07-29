@@ -53,9 +53,8 @@ public interface TablesService {
    * @param databaseId
    * @param tableId
    * @param actingPrincipal
-   * @param purge if true, the table will be permanently deleted; if false, it will be soft deleted
    */
-  void deleteTable(String databaseId, String tableId, String actingPrincipal, boolean purge);
+  void deleteTable(String databaseId, String tableId, String actingPrincipal);
 
   /**
    * Rename a table represented by databaseId and tableId if actingPrincipal has the right

@@ -194,8 +194,7 @@ public class TablesController {
 
     // Maintain old behavior of delete table which always purges the table when dropped
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
-        tablesApiHandler.deleteTable(
-            databaseId, tableId, extractAuthenticatedUserPrincipal(), true);
+        tablesApiHandler.deleteTable(databaseId, tableId, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

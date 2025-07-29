@@ -93,10 +93,9 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> deleteTable(
-      String databaseId, String tableId, String actingPrincipal, boolean purge) {
+  public ApiResponse<Void> deleteTable(String databaseId, String tableId, String actingPrincipal) {
     tablesApiValidator.validateDeleteTable(databaseId, tableId);
-    tableService.deleteTable(databaseId, tableId, actingPrincipal, purge);
+    tableService.deleteTable(databaseId, tableId, actingPrincipal);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 

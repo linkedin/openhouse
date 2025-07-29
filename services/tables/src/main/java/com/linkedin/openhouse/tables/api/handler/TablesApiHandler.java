@@ -67,11 +67,9 @@ public interface TablesApiHandler {
    * @param databaseId
    * @param tableId
    * @param actingPrincipal
-   * @param purge if true, the table will be permanently deleted; if false, it will be soft deleted
    * @return empty body on successful delete
    */
-  ApiResponse<Void> deleteTable(
-      String databaseId, String tableId, String actingPrincipal, boolean purge);
+  ApiResponse<Void> deleteTable(String databaseId, String tableId, String actingPrincipal);
 
   /**
    * Function to Rename a Table Resource identified by fromTableId in a given fromDatabaseId to

@@ -513,14 +513,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         true);
   }
 
-  @Timed(metricKey = MetricsConstant.REPO_TABLE_SOFT_DELETE_TIME)
-  @Override
-  public void softDeleteById(TableDtoPrimaryKey tableDtoPrimaryKey) {
-    catalog.dropTable(
-        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()),
-        false);
-  }
-
   @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_TIME)
   @Override
   public List<TableDto> searchTables(String databaseId) {
