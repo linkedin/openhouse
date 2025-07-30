@@ -41,6 +41,7 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -112,6 +113,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           writeSchema,
           partitionSpec);
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
+      SortOrder sortOrder =
+          tableDto.getSortOrder() == null
+              ? SortOrder.unsorted()
+              : SortOrderParser.fromJson(writeSchema, tableDto.getSortOrder());
       table =
           catalog
               .buildTable(tableIdentifier, writeSchema)
@@ -126,7 +131,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                           tableDto.getTableCreator(),
                           tableProps))
               .withProperties(tableProps)
-              .withSortOrder(SortOrderParser.fromJson(writeSchema, tableDto.getSortOrder()))
+              .withSortOrder(sortOrder)
               .create();
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(

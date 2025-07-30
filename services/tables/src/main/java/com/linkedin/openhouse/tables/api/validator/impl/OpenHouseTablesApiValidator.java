@@ -20,6 +20,9 @@ import java.util.UUID;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import org.apache.commons.lang.StringUtils;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.SortOrderParser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -86,6 +89,10 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "schema : provided %s, should contain at least one column",
               createUpdateTableRequestBody.getSchema()));
     }
+    validateSortOrder(
+        createUpdateTableRequestBody.getSortOrder(),
+        createUpdateTableRequestBody.getSchema(),
+        validationFailures);
     validationFailures.addAll(validateUUIDForReplicaTable(createUpdateTableRequestBody));
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
@@ -205,6 +212,10 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               createUpdateTableRequestBody.getClustering().size(),
               MAX_ALLOWED_CLUSTERING_COLUMNS));
     }
+    validateSortOrder(
+        createUpdateTableRequestBody.getSortOrder(),
+        createUpdateTableRequestBody.getSchema(),
+        validationFailures);
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
@@ -313,6 +324,18 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     } else if (!tableId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
       validationFailures.add(
           String.format("tableId : provided %s, %s", tableId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
+    }
+  }
+
+  private void validateSortOrder(String sortOrder, String schema, List<String> validationFailures) {
+    if (sortOrder != null) {
+      try {
+        Schema icebergSchema = getSchemaFromSchemaJson(schema);
+        SortOrder icebergSortOrder = SortOrderParser.fromJson(icebergSchema, sortOrder);
+      } catch (IllegalArgumentException e) {
+        validationFailures.add(
+            String.format("sortOrder : provided %s is not a valid sort order", sortOrder));
+      }
     }
   }
 }
