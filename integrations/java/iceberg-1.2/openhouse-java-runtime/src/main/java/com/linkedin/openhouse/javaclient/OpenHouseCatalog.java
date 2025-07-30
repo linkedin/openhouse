@@ -206,6 +206,12 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
           "Input namespace has more than one levels "
               + String.join(".", identifier.namespace().levels()));
     }
+    // Default to purge = true regardless of the input parameter
+    // Currently, SparkCatalog (3.1 and 3.5) will always call dropTable with purge = false and
+    // handle purge in purgeTable()
+    // To handle on catalog side, we should look to override purgeTable()
+    // https://spark.apache.org/docs/3.5.1/api/java/org/apache/spark/sql/connector/catalog/TableCatalog.html#purgeTable(org.apache.spark.sql.connector.catalog.Identifier)
+
     try {
       tableApi
           .deleteTableV1(identifier.namespace().toString(), identifier.name())

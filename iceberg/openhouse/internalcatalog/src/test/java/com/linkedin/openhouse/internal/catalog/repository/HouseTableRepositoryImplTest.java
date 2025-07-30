@@ -267,7 +267,26 @@ public class HouseTableRepositoryImplTest {
                 HouseTablePrimaryKey.builder()
                     .tableId(HOUSE_TABLE.getTableId())
                     .databaseId(HOUSE_TABLE.getDatabaseId())
-                    .build()));
+                    .build(),
+                true));
+  }
+
+  @Test
+  public void testRepoSoftDelete() {
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(204)
+            .setBody("")
+            .addHeader("Content-Type", "application/json"));
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            htsRepo.deleteById(
+                HouseTablePrimaryKey.builder()
+                    .tableId(HOUSE_TABLE.getTableId())
+                    .databaseId(HOUSE_TABLE.getDatabaseId())
+                    .build(),
+                false));
   }
 
   @Test

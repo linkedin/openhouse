@@ -3,6 +3,8 @@ package com.linkedin.openhouse.tablestest;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
@@ -15,6 +17,9 @@ import org.springframework.stereotype.Repository;
 @Repository
 @Primary
 public interface HouseTablesH2Repository extends HouseTableRepository {
+
+  Map<HouseTablePrimaryKey, HouseTable> softDeletedTables = new HashMap<>();
+
   Optional<HouseTable> findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
       String databaseId, String tableId);
 
@@ -41,5 +46,17 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
               this.save(renamedTable);
               this.delete(houseTable);
             });
+  }
+
+  @Override
+  default void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean isSoftDelete) {
+    // For the purpose of testing, move the table to a soft-deleted map instead of deleting it.
+    // If HTS is enabled it will write to a different table
+    if (this.findById(houseTablePrimaryKey).isPresent()) {
+      if (isSoftDelete) {
+        softDeletedTables.put(houseTablePrimaryKey, this.findById(houseTablePrimaryKey).get());
+      }
+      deleteById(houseTablePrimaryKey);
+    }
   }
 }
