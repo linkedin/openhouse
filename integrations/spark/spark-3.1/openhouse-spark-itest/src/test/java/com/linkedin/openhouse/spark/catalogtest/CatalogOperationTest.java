@@ -379,10 +379,10 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   public void testAlterTableUnsetSortOrder() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       Catalog catalog = getOpenHouseCatalog(spark);
-      spark.sql("CREATE TABLE openhouse.db.test_sort_order (id int, data string)");
-      spark.sql("ALTER TABLE openhouse.db.test_sort_order WRITE ORDERED BY (id)");
-      spark.sql("ALTER TABLE openhouse.db.test_sort_order WRITE UNORDERED");
-      Table table = catalog.loadTable(TableIdentifier.of("db", "test_sort_order"));
+      spark.sql("CREATE TABLE openhouse.db.test_sort_order_unset (id int, data string)");
+      spark.sql("ALTER TABLE openhouse.db.test_sort_order_unset WRITE ORDERED BY (id)");
+      spark.sql("ALTER TABLE openhouse.db.test_sort_order_unset WRITE UNORDERED");
+      Table table = catalog.loadTable(TableIdentifier.of("db", "test_sort_order_unset"));
       Assertions.assertEquals(SortOrder.unsorted(), table.sortOrder());
     }
   }
