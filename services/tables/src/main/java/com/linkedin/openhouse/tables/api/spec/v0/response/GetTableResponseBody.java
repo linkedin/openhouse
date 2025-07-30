@@ -101,7 +101,8 @@ public class GetTableResponseBody {
   @Schema(
       nullable = true,
       description = "The sort order of a table",
-      example = "asc(1, name), desc(2, age)")
+      example =
+          "\"sortOrder\":{\"order-id\":1,\"fields\":[{\"transform\":\"identity\",\"source-id\":1,\"direction\":\"asc\",\"null-order\":\"nulls-first\"}]}")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String sortOrder;
 

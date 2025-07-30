@@ -60,6 +60,8 @@ public final class TableModelConstants {
 
   public static final String TEST_USER_PRINCIPAL;
   public static final String CLUSTER_NAME;
+  public static final String SORT_ORDER;
+  public static final String UNSORTED_SORT_ORDER;
 
   static {
     COL_PAT = RetentionColumnPattern.builder().columnName("name").pattern("'yyyy'").build();
@@ -116,6 +118,9 @@ public final class TableModelConstants {
     TEST_USER = "testUser";
     TEST_USER_PRINCIPAL = "testUserPrincipal";
     CLUSTER_NAME = "local-cluster";
+    SORT_ORDER =
+        "{\"order-id\":1,\"fields\":[{\"transform\":\"identity\",\"source-id\":1,\"direction\":\"asc\",\"null-order\":\"nulls-first\"}]}";
+    UNSORTED_SORT_ORDER = "{\"order-id\":0,\"fields\":[]}";
     try {
       HEALTH_SCHEMA_LITERAL =
           ResourceIoHelper.getSchemaJsonFromResource("dummy_healthy_schema.json");
@@ -227,7 +232,7 @@ public final class TableModelConstants {
                               .transformParams(Collections.singletonList("10"))
                               .build())
                       .build()))
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
 
   public static final GetTableResponseBody GET_TABLE_RESPONSE_BODY_RESERVED_PROP =
@@ -252,7 +257,7 @@ public final class TableModelConstants {
               Arrays.asList(
                   ClusteringColumn.builder().columnName("name").build(),
                   ClusteringColumn.builder().columnName("id").build()))
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
 
   public static final GetTableResponseBody GET_TABLE_RESPONSE_BODY_NULL_PROP =
@@ -270,7 +275,7 @@ public final class TableModelConstants {
           .timePartitioning(null)
           .clustering(null)
           .policies(TABLE_POLICIES)
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
 
   public static final GetTableResponseBody GET_TABLE_RESPONSE_BODY_WITH_TABLE_TYPE =
@@ -296,7 +301,7 @@ public final class TableModelConstants {
               Arrays.asList(
                   ClusteringColumn.builder().columnName("id").build(),
                   ClusteringColumn.builder().columnName("name").build()))
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
 
   public static final TableDto TABLE_DTO =
@@ -320,7 +325,7 @@ public final class TableModelConstants {
           .policies(TABLE_DTO.getPolicies())
           .stageCreate(true)
           .tableType(TableType.PRIMARY_TABLE)
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
 
   public static final GetTableResponseBody GET_TABLE_RESPONSE_BODY_SAME_DB =
@@ -345,7 +350,7 @@ public final class TableModelConstants {
                   ClusteringColumn.builder().columnName("id").build()))
           .tableProperties(buildTableProperties(TABLE_PROPS))
           .policies(TABLE_POLICIES)
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
   public static final TableDto TABLE_DTO_SAME_DB =
       TableModelConstants.buildTableDto(GET_TABLE_RESPONSE_BODY_SAME_DB);
@@ -373,7 +378,7 @@ public final class TableModelConstants {
               Arrays.asList(
                   ClusteringColumn.builder().columnName("name").build(),
                   ClusteringColumn.builder().columnName("id").build()))
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
   public static final TableDto TABLE_DTO_DIFF_DB =
       TableModelConstants.buildTableDto(GET_TABLE_RESPONSE_BODY_DIFF_DB);
@@ -402,7 +407,7 @@ public final class TableModelConstants {
                   Arrays.asList(
                       ClusteringColumn.builder().columnName("name").build(),
                       ClusteringColumn.builder().columnName("id").build()))
-              .sortOrder("[]")
+              .sortOrder(UNSORTED_SORT_ORDER)
               .build();
 
   public static final CreateUpdateTableRequestBody CREATE_TABLE_REQUEST_BODY =
@@ -414,7 +419,7 @@ public final class TableModelConstants {
           .tableProperties(buildTableProperties(TABLE_PROPS))
           .policies(TABLE_POLICIES)
           .baseTableVersion(INITIAL_TABLE_VERSION)
-          .sortOrder("[]")
+          .sortOrder(UNSORTED_SORT_ORDER)
           .build();
 
   public static final IcebergSnapshotsRequestBody ICEBERG_SNAPSHOTS_REQUEST_BODY =
@@ -474,7 +479,7 @@ public final class TableModelConstants {
                             .transformParams(Collections.singletonList("10"))
                             .build())
                     .build()))
-        .sortOrder("[]")
+        .sortOrder(UNSORTED_SORT_ORDER)
         .build();
   }
 

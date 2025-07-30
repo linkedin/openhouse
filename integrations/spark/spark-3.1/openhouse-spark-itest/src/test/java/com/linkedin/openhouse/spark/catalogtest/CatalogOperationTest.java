@@ -19,6 +19,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
@@ -357,22 +358,20 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
   public void testAlterTableSortOrder() throws Exception {
     try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
       spark.sql("CREATE TABLE openhouse.db.test_sort_order (id int, data string)");
       spark.sql("ALTER TABLE openhouse.db.test_sort_order WRITE ORDERED BY (id)");
-      // Verify that insertion data is not sorted
-      spark.sql("INSERT INTO openhouse.db.test_sort_order VALUES (5, 'a'), (1, 'a'), (2, 'a')");
-      List<Row> rows = spark.sql("SELECT * FROM openhouse.db.test_sort_order").collectAsList();
-      Assertions.assertEquals(3, rows.size());
-      Assertions.assertEquals(5, rows.get(0).getInt(0));
-      Assertions.assertEquals(1, rows.get(1).getInt(0));
-      Assertions.assertEquals(2, rows.get(2).getInt(0));
-      // Verify that data is sorted after update
-      spark.sql("UPDATE openhouse.db.test_sort_order SET data = 'b' WHERE id = 1");
-      rows = spark.sql("SELECT * FROM openhouse.db.test_sort_order").collectAsList();
-      Assertions.assertEquals(3, rows.size());
-      Assertions.assertEquals(1, rows.get(0).getInt(0));
-      Assertions.assertEquals(2, rows.get(1).getInt(0));
-      Assertions.assertEquals(5, rows.get(2).getInt(0));
+      Table table = catalog.loadTable(TableIdentifier.of("db", "test_sort_order"));
+      Assertions.assertEquals(
+          SortOrder.builderFor(table.schema()).asc("id").build(), table.sortOrder());
+      String distribution =
+          spark
+              .sql("show tblproperties openhouse.db.test_sort_order")
+              .filter("key='write.distribution-mode'")
+              .select("value")
+              .first()
+              .getString(0);
+      Assertions.assertEquals("range", distribution);
     }
   }
 
@@ -380,14 +379,18 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   public void testAlterTableSortOrderCTAS() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       Catalog catalog = getOpenHouseCatalog(spark);
-      spark.sql("CREATE TABLE openhouse.db.t1 (id int, data string) PARTITIONED BY (id)");
+      spark.sql("CREATE TABLE openhouse.db.t1 (id int, data string)");
       spark.sql("ALTER TABLE openhouse.db.t1 WRITE ORDERED BY (id)");
-      spark.sql("CREATE TABLE openhouse.db.test_sort_order_ctas AS SELECT * FROM openhouse.db.t1");
-      Table table = catalog.loadTable(TableIdentifier.of("db", "t1"));
-      Map<String, String> map = table.properties();
+      Table oldTable = catalog.loadTable(TableIdentifier.of("db", "t1"));
+      Transaction transaction =
+          catalog
+              .buildTable(TableIdentifier.of("db", "test_sort_order_ctas"), oldTable.schema())
+              .withSortOrder(oldTable.sortOrder())
+              .createTransaction();
+      transaction.commitTransaction();
+      Table newTable = catalog.loadTable(TableIdentifier.of("db", "test_sort_order_ctas"));
       Assertions.assertEquals(
-          SortOrder.builderFor(table.schema()).asc("id").build(), table.sortOrder());
-      Assertions.assertEquals("range", table.properties().get("write.distribution-mode"));
+          SortOrder.builderFor(oldTable.schema()).asc("id").build(), newTable.sortOrder());
     }
   }
 }

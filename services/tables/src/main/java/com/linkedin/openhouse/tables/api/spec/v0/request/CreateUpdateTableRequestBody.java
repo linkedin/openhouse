@@ -107,7 +107,11 @@ public class CreateUpdateTableRequestBody {
   @Builder.Default
   private TableType tableType = TableType.PRIMARY_TABLE;
 
-  @Schema(description = "The sort order of a table")
+  @Schema(
+      nullable = true,
+      description = "The sort order of a table",
+      example =
+          "\"sortOrder\":{\"order-id\":1,\"fields\":[{\"transform\":\"identity\",\"source-id\":1,\"direction\":\"asc\",\"null-order\":\"nulls-first\"}]}")
   @Valid
   private String sortOrder;
 

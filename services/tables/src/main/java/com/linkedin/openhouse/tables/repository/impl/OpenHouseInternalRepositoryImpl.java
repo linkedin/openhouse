@@ -113,19 +113,21 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           partitionSpec);
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       table =
-          catalog.createTable(
-              tableIdentifier,
-              writeSchema,
-              partitionSpec,
-              storageSelector
-                  .selectStorage(tableDto.getDatabaseId(), tableDto.getTableId())
-                  .allocateTableLocation(
-                      tableDto.getDatabaseId(),
-                      tableDto.getTableId(),
-                      tableDto.getTableUUID(),
-                      tableDto.getTableCreator(),
-                      tableProps),
-              tableProps);
+          catalog
+              .buildTable(tableIdentifier, writeSchema)
+              .withPartitionSpec(partitionSpec)
+              .withLocation(
+                  storageSelector
+                      .selectStorage(tableDto.getDatabaseId(), tableDto.getTableId())
+                      .allocateTableLocation(
+                          tableDto.getDatabaseId(),
+                          tableDto.getTableId(),
+                          tableDto.getTableUUID(),
+                          tableDto.getTableCreator(),
+                          tableProps))
+              .withProperties(tableProps)
+              .withSortOrder(SortOrderParser.fromJson(writeSchema, tableDto.getSortOrder()))
+              .create();
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(
           "create for table {} took {} ms",
