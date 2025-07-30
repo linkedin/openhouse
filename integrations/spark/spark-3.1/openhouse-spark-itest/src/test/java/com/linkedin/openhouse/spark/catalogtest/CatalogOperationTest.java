@@ -356,7 +356,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testAlterTableSortOrder() throws Exception {
+  public void testAlterTableSetSortOrder() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       Catalog catalog = getOpenHouseCatalog(spark);
       spark.sql("CREATE TABLE openhouse.db.test_sort_order (id int, data string)");
@@ -372,6 +372,18 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
               .first()
               .getString(0);
       Assertions.assertEquals("range", distribution);
+    }
+  }
+
+  @Test
+  public void testAlterTableUnsetSortOrder() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      spark.sql("CREATE TABLE openhouse.db.test_sort_order (id int, data string)");
+      spark.sql("ALTER TABLE openhouse.db.test_sort_order WRITE ORDERED BY (id)");
+      spark.sql("ALTER TABLE openhouse.db.test_sort_order WRITE UNORDERED");
+      Table table = catalog.loadTable(TableIdentifier.of("db", "test_sort_order"));
+      Assertions.assertEquals(SortOrder.unsorted(), table.sortOrder());
     }
   }
 

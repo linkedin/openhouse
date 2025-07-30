@@ -113,10 +113,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           writeSchema,
           partitionSpec);
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
-      SortOrder sortOrder =
-          tableDto.getSortOrder() == null
-              ? SortOrder.unsorted()
-              : SortOrderParser.fromJson(writeSchema, tableDto.getSortOrder());
       table =
           catalog
               .buildTable(tableIdentifier, writeSchema)
@@ -131,7 +127,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                           tableDto.getTableCreator(),
                           tableProps))
               .withProperties(tableProps)
-              .withSortOrder(sortOrder)
+              .withSortOrder(getIcebergSortOrder(tableDto, writeSchema))
               .create();
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(
@@ -150,7 +146,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
           doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
-      boolean sortOrderUpdated = doUpdateSortOrderIfNeeded(updateProperties, tableDto, table);
+      boolean sortOrderUpdated =
+          doUpdateSortOrderIfNeeded(updateProperties, tableDto, table, writeSchema);
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
@@ -177,12 +174,22 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   private boolean doUpdateSortOrderIfNeeded(
-      UpdateProperties updateProperties, TableDto providedTableDto, Table existingTable) {
-    if (providedTableDto.getSortOrder().equals(SortOrderParser.toJson(existingTable.sortOrder()))) {
+      UpdateProperties updateProperties,
+      TableDto providedTableDto,
+      Table existingTable,
+      Schema writeSchema) {
+    SortOrder sortOrder = getIcebergSortOrder(providedTableDto, writeSchema);
+    if (sortOrder.equals(existingTable.sortOrder())) {
       return false;
     }
-    updateProperties.set(SORT_ORDER_KEY, providedTableDto.getSortOrder());
+    updateProperties.set(SORT_ORDER_KEY, SortOrderParser.toJson(sortOrder));
     return true;
+  }
+
+  private SortOrder getIcebergSortOrder(TableDto tableDto, Schema writeSchema) {
+    return tableDto.getSortOrder() == null
+        ? SortOrder.unsorted()
+        : SortOrderParser.fromJson(writeSchema, tableDto.getSortOrder());
   }
 
   private boolean skipEligibilityCheck(
