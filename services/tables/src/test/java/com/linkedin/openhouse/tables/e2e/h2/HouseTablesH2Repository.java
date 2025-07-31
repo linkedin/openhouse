@@ -2,8 +2,11 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
@@ -17,7 +20,7 @@ import org.springframework.stereotype.Repository;
 @Primary
 public interface HouseTablesH2Repository extends HouseTableRepository {
 
-  Map<HouseTablePrimaryKey, HouseTable> softDeletedTables = new HashMap<>();
+  Map<SoftDeletedTablePrimaryKey, HouseTable> softDeletedTables = new HashMap<>();
 
   @Override
   default void rename(
@@ -49,9 +52,38 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
     // If HTS is enabled it will write to a different table
     if (this.findById(houseTablePrimaryKey).isPresent()) {
       if (isSoftDelete) {
-        softDeletedTables.put(houseTablePrimaryKey, this.findById(houseTablePrimaryKey).get());
+        SoftDeletedTablePrimaryKey key =
+            SoftDeletedTablePrimaryKey.builder()
+                .databaseId(houseTablePrimaryKey.getDatabaseId())
+                .tableId(houseTablePrimaryKey.getTableId())
+                .deletedAtMs(System.currentTimeMillis())
+                .build();
+        softDeletedTables.put(key, this.findById(houseTablePrimaryKey).get());
       }
       deleteById(houseTablePrimaryKey);
     }
+  }
+
+  default List<HouseTable> findAllSoftDeletedTablesByDatabaseId(
+      String databaseId, int page, int size) {
+    List<HouseTable> foundTables = new ArrayList<>();
+    for (HouseTable table : softDeletedTables.values()) {
+      if (table.getDatabaseId().equals(databaseId)) {
+        foundTables.add(table);
+      }
+    }
+    return foundTables.subList(
+        Math.min(page * size, foundTables.size()), Math.min((page + 1) * size, foundTables.size()));
+  }
+
+  default void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
+    // Mock the purge logic on HTS for soft deleted tables
+    softDeletedTables
+        .entrySet()
+        .removeIf(
+            entry ->
+                entry.getKey().getTableId().equals(tableId)
+                    && entry.getKey().getDatabaseId().equals(databaseId)
+                    && entry.getValue().getPurgeAfterMs() < purgeAfterMs);
   }
 }

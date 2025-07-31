@@ -468,6 +468,7 @@ public class HouseTableRepositoryImplTest {
 
   @Test
   public void testFindAllSoftDeletedTablesByDatabaseId() {
+    PageUserTable pageUserTable = new PageUserTable();
     List<UserTable> tables = new ArrayList<>();
     long currentTime = System.currentTimeMillis();
     // Create a soft-deleted table by setting deletedAt to a positive timestamp
@@ -481,13 +482,14 @@ public class HouseTableRepositoryImplTest {
     anotherSoftDeletedTable.setDeletedAtMs(currentTime - 1000);
     softDeletedTable.setPurgeAfterMs(currentTime + 10000);
     tables.add(anotherSoftDeletedTable);
+    pageUserTable.setContent(tables);
 
     GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
     Field resultField =
-        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "results");
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
     Assertions.assertNotNull(resultField);
     ReflectionUtils.makeAccessible(resultField);
-    ReflectionUtils.setField(resultField, listResponse, tables);
+    ReflectionUtils.setField(resultField, listResponse, pageUserTable);
 
     mockHtsServer.enqueue(
         new MockResponse()
@@ -503,14 +505,16 @@ public class HouseTableRepositoryImplTest {
 
   @Test
   public void testFindAllSoftDeletedTablesByDatabaseIdEmptyResult() {
+    PageUserTable pageUserTable = new PageUserTable();
     List<UserTable> tables = new ArrayList<>();
+    pageUserTable.setContent(tables);
 
     GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
     Field resultField =
-        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "results");
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
     Assertions.assertNotNull(resultField);
     ReflectionUtils.makeAccessible(resultField);
-    ReflectionUtils.setField(resultField, listResponse, tables);
+    ReflectionUtils.setField(resultField, listResponse, pageUserTable);
 
     mockHtsServer.enqueue(
         new MockResponse()

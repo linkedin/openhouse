@@ -42,6 +42,8 @@ public class HouseTable {
 
   private long deletedAtMs;
 
+  private long purgeAfterMs;
+
   /**
    * This column indicates the storage type used by this table. See {@link
    * com.linkedin.openhouse.cluster.storage.StorageType}. A storage type indicates the {@link

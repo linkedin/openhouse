@@ -14,8 +14,11 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import java.util.ArrayList;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
@@ -251,6 +254,46 @@ public class MockTablesApiHandler implements TablesApiHandler {
         throw new RequestValidationFailureException();
       case "d404":
         throw new NoSuchUserTableException(databaseId, tableId);
+      default:
+        return null;
+    }
+  }
+
+  @Override
+  public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
+      String databaseId,
+      org.springframework.data.domain.Pageable pageable,
+      String actingPrincipal) {
+    switch (databaseId) {
+      case "d200":
+        // Create an empty page of GetSoftDeletedTableResponseBody
+        org.springframework.data.domain.Page<GetSoftDeletedTableResponseBody> emptyPage =
+            new org.springframework.data.domain.PageImpl<>(new ArrayList<>(), pageable, 0);
+
+        return ApiResponse.<GetAllSoftDeletedTablesResponseBody>builder()
+            .httpStatus(HttpStatus.OK)
+            .responseBody(
+                GetAllSoftDeletedTablesResponseBody.builder().pageResults(emptyPage).build())
+            .build();
+      case "d404":
+        throw new NoSuchUserTableException(databaseId, "");
+      case "d403":
+        throw new AccessDeniedException("Access denied");
+      default:
+        return null;
+    }
+  }
+
+  @Override
+  public ApiResponse<Void> purgeSoftDeletedTable(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal) {
+    switch (databaseId) {
+      case "d204":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+      case "d404":
+        throw new NoSuchUserTableException(databaseId, tableId);
+      case "d403":
+        throw new AccessDeniedException("Access denied");
       default:
         return null;
     }

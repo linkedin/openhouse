@@ -9,6 +9,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -386,8 +387,9 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
-  public Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable) {
-    return openHouseInternalRepository.searchSoftDeletedTablesByDatabaseId(databaseId, pageable);
+  public Page<SoftDeletedTableDto> searchSoftDeletedTablesByDatabaseId(
+      String databaseId, Pageable pageable) {
+    return openHouseInternalRepository.searchSoftDeletedTables(databaseId, pageable);
   }
 
   @Override

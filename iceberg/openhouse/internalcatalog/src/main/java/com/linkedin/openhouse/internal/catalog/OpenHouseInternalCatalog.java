@@ -11,10 +11,10 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
-import com.linkedin.openhouse.tables.model.TableDto;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Optional;
@@ -185,20 +185,21 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     transaction.commitTransaction();
   }
 
-  public Page<TableDto> searchSoftDeletedTablesByDatabase(Namespace namespace, Pageable pageable) {
+  public Page<SoftDeletedTableDto> searchSoftDeletedTablesByDatabase(
+      Namespace namespace, Pageable pageable) {
     if (namespace.levels().length > 1) {
       throw new ValidationException(
           "Input namespace has more than one levels " + String.join(".", namespace.levels()));
     }
 
-    List<TableDto> softDeletedTables =
+    List<SoftDeletedTableDto> softDeletedTables =
         houseTableRepository
             .findAllSoftDeletedTablesByDatabaseId(
                 namespace.toString(), pageable.getPageNumber(), pageable.getPageSize())
             .stream()
             .map(
                 houseTable ->
-                    TableDto.builder()
+                    SoftDeletedTableDto.builder()
                         .tableId(houseTable.getTableId())
                         .databaseId(houseTable.getDatabaseId())
                         .tableLocation(houseTable.getTableLocation())

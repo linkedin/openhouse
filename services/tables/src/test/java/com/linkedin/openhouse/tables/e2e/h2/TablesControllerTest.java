@@ -21,6 +21,8 @@ import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
@@ -1516,32 +1518,138 @@ public class TablesControllerTest {
 
   @Test
   public void testUnSetSortOrder() throws Exception {
-    GetTableResponseBody getTableResponseBody =
-        GET_TABLE_RESPONSE_BODY.toBuilder().sortOrder(SORT_ORDER).build();
+    GetTableResponseBody getTableResponseBody = GET_TABLE_RESPONSE_BODY.toBuilder().sortOrder(SORT_ORDER).build();
     MvcResult createResult =
-        RequestAndValidateHelper.createTableAndValidateResponse(
-            getTableResponseBody, mvc, storageManager);
+        RequestAndValidateHelper.createTableAndValidateResponse(getTableResponseBody, mvc, storageManager);
     GetTableResponseBody updateResponseBody =
-        buildGetTableResponseBody(createResult, GetTableResponseBody.builder().build())
-            .toBuilder()
-            .sortOrder(null)
+        buildGetTableResponseBody(createResult, GetTableResponseBody.builder().build()).toBuilder().sortOrder(null)
             .build();
-    MvcResult mvcResult =
-        mvc.perform(
-                MockMvcRequestBuilders.put(
-                        String.format(
-                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                                + "/databases/%s/tables/%s",
-                            GET_TABLE_RESPONSE_BODY.getDatabaseId(),
-                            GET_TABLE_RESPONSE_BODY.getTableId()))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(buildCreateUpdateTableRequestBody(updateResponseBody).toJson())
-                    .accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andReturn();
+    MvcResult mvcResult = mvc.perform(MockMvcRequestBuilders.put(
+            String.format(ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+                GET_TABLE_RESPONSE_BODY.getDatabaseId(), GET_TABLE_RESPONSE_BODY.getTableId()))
+        .contentType(MediaType.APPLICATION_JSON).content(buildCreateUpdateTableRequestBody(updateResponseBody).toJson())
+        .accept(MediaType.APPLICATION_JSON)).andExpect(status().isOk()).andReturn();
     String sortOrder = JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.sortOrder");
     Assertions.assertEquals(UNSORTED_SORT_ORDER, sortOrder);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, updateResponseBody);
+  }
+
+  @Test
+  @SneakyThrows
+  public void testSearchSoftDeletedTables() {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    // Empty result valid with default pagination (0-10)
+    String databaseId =
+        GET_TABLE_RESPONSE_BODY.getDatabaseId() + "_search_soft_deleted_controllers_test";
+    MvcResult result =
+        mvc.perform(
+                MockMvcRequestBuilders.get("/v0/databases/" + databaseId + "/softDeletedTables")
+                    .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+    String content = result.getResponse().getContentAsString();
+
+    // Verify the response contains the expected number of tables
+    int count = JsonPath.read(content, "$.pageResults.content.length()");
+    assertEquals(0, count);
+
+    HouseTable softDeletedTable =
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(GET_TABLE_RESPONSE_BODY.getTableId())
+            .tableLocation(GET_TABLE_RESPONSE_BODY.getTableLocation())
+            .deletedAtMs(System.currentTimeMillis())
+            .purgeAfterMs(System.currentTimeMillis() + 1000000)
+            .build();
+
+    // Manually insert soft deleted tables in House tables repository
+    HouseTablesH2Repository.softDeletedTables.put(
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(softDeletedTable.getDatabaseId())
+            .tableId(softDeletedTable.getTableId())
+            .deletedAtMs(softDeletedTable.getDeletedAtMs())
+            .build(),
+        softDeletedTable);
+
+    result =
+        mvc.perform(
+                MockMvcRequestBuilders.get("/v0/databases/" + databaseId + "/softDeletedTables")
+                    .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+    content = result.getResponse().getContentAsString();
+
+    // Verify the response contains the expected number of tables
+    count = JsonPath.read(content, "$.pageResults.content.length()");
+    assertEquals(1, count);
+  }
+
+  @Test
+  @SneakyThrows
+  public void testSearchSoftDeletedTablesWithInvalidPagination() {
+    // Test with invalid page size
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    "/v0/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/softDeletedTables")
+                .param("page", "0")
+                .param("size", "0")
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    // Test with invalid page number
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    "/v0/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/softDeletedTables")
+                .param("page", "-1")
+                .param("size", "10")
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  @SneakyThrows
+  public void testPurgeSoftDeletedTable() {
+    // Try to purge a non-existent table
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    "/v0/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/tables/nonExistentTable/purge")
+                .param("purgeAfterMs", String.valueOf(System.currentTimeMillis()))
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNoContent()); // Should still return 204 even if table doesn't exist
+  }
+
+  @Test
+  @SneakyThrows
+  public void testPurgeSoftDeletedTableWithInvalidParameters() {
+    // Test with missing purgeAfterMs parameter
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    "/v0/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/tables/"
+                        + GET_TABLE_RESPONSE_BODY.getTableId()
+                        + "/purge")
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    // Test with invalid purgeAfterMs parameter
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    "/v0/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/tables/"
+                        + GET_TABLE_RESPONSE_BODY.getTableId()
+                        + "/purge")
+                .param("purgeAfterMs", "-1")
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
   }
 
   private MvcResult getTable(String databaseId, String tableId) throws Exception {

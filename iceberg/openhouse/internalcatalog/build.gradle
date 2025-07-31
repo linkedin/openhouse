@@ -17,7 +17,6 @@ dependencies {
   implementation project(':cluster:metrics')
   implementation project(':iceberg:azure')
   implementation project(':services:common')
-  implementation project(':services:tables')
   // Needed for testing against manually bootstrapped HTS server through bootRun task.
   testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"
   // Needed for testing against mock HTS server along with other constructs in /tables module.

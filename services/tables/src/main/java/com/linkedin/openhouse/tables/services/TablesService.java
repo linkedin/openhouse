@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.services;
 
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -153,7 +154,8 @@ public interface TablesService {
    * @param pageable
    * @return list of {@link TableDto}
    */
-  Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable);
+  Page<SoftDeletedTableDto> searchSoftDeletedTablesByDatabaseId(
+      String databaseId, Pageable pageable);
 
   /**
    * Deletes soft-deleted tables that are older than the specified timestamp.

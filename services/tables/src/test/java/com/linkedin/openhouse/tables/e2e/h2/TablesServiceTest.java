@@ -13,6 +13,9 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -37,6 +40,9 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.ContextConfiguration;
@@ -776,5 +782,95 @@ public class TablesServiceTest {
     tablesService.deleteTable(TABLE_DTO.getDatabaseId(), "secondRenamedTable", TEST_USER);
     tablesService.deleteTable(
         TABLE_DTO_SAME_DB.getDatabaseId(), TABLE_DTO_SAME_DB.getTableId(), TEST_USER);
+  }
+
+  @Test
+  public void testSearchSoftDeletedTablesByDatabaseId() {
+    String databaseId = TABLE_DTO.getDatabaseId() + "_searchSoftDeleted_tableServiceTest";
+    HouseTable softDeletedTable =
+        HouseTable.builder()
+            .tableId(TABLE_DTO.getTableId())
+            .databaseId(databaseId)
+            .tableLocation(TABLE_DTO.getTableLocation())
+            .tableVersion(TABLE_DTO.getTableVersion())
+            .tableCreator(TABLE_DTO.getTableCreator())
+            .lastModifiedTime(TABLE_DTO.getLastModifiedTime())
+            .creationTime(TABLE_DTO.getCreationTime())
+            .deletedAtMs(System.currentTimeMillis())
+            .purgeAfterMs(System.currentTimeMillis())
+            .build();
+
+    HouseTable softDeletedTable2 =
+        HouseTable.builder()
+            .databaseId(databaseId + "_2")
+            .deletedAtMs(System.currentTimeMillis())
+            .build();
+
+    HouseTablesH2Repository.softDeletedTables.put(
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(databaseId)
+            .tableId(TABLE_DTO.getTableId())
+            .deletedAtMs(softDeletedTable.getDeletedAtMs())
+            .build(),
+        softDeletedTable);
+
+    HouseTablesH2Repository.softDeletedTables.put(
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(databaseId + "_2")
+            .tableId(TABLE_DTO.getTableId() + "_2")
+            .deletedAtMs(softDeletedTable2.getDeletedAtMs())
+            .build(),
+        softDeletedTable2);
+
+    Pageable pageable = PageRequest.of(0, 10);
+    Page<SoftDeletedTableDto> result =
+        tablesService.searchSoftDeletedTablesByDatabaseId(databaseId, pageable);
+
+    // Verify
+    Assertions.assertNotNull(result);
+    Assertions.assertEquals(1, result.getContent().size());
+    Assertions.assertEquals(TABLE_DTO.getTableId(), result.getContent().get(0).getTableId());
+    Assertions.assertEquals(databaseId, result.getContent().get(0).getDatabaseId());
+  }
+
+  @Test
+  public void testPurgeSoftDeletedTables() {
+    String purgeDbId = TABLE_DTO.getDatabaseId() + "_purge";
+    HouseTable softDeletedTable =
+        HouseTable.builder()
+            .tableId(TABLE_DTO.getTableId())
+            .databaseId(purgeDbId)
+            .tableLocation(TABLE_DTO.getTableLocation())
+            .tableVersion(TABLE_DTO.getTableVersion())
+            .tableCreator(TABLE_DTO.getTableCreator())
+            .lastModifiedTime(TABLE_DTO.getLastModifiedTime())
+            .creationTime(TABLE_DTO.getCreationTime())
+            .deletedAtMs(System.currentTimeMillis())
+            .purgeAfterMs(System.currentTimeMillis())
+            .build();
+
+    HouseTablesH2Repository.softDeletedTables.put(
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(purgeDbId)
+            .tableId(TABLE_DTO.getTableId())
+            .deletedAtMs(softDeletedTable.getDeletedAtMs())
+            .build(),
+        softDeletedTable);
+
+    Pageable pageable = PageRequest.of(0, 10);
+    Page<SoftDeletedTableDto> result =
+        tablesService.searchSoftDeletedTablesByDatabaseId(purgeDbId, pageable);
+    Assertions.assertNotNull(result);
+    Assertions.assertEquals(1, result.getContent().size());
+    Assertions.assertEquals(TABLE_DTO.getTableId(), result.getContent().get(0).getTableId());
+    Assertions.assertEquals(purgeDbId, result.getContent().get(0).getDatabaseId());
+
+    long purgeAfterMs = System.currentTimeMillis() + 1000;
+    // Purge soft deleted table
+    tablesService.purgeSoftDeletedTables(
+        purgeDbId, TABLE_DTO.getTableId(), purgeAfterMs, TEST_USER);
+    result = tablesService.searchSoftDeletedTablesByDatabaseId(purgeDbId, pageable);
+    Assertions.assertNotNull(result);
+    Assertions.assertEquals(0, result.getContent().size());
   }
 }

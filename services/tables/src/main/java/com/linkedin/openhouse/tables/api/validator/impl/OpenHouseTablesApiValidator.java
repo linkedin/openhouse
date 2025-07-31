@@ -24,6 +24,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -315,6 +316,42 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
     if (validationFailures.size() > 0) {
       throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
+  @Override
+  public void validateSearchSoftDeletedTables(String databaseId, Pageable pageable) {
+    if (databaseId == null) {
+      throw new RequestValidationFailureException(
+          "databaseId must be provided to search soft deleted tables");
+    }
+
+    if (pageable == null) {
+      throw new RequestValidationFailureException(
+          "pageable must be provided to search soft deleted tables");
+    }
+
+    if (pageable.getPageSize() <= 0) {
+      throw new RequestValidationFailureException(
+          "pageSize must be greater than 0 to search soft deleted tables");
+    }
+
+    if (pageable.getPageNumber() < 0) {
+      throw new RequestValidationFailureException(
+          "pageNumber must be greater than or equal to 0 to search soft deleted tables");
+    }
+  }
+
+  @Override
+  public void validatePurgeSoftDeletedTable(String databaseId, String tableId, long purgeAfterMs) {
+    if (databaseId == null || tableId == null) {
+      throw new RequestValidationFailureException(
+          "databaseId and tableId must be provided to purge a soft deleted table");
+    }
+
+    if (purgeAfterMs < 0) {
+      throw new RequestValidationFailureException(
+          "purgeAfterMs must be greater than or equal to 0 to purge a soft deleted table");
     }
   }
 
