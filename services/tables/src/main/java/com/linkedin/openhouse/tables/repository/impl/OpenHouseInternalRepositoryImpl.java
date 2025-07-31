@@ -622,14 +622,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     throw getUnsupportedException();
   }
 
-  @Timed(metricKey = MetricsConstant.REPO_TABLE_SOFT_DELETE_TIME)
-  @Override
-  public List<TableDto> searchSoftDeletedTables(String databaseId) {
-    return catalog.listTables(Namespace.of(databaseId)).stream()
-        .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier))
-        .collect(Collectors.toList());
-  }
-
   @Override
   public <S extends TableDto> Iterable<S> saveAll(Iterable<S> entities) {
     throw getUnsupportedException();

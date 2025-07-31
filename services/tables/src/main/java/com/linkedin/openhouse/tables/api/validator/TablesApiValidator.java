@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.validator;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import org.springframework.data.domain.Pageable;
 
 public interface TablesApiValidator {
 

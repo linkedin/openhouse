@@ -8,6 +8,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponse
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Interface layer between REST and Tables backend. The implementation is injected into the Service
