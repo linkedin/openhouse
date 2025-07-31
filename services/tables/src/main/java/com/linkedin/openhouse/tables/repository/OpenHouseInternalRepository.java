@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.repository;
 
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.List;
@@ -20,7 +21,7 @@ public interface OpenHouseInternalRepository extends CrudRepository<TableDto, Ta
 
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 
-  Page<TableDto> searchSoftDeletedTablesByDatabaseId(String databaseId, Pageable pageable);
+  Page<SoftDeletedTableDto> searchSoftDeletedTables(String databaseId, Pageable pageable);
 
   void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
 }
