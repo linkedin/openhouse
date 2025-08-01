@@ -262,6 +262,7 @@ public class MockTablesApiHandler implements TablesApiHandler {
   @Override
   public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
       String databaseId,
+      String tableId,
       org.springframework.data.domain.Pageable pageable,
       String actingPrincipal) {
     switch (databaseId) {
@@ -276,7 +277,7 @@ public class MockTablesApiHandler implements TablesApiHandler {
                 GetAllSoftDeletedTablesResponseBody.builder().pageResults(emptyPage).build())
             .build();
       case "d404":
-        throw new NoSuchUserTableException(databaseId, "");
+        throw new NoSuchUserTableException(databaseId, tableId);
       case "d403":
         throw new AccessDeniedException("Access denied");
       default:

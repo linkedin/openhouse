@@ -151,11 +151,12 @@ public interface TablesService {
    * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.
    *
    * @param databaseId
+   * @param tableId
    * @param pageable
-   * @return list of {@link TableDto}
+   * @return list of {@link SoftDeletedTableDto} soft deleted table metadata
    */
-  Page<SoftDeletedTableDto> searchSoftDeletedTablesByDatabaseId(
-      String databaseId, Pageable pageable);
+  Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      String databaseId, String tableId, Pageable pageable);
 
   /**
    * Deletes soft-deleted tables that are older than the specified timestamp.

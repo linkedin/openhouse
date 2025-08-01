@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -433,12 +434,20 @@ public class TablesController {
   @GetMapping(value = "/v0/databases/{databaseId}/softDeletedTables")
   public ResponseEntity<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
       @Parameter(description = "Database ID") @PathVariable String databaseId,
+      @Parameter(description = "Table ID to filter by") @RequestParam(required = false)
+          String tableId,
       @Parameter(description = "Page number") @RequestParam(defaultValue = "0") int page,
-      @Parameter(description = "Page size") @RequestParam(defaultValue = "10") int size) {
+      @Parameter(description = "Page size") @RequestParam(defaultValue = "10") int size,
+      @Parameter(description = "Sort by field (e.g., 'deletedAtMs', 'tableId', 'purgeAfterMs')")
+          @RequestParam(defaultValue = "tableId")
+          String sortBy) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllSoftDeletedTablesResponseBody>
         apiResponse =
             tablesApiHandler.searchSoftDeletedTables(
-                databaseId, PageRequest.of(page, size), extractAuthenticatedUserPrincipal());
+                databaseId,
+                tableId,
+                PageRequest.of(page, size, Sort.by(sortBy)),
+                extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

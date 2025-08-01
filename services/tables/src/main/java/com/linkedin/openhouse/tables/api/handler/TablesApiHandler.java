@@ -170,11 +170,12 @@ public interface TablesApiHandler {
    *
    * @param databaseId The database ID to search in
    * @param pageable Pagination parameters
+   * @param sortBy The field to sort by (optional)
    * @param actingPrincipal The principal performing the action
    * @return Response containing a page of soft deleted tables
    */
   ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
-      String databaseId, Pageable pageable, String actingPrincipal);
+      String databaseId, String tableId, Pageable pageable, String actingPrincipal);
 
   /**
    * Function to permanently delete a soft deleted table that has passed its purge time

@@ -193,13 +193,13 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Override
   public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
-      String databaseId, Pageable pageable, String actingPrincipal) {
+      String databaseId, String tableId, Pageable pageable, String actingPrincipal) {
     tablesApiValidator.validateSearchSoftDeletedTables(databaseId, pageable);
     return ApiResponse.<GetAllSoftDeletedTablesResponseBody>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
             tablesMapper.toGetAllSoftDeletedTablesResponseBody(
-                tableService.searchSoftDeletedTablesByDatabaseId(databaseId, pageable)))
+                tableService.searchSoftDeletedTables(databaseId, tableId, pageable)))
         .build();
   }
 

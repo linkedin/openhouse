@@ -342,8 +342,8 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   }
 
   @Override
-  public List<HouseTable> findAllSoftDeletedTablesByDatabaseId(
-      String databaseId, int page, int pageSize) {
+  public List<HouseTable> findSoftDeletedTables(
+      String databaseId, String tableId, int page, int pageSize, Sort sort) {
     GetAllEntityResponseBodyUserTable userTableResults =
         getHtsRetryTemplate(
                 Arrays.asList(
@@ -352,7 +352,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                 context ->
                     apiInstance
                         .getSoftDeletedUserTables(
-                            databaseId, null, null, page, pageSize, "purgeAfterMs")
+                            databaseId, tableId, null, page, pageSize, sort.toString())
                         .block());
 
     PageUserTable pageResults = userTableResults.getPageResults();
