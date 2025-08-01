@@ -21,7 +21,8 @@ public interface OpenHouseInternalRepository extends CrudRepository<TableDto, Ta
 
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 
-  Page<SoftDeletedTableDto> searchSoftDeletedTables(String databaseId, Pageable pageable);
+  Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      String databaseId, String tableId, Pageable pageable);
 
   void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
 }

@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.directory.api.util.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.retry.support.RetryTemplateBuilder;
 import org.springframework.stereotype.Repository;
@@ -272,8 +273,8 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   }
 
   @Override
-  public List<HouseTable> findAllSoftDeletedTablesByDatabaseId(
-      String databaseId, int page, int pageSize) {
+  public List<HouseTable> findSoftDeletedTables(
+      String databaseId, String tableId, int page, int pageSize, Sort sort) {
     GetAllEntityResponseBodyUserTable userTableResults =
         getHtsRetryTemplate(
                 Arrays.asList(
@@ -282,7 +283,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                 context ->
                     apiInstance
                         .getSoftDeletedUserTables(
-                            databaseId, null, null, page, pageSize, "purgeAfterMs")
+                            databaseId, tableId, null, page, pageSize, sort.toString())
                         .block());
 
     PageUserTable pageResults = userTableResults.getPageResults();

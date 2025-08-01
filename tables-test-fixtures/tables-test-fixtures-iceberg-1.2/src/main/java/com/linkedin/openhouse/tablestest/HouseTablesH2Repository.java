@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -69,11 +70,14 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
     }
   }
 
-  default List<HouseTable> findAllSoftDeletedTablesByDatabaseId(
-      String databaseId, int page, int size) {
+  default List<HouseTable> findSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, Sort sort) {
     List<HouseTable> foundTables = new ArrayList<>();
     for (HouseTable table : softDeletedTables.values()) {
       if (table.getDatabaseId().equals(databaseId)) {
+        if (tableId != null && !table.getTableId().equalsIgnoreCase(tableId)) {
+          continue; // Filter by tableId if provided
+        }
         foundTables.add(table);
       }
     }
