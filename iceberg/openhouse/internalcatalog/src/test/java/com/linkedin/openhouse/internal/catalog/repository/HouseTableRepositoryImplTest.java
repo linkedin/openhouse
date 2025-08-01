@@ -43,7 +43,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
-import org.springframework.data.domain.Sort;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.util.ReflectionUtils;
 import reactor.core.publisher.Mono;
@@ -400,7 +399,7 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
-  public void testFindSoftDeletedTables() {
+  public void testSearchSoftDeletedTables() {
     PageUserTable pageUserTable = new PageUserTable();
     List<UserTable> tables = new ArrayList<>();
     long currentTime = System.currentTimeMillis();
@@ -431,13 +430,13 @@ public class HouseTableRepositoryImplTest {
             .addHeader("Content-Type", "application/json"));
 
     List<HouseTable> returnList =
-        htsRepo.findSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, Sort.by("tableId"));
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
 
     assertThat(returnList).hasSize(2);
   }
 
   @Test
-  public void testFindSoftDeletedTablesEmptyResult() {
+  public void testSearchSoftDeletedTablesEmptyResult() {
     PageUserTable pageUserTable = new PageUserTable();
     List<UserTable> tables = new ArrayList<>();
     pageUserTable.setContent(tables);
@@ -456,7 +455,7 @@ public class HouseTableRepositoryImplTest {
             .addHeader("Content-Type", "application/json"));
 
     List<HouseTable> returnList =
-        htsRepo.findSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, Sort.by("tableId"));
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
 
     assertThat(returnList).hasSize(0);
   }

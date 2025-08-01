@@ -170,8 +170,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     transaction.commitTransaction();
   }
 
-  public Page<SoftDeletedTableDto> searchSoftDeletedTablesByDatabase(
-      Namespace namespace, String tableId, Pageable pageable) {
+  public Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      Namespace namespace, String tableId, Pageable pageable, String sortBy) {
     if (namespace.levels().length > 1) {
       throw new ValidationException(
           "Input namespace has more than one levels " + String.join(".", namespace.levels()));
@@ -179,12 +179,12 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
     List<SoftDeletedTableDto> softDeletedTables =
         houseTableRepository
-            .findSoftDeletedTables(
+            .searchSoftDeletedTables(
                 namespace.toString(),
                 tableId,
                 pageable.getPageNumber(),
                 pageable.getPageSize(),
-                pageable.getSort())
+                sortBy)
             .stream()
             .map(
                 houseTable ->

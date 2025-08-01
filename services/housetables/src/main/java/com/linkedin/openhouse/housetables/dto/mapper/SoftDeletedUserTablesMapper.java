@@ -6,6 +6,7 @@ import com.linkedin.openhouse.housetables.model.UserTableRow;
 import java.time.Instant;
 import org.mapstruct.AfterMapping;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 
 @Mapper(componentModel = "spring")
@@ -17,6 +18,7 @@ public interface SoftDeletedUserTablesMapper {
 
   SoftDeletedUserTableRow toSoftDeletedUserTableRow(UserTableRow userTableRow);
 
+  @Mapping(target = "tableVersion", source = "metadataLocation")
   UserTableDto toUserTableDto(SoftDeletedUserTableRow softDeletedUserTableRow);
 
   @AfterMapping
