@@ -153,10 +153,11 @@ public interface TablesService {
    * @param databaseId
    * @param tableId
    * @param pageable
+   * @param sortBy The field to sort by (optional)
    * @return list of {@link SoftDeletedTableDto} soft deleted table metadata
    */
   Page<SoftDeletedTableDto> searchSoftDeletedTables(
-      String databaseId, String tableId, Pageable pageable);
+      String databaseId, String tableId, Pageable pageable, String sortBy);
 
   /**
    * Deletes soft-deleted tables that are older than the specified timestamp.

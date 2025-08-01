@@ -28,7 +28,7 @@ public interface OpenHouseInternalRepository
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 
   Page<SoftDeletedTableDto> searchSoftDeletedTables(
-      String databaseId, String tableId, Pageable pageable);
+      String databaseId, String tableId, Pageable pageable, String sortBy);
 
   void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
 }

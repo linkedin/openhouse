@@ -262,8 +262,9 @@ public class MockTablesApiHandler implements TablesApiHandler {
   @Override
   public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
       String databaseId,
-      String tableId,
       org.springframework.data.domain.Pageable pageable,
+      String tableId,
+      String sortBy,
       String actingPrincipal) {
     switch (databaseId) {
       case "d200":

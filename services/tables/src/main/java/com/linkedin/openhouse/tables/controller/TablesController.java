@@ -18,7 +18,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -445,8 +444,9 @@ public class TablesController {
         apiResponse =
             tablesApiHandler.searchSoftDeletedTables(
                 databaseId,
+                PageRequest.of(page, size),
                 tableId,
-                PageRequest.of(page, size, Sort.by(sortBy)),
+                sortBy,
                 extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

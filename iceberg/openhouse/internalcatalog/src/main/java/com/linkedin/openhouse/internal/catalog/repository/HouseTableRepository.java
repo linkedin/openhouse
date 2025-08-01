@@ -3,14 +3,11 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import java.util.List;
-<<<<<<< HEAD
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
-=======
 import org.springframework.data.domain.Sort;
 import org.springframework.data.repository.CrudRepository;
->>>>>>> 0efa7573 (Expose tableId and sortBy as parameters)
 import org.springframework.stereotype.Repository;
 
 /**
@@ -47,11 +44,11 @@ public interface HouseTableRepository
    * @param tableId The table ID to filter by (optional, can be null)
    * @param page The page number
    * @param pageSize The page size
-   * @param sort The sort criteria
+   * @param sortBy The field to sort by (optional)
    * @return List of soft-deleted HouseTable objects matching the criteria
    */
-  List<HouseTable> findSoftDeletedTables(
-      String databaseId, String tableId, int page, int pageSize, Sort sort);
+  List<HouseTable> searchSoftDeletedTables(
+      String databaseId, String tableId, int page, int pageSize, String sortBy);
 
   /**
    * Delete soft-deleted tables that are older than the specified timestamp.

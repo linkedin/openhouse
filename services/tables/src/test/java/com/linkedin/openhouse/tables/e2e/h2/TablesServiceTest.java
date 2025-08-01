@@ -824,7 +824,7 @@ public class TablesServiceTest {
 
     Pageable pageable = PageRequest.of(0, 10);
     Page<SoftDeletedTableDto> result =
-        tablesService.searchSoftDeletedTables(databaseId, null, pageable);
+        tablesService.searchSoftDeletedTables(databaseId, null, pageable, null);
 
     // Verify
     Assertions.assertNotNull(result);
@@ -859,7 +859,7 @@ public class TablesServiceTest {
 
     Pageable pageable = PageRequest.of(0, 10);
     Page<SoftDeletedTableDto> result =
-        tablesService.searchSoftDeletedTables(purgeDbId, null, pageable);
+        tablesService.searchSoftDeletedTables(purgeDbId, null, pageable, null);
     Assertions.assertNotNull(result);
     Assertions.assertEquals(1, result.getContent().size());
     Assertions.assertEquals(TABLE_DTO.getTableId(), result.getContent().get(0).getTableId());
@@ -869,7 +869,7 @@ public class TablesServiceTest {
     // Purge soft deleted table
     tablesService.purgeSoftDeletedTables(
         purgeDbId, TABLE_DTO.getTableId(), purgeAfterMs, TEST_USER);
-    result = tablesService.searchSoftDeletedTables(purgeDbId, null, pageable);
+    result = tablesService.searchSoftDeletedTables(purgeDbId, null, pageable, null);
     Assertions.assertNotNull(result);
     Assertions.assertEquals(0, result.getContent().size());
   }
