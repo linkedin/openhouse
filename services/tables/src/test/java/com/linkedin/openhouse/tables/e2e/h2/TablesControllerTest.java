@@ -1494,6 +1494,61 @@ public class TablesControllerTest {
         mvc, GET_TABLE_RESPONSE_BODY.toBuilder().tableId("t2").build());
   }
 
+  @Test
+  public void testSetSortOrder() throws Exception {
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    GetTableResponseBody container = GetTableResponseBody.builder().sortOrder(SORT_ORDER).build();
+    GetTableResponseBody updateResponseBody = buildGetTableResponseBody(createResult, container);
+    MvcResult mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                            GET_TABLE_RESPONSE_BODY.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(updateResponseBody).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+    String sortOrder = JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.sortOrder");
+    Assertions.assertEquals(SORT_ORDER, sortOrder);
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, updateResponseBody);
+  }
+
+  @Test
+  public void testUnSetSortOrder() throws Exception {
+    GetTableResponseBody getTableResponseBody =
+        GET_TABLE_RESPONSE_BODY.toBuilder().sortOrder(SORT_ORDER).build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            getTableResponseBody, mvc, storageManager);
+    GetTableResponseBody updateResponseBody =
+        buildGetTableResponseBody(createResult, GetTableResponseBody.builder().build())
+            .toBuilder()
+            .sortOrder(null)
+            .build();
+    MvcResult mvcResult =
+        mvc.perform(
+                MockMvcRequestBuilders.put(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            GET_TABLE_RESPONSE_BODY.getDatabaseId(),
+                            GET_TABLE_RESPONSE_BODY.getTableId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(buildCreateUpdateTableRequestBody(updateResponseBody).toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+    String sortOrder = JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.sortOrder");
+    Assertions.assertEquals(UNSORTED_SORT_ORDER, sortOrder);
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, updateResponseBody);
+  }
+
   private MvcResult getTable(String databaseId, String tableId) throws Exception {
     return mvc.perform(
             MockMvcRequestBuilders.get(

@@ -41,6 +41,8 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
@@ -112,19 +114,21 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           partitionSpec);
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       table =
-          catalog.createTable(
-              tableIdentifier,
-              writeSchema,
-              partitionSpec,
-              storageSelector
-                  .selectStorage(tableDto.getDatabaseId(), tableDto.getTableId())
-                  .allocateTableLocation(
-                      tableDto.getDatabaseId(),
-                      tableDto.getTableId(),
-                      tableDto.getTableUUID(),
-                      tableDto.getTableCreator(),
-                      tableProps),
-              tableProps);
+          catalog
+              .buildTable(tableIdentifier, writeSchema)
+              .withPartitionSpec(partitionSpec)
+              .withLocation(
+                  storageSelector
+                      .selectStorage(tableDto.getDatabaseId(), tableDto.getTableId())
+                      .allocateTableLocation(
+                          tableDto.getDatabaseId(),
+                          tableDto.getTableId(),
+                          tableDto.getTableUUID(),
+                          tableDto.getTableCreator(),
+                          tableProps))
+              .withProperties(tableProps)
+              .withSortOrder(getIcebergSortOrder(tableDto, writeSchema))
+              .create();
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR).increment();
       log.info(
           "create for table {} took {} ms",
@@ -142,6 +146,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
           doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+      boolean sortOrderUpdated =
+          doUpdateSortOrderIfNeeded(updateProperties, tableDto, table, writeSchema);
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
@@ -149,7 +155,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       updateProperties.commit();
 
       // No new metadata.json shall be generated if nothing changed.
-      if (schemaUpdated || propsUpdated || snapshotsUpdated || policiesUpdated || tableTypeAdded) {
+      if (schemaUpdated
+          || propsUpdated
+          || snapshotsUpdated
+          || policiesUpdated
+          || sortOrderUpdated
+          || tableTypeAdded) {
         transaction.commitTransaction();
         meterRegistry.counter(MetricsConstant.REPO_TABLE_UPDATED_CTR).increment();
       }
@@ -160,6 +171,25 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
     return convertToTableDto(
         table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
+  }
+
+  private boolean doUpdateSortOrderIfNeeded(
+      UpdateProperties updateProperties,
+      TableDto providedTableDto,
+      Table existingTable,
+      Schema writeSchema) {
+    SortOrder sortOrder = getIcebergSortOrder(providedTableDto, writeSchema);
+    if (sortOrder.equals(existingTable.sortOrder())) {
+      return false;
+    }
+    updateProperties.set(SORT_ORDER_KEY, SortOrderParser.toJson(sortOrder));
+    return true;
+  }
+
+  private SortOrder getIcebergSortOrder(TableDto tableDto, Schema writeSchema) {
+    return tableDto.getSortOrder() == null
+        ? SortOrder.unsorted()
+        : SortOrderParser.fromJson(writeSchema, tableDto.getSortOrder());
   }
 
   private boolean skipEligibilityCheck(

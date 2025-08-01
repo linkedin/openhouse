@@ -4,6 +4,7 @@ package com.linkedin.openhouse.internal.catalog;
 public final class CatalogConstants {
   public static final String SNAPSHOTS_JSON_KEY = "snapshotsJsonToBePut";
   public static final String SNAPSHOTS_REFS_KEY = "snapshotsRefs";
+  public static final String SORT_ORDER_KEY = "sortOrder";
   public static final String IS_STAGE_CREATE_KEY = "isStageCreate";
   public static final String OPENHOUSE_UUID_KEY = "openhouse.tableUUID";
   public static final String OPENHOUSE_TABLEID_KEY = "openhouse.tableId";
