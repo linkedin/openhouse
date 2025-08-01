@@ -2,14 +2,14 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
-import com.linkedin.openhouse.jobs.util.OtelConfig;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
-import io.opentelemetry.api.metrics.Meter;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -36,12 +36,12 @@ import org.junit.jupiter.api.Test;
 @Slf4j
 public class OperationsTest extends OpenHouseSparkITest {
   private static final String TRASH_DIR = ".trash";
-  private final Meter meter = OtelConfig.getMeter(this.getClass().getName());
+  private final OtelEmitter otelEmitter = AppsOtelEmitter.getOtelEmitter();
 
   @Test
   public void testRetentionSparkApp() throws Exception {
     final String tableName = "db.test_retention_sql";
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
@@ -61,7 +61,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName6 = "db.test_retention_string_partition6";
 
     List<String> rowValue = new ArrayList<>();
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       rowValue.add("202%s-07-16");
       // retention test with default columnPattern. ColumnPattern defaults to "yyyy-MM-dd"
       // if user does not provide it.
@@ -152,7 +152,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   @Test
   public void testRetentionCreatesSnapshotsOnNoOpDelete() throws Exception {
     final String tableName = "db_test.test_retention_sql";
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, 4);
       List<Long> snapshots = getSnapshotIds(ops, tableName);
@@ -170,7 +170,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_ofd_java";
     final String testOrphanFileName = "test_orphan_file.orc";
     final int numInserts = 3;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
@@ -207,7 +207,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_ofd_java";
     final String testOrphanFileName = "test_orphan_file.orc";
     final int numInserts = 3;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
@@ -240,7 +240,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_ofd";
     final String testOrphanFileName = "test_orphan_file.orc";
     final int numInserts = 3;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
@@ -280,7 +280,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String timeGranularity = "DAYS";
 
     List<Long> snapshotIds;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       snapshotIds = getSnapshotIds(ops, tableName);
@@ -296,7 +296,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(
           ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
@@ -311,7 +311,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String timeGranularity = "DAYS";
 
     List<Long> snapshotIds;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       snapshotIds = getSnapshotIds(ops, tableName);
@@ -327,7 +327,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       checkSnapshots(table, snapshotIds);
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(ops, tableName, snapshotIds);
     }
@@ -341,7 +341,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int maxAge = 3;
     final String timeGranularity = "DAYS";
     List<Long> snapshotIds;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       snapshotIds = getSnapshotIds(ops, tableName);
@@ -357,7 +357,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       checkSnapshots(table, snapshotIds);
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(ops, tableName, snapshotIds);
     }
@@ -371,7 +371,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int maxAge = 3;
     final String timeGranularity = "DAYS";
     List<Long> snapshotIds;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       snapshotIds = getSnapshotIds(ops, tableName);
@@ -388,7 +388,7 @@ public class OperationsTest extends OpenHouseSparkITest {
           table, snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(
           ops,
@@ -405,7 +405,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String timeGranularity = "DAYS";
     final int versionsToKeep = 1;
     List<Long> snapshotIds;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       snapshotIds = getSnapshotIds(ops, tableName);
@@ -422,7 +422,7 @@ public class OperationsTest extends OpenHouseSparkITest {
           table, snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(
           ops,
@@ -441,7 +441,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int versionsToKeep = 5;
     final int versionsToKeepAfterExpiration = 2;
     List<Long> snapshotIds;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       Thread.sleep(30000); // Sleep for 30 seconds to expire all the snapshots
@@ -462,7 +462,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               snapshotIds.size() - versionsToKeepAfterExpiration, snapshotIds.size()));
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(
           ops,
@@ -479,7 +479,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int maxAge = 20;
     final int versionsToKeep = 5;
     List<Long> snapshotIds;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       snapshotIds = getSnapshotIds(ops, tableName);
@@ -498,7 +498,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       }
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(ops, tableName, snapshotIds);
     }
@@ -510,7 +510,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final int numInserts = 3;
     final String testOrphanFile1 = "data/test_orphan_file1.orc";
     final String testOrphanFile2 = "test_orphan_file2.orc";
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
@@ -558,7 +558,7 @@ public class OperationsTest extends OpenHouseSparkITest {
                 10,
                 Integer.MAX_VALUE);
 
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
@@ -573,7 +573,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(3, result.rewrittenDataFilesCount());
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       long expectedNumSnapshots = numInserts + 1;
       List<Long> snapshotIds = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(
@@ -617,7 +617,7 @@ public class OperationsTest extends OpenHouseSparkITest {
                 maxCommits,
                 Integer.MAX_VALUE);
 
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName, true);
       long fixedTimestampSeconds = System.currentTimeMillis() / 1000;
       for (int daysLag = 0; daysLag < numDailyPartitions; ++daysLag) {
@@ -649,7 +649,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               });
     }
     // restart the app to reload catalog cache
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // all rewritten files must be in the same commit
       long expectedNumSnapshots = numInsertsPerPartition * numDailyPartitions + 5;
       List<Triple<String, String, Long>> dataFiles = getDataFiles(ops, tableName);
@@ -683,7 +683,7 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testOrphanDirsDeletionJavaAPI() throws Exception {
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // test orphan delete
       Path tbLoc = prepareOrphanTableDirectory(ops, "db1.test_odd_orphan");
 
@@ -743,7 +743,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_collect_earliest_partition_date";
     List<String> rowValue = new ArrayList<>();
 
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // Test table with no policy
       prepareTable(ops, tableName);
       IcebergTableStats stats = ops.collectTableStats(tableName);
@@ -786,7 +786,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   public void testCollectTableStatsWithEmptyPartitions() throws Exception {
     final String tableName = "db.test_empty_partitions";
 
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // Create table with partition but no data
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "30d", true);
 
@@ -809,7 +809,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_collect_table_stats_with_policy";
     List<String> rowValue = new ArrayList<>();
 
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // Test table with both retention and sharing policies
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "30d", true);
       populateTable(ops, tableName, 2, 2);
@@ -878,7 +878,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   public void testCollectTableStats() throws Exception {
     final String tableName = "db.test_collect_table_stats";
     final int numInserts = 3;
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       IcebergTableStats stats = ops.collectTableStats(tableName);
       // Ensure defaults for setSharingEnabled is set
@@ -924,7 +924,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   public void testCollectHistoryPolicyStatsWithSnapshots() throws Exception {
     final String tableName = "db.test_collect_table_stats_with_history_policy_snapshots";
 
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // Test table with both retention and sharing policies
       prepareTableWithHistoryPolicies(ops, tableName, "MAX_AGE=2D VERSIONS=20");
       populateTable(ops, tableName, 2, 2);

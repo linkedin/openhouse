@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.scheduler;
 
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
 import com.linkedin.openhouse.common.JobState;
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
@@ -17,12 +18,10 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableDirectoryOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOperationTask;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
-import com.linkedin.openhouse.jobs.util.OtelConfig;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.metrics.LongCounter;
-import io.opentelemetry.api.metrics.Meter;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -88,10 +87,10 @@ public class JobsScheduler {
   private static final int SUBMIT_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 30;
   private static final int STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 15;
   private static final String DURATION_FORMAT_DEFAULT = "HH:mm";
+  private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
   private static final Map<String, Class<? extends OperationTask>> OPERATIONS_REGISTRY =
       new HashMap<>();
-  private static final Meter METER = OtelConfig.getMeter(JobsScheduler.class.getName());
 
   static {
     Reflections reflections = new Reflections(JobsScheduler.class.getPackage().getName());
@@ -138,6 +137,8 @@ public class JobsScheduler {
   @Getter(AccessLevel.PROTECTED)
   private Map<JobState, Integer> jobStateCountMap = new ConcurrentHashMap<>();
 
+  private OtelEmitter otelEmitter;
+
   public JobsScheduler(
       ThreadPoolExecutor jobExecutors,
       ThreadPoolExecutor statusExecutors,
@@ -146,7 +147,8 @@ public class JobsScheduler {
       JobsClient jobsClient,
       OperationTaskManager operationTaskManager,
       JobInfoManager jobInfoManager,
-      OperationTasksBuilder tasksBuilder) {
+      OperationTasksBuilder tasksBuilder,
+      OtelEmitter otelEmitter) {
     this.jobExecutors = jobExecutors;
     this.statusExecutors = statusExecutors;
     this.taskFactory = taskFactory;
@@ -155,6 +157,7 @@ public class JobsScheduler {
     this.operationTaskManager = operationTaskManager;
     this.jobInfoManager = jobInfoManager;
     this.tasksBuilder = tasksBuilder;
+    this.otelEmitter = otelEmitter;
   }
 
   public static void main(String[] args) {
@@ -219,7 +222,8 @@ public class JobsScheduler {
             jobsClient,
             operationTaskManager,
             jobInfoManager,
-            tasksBuilder);
+            tasksBuilder,
+            AppsOtelEmitter.getOtelEmitter());
     app.run(
         operationType,
         operationTaskCls.toString(),
@@ -249,7 +253,7 @@ public class JobsScheduler {
       int submitOperationPreSlaGracePeriodInMinutes,
       int statusOperationPreSlaGracePeriodInMinutes) {
     long startTimeMillis = System.currentTimeMillis();
-    METER.counterBuilder("scheduler_start_count").build().add(1);
+    otelEmitter.count(METRICS_SCOPE, "scheduler_start_count", 1, null);
     jobStateCountMap = new ConcurrentHashMap<>();
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
     log.info("Fetching task list based on the job type: {}", jobType);
@@ -267,7 +271,8 @@ public class JobsScheduler {
       // table metadata is fetched in parallel and add to a queue. On the other, hand
       // metadata is read from queue and jobs are submitted in parallel as they arrive.
       // Asynchronously fetches operation tasks and adds them to a queue
-      tasksBuilder.buildOperationTaskListInParallel(jobType, properties, METER, operationMode);
+      tasksBuilder.buildOperationTaskListInParallel(
+          jobType, properties, otelEmitter, operationMode);
       log.info("Submitting and running jobs for job type: {}", jobType);
       // Asynchronously submit jobs
       submitLaunchJobTasks(
@@ -295,7 +300,8 @@ public class JobsScheduler {
       completableFuture.join();
     } else if (parallelMetadataFetchMode) {
       // Table metadata is fetched in parallel and job submission works in SINGLE mode
-      tasksBuilder.buildOperationTaskListInParallel(jobType, properties, METER, operationMode);
+      tasksBuilder.buildOperationTaskListInParallel(
+          jobType, properties, otelEmitter, operationMode);
       submitJobs(
           jobType,
           jobExecutors,
@@ -310,7 +316,8 @@ public class JobsScheduler {
     } else {
       // Sequential metadata fetch continues to work with existing SINGLE operation mode.
       // all the table metadata are fetched first and then jobs are submitted.
-      taskList = tasksBuilder.buildOperationTaskList(jobType, properties, METER, operationMode);
+      taskList =
+          tasksBuilder.buildOperationTaskList(jobType, properties, otelEmitter, operationMode);
       if (isDryRun && jobType.equals(JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION)) {
         log.info("Dry running {} jobs based on the job type: {}", taskList.size(), jobType);
         for (OperationTask<?> operationTask : taskList) {
@@ -351,41 +358,50 @@ public class JobsScheduler {
     if (statusExecutors != null) {
       statusExecutors.shutdown();
     }
-    METER.counterBuilder("scheduler_end_count").build().add(1);
+    otelEmitter.count(METRICS_SCOPE, "scheduler_end_count", 1, null);
     reportMetrics(jobStateCountMap, taskType, startTimeMillis);
   }
 
   void reportMetrics(
       Map<JobState, Integer> jobStateCountMap, String taskType, long startTimeMillis) {
-    LongCounter successfulJobCounter =
-        METER.counterBuilder(AppConstants.SUCCESSFUL_JOB_COUNT).build();
-    LongCounter failedJobCounter = METER.counterBuilder(AppConstants.FAILED_JOB_COUNT).build();
-    LongCounter cancelledJobCounter =
-        METER.counterBuilder(AppConstants.CANCELLED_JOB_COUNT).build();
-    LongCounter runningJobCounter = METER.counterBuilder(AppConstants.RUNNING_JOB_COUNT).build();
-    LongCounter queuedJobCounter = METER.counterBuilder(AppConstants.QUEUED_JOB_COUNT).build();
     Attributes attributes = Attributes.of(AttributeKey.stringKey(AppConstants.TYPE), taskType);
-    successfulJobCounter.add(jobStateCountMap.get(JobState.SUCCEEDED), attributes);
-    failedJobCounter.add(jobStateCountMap.get(JobState.FAILED), attributes);
-    cancelledJobCounter.add(jobStateCountMap.get(JobState.CANCELLED), attributes);
-    runningJobCounter.add(jobStateCountMap.get(JobState.RUNNING), attributes);
-    queuedJobCounter.add(jobStateCountMap.get(JobState.QUEUED), attributes);
-    METER
-        .gaugeBuilder(AppConstants.RUN_DURATION_SCHEDULER)
-        .ofLongs()
-        .setUnit(TimeUnit.MILLISECONDS.name())
-        .buildWithCallback(
-            measurement -> {
-              measurement.record(System.currentTimeMillis() - startTimeMillis, attributes);
-            });
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.SUCCESSFUL_JOB_COUNT,
+        jobStateCountMap.get(JobState.SUCCEEDED),
+        attributes);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.FAILED_JOB_COUNT,
+        jobStateCountMap.get(JobState.FAILED),
+        attributes);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.CANCELLED_JOB_COUNT,
+        jobStateCountMap.get(JobState.CANCELLED),
+        attributes);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.RUNNING_JOB_COUNT,
+        jobStateCountMap.get(JobState.RUNNING),
+        attributes);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.QUEUED_JOB_COUNT,
+        jobStateCountMap.get(JobState.QUEUED),
+        attributes);
+    otelEmitter.gauge(
+        METRICS_SCOPE,
+        AppConstants.RUN_DURATION_SCHEDULER,
+        System.currentTimeMillis() - startTimeMillis,
+        attributes);
     // TODO: remove METER with histogram after all jobs dashboards, alerts have been migrated to use
     // gauge
-    METER
-        .histogramBuilder("scheduler_run_duration")
-        .ofLongs()
-        .setUnit(TimeUnit.MILLISECONDS.name())
-        .build()
-        .record(System.currentTimeMillis() - startTimeMillis, attributes);
+    otelEmitter.time(
+        METRICS_SCOPE,
+        "scheduler_run_duration",
+        System.currentTimeMillis() - startTimeMillis,
+        attributes);
   }
 
   protected static CommandLine parseArgs(String[] args) {

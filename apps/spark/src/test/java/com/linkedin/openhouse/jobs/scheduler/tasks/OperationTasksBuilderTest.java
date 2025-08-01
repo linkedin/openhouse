@@ -1,18 +1,17 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
-import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.Metadata;
-import com.linkedin.openhouse.jobs.util.OtelConfig;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
-import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -35,10 +34,11 @@ import reactor.core.publisher.Mono;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.MethodName.class)
 public class OperationTasksBuilderTest {
+  private static final String METRICS_SCOPE = OperationTasksBuilderTest.class.getName();
+  private OtelEmitter otelEmitter = AppsOtelEmitter.getOtelEmitter();
   @Mock private TablesClient tablesClient;
   @Mock private JobsClient jobsClient;
-  private final Properties properties = new Properties();;
-  private final Meter meter = OtelConfig.getMeter(JobsScheduler.class.getName());;
+  private final Properties properties = new Properties();
   private Metadata tableMetadata;
   private List<String> databases = new ArrayList<>();
   private Map<String, GetAllTablesResponseBody> dbAllTables = new HashMap();
@@ -161,7 +161,7 @@ public class OperationTasksBuilderTest {
       prepareMockitoForParallelFetch();
       OperationTasksBuilder operationTasksBuilder = createOperationTasksBuilder(jobType);
       operationTasksBuilder.buildOperationTaskListInParallel(
-          jobType, properties, meter, OperationMode.SUBMIT);
+          jobType, properties, otelEmitter, OperationMode.SUBMIT);
       // Make sure operation task build is completed
       OperationTaskManager operationTaskManager = operationTasksBuilder.getOperationTaskManager();
       do {} while (!operationTaskManager.isDataGenerationCompleted());
@@ -197,7 +197,7 @@ public class OperationTasksBuilderTest {
       OperationTasksBuilder operationTasksBuilder = createOperationTasksBuilder(jobType);
       List<OperationTask<?>> operationTasks =
           operationTasksBuilder.buildOperationTaskList(
-              jobType, properties, meter, OperationMode.SINGLE);
+              jobType, properties, otelEmitter, OperationMode.SINGLE);
       Assertions.assertNotNull(operationTasks);
       // Make sure operation task build is completed
       Assertions.assertEquals(16, operationTasks.size());

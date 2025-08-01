@@ -68,30 +68,26 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
           fileGroupRewriteResult.rewrittenDataFilesCount(),
           fileGroupRewriteResult.rewrittenBytesCount());
     }
-    METER
-        .counterBuilder(AppConstants.ADDED_DATA_FILE_COUNT)
-        .build()
-        .add(
-            result.addedDataFilesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_COUNT)
-        .build()
-        .add(
-            result.rewrittenDataFilesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_BYTES)
-        .build()
-        .add(
-            result.rewrittenBytesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_GROUP_COUNT)
-        .build()
-        .add(
-            result.rewriteResults().size(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.ADDED_DATA_FILE_COUNT,
+        result.addedDataFilesCount(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.REWRITTEN_DATA_FILE_COUNT,
+        result.rewrittenDataFilesCount(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.REWRITTEN_DATA_FILE_BYTES,
+        result.rewrittenBytesCount(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.REWRITTEN_DATA_FILE_GROUP_COUNT,
+        result.rewriteResults().size(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
   }
 
   public static void main(String[] args) {

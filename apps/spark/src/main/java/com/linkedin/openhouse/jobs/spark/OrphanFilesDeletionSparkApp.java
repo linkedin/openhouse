@@ -55,12 +55,11 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         "Detected {} orphan files older than {}ms",
         orphanFileLocations.size(),
         olderThanTimestampMillis);
-    METER
-        .counterBuilder(AppConstants.ORPHAN_FILE_COUNT)
-        .build()
-        .add(
-            orphanFileLocations.size(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.ORPHAN_FILE_COUNT,
+        orphanFileLocations.size(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
   }
 
   public static void main(String[] args) {
