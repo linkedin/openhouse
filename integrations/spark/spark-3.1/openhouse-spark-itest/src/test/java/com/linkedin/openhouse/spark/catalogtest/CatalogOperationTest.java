@@ -394,6 +394,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       spark.sql("CREATE TABLE openhouse.db.t1 (id int, data string)");
       spark.sql("ALTER TABLE openhouse.db.t1 WRITE ORDERED BY (id)");
       Table oldTable = catalog.loadTable(TableIdentifier.of("db", "t1"));
+      // CTAS with sort order is only supported through catalog API
       Transaction transaction =
           catalog
               .buildTable(TableIdentifier.of("db", "test_sort_order_ctas"), oldTable.schema())
@@ -403,6 +404,11 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Table newTable = catalog.loadTable(TableIdentifier.of("db", "test_sort_order_ctas"));
       Assertions.assertEquals(
           SortOrder.builderFor(oldTable.schema()).asc("id").build(), newTable.sortOrder());
+      // CTAS with sort order is not supported through SQL API
+      spark.sql(
+          "CREATE TABLE openhouse.db.test_sort_order_ctas_sql AS SELECT * FROM openhouse.db.t1");
+      Table newSqlTable = catalog.loadTable(TableIdentifier.of("db", "test_sort_order_ctas_sql"));
+      Assertions.assertEquals(SortOrder.unsorted(), newSqlTable.sortOrder());
     }
   }
 }
