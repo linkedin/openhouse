@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutStrategyScorer;
 import com.linkedin.openhouse.datalayout.ranker.GreedyMaxBudgetCandidateSelector;
@@ -12,7 +13,6 @@ import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
-import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +39,7 @@ public class OperationTasksBuilder {
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+  private static final String METRICS_SCOPE = OperationTasksBuilder.class.getName();
 
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 
@@ -83,20 +84,20 @@ public class OperationTasksBuilder {
   private List<OperationTask<?>> prepareDataLayoutOperationTaskList(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
+      OtelEmitter otelEmitter,
       OperationMode operationMode) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataList();
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
         rankAndSelectFromTableDataLayoutMetadataList(
-            tableDataLayoutMetadataList, properties, meter);
+            tableDataLayoutMetadataList, properties, otelEmitter);
     return processMetadataList(selectedTableDataLayoutMetadataList, jobType, operationMode);
   }
 
   private List<TableDataLayoutMetadata> rankAndSelectFromTableDataLayoutMetadataList(
       List<TableDataLayoutMetadata> tableDataLayoutMetadataList,
       Properties properties,
-      Meter meter) {
+      OtelEmitter otelEmitter) {
     DataLayoutStrategyScorer scorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(
             COMPACTION_GAIN_WEIGHT_DEFAULT, COMPUTE_COST_WEIGHT_DEFAULT);
@@ -130,14 +131,16 @@ public class OperationTasksBuilder {
         "Total estimated compute cost: {}, total estimated reduced file count: {}",
         totalComputeCost,
         totalReducedFileCount);
-    meter
-        .counterBuilder("data_layout_optimization_estimated_compute_cost")
-        .build()
-        .add((long) totalComputeCost);
-    meter
-        .counterBuilder("data_layout_optimization_estimated_reduced_file_count")
-        .build()
-        .add((long) totalReducedFileCount);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        "data_layout_optimization_estimated_compute_cost",
+        (long) totalComputeCost,
+        null);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        "data_layout_optimization_estimated_reduced_file_count",
+        (long) totalReducedFileCount,
+        null);
     return selectedTableDataLayoutMetadataList;
   }
 
@@ -213,7 +216,7 @@ public class OperationTasksBuilder {
   public List<OperationTask<?>> buildOperationTaskList(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
+      OtelEmitter otelEmitter,
       OperationMode operationMode) {
     switch (jobType) {
       case DATA_COMPACTION:
@@ -229,7 +232,7 @@ public class OperationTasksBuilder {
       case REPLICATION:
         return prepareReplicationOperationTaskList(jobType, operationMode);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
-        return prepareDataLayoutOperationTaskList(jobType, properties, meter, operationMode);
+        return prepareDataLayoutOperationTaskList(jobType, properties, otelEmitter, operationMode);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType, operationMode);
       default:
@@ -244,11 +247,11 @@ public class OperationTasksBuilder {
   public void buildOperationTaskListInParallel(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
+      OtelEmitter otelEmitter,
       OperationMode operationMode) {
     if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
       // DLO execution job needs to fetch all table metadata before submission
-      buildDataLayoutOperationTaskListInParallel(jobType, properties, meter, operationMode);
+      buildDataLayoutOperationTaskListInParallel(jobType, properties, otelEmitter, operationMode);
     } else {
       buildOperationTaskListInParallelInternal(jobType, operationMode);
     }
@@ -320,13 +323,13 @@ public class OperationTasksBuilder {
   private void buildDataLayoutOperationTaskListInParallel(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
+      OtelEmitter otelEmitter,
       OperationMode operationMode) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataListInParallel(numParallelMetadataFetch);
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
         rankAndSelectFromTableDataLayoutMetadataList(
-            tableDataLayoutMetadataList, properties, meter);
+            tableDataLayoutMetadataList, properties, otelEmitter);
     Flux.fromIterable(selectedTableDataLayoutMetadataList)
         .parallel(numParallelMetadataFetch)
         .runOn(Schedulers.boundedElastic())

@@ -30,14 +30,13 @@ public abstract class BaseTableSparkApp extends BaseSparkApp {
           String.format(
               "Post job validations for OH table %s failed with error %s", fqtn, e.getMessage()),
           e);
-      METER
-          .counterBuilder("post_run_validation_error")
-          .build()
-          .add(
-              1,
-              Attributes.of(
-                  AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn,
-                  AttributeKey.stringKey(AppConstants.JOB_NAME), className));
+      otelEmitter.count(
+          METRICS_SCOPE,
+          "post_run_validation_error",
+          1,
+          Attributes.of(
+              AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn,
+              AttributeKey.stringKey(AppConstants.JOB_NAME), className));
       throw e;
     }
   }

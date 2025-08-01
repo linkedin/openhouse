@@ -2,19 +2,17 @@ package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.common.JobState;
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.Metadata;
-import com.linkedin.openhouse.jobs.util.OtelConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.metrics.LongCounter;
-import io.opentelemetry.api.metrics.LongHistogram;
-import io.opentelemetry.api.metrics.Meter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -34,7 +32,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   public static final long POLL_INTERVAL_MS_DEFAULT = TimeUnit.MINUTES.toMillis(5);
   public static final long QUEUED_TIMEOUT_MS_DEFAULT = TimeUnit.MINUTES.toMillis(10);
   public static final long TASK_TIMEOUT_MS_DEFAULT = TimeUnit.MINUTES.toMillis(15);
-  private static final Meter METER = OtelConfig.getMeter(OperationTask.class.getName());
+  private static final String METRICS_SCOPE = OperationTask.class.getName();
 
   @Getter(AccessLevel.NONE)
   protected final JobsClient jobsClient;
@@ -66,13 +64,17 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   @Getter(AccessLevel.NONE)
   protected OperationMode operationMode;
 
+  @Getter(AccessLevel.NONE)
+  protected OtelEmitter otelEmitter;
+
   protected OperationTask(
       JobsClient jobsClient,
       TablesClient tablesClient,
       T metadata,
       long pollIntervalMs,
       long queuedTimeoutMs,
-      long taskTimeoutMs) {
+      long taskTimeoutMs,
+      OtelEmitter otelEmitter) {
     Preconditions.checkArgument(
         taskTimeoutMs > queuedTimeoutMs,
         String.format(
@@ -84,6 +86,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     this.pollIntervalMs = pollIntervalMs;
     this.queuedTimeoutMs = queuedTimeoutMs;
     this.taskTimeoutMs = taskTimeoutMs;
+    this.otelEmitter = otelEmitter;
   }
 
   protected OperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {
@@ -93,7 +96,8 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         metadata,
         POLL_INTERVAL_MS_DEFAULT,
         QUEUED_TIMEOUT_MS_DEFAULT,
-        TASK_TIMEOUT_MS_DEFAULT);
+        TASK_TIMEOUT_MS_DEFAULT,
+        AppsOtelEmitter.getOtelEmitter());
   }
 
   public abstract JobConf.JobTypeEnum getType();
@@ -144,7 +148,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     }
     log.info("Launching job for {}", metadata);
     try {
-      OtelConfig.executeWithStats(
+      otelEmitter.executeWithStats(
           () -> {
             // this is a wrapper to convert boolean false to an exception
             if (!launchJob()) {
@@ -152,7 +156,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
             }
             return null;
           },
-          METER,
+          METRICS_SCOPE,
           "submit",
           typeAttributes);
     } catch (Exception e) {
@@ -245,41 +249,30 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
             .put(AppConstants.JOB_ID, jobResponse.getJobId())
             .build();
 
-    LongCounter jobCounter = METER.counterBuilder("job_count").build();
-    METER
-        .gaugeBuilder(AppConstants.RUN_DURATION_JOB)
-        .ofLongs()
-        .setUnit(TimeUnit.MILLISECONDS.toString())
-        .buildWithCallback(
-            measurement -> {
-              measurement.record(System.currentTimeMillis() - startTime, attributes);
-            });
+    otelEmitter.gauge(
+        METRICS_SCOPE,
+        AppConstants.RUN_DURATION_JOB,
+        System.currentTimeMillis() - startTime,
+        attributes);
     // report queued time for job
     if (jobResponse.getStartTimeMs() != 0) {
-      METER
-          .gaugeBuilder(AppConstants.QUEUED_TIME)
-          .ofLongs()
-          .setUnit(TimeUnit.MILLISECONDS.toString())
-          .buildWithCallback(
-              measurement -> {
-                measurement.record(
-                    jobResponse.getStartTimeMs() - jobResponse.getCreationTimeMs(), attributes);
-              });
+      otelEmitter.gauge(
+          METRICS_SCOPE,
+          AppConstants.QUEUED_TIME,
+          jobResponse.getStartTimeMs() - jobResponse.getCreationTimeMs(),
+          attributes);
     }
-
-    jobCounter.add(1, attributes);
+    otelEmitter.count(METRICS_SCOPE, "job_count", 1, attributes);
     // TODO: histogram type metric below can be removed in favor of gauge type metric after all
     // jobs dashboards and
     // alerts have been migrated. jobcounter can also be removed since a counter for job status
     // has been added in
     // Jobs Scheduler
-    LongHistogram jobRunDuration =
-        METER
-            .histogramBuilder(AppConstants.JOB_DURATION)
-            .ofLongs()
-            .setUnit(TimeUnit.MILLISECONDS.name())
-            .build();
-    jobRunDuration.record(System.currentTimeMillis() - startTime, attributes);
+    otelEmitter.time(
+        METRICS_SCOPE,
+        AppConstants.JOB_DURATION,
+        System.currentTimeMillis() - startTime,
+        attributes);
   }
 
   protected abstract boolean launchJob();
