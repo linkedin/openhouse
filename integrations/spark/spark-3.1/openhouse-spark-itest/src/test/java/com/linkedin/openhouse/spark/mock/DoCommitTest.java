@@ -177,13 +177,15 @@ public class DoCommitTest {
         TableMetadata.newTableMetadata(
             new Schema(
                 Types.NestedField.required(1, "stringId", Types.StringType.get()),
-                Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone())),
+                Types.NestedField.required(2, "timestampCol", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(3, "doubleCol", Types.DoubleType.get())),
             PartitionSpec.builderFor(
                     new Schema(
                         Types.NestedField.required(1, "stringId", Types.StringType.get()),
                         Types.NestedField.required(
-                            2, "timestampCol", Types.TimestampType.withoutZone())))
-                .bucket("stringId", 10)
+                            2, "timestampCol", Types.TimestampType.withoutZone()),
+                        Types.NestedField.required(3, "doubleCol", Types.DoubleType.get())))
+                .identity("doubleCol") // Double type is not supported for partitioning
                 .build(),
             UUID.randomUUID().toString(),
             ImmutableMap.of());
@@ -235,7 +237,8 @@ public class DoCommitTest {
   /** Assumption of this test: Whenever metadata change is detected will a request to made. */
   @Test
   public void testMetadataChange() throws Exception {
-    // Only partition-spec change: Triggers a commit but since this is a invalid partition spec, it
+    // Only partition-spec change: Triggers a commit but since this is a invalid partition spec
+    // (unsupported double type), it
     // throws exception. If metadata change is not detected, exception won't be thrown.
     Assertions.assertThrows(
         IllegalArgumentException.class, () -> ops.doCommit(base, baseWithInvalidPartitionChange));

@@ -27,6 +27,7 @@ public class Transform {
   List<String> transformParams;
 
   public enum TransformType {
-    TRUNCATE
+    TRUNCATE,
+    BUCKET
   }
 }
