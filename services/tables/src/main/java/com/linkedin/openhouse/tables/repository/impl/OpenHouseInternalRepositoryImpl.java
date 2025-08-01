@@ -675,7 +675,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SEARCH_SOFT_DELETED_TIME)
   @Override
   public Page<SoftDeletedTableDto> searchSoftDeletedTables(
-      String databaseId, String tableId, Pageable pageable) {
+      String databaseId, String tableId, Pageable pageable, String sortBy) {
     if (catalog instanceof OpenHouseInternalCatalog) {
       return ((OpenHouseInternalCatalog) catalog)
           .searchSoftDeletedTables(Namespace.of(databaseId), tableId, pageable);
