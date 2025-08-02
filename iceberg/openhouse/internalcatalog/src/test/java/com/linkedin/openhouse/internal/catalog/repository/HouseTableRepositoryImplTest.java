@@ -9,6 +9,7 @@ import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
+import com.linkedin.openhouse.housetables.client.model.PageUserTable;
 import com.linkedin.openhouse.housetables.client.model.UserTable;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -42,6 +43,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.domain.Page;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.util.ReflectionUtils;
 import reactor.core.publisher.Mono;
@@ -395,6 +397,72 @@ public class HouseTableRepositoryImplTest {
 
     List<HouseTable> returnList = htsRepo.findAllByDatabaseId(HOUSE_TABLE.getDatabaseId());
     assertThat(returnList).hasSize(0);
+  }
+
+  @Test
+  public void testSearchSoftDeletedTables() {
+    PageUserTable pageUserTable = new PageUserTable();
+    List<UserTable> tables = new ArrayList<>();
+    long currentTime = System.currentTimeMillis();
+    // Create a soft-deleted table by setting deletedAt to a positive timestamp
+    UserTable softDeletedTable = houseTableMapper.toUserTable(HOUSE_TABLE);
+    softDeletedTable.setDeletedAtMs(currentTime);
+    softDeletedTable.setPurgeAfterMs(currentTime + 10000);
+    tables.add(softDeletedTable);
+
+    // Create another soft-deleted table
+    UserTable anotherSoftDeletedTable = houseTableMapper.toUserTable(HOUSE_TABLE_SAME_DB);
+    anotherSoftDeletedTable.setDeletedAtMs(currentTime - 1000);
+    softDeletedTable.setPurgeAfterMs(currentTime + 10000);
+    tables.add(anotherSoftDeletedTable);
+    pageUserTable.setContent(tables);
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(tables.size());
+    pageUserTable.setTotalElements((long) tables.size());
+
+    GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, listResponse, pageUserTable);
+
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(listResponse))
+            .addHeader("Content-Type", "application/json"));
+
+    Page<HouseTable> returnPage =
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
+
+    Assertions.assertEquals(returnPage.getTotalElements(), 2);
+  }
+
+  @Test
+  public void testSearchSoftDeletedTablesEmptyResult() {
+    PageUserTable pageUserTable = new PageUserTable();
+    List<UserTable> tables = new ArrayList<>();
+
+    GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, listResponse, pageUserTable);
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(1);
+    pageUserTable.setTotalElements(0L);
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(listResponse))
+            .addHeader("Content-Type", "application/json"));
+
+    Page<HouseTable> returnList =
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
+
+    Assertions.assertEquals(returnList.getTotalElements(), 0);
   }
 
   @Test

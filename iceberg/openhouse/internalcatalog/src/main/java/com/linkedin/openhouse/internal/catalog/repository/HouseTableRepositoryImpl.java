@@ -5,6 +5,7 @@ import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.model.CreateUpdateEntityRequestBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
+import com.linkedin.openhouse.housetables.client.model.PageUserTable;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -15,14 +16,19 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.directory.api.util.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.retry.support.RetryTemplateBuilder;
 import org.springframework.stereotype.Repository;
@@ -175,7 +181,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public void deleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    // Default to hard delete (purge = true for backward compatibility
+    // Default to hard delete (purge = true) for backward compatibility
     deleteById(houseTablePrimaryKey, true);
   }
 
@@ -266,5 +272,46 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   @Override
   public void deleteAll() {
     throw new UnsupportedOperationException("deleteAll is not supported.");
+  }
+
+  @Override
+  public Page<HouseTable> searchSoftDeletedTables(
+      String databaseId, String tableId, int page, int pageSize, String sortBy) {
+    GetAllEntityResponseBodyUserTable userTableResults =
+        getHtsRetryTemplate(
+                Arrays.asList(
+                    HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+            .execute(
+                context ->
+                    apiInstance
+                        .getSoftDeletedUserTables(databaseId, tableId, null, page, pageSize, sortBy)
+                        .block());
+
+    return generatePageFromResults(userTableResults.getPageResults());
+  }
+
+  @Override
+  public void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
+    getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .purgeSoftDeletedUserTables(databaseId, tableId, purgeAfterMs)
+                    .onErrorResume(e -> handleHtsHttpError(e).then())
+                    .block());
+  }
+
+  private Page<HouseTable> generatePageFromResults(PageUserTable pageResults) {
+    List<HouseTable> houseTables = new ArrayList<>();
+    if (pageResults.getContent() != null) {
+      houseTables =
+          pageResults.getContent().stream()
+              .map(houseTableMapper::toHouseTableWithDatabaseId)
+              .collect(Collectors.toList());
+    }
+    return new PageImpl<>(
+        houseTables,
+        PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
+        pageResults.getTotalElements());
   }
 }

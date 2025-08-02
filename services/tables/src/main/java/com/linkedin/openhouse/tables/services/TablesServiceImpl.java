@@ -7,6 +7,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -29,6 +30,8 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
@@ -373,6 +376,21 @@ public class TablesServiceImpl implements TablesService {
               .build();
       saveTableDto(tableDtoToSave, Optional.of(tableDto));
     }
+  }
+
+  @Override
+  public Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      String databaseId, String tableId, Pageable pageable, String sortBy) {
+    return openHouseInternalRepository.searchSoftDeletedTables(
+        databaseId, tableId, pageable, sortBy);
+  }
+
+  @Override
+  public void purgeSoftDeletedTables(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal) {
+    authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.DELETE_TABLE);
+    openHouseInternalRepository.purgeSoftDeletedTableById(
+        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), purgeAfterMs);
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */
