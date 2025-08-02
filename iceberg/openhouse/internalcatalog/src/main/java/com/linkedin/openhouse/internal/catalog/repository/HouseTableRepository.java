@@ -3,6 +3,7 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import java.util.List;
+import org.springframework.data.domain.Page;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 
@@ -40,7 +41,7 @@ public interface HouseTableRepository extends CrudRepository<HouseTable, HouseTa
    * @param sortBy The field to sort by (optional)
    * @return List of soft-deleted HouseTable objects matching the criteria
    */
-  List<HouseTable> searchSoftDeletedTables(
+  Page<HouseTable> searchSoftDeletedTables(
       String databaseId, String tableId, int page, int pageSize, String sortBy);
 
   /**

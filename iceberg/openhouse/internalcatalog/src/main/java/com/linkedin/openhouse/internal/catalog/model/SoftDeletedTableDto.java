@@ -27,5 +27,5 @@ public class SoftDeletedTableDto {
 
   private String tableLocation;
 
-  private long purgeAtMs;
+  private long purgeAfterMs;
 }
