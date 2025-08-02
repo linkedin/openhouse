@@ -42,12 +42,12 @@ public abstract class BaseSparkApp {
   private final ScheduledExecutorService scheduledExecutorService =
       Executors.newSingleThreadScheduledExecutor();
 
-  protected BaseSparkApp(String jobId, StateManager stateManager) {
-    this(jobId, stateManager, HEARTBEAT_INTERVAL_SECONDS_DEFAULT, AppsOtelEmitter.getOtelEmitter());
+  protected BaseSparkApp(String jobId, StateManager stateManager, OtelEmitter otelEmitter) {
+    this(jobId, stateManager, HEARTBEAT_INTERVAL_SECONDS_DEFAULT, otelEmitter);
   }
 
   protected BaseSparkApp(String jobId, StateManager stateManager, long heartbeatIntervalSeconds) {
-    this(jobId, stateManager, heartbeatIntervalSeconds, AppsOtelEmitter.getOtelEmitter());
+    this(jobId, stateManager, heartbeatIntervalSeconds, AppsOtelEmitter.getInstance());
   }
 
   protected BaseSparkApp(
@@ -103,17 +103,17 @@ public abstract class BaseSparkApp {
     }
   }
 
-  protected static StateManager createStateManager(CommandLine cmdLine) {
+  protected static StateManager createStateManager(CommandLine cmdLine, OtelEmitter otelEmitter) {
     return new StateManager(
         RetryUtil.getJobsStateApiRetryTemplate(),
-        createJobApiClient(cmdLine.getOptionValue("storageURL")));
+        createJobApiClient(cmdLine.getOptionValue("storageURL"), otelEmitter));
   }
 
   protected static String getJobId(CommandLine cmdLine) {
     return cmdLine.getOptionValue("jobId");
   }
 
-  private static JobApi createJobApiClient(String basePath) {
+  private static JobApi createJobApiClient(String basePath, OtelEmitter otelEmitter) {
     ApiClient client = null;
     try {
       client = HousetablesApiClientFactory.getInstance().createApiClient(basePath, null, null);

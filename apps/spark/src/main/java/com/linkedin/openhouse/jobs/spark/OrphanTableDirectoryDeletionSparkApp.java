@@ -1,7 +1,9 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
@@ -31,8 +33,9 @@ public class OrphanTableDirectoryDeletionSparkApp extends BaseTableDirectorySpar
       Path tableDirectoryPath,
       String trashDir,
       int orphanOlderThanDays,
-      int stagedDeleteOrderThanDays) {
-    super(jobId, stateManager, tableDirectoryPath);
+      int stagedDeleteOrderThanDays,
+      OtelEmitter otelEmitter) {
+    super(jobId, stateManager, tableDirectoryPath, otelEmitter);
     this.trashDir = trashDir;
     this.orphanOlderThanDays = orphanOlderThanDays;
     this.stagedDeleteOrderThanDays = stagedDeleteOrderThanDays;
@@ -50,14 +53,13 @@ public class OrphanTableDirectoryDeletionSparkApp extends BaseTableDirectorySpar
           "Staged table directory path {}; timeForSelection {}",
           tableDirectoryPath,
           orphanOlderThanDays);
-      METER
-          .counterBuilder(AppConstants.ORPHAN_DIRECTORY_COUNT)
-          .build()
-          .add(
-              1,
-              Attributes.of(
-                  AttributeKey.stringKey(AppConstants.TABLE_DIRECTORY_PATH),
-                  tableDirectoryPath.toString()));
+      otelEmitter.count(
+          METRICS_SCOPE,
+          AppConstants.ORPHAN_DIRECTORY_COUNT,
+          1,
+          Attributes.of(
+              AttributeKey.stringKey(AppConstants.TABLE_DIRECTORY_PATH),
+              tableDirectoryPath.toString()));
     } else {
       log.info("Staged directories deletion by table directory path {}", tableDirectoryPath);
       long deleteThresholdMillis =
@@ -67,32 +69,35 @@ public class OrphanTableDirectoryDeletionSparkApp extends BaseTableDirectorySpar
           "Deleted table directory path {}; timeForSelection {}",
           tableDirectoryPath,
           stagedDeleteOrderThanDays);
-      METER
-          .counterBuilder(AppConstants.STAGED_DIRECTORY_COUNT)
-          .build()
-          .add(
-              1,
-              Attributes.of(
-                  AttributeKey.stringKey(AppConstants.TABLE_DIRECTORY_PATH),
-                  tableDirectoryPath.toString()));
+      otelEmitter.count(
+          METRICS_SCOPE,
+          AppConstants.STAGED_DIRECTORY_COUNT,
+          1,
+          Attributes.of(
+              AttributeKey.stringKey(AppConstants.TABLE_DIRECTORY_PATH),
+              tableDirectoryPath.toString()));
     }
   }
 
   public static void main(String[] args) {
+    createApp(args, AppsOtelEmitter.getInstance()).run();
+  }
+
+  public static OrphanTableDirectoryDeletionSparkApp createApp(
+      String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableDirectoryPath", true, "Path to the directory"));
     extraOptions.add(new Option("b", "trashDir", false, "Trash dir to perform delete action"));
     extraOptions.add(new Option("o", "orphanDaysOld", false, "Days old files are staged"));
     extraOptions.add(new Option("d", "stagedDeleteDaysOld", false, "Days old files are deleted"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-    OrphanTableDirectoryDeletionSparkApp app =
-        new OrphanTableDirectoryDeletionSparkApp(
-            getJobId(cmdLine),
-            createStateManager(cmdLine),
-            new Path(cmdLine.getOptionValue("tableDirectoryPath")),
-            cmdLine.getOptionValue("trashDir", ".trash"),
-            Integer.parseInt(cmdLine.getOptionValue("orphanDaysOld", "7")),
-            Integer.parseInt(cmdLine.getOptionValue("stagedDeleteDaysOld", "3")));
-    app.run();
+    return new OrphanTableDirectoryDeletionSparkApp(
+        getJobId(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
+        new Path(cmdLine.getOptionValue("tableDirectoryPath")),
+        cmdLine.getOptionValue("trashDir", ".trash"),
+        Integer.parseInt(cmdLine.getOptionValue("orphanDaysOld", "7")),
+        Integer.parseInt(cmdLine.getOptionValue("stagedDeleteDaysOld", "3")),
+        otelEmitter);
   }
 }

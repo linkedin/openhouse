@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import org.apache.hadoop.fs.Path;
 
@@ -8,8 +9,8 @@ public abstract class BaseTableDirectorySparkApp extends BaseSparkApp {
   protected final Path tableDirectoryPath;
 
   protected BaseTableDirectorySparkApp(
-      String jobId, StateManager stateManager, Path tableDirectoryPath) {
-    super(jobId, stateManager);
+      String jobId, StateManager stateManager, Path tableDirectoryPath, OtelEmitter otelEmitter) {
+    super(jobId, stateManager, otelEmitter);
     this.tableDirectoryPath = tableDirectoryPath;
   }
 }

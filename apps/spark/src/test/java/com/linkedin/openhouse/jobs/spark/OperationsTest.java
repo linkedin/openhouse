@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test;
 @Slf4j
 public class OperationsTest extends OpenHouseSparkITest {
   private static final String TRASH_DIR = ".trash";
-  private final OtelEmitter otelEmitter = AppsOtelEmitter.getOtelEmitter();
+  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
 
   @Test
   public void testRetentionSparkApp() throws Exception {

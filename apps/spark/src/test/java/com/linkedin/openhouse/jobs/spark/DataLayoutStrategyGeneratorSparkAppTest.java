@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.SparkSession;
@@ -22,7 +23,12 @@ public class DataLayoutStrategyGeneratorSparkAppTest extends OpenHouseSparkITest
       Operations ops = Operations.withCatalog(spark, null);
       DataLayoutStrategyGeneratorSparkApp app =
           new DataLayoutStrategyGeneratorSparkApp(
-              "test-job-id", null, fqtn, outputFqtn, partitionLevelOutputFqtn);
+              "test-job-id",
+              null,
+              fqtn,
+              outputFqtn,
+              partitionLevelOutputFqtn,
+              AppsOtelEmitter.getInstance());
       app.runInner(ops);
       // test
       Assertions.assertEquals(1, spark.sql(String.format("select * from %s", outputFqtn)).count());
@@ -53,7 +59,12 @@ public class DataLayoutStrategyGeneratorSparkAppTest extends OpenHouseSparkITest
       Operations ops = Operations.withCatalog(spark, null);
       DataLayoutStrategyGeneratorSparkApp app =
           new DataLayoutStrategyGeneratorSparkApp(
-              "test-job-id", null, fqtn, outputFqtn, partitionLevelOutputFqtn);
+              "test-job-id",
+              null,
+              fqtn,
+              outputFqtn,
+              partitionLevelOutputFqtn,
+              AppsOtelEmitter.getInstance());
       app.runInner(ops);
       // test
       Assertions.assertEquals(1, spark.sql(String.format("select * from %s", outputFqtn)).count());

@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.datasource.TableSnapshotStats;
@@ -8,6 +9,7 @@ import com.linkedin.openhouse.datalayout.persistence.StrategiesDao;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -26,8 +28,9 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
       StateManager stateManager,
       String fqtn,
       @Nullable String outputFqtn,
-      @Nullable String partitionLevelOutputFqtn) {
-    super(jobId, stateManager, fqtn);
+      @Nullable String partitionLevelOutputFqtn,
+      OtelEmitter otelEmitter) {
+    super(jobId, stateManager, fqtn, otelEmitter);
     this.outputFqtn = outputFqtn;
     this.partitionLevelOutputFqtn = partitionLevelOutputFqtn;
   }
@@ -177,6 +180,11 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
+    createApp(args, AppsOtelEmitter.getInstance()).run();
+  }
+
+  public static DataLayoutStrategyGeneratorSparkApp createApp(
+      String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(
@@ -192,13 +200,12 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             true,
             "Fully-qualified table name used to store strategies at partition level"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-    DataLayoutStrategyGeneratorSparkApp app =
-        new DataLayoutStrategyGeneratorSparkApp(
-            getJobId(cmdLine),
-            createStateManager(cmdLine),
-            cmdLine.getOptionValue("tableName"),
-            cmdLine.getOptionValue("outputTableName"),
-            cmdLine.getOptionValue("partitionLevelOutputTableName"));
-    app.run();
+    return new DataLayoutStrategyGeneratorSparkApp(
+        getJobId(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
+        cmdLine.getOptionValue("tableName"),
+        cmdLine.getOptionValue("outputTableName"),
+        cmdLine.getOptionValue("partitionLevelOutputTableName"),
+        otelEmitter);
   }
 }
