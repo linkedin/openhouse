@@ -370,4 +370,18 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
   }
+
+  private Page<HouseTable> generatePageFromResults(PageUserTable pageResults) {
+    List<HouseTable> houseTables = new ArrayList<>();
+    if (pageResults.getContent() != null) {
+      houseTables =
+          pageResults.getContent().stream()
+              .map(houseTableMapper::toHouseTableWithDatabaseId)
+              .collect(Collectors.toList());
+    }
+    return new PageImpl<>(
+        houseTables,
+        PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
+        pageResults.getTotalElements());
+  }
 }
