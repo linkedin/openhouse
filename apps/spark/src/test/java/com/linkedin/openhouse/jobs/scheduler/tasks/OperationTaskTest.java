@@ -1,9 +1,11 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.linkedin.openhouse.common.JobState;
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.common.Attributes;
 import java.util.Optional;
@@ -22,6 +24,8 @@ public class OperationTaskTest {
   @Mock JobsClient jobsClient;
   @Mock TablesClient tablesClient;
   @Mock TableMetadata metadata;
+
+  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
 
   @BeforeEach
   public void setUp() {
@@ -44,6 +48,7 @@ public class OperationTaskTest {
     TableSnapshotsExpirationTask task =
         new TableSnapshotsExpirationTask(jobsClient, tablesClient, metadata, 1000, 2000, 3000);
     task.setJobId(jobId);
+    task.setOtelEmitter(otelEmitter);
     long startTime = System.currentTimeMillis();
     Optional<JobState> result = task.pollJobStatus(attributes);
     long endTime = System.currentTimeMillis();
@@ -71,6 +76,7 @@ public class OperationTaskTest {
     TableSnapshotsExpirationTask task =
         new TableSnapshotsExpirationTask(jobsClient, tablesClient, metadata, 1000, 2000, 3000);
     task.setJobId(jobId);
+    task.setOtelEmitter(otelEmitter);
     long startTime = System.currentTimeMillis();
     Optional<JobState> result = task.pollJobStatus(attributes);
     long endTime = System.currentTimeMillis();
@@ -99,6 +105,7 @@ public class OperationTaskTest {
     TableSnapshotsExpirationTask task =
         new TableSnapshotsExpirationTask(jobsClient, tablesClient, metadata, 1000, 2000, 3000);
     task.setJobId(jobId);
+    task.setOtelEmitter(otelEmitter);
     FutureTask<Optional<JobState>> future = new FutureTask<>(() -> task.pollJobStatus(attributes));
     Thread thread = new Thread(future);
     thread.start();
@@ -126,6 +133,7 @@ public class OperationTaskTest {
     TableSnapshotsExpirationTask task =
         new TableSnapshotsExpirationTask(jobsClient, tablesClient, metadata, 1000, 2000, 3000);
     task.setJobId(jobId);
+    task.setOtelEmitter(otelEmitter);
     long startTime = System.currentTimeMillis();
     Optional<JobState> result = task.pollJobStatus(attributes);
     long endTime = System.currentTimeMillis();

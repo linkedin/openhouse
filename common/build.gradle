@@ -1,0 +1,7 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+}
+
+dependencies {
+  implementation 'io.opentelemetry:opentelemetry-api:1.18.0'
+}
