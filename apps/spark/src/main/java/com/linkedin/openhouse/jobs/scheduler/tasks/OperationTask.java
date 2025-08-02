@@ -8,7 +8,6 @@ import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
 import com.linkedin.openhouse.jobs.util.AppConstants;
-import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.common.AttributeKey;
@@ -64,6 +63,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
   @Getter(AccessLevel.NONE)
   protected OperationMode operationMode;
 
+  @Setter(AccessLevel.PACKAGE)
   @Getter(AccessLevel.NONE)
   protected OtelEmitter otelEmitter;
 
@@ -73,8 +73,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
       T metadata,
       long pollIntervalMs,
       long queuedTimeoutMs,
-      long taskTimeoutMs,
-      OtelEmitter otelEmitter) {
+      long taskTimeoutMs) {
     Preconditions.checkArgument(
         taskTimeoutMs > queuedTimeoutMs,
         String.format(
@@ -86,7 +85,6 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
     this.pollIntervalMs = pollIntervalMs;
     this.queuedTimeoutMs = queuedTimeoutMs;
     this.taskTimeoutMs = taskTimeoutMs;
-    this.otelEmitter = otelEmitter;
   }
 
   protected OperationTask(JobsClient jobsClient, TablesClient tablesClient, T metadata) {
@@ -96,8 +94,7 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         metadata,
         POLL_INTERVAL_MS_DEFAULT,
         QUEUED_TIMEOUT_MS_DEFAULT,
-        TASK_TIMEOUT_MS_DEFAULT,
-        AppsOtelEmitter.getOtelEmitter());
+        TASK_TIMEOUT_MS_DEFAULT);
   }
 
   public abstract JobConf.JobTypeEnum getType();

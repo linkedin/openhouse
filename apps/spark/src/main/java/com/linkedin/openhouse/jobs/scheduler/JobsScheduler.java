@@ -213,6 +213,7 @@ public class JobsScheduler {
             getNumParallelMetadataFetch(cmdLine),
             operationTaskManager,
             jobInfoManager);
+    OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
     JobsScheduler app =
         new JobsScheduler(
             jobExecutors,
@@ -223,7 +224,7 @@ public class JobsScheduler {
             operationTaskManager,
             jobInfoManager,
             tasksBuilder,
-            AppsOtelEmitter.getOtelEmitter());
+            otelEmitter);
     app.run(
         operationType,
         operationTaskCls.toString(),

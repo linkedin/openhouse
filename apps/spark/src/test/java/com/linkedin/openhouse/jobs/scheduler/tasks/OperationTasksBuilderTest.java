@@ -35,7 +35,7 @@ import reactor.core.publisher.Mono;
 @TestMethodOrder(MethodOrderer.MethodName.class)
 public class OperationTasksBuilderTest {
   private static final String METRICS_SCOPE = OperationTasksBuilderTest.class.getName();
-  private OtelEmitter otelEmitter = AppsOtelEmitter.getOtelEmitter();
+  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
   @Mock private TablesClient tablesClient;
   @Mock private JobsClient jobsClient;
   private final Properties properties = new Properties();
@@ -104,7 +104,10 @@ public class OperationTasksBuilderTest {
         createOperationTasksBuilder(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
     Optional<OperationTask<?>> optionalOperationTask =
         operationTasksBuilder.processMetadata(
-            tableMetadata, JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, OperationMode.SUBMIT);
+            tableMetadata,
+            JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
+            OperationMode.SUBMIT,
+            otelEmitter);
     Assertions.assertNotNull(optionalOperationTask);
     Assertions.assertTrue(optionalOperationTask.isPresent());
     Assertions.assertTrue(optionalOperationTask.get() instanceof TableSnapshotsExpirationTask);
@@ -120,7 +123,7 @@ public class OperationTasksBuilderTest {
     OperationTasksBuilder operationTasksBuilder =
         createOperationTasksBuilder(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
     operationTasksBuilder.buildOperationTaskListInParallel(
-        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, null, null, OperationMode.SUBMIT);
+        JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, null, otelEmitter, OperationMode.SUBMIT);
     OperationTaskManager operationTaskManager = operationTasksBuilder.getOperationTaskManager();
     // Make sure operation task build is completed
     int count = 16;

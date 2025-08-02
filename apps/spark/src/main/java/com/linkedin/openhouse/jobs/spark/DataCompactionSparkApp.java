@@ -1,9 +1,11 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
@@ -35,8 +37,12 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
   private final DataCompactionConfig config;
 
   protected DataCompactionSparkApp(
-      String jobId, StateManager stateManager, String fqtn, DataCompactionConfig config) {
-    super(jobId, stateManager, fqtn);
+      String jobId,
+      StateManager stateManager,
+      String fqtn,
+      DataCompactionConfig config,
+      OtelEmitter otelEmitter) {
+    super(jobId, stateManager, fqtn, otelEmitter);
     this.config = config;
   }
 
@@ -91,10 +97,10 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
-    createApp(args).run();
+    createApp(args, AppsOtelEmitter.getInstance()).run();
   }
 
-  public static DataCompactionSparkApp createApp(String[] args) {
+  public static DataCompactionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(new Option(null, "targetByteSize", true, "Target data file byte size"));
@@ -197,8 +203,9 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     }
     return new DataCompactionSparkApp(
         getJobId(cmdLine),
-        createStateManager(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
         cmdLine.getOptionValue("tableName"),
-        config);
+        config,
+        otelEmitter);
   }
 }

@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
@@ -30,8 +32,9 @@ public class RetentionSparkApp extends BaseTableSparkApp {
       String columnName,
       String columnPattern,
       String granularity,
-      int count) {
-    super(jobId, stateManager, fqtn);
+      int count,
+      OtelEmitter otelEmitter) {
+    super(jobId, stateManager, fqtn, otelEmitter);
     this.columnName = columnName;
     this.columnPattern = columnPattern;
     this.granularity = granularity;
@@ -51,6 +54,10 @@ public class RetentionSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
+    createApp(args, AppsOtelEmitter.getInstance()).run();
+  }
+
+  public static RetentionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(new Option("cn", "columnName", true, "Retention column name"));
@@ -58,15 +65,14 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day, week"));
     extraOptions.add(new Option("c", "count", true, "Retain last <count> <granularity>s"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-    RetentionSparkApp app =
-        new RetentionSparkApp(
-            getJobId(cmdLine),
-            createStateManager(cmdLine),
-            cmdLine.getOptionValue("tableName"),
-            cmdLine.getOptionValue("columnName"),
-            cmdLine.getOptionValue("columnPattern", ""),
-            cmdLine.getOptionValue("granularity"),
-            Integer.parseInt(cmdLine.getOptionValue("count")));
-    app.run();
+    return new RetentionSparkApp(
+        getJobId(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
+        cmdLine.getOptionValue("tableName"),
+        cmdLine.getOptionValue("columnName"),
+        cmdLine.getOptionValue("columnPattern", ""),
+        cmdLine.getOptionValue("granularity"),
+        Integer.parseInt(cmdLine.getOptionValue("count")),
+        otelEmitter);
   }
 }

@@ -23,7 +23,7 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
   static final Path TEST_PATH = new Path(baseDir.toString(), TEST_DIR);
   static final String DIR_PREFIX = "dir_";
   static final String FILE_PREFIX = "file_";
-  private final OtelEmitter otelEmitter = AppsOtelEmitter.getOtelEmitter();
+  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
 
   @BeforeEach
   @AfterEach

@@ -1,7 +1,9 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
@@ -29,8 +31,9 @@ public class StagedFilesDeletionSparkApp extends BaseTableSparkApp {
       String fqtn,
       String trashDir,
       int olderThanDays,
-      boolean recursive) {
-    super(jobId, stateManager, fqtn);
+      boolean recursive,
+      OtelEmitter otelEmitter) {
+    super(jobId, stateManager, fqtn, otelEmitter);
     this.trashDir = trashDir;
     this.olderThanDays = olderThanDays;
     this.recursive = recursive;
@@ -42,15 +45,18 @@ public class StagedFilesDeletionSparkApp extends BaseTableSparkApp {
     Path trashPathForTable = new Path(ops.getTable(fqtn).location(), trashDir);
     List<Path> deletedFiles = ops.deleteStagedFiles(trashPathForTable, olderThanDays, recursive);
     log.info("Deleted {} staged files", deletedFiles.size());
-    METER
-        .counterBuilder(AppConstants.STAGED_FILE_COUNT)
-        .build()
-        .add(
-            deletedFiles.size(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.STAGED_FILE_COUNT,
+        deletedFiles.size(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
   }
 
   public static void main(String[] args) {
+    createApp(args, AppsOtelEmitter.getInstance());
+  }
+
+  public static StagedFilesDeletionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("b", "trashDir", false, "Base dir to perform delete action"));
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
@@ -58,14 +64,13 @@ public class StagedFilesDeletionSparkApp extends BaseTableSparkApp {
     extraOptions.add(
         new Option("r", "recursive", false, "Delete files recursively from <trashDir>"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-    StagedFilesDeletionSparkApp app =
-        new StagedFilesDeletionSparkApp(
-            getJobId(cmdLine),
-            createStateManager(cmdLine),
-            cmdLine.getOptionValue("tableName"),
-            cmdLine.getOptionValue("trashDir", ".trash"),
-            Integer.parseInt(cmdLine.getOptionValue("daysOld", "3")),
-            Boolean.parseBoolean(cmdLine.getOptionValue("recursive", "true")));
-    app.run();
+    return new StagedFilesDeletionSparkApp(
+        getJobId(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
+        cmdLine.getOptionValue("tableName"),
+        cmdLine.getOptionValue("trashDir", ".trash"),
+        Integer.parseInt(cmdLine.getOptionValue("daysOld", "3")),
+        Boolean.parseBoolean(cmdLine.getOptionValue("recursive", "true")),
+        otelEmitter);
   }
 }
