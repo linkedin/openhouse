@@ -6,8 +6,6 @@ import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -47,7 +45,7 @@ public interface HouseTableRepository
    * @param sortBy The field to sort by (optional)
    * @return List of soft-deleted HouseTable objects matching the criteria
    */
-  List<HouseTable> searchSoftDeletedTables(
+  Page<HouseTable> searchSoftDeletedTables(
       String databaseId, String tableId, int page, int pageSize, String sortBy);
 
   /**

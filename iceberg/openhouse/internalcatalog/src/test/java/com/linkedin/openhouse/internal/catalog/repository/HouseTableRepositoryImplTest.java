@@ -483,6 +483,9 @@ public class HouseTableRepositoryImplTest {
     softDeletedTable.setPurgeAfterMs(currentTime + 10000);
     tables.add(anotherSoftDeletedTable);
     pageUserTable.setContent(tables);
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(tables.size());
+    pageUserTable.setTotalElements((long) tables.size());
 
     GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
     Field resultField =
@@ -497,17 +500,16 @@ public class HouseTableRepositoryImplTest {
             .setBody((new Gson()).toJson(listResponse))
             .addHeader("Content-Type", "application/json"));
 
-    List<HouseTable> returnList =
+    Page<HouseTable> returnPage =
         htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
 
-    assertThat(returnList).hasSize(2);
+    Assertions.assertEquals(returnPage.getTotalElements(), 2);
   }
 
   @Test
   public void testSearchSoftDeletedTablesEmptyResult() {
     PageUserTable pageUserTable = new PageUserTable();
     List<UserTable> tables = new ArrayList<>();
-    pageUserTable.setContent(tables);
 
     GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
     Field resultField =
@@ -515,17 +517,19 @@ public class HouseTableRepositoryImplTest {
     Assertions.assertNotNull(resultField);
     ReflectionUtils.makeAccessible(resultField);
     ReflectionUtils.setField(resultField, listResponse, pageUserTable);
-
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(1);
+    pageUserTable.setTotalElements(0L);
     mockHtsServer.enqueue(
         new MockResponse()
             .setResponseCode(200)
             .setBody((new Gson()).toJson(listResponse))
             .addHeader("Content-Type", "application/json"));
 
-    List<HouseTable> returnList =
+    Page<HouseTable> returnList =
         htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
 
-    assertThat(returnList).hasSize(0);
+    Assertions.assertEquals(returnList.getTotalElements(), 0);
   }
 
   @Test

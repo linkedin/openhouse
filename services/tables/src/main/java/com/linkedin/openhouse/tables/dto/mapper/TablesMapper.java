@@ -159,7 +159,7 @@ public interface TablesMapper {
     @Mapping(source = "databaseId", target = "databaseId"),
     @Mapping(source = "tableLocation", target = "tableLocation"),
     @Mapping(source = "deletedAtMs", target = "deletedAtMs"),
-    @Mapping(source = "purgeAtMs", target = "purgeAfterMs")
+    @Mapping(source = "purgeAfterMs", target = "purgeAfterMs")
   })
   GetSoftDeletedTableResponseBody toGetSoftDeletedTableResponseBody(
       SoftDeletedTableDto softDeletedTableDto);

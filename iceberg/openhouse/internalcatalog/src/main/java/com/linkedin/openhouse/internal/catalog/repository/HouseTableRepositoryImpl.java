@@ -342,7 +342,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   }
 
   @Override
-  public List<HouseTable> searchSoftDeletedTables(
+  public Page<HouseTable> searchSoftDeletedTables(
       String databaseId, String tableId, int page, int pageSize, String sortBy) {
     GetAllEntityResponseBodyUserTable userTableResults =
         getHtsRetryTemplate(
@@ -354,13 +354,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                         .getSoftDeletedUserTables(databaseId, tableId, null, page, pageSize, sortBy)
                         .block());
 
-    PageUserTable pageResults = userTableResults.getPageResults();
-    if (pageResults == null || pageResults.getContent() == null) {
-      return new ArrayList<>();
-    }
-    return pageResults.getContent().stream()
-        .map(houseTableMapper::toHouseTable)
-        .collect(Collectors.toList());
+    return generatePageFromResults(userTableResults.getPageResults());
   }
 
   @Override
@@ -372,5 +366,19 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .purgeSoftDeletedUserTables(databaseId, tableId, purgeAfterMs)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
+  }
+
+  private Page<HouseTable> generatePageFromResults(PageUserTable pageResults) {
+    List<HouseTable> houseTables = new ArrayList<>();
+    if (pageResults.getContent() != null) {
+      houseTables =
+          pageResults.getContent().stream()
+              .map(houseTableMapper::toHouseTableWithDatabaseId)
+              .collect(Collectors.toList());
+    }
+    return new PageImpl<>(
+        houseTables,
+        PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
+        pageResults.getTotalElements());
   }
 }

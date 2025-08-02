@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -69,7 +72,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
     }
   }
 
-  default List<HouseTable> searchSoftDeletedTables(
+  default Page<HouseTable> searchSoftDeletedTables(
       String databaseId, String tableId, int page, int size, String sortBy) {
     List<HouseTable> foundTables = new ArrayList<>();
     for (HouseTable table : softDeletedTables.values()) {
@@ -80,8 +83,13 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
         foundTables.add(table);
       }
     }
-    return foundTables.subList(
-        Math.min(page * size, foundTables.size()), Math.min((page + 1) * size, foundTables.size()));
+    List<HouseTable> pageContent =
+        foundTables.subList(
+            Math.min(page * size, foundTables.size()),
+            Math.min((page + 1) * size, foundTables.size()));
+    int numPages = (int) Math.ceil((double) foundTables.size() / size); // make sure at least 1
+    return new PageImpl<>(
+        pageContent, PageRequest.of(page, numPages == 0 ? 1 : numPages), foundTables.size());
   }
 
   default void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
