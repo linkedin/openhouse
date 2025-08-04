@@ -290,7 +290,14 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByFilters(userTable.getDatabaseId(), null, null, null, null, null, injectDefaultSort(pageable, "tableId"))
+                .findAllByFilters(
+                    userTable.getDatabaseId(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    injectDefaultSort(pageable, "tableId"))
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
