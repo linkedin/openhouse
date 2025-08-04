@@ -25,6 +25,7 @@ jar {
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
+    zip64 true
 }
 
 task generateTokens(type: Exec) {

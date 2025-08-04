@@ -134,17 +134,15 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             getSortByStr(pageable))
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
-    return getHouseTablePagesFromPageUserTable(result.getPageResults());
+    Page<UserTable> userTablePage = getUserTablePageFromPageUserTable(result.getPageResults());
+    return userTablePage.map(houseTableMapper::toHouseTable);
   }
 
-  private Page<HouseTable> getHouseTablePagesFromPageUserTable(PageUserTable pageResults) {
-    Page<UserTable> page =
-        new PageImpl<>(
-            pageResults.getContent(),
-            PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
-            pageResults.getTotalElements());
-
-    return page.map(houseTableMapper::toHouseTable);
+  private Page<UserTable> getUserTablePageFromPageUserTable(PageUserTable pageResults) {
+    return new PageImpl<>(
+        pageResults.getContent(),
+        PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
+        pageResults.getTotalElements());
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
@@ -299,7 +297,8 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             getSortByStr(pageable))
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
-    return getHouseTablePagesFromPageUserTable(result.getPageResults());
+    Page<UserTable> userTablePage = getUserTablePageFromPageUserTable(result.getPageResults());
+    return userTablePage.map(houseTableMapper::toHouseTableWithDatabaseId);
   }
 
   @Override
