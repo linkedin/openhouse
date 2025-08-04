@@ -132,8 +132,10 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             pageable.getSort().isUnsorted() ? null : pageable.getSort().toString())
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
-    // Construct Page<UserTable> from PageUserTable
-    PageUserTable pageResults = result.getPageResults();
+    return getHouseTablePagesFromPageUserTable(result.getPageResults());
+  }
+
+  private Page<HouseTable> getHouseTablePagesFromPageUserTable(PageUserTable pageResults) {
     Page<UserTable> page =
         new PageImpl<>(
             pageResults.getContent(),
@@ -295,15 +297,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             pageable.getSort().isUnsorted() ? null : pageable.getSort().toString())
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
-    // Construct Page<UserTable> from PageUserTable
-    PageUserTable pageResults = result.getPageResults();
-    Page<UserTable> page =
-        new PageImpl<>(
-            pageResults.getContent(),
-            PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
-            pageResults.getTotalElements());
-
-    return page.map(houseTableMapper::toHouseTableWithDatabaseId);
+    return getHouseTablePagesFromPageUserTable(result.getPageResults());
   }
 
   @Override

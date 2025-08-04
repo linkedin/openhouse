@@ -46,7 +46,7 @@ public class DatabasesController {
   }
 
   @Operation(
-      summary = "List all Databases",
+      summary = "Paginated list of all Databases",
       description = "Returns a Page of Database resources.",
       tags = {"Database"})
   @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "Database GET_ALL: OK")})
