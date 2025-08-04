@@ -36,7 +36,6 @@ public interface HouseTableRepository
       String metadataLocation);
 
   /**
-<<<<<<< HEAD
    * Find all soft-deleted tables by database ID with pagination and optional filtering
    *
    * @param databaseId The database ID to filter by
@@ -55,6 +54,7 @@ public interface HouseTableRepository
    *     deleted
    */
   void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs);
+
   /**
    * Restore a soft deleted table
    *

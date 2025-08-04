@@ -304,7 +304,6 @@ public class MockTablesApiHandler implements TablesApiHandler {
     }
   }
 
-
   public ApiResponse<Void> restoreTable(
       String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
     switch (databaseId) {

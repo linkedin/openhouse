@@ -92,15 +92,22 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
 
   default void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
     // Mock the purge logic on HTS for soft deleted tables
-    softDeletedTables.entrySet().removeIf(
-        entry -> entry.getKey().getTableId().equals(tableId) && entry.getKey().getDatabaseId().equals(databaseId)
-            && entry.getValue().getPurgeAfterMs() < purgeAfterMs);
+    softDeletedTables
+        .entrySet()
+        .removeIf(
+            entry ->
+                entry.getKey().getTableId().equals(tableId)
+                    && entry.getKey().getDatabaseId().equals(databaseId)
+                    && entry.getValue().getPurgeAfterMs() < purgeAfterMs);
   }
-
 
   default void restoreTable(String databaseId, String tableId, long deletedAtMs) {
     SoftDeletedTablePrimaryKey key =
-        SoftDeletedTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).deletedAtMs(deletedAtMs).build();
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .deletedAtMs(deletedAtMs)
+            .build();
 
     if (softDeletedTables.containsKey(key)) {
       HouseTable restoredTable = softDeletedTables.remove(key);

@@ -472,7 +472,8 @@ public class TablesController {
           @RequestParam(value = "purgeAfterMs")
           long purgeAfterMs) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
-        tablesApiHandler.purgeSoftDeletedTable(databaseId, tableId, purgeAfterMs, extractAuthenticatedUserPrincipal());
+        tablesApiHandler.purgeSoftDeletedTable(
+            databaseId, tableId, purgeAfterMs, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
@@ -495,7 +496,7 @@ public class TablesController {
             responseCode = "500",
             description = "Soft Deleted Table RESTORE: INTERNAL SERVER ERROR")
       })
-  @PutMapping(value = "/v0/databases/{databaseId}/tables/{tableId}/restore")
+  @PutMapping(value = "/v1/databases/{databaseId}/tables/{tableId}/restore")
   public ResponseEntity<Void> restoreTable(
       @Parameter(description = "Database ID") @PathVariable String databaseId,
       @Parameter(description = "Table ID") @PathVariable String tableId,

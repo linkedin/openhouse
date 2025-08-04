@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownExcept
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -405,7 +406,11 @@ public class TablesServiceImpl implements TablesService {
       String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
     authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.CREATE_TABLE);
     openHouseInternalRepository.restoreTable(
-        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), deletedAtMs);
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .deletedAtMs(deletedAtMs)
+            .build());
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */
