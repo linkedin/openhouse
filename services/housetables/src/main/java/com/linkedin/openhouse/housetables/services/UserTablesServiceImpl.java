@@ -289,7 +289,7 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   private Page<UserTableDto> listTables(UserTable userTable, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_TABLES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "databaseId");
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
@@ -316,7 +316,7 @@ public class UserTablesServiceImpl implements UserTablesService {
   private Page<UserTableDto> listTablesWithPattern(
       UserTable userTable, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_TABLES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "databaseId");
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
@@ -328,7 +328,7 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   private Page<UserTableDto> searchTables(UserTable userTable, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_TABLES_REQUEST);
-    Pageable pageable = createPageable(page, size, sortBy, "databaseId");
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
     log.warn(
         "Reaching general search for user table which is not expected: {}", userTable.toJson());
     return METRICS_REPORTER.executeWithStats(
