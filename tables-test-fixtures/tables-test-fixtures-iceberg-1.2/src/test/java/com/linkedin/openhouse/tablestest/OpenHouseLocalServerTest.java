@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tablestest;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.util.SocketUtils;
 
 public class OpenHouseLocalServerTest {
 
@@ -17,27 +18,11 @@ public class OpenHouseLocalServerTest {
   public void testServerStartCustomPortNo() {
     // Use a specific high port range to avoid conflicts with other test infrastructure
     // Try multiple ports in case the first one is occupied
-    int portNo = findAvailablePortInRange(59000, 59100);
+    int portNo = SocketUtils.findAvailableTcpPort(59000, 59100);
     OpenHouseLocalServer openHouseLocalServer = new OpenHouseLocalServer(portNo);
     Assertions.assertDoesNotThrow(() -> openHouseLocalServer.start());
     Assertions.assertEquals(openHouseLocalServer.getPort(), portNo);
     Assertions.assertDoesNotThrow(openHouseLocalServer::stop);
-  }
-
-  /**
-   * Find an available port in a specific range to avoid conflicts with other test infrastructure
-   */
-  private int findAvailablePortInRange(int minPort, int maxPort) {
-    for (int port = minPort; port <= maxPort; port++) {
-      try {
-        java.net.ServerSocket socket = new java.net.ServerSocket(port);
-        socket.close();
-        return port;
-      } catch (java.io.IOException e) {
-        // Port is in use, try next one
-      }
-    }
-    throw new RuntimeException("No available ports found in range " + minPort + "-" + maxPort);
   }
 
   @Test
