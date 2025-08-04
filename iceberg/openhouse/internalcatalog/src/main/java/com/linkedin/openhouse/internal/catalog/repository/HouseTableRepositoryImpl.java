@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.internal.catalog.repository;
 
+import static com.linkedin.openhouse.common.utils.PageableUtil.getSortByStr;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.model.CreateUpdateEntityRequestBodyUserTable;
@@ -129,7 +131,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             params,
                             pageable.getPageNumber(),
                             pageable.getPageSize(),
-                            pageable.getSort().isUnsorted() ? null : pageable.getSort().toString())
+                            getSortByStr(pageable))
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
     return getHouseTablePagesFromPageUserTable(result.getPageResults());
@@ -294,7 +296,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             new HashMap<>(),
                             pageable.getPageNumber(),
                             pageable.getPageSize(),
-                            pageable.getSort().isUnsorted() ? null : pageable.getSort().toString())
+                            getSortByStr(pageable))
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
     return getHouseTablePagesFromPageUserTable(result.getPageResults());

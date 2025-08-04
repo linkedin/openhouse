@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.services;
 
+import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
+
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
@@ -76,7 +78,8 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
-  public Page<TableDto> searchTables(String databaseId, Pageable pageable) {
+  public Page<TableDto> searchTables(String databaseId, int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, null);
     return openHouseInternalRepository.searchTables(databaseId, pageable);
   }
 

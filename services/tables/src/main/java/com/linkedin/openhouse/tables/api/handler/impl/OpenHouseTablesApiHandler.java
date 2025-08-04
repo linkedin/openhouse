@@ -15,9 +15,6 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -67,15 +64,13 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   public ApiResponse<GetAllTablesResponseBody> searchTables(
       String databaseId, int page, int size, String sortBy) {
     tablesApiValidator.validateSearchTables(databaseId, page, size, sortBy);
-    Pageable pageable =
-        PageRequest.of(page, size, sortBy == null ? Sort.unsorted() : Sort.by(sortBy).ascending());
     return ApiResponse.<GetAllTablesResponseBody>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
             GetAllTablesResponseBody.builder()
                 .pageResults(
                     tableService
-                        .searchTables(databaseId, pageable)
+                        .searchTables(databaseId, page, size, sortBy)
                         .map(tableDto -> tablesMapper.toGetTableResponseBody(tableDto)))
                 .build())
         .build();

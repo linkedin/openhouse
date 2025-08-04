@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.services;
 
+import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
+
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -38,7 +40,8 @@ public class DatabasesServiceImpl implements DatabasesService {
   }
 
   @Override
-  public Page<DatabaseDto> getAllDatabases(Pageable pageable) {
+  public Page<DatabaseDto> getAllDatabases(int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, null);
     Page<TableDtoPrimaryKey> tableIdentifiers = openHouseInternalRepository.findAllIds(pageable);
     return tableIdentifiers.map(
         tableDtoPrimaryKey ->

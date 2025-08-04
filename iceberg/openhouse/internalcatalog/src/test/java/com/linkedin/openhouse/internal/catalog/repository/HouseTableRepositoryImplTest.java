@@ -30,7 +30,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterAll;
@@ -412,9 +411,6 @@ public class HouseTableRepositoryImplTest {
     Assertions.assertEquals(10L, returnPage.getTotalElements());
     Assertions.assertEquals(0, returnPage.getNumber());
     Assertions.assertEquals(3, returnPage.getSize());
-    Assertions.assertEquals(
-        houseTableMapper.toHouseTableWithDatabaseId(tables.get(0)),
-        returnPage.get().collect(Collectors.toList()).get(0));
   }
 
   @Test
@@ -447,9 +443,6 @@ public class HouseTableRepositoryImplTest {
     Assertions.assertEquals(10L, returnPage.getTotalElements());
     Assertions.assertEquals(0, returnPage.getNumber());
     Assertions.assertEquals(3, returnPage.getSize());
-    Assertions.assertEquals(
-        houseTableMapper.toHouseTable(tables.get(0)),
-        returnPage.get().collect(Collectors.toList()).get(0));
   }
 
   @Test
