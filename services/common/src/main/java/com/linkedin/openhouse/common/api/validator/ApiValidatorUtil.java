@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.common.api.validator;
 
-import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import java.util.List;
 import javax.validation.ConstraintViolation;
 
@@ -36,9 +35,6 @@ public final class ApiValidatorUtil {
       validationFailures.add(
           String.format(
               "sortBy : provided %s, does not support multiple sort fields or directions", sortBy));
-    }
-    if (!validationFailures.isEmpty()) {
-      throw new RequestValidationFailureException(validationFailures);
     }
   }
 }

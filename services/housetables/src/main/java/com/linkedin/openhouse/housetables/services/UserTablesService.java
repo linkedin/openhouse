@@ -4,7 +4,6 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import java.util.List;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 
 /** Service Interface for Implementing /hts/tables endpoint. */
@@ -33,10 +32,13 @@ public interface UserTablesService {
    * com.linkedin.openhouse.housetables.dto.model.UserTableDto#match for the definition of match.
    *
    * @param userTable
-   * @param pageable The pagination information.
+   * @param page The page number to be retrieved
+   * @param size The number of {@link UserTableDto}s in the specified page
+   * @param sortBy The results sorted by field in {@link UserTable}. For example, tableId,
+   *     databaseId
    * @return
    */
-  Page<UserTableDto> getAllUserTables(UserTable userTable, Pageable pageable);
+  Page<UserTableDto> getAllUserTables(UserTable userTable, int page, int size, String sortBy);
 
   /** Given a databaseId and tableId, delete the user table entry from the House Table. */
   void deleteUserTable(String databaseId, String tableId, boolean isSoftDelete);

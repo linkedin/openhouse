@@ -30,8 +30,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 
 @SpringBootTest(classes = SpringH2HtsApplication.class)
@@ -137,21 +135,21 @@ public class UserTablesServiceTest {
     List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
     Assertions.assertEquals(5, list.size());
     Page<UserTableDto> userTableDtoPage0 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(0, 2, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 0, 2, "tableId");
     Assertions.assertEquals(5, userTableDtoPage0.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
     List<UserTableDto> list0 = userTableDtoPage0.getContent();
     Assertions.assertEquals(2, list0.size());
 
     Page<UserTableDto> userTableDtoPage1 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(1, 2, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 1, 2, "tableId");
     Assertions.assertEquals(5, userTableDtoPage1.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
     List<UserTableDto> list1 = userTableDtoPage1.getContent();
     Assertions.assertEquals(2, list1.size());
 
     Page<UserTableDto> userTableDtoPage2 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(2, 2, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 2, 2, "tableId");
     Assertions.assertEquals(5, userTableDtoPage2.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
     List<UserTableDto> list2 = userTableDtoPage2.getContent();
@@ -164,7 +162,7 @@ public class UserTablesServiceTest {
     List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
     Assertions.assertEquals(5, list.size());
     Page<UserTableDto> userTableDtoPage0 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(0, 2, Sort.by("databaseId")));
+        userTablesService.getAllUserTables(userTable, 0, 2, "databaseId");
     Assertions.assertEquals(5, userTableDtoPage0.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
     List<UserTableDto> list0 = userTableDtoPage0.getContent();
@@ -175,7 +173,7 @@ public class UserTablesServiceTest {
     }
 
     Page<UserTableDto> userTableDtoPage1 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(1, 2, Sort.by("databaseId")));
+        userTablesService.getAllUserTables(userTable, 1, 2, "databaseId");
     Assertions.assertEquals(5, userTableDtoPage1.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
     List<UserTableDto> list1 = userTableDtoPage1.getContent();
@@ -186,7 +184,7 @@ public class UserTablesServiceTest {
     }
 
     Page<UserTableDto> userTableDtoPage2 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(2, 2, Sort.by("databaseId")));
+        userTablesService.getAllUserTables(userTable, 2, 2, "databaseId");
     Assertions.assertEquals(5, userTableDtoPage2.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
     List<UserTableDto> list2 = userTableDtoPage2.getContent();
@@ -207,21 +205,21 @@ public class UserTablesServiceTest {
     List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
     Assertions.assertEquals(5, list.size());
     Page<UserTableDto> userTableDtoPage0 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(0, 2, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 0, 2, "tableId");
     Assertions.assertEquals(5, userTableDtoPage0.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
     List<UserTableDto> list0 = userTableDtoPage0.getContent();
     Assertions.assertEquals(2, list0.size());
 
     Page<UserTableDto> userTableDtoPage1 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(1, 2, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 1, 2, "tableId");
     Assertions.assertEquals(5, userTableDtoPage1.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
     List<UserTableDto> list1 = userTableDtoPage1.getContent();
     Assertions.assertEquals(2, list1.size());
 
     Page<UserTableDto> userTableDtoPage2 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(2, 2, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 2, 2, "tableId");
     Assertions.assertEquals(5, userTableDtoPage2.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
     List<UserTableDto> list2 = userTableDtoPage2.getContent();
@@ -234,21 +232,21 @@ public class UserTablesServiceTest {
     List<UserTableDto> list = userTablesService.getAllUserTables(userTable);
     Assertions.assertEquals(12, list.size());
     Page<UserTableDto> userTableDtoPage0 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(0, 4, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 0, 4, "tableId");
     Assertions.assertEquals(12, userTableDtoPage0.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage0.getTotalPages());
     List<UserTableDto> list0 = userTableDtoPage0.getContent();
     Assertions.assertEquals(4, list0.size());
 
     Page<UserTableDto> userTableDtoPage1 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(1, 4, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 1, 4, "tableId");
     Assertions.assertEquals(12, userTableDtoPage1.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage1.getTotalPages());
     List<UserTableDto> list1 = userTableDtoPage1.getContent();
     Assertions.assertEquals(4, list1.size());
 
     Page<UserTableDto> userTableDtoPage2 =
-        userTablesService.getAllUserTables(userTable, PageRequest.of(2, 4, Sort.by("tableId")));
+        userTablesService.getAllUserTables(userTable, 2, 4, "tableId");
     Assertions.assertEquals(12, userTableDtoPage2.getTotalElements());
     Assertions.assertEquals(3, userTableDtoPage2.getTotalPages());
     List<UserTableDto> list2 = userTableDtoPage2.getContent();

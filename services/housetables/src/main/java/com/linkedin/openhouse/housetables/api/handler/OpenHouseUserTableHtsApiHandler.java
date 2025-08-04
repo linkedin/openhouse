@@ -11,9 +11,6 @@ import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -61,15 +58,13 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   public ApiResponse<GetAllEntityResponseBody<UserTable>> getEntities(
       UserTable userTable, int page, int size, String sortBy) {
     userTablesHtsApiValidator.validateGetEntities(userTable, page, size, sortBy);
-    Pageable pageable =
-        PageRequest.of(page, size, sortBy == null ? Sort.unsorted() : Sort.by(sortBy).ascending());
     return ApiResponse.<GetAllEntityResponseBody<UserTable>>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
             GetAllEntityResponseBody.<UserTable>builder()
                 .pageResults(
                     userTableService
-                        .getAllUserTables(userTable, pageable)
+                        .getAllUserTables(userTable, page, size, sortBy)
                         .map(userTableDto -> userTablesMapper.toUserTable(userTableDto)))
                 .build())
         .build();

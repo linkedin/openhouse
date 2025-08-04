@@ -50,36 +50,7 @@ public class OpenHouseUserTableHtsApiValidator
   @Override
   public void validateGetEntities(UserTable userTable) {
     List<String> validationFailures = new ArrayList<>();
-
-    // This will be removed when we start to support general filters
-    if (!(userTable.getTableVersion() == null
-        && userTable.getMetadataLocation() == null
-        && userTable.getStorageType() == null
-        && userTable.getCreationTime() == null)) {
-      validationFailures.add("Only databaseId and tableId are supported for the query");
-    }
-
-    if (userTable.getDatabaseId() != null
-        && !userTable.getDatabaseId().matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      validationFailures.add(
-          String.format(
-              "databaseId provided: %s, %s",
-              userTable.getDatabaseId(), ALPHA_NUM_UNDERSCORE_ERROR_MSG));
-    }
-
-    if (userTable.getTableId() != null) {
-      if (userTable.getDatabaseId() == null) {
-        validationFailures.add("tableId cannot be provided without databaseId");
-      }
-
-      if (!userTable.getTableId().matches(ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_REGEX)) {
-        validationFailures.add(
-            String.format(
-                "tableId provided: %s, %s",
-                userTable.getTableId(), ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_ERROR_MSG));
-      }
-    }
-
+    validateUserTable(userTable, validationFailures);
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
@@ -87,8 +58,12 @@ public class OpenHouseUserTableHtsApiValidator
 
   @Override
   public void validateGetEntities(UserTable userTable, int page, int size, String sortBy) {
-    validateGetEntities(userTable);
-    ApiValidatorUtil.validatePageable(page, size, sortBy, new ArrayList<>());
+    List<String> validationFailures = new ArrayList<>();
+    validateUserTable(userTable, validationFailures);
+    ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+    if (!validationFailures.isEmpty()) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
   }
 
   @Override
@@ -126,6 +101,37 @@ public class OpenHouseUserTableHtsApiValidator
     }
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
+  private void validateUserTable(UserTable userTable, List<String> validationFailures) {
+    // This will be removed when we start to support general filters
+    if (!(userTable.getTableVersion() == null
+        && userTable.getMetadataLocation() == null
+        && userTable.getStorageType() == null
+        && userTable.getCreationTime() == null)) {
+      validationFailures.add("Only databaseId and tableId are supported for the query");
+    }
+
+    if (userTable.getDatabaseId() != null
+        && !userTable.getDatabaseId().matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
+      validationFailures.add(
+          String.format(
+              "databaseId provided: %s, %s",
+              userTable.getDatabaseId(), ALPHA_NUM_UNDERSCORE_ERROR_MSG));
+    }
+
+    if (userTable.getTableId() != null) {
+      if (userTable.getDatabaseId() == null) {
+        validationFailures.add("tableId cannot be provided without databaseId");
+      }
+
+      if (!userTable.getTableId().matches(ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_REGEX)) {
+        validationFailures.add(
+            String.format(
+                "tableId provided: %s, %s",
+                userTable.getTableId(), ALPHA_NUM_UNDERSCORE_PATTERN_SEARCH_ERROR_MSG));
+      }
     }
   }
 }

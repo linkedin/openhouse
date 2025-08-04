@@ -46,7 +46,11 @@ public class OpenHouseDatabasesApiValidator implements DatabasesApiValidator {
 
   @Override
   public void validateGetAllDatabases(int page, int size, String sortBy) {
-    ApiValidatorUtil.validatePageable(page, size, sortBy, new ArrayList<>());
+    List<String> validationFailures = new ArrayList<>();
+    ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+    if (!validationFailures.isEmpty()) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
   }
 
   private void validateDatabaseId(String databaseId) {
