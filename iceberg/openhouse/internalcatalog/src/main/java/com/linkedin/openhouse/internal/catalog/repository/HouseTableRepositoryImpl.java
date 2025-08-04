@@ -338,6 +338,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   }
 
   @Override
+<<<<<<< HEAD
   public Page<HouseTable> searchSoftDeletedTables(
       String databaseId, String tableId, Pageable pageable) {
     GetAllEntityResponseBodyUserTable results =
@@ -369,6 +370,16 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .purgeSoftDeletedUserTables(databaseId, tableId, purgeAfterMs)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
+  }
+
+  @Override
+  public void restoreTable(String databaseId, String tableId, long deletedAtMs) {
+    getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance.restoreUserTable(databaseId, tableId, deletedAtMs)
+                .onErrorResume(e -> handleHtsHttpError(e).then(Mono.empty()))
+                .block());
   }
 
   private Page<HouseTable> generatePageFromResults(PageUserTable pageResults) {

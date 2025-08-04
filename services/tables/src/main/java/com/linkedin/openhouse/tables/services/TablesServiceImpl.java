@@ -401,6 +401,13 @@ public class TablesServiceImpl implements TablesService {
         TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), purgeAfterMs);
   }
 
+  public void restoreTable(
+      String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
+    authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.CREATE_TABLE);
+    openHouseInternalRepository.restoreTable(
+        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), deletedAtMs);
+  }
+
   /** Whether sharing has been enabled for the table denoted by tableDto. */
   private boolean isTableSharingEnabled(TableDto tableDto) {
     return (tableDto.getPolicies() != null && tableDto.getPolicies().isSharingEnabled());

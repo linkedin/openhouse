@@ -30,4 +30,6 @@ public interface OpenHouseInternalRepository
       String databaseId, String tableId, Pageable pageable, String sortBy);
 
   void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
+
+  void restoreTable(TableDtoPrimaryKey tableDtoPrimaryKey, long deletedAtMs);
 }

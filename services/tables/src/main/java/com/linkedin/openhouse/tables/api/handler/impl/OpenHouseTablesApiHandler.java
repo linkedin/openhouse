@@ -186,12 +186,12 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   @Override
   public ApiResponse<Void> deleteLock(
       String databaseId, String tableId, String tableCreatorUpdator) {
-    tablesApiValidator.validateGetTable(databaseId, tableId);
     tableService.deleteLock(databaseId, tableId, tableCreatorUpdator);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 
   @Override
+<<<<<<< HEAD
   public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
       String databaseId,
       String tableId,
@@ -213,6 +213,12 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String databaseId, String tableId, long purgeAfterMs, String actingPrincipal) {
     tablesApiValidator.validatePurgeSoftDeletedTable(databaseId, tableId, purgeAfterMs);
     tableService.purgeSoftDeletedTables(databaseId, tableId, purgeAfterMs, actingPrincipal);
+=======
+  public ApiResponse<Void> restoreTable(
+      String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.restoreTable(databaseId, tableId, deletedAtMs, actingPrincipal);
+>>>>>>> 6100915e (WIP)
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 }

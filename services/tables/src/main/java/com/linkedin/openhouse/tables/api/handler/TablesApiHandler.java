@@ -191,4 +191,16 @@ public interface TablesApiHandler {
    */
   ApiResponse<Void> purgeSoftDeletedTable(
       String databaseId, String tableId, long purgeAfterMs, String actingPrincipal);
+
+  /**
+   * Function to restore a soft deleted table
+   *
+   * @param databaseId The database ID
+   * @param tableId The table ID
+   * @param deletedAtMs The timestamp when the table was deleted
+   * @param actingPrincipal The principal performing the action
+   * @return Empty response on successful restore
+   */
+  ApiResponse<Void> restoreTable(
+      String databaseId, String tableId, long deletedAtMs, String actingPrincipal);
 }

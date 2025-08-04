@@ -681,7 +681,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           .searchSoftDeletedTables(Namespace.of(databaseId), tableId, pageable);
     } else {
       throw new UnsupportedOperationException(
-          "searchSoftDeletedTables is not supported for this catalog type: "
+          "restoreTable is not supported for this catalog type: "
               + catalog.getClass().getSimpleName());
     }
   }

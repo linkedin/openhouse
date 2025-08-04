@@ -184,6 +184,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     transaction.commitTransaction();
   }
 
+<<<<<<< HEAD
   public Page<SoftDeletedTableDto> searchSoftDeletedTables(
       Namespace namespace, String tableId, Pageable pageable) {
     if (namespace.levels().length > 1) {
@@ -213,13 +214,19 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   }
 
   public void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
-    log.info(
-        "Purging soft deleted tables for databaseId: {}, tableId: {}, purgeAfterMs: {}",
-        databaseId,
-        tableId,
+    log.info("Purging soft deleted tables for databaseId: {}, tableId: {}, purgeAfterMs: {}", databaseId, tableId,
         purgeAfterMs);
 
     houseTableRepository.purgeSoftDeletedTables(databaseId, tableId, purgeAfterMs);
+  }
+
+  public void restoreTable(String databaseId, String tableId, long deletedAtMs) {
+    log.info(
+        "Restoring soft deleted table for databaseId: {}, tableId: {}, deletedAtMs: {}",
+        databaseId,
+        tableId,
+        deletedAtMs);
+    houseTableRepository.restoreTable(databaseId, tableId, deletedAtMs);
   }
 
   /**
