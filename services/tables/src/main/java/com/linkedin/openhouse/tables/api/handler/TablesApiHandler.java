@@ -165,11 +165,13 @@ public interface TablesApiHandler {
   ApiResponse<Void> deleteLock(String databaseId, String tableId, String tableCreatorUpdator);
 
   /**
-   * Function to search soft deleted tables in a given databaseId with pagination
+   * Function to perform a paginated search on soft deleted tables in a given database ID, with
+   * optional filtering by table ID
    *
    * @param databaseId The database ID to search in
-   * @param pageable Pagination parameters
    * @param tableId The table ID to filter by (optional)
+   * @param page The page number
+   * @param size The number of results per page
    * @param sortBy The field to sort by (optional)
    * @param actingPrincipal The principal performing the action
    * @return Response containing a page of soft deleted tables
