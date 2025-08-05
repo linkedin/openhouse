@@ -36,6 +36,22 @@ public class OpenHouseDatabasesApiHandler implements DatabasesApiHandler {
   }
 
   @Override
+  public ApiResponse<GetAllDatabasesResponseBody> getAllDatabases(
+      int page, int size, String sortBy) {
+    databasesApiValidator.validateGetAllDatabases(page, size, sortBy);
+    return ApiResponse.<GetAllDatabasesResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            GetAllDatabasesResponseBody.builder()
+                .pageResults(
+                    databasesService
+                        .getAllDatabases(page, size, sortBy)
+                        .map(databaseDto -> databasesMapper.toGetDatabaseResponseBody(databaseDto)))
+                .build())
+        .build();
+  }
+
+  @Override
   public ApiResponse<GetAclPoliciesResponseBody> getDatabaseAclPolicies(
       String databaseId, String actingPrincipal) {
     databasesApiValidator.validateGetAclPolicies(databaseId);

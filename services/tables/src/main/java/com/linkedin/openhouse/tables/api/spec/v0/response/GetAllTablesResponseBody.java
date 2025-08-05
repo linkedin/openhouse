@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import lombok.Builder;
 import lombok.Value;
+import org.springframework.data.domain.Page;
 
 @Builder
 @Value
@@ -14,6 +15,10 @@ public class GetAllTablesResponseBody {
   @Schema(description = "List of Table objects in a database", example = "")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private List<GetTableResponseBody> results;
+
+  @Schema(description = "Page of Table objects in a database", example = "")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private Page<GetTableResponseBody> pageResults;
 
   /**
    * TODO: spec out the pagination part, something like _metadata: { "offset": 20, "limit": 10,

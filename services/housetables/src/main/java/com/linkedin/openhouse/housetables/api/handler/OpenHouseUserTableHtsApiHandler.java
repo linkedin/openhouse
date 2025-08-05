@@ -57,7 +57,7 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   @Override
   public ApiResponse<GetAllEntityResponseBody<UserTable>> getEntities(
       UserTable userTable, int page, int size, String sortBy) {
-    userTablesHtsApiValidator.validateGetEntities(userTable);
+    userTablesHtsApiValidator.validateGetEntities(userTable, page, size, sortBy);
     return ApiResponse.<GetAllEntityResponseBody<UserTable>>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(

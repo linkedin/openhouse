@@ -58,6 +58,16 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
+  @Override
+  public void validateSearchTables(String databaseId, int page, int size, String sortBy) {
+    List<String> validationFailures = new ArrayList<>();
+    validateDatabaseId(databaseId, validationFailures);
+    ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+    if (!validationFailures.isEmpty()) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
   @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateCreateTable(

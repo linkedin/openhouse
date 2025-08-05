@@ -32,6 +32,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -96,6 +98,21 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     return houseTableRepository.findAllByDatabaseId(namespace.toString()).stream()
         .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
         .collect(Collectors.toList());
+  }
+
+  public Page<TableIdentifier> listTables(Namespace namespace, Pageable pageable) {
+    if (namespace.levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
+    }
+    if (namespace.isEmpty()) {
+      return houseTableRepository
+          .findAll(pageable)
+          .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"));
+    }
+    return houseTableRepository
+        .findAllByDatabaseId(namespace.toString(), pageable)
+        .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()));
   }
 
   @Override

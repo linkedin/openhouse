@@ -57,6 +57,12 @@ public class OpenHouseJobTablesHtsApiValidator implements HouseTablesApiValidato
   }
 
   @Override
+  public void validateGetEntities(Job entity, int page, int size, String sortBy) {
+    throw new UnsupportedOperationException(
+        "Pagination and sorting are not supported for Job entities");
+  }
+
+  @Override
   public void validatePutEntity(Job entity) {
     List<String> validationFailures = new ArrayList<>();
 

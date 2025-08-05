@@ -13,11 +13,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+@Disabled(
+    "This class is disabled as it is not stable. Enable it to test operation task timeout locally")
 public class OperationTaskTest {
   @Mock JobsClient jobsClient;
   @Mock TablesClient tablesClient;

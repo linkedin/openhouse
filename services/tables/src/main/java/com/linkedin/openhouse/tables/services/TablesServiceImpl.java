@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.services;
 
+import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
+
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
@@ -29,6 +31,8 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
@@ -71,6 +75,12 @@ public class TablesServiceImpl implements TablesService {
   @Override
   public List<TableDto> searchTables(String databaseId) {
     return openHouseInternalRepository.searchTables(databaseId);
+  }
+
+  @Override
+  public Page<TableDto> searchTables(String databaseId, int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, null);
+    return openHouseInternalRepository.searchTables(databaseId, pageable);
   }
 
   @Override

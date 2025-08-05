@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.housetables.services;
 
+import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
+
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
@@ -21,14 +23,11 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
@@ -237,7 +236,6 @@ public class UserTablesServiceImpl implements UserTablesService {
       UserTable userTable, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_TABLES_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
-
     return METRICS_REPORTER.executeWithStats(
         () ->
             softDeletedHtsJdbcRepository
@@ -345,14 +343,6 @@ public class UserTablesServiceImpl implements UserTablesService {
                     pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
-  }
-
-  private Pageable createPageable(int page, int size, String sortBy, String defaultSortBy) {
-    Sort sort =
-        StringUtils.isEmpty(sortBy)
-            ? Sort.by(defaultSortBy).ascending()
-            : Sort.by(sortBy).ascending();
-    return PageRequest.of(page, size, sort);
   }
 
   private List<UserTableDto> searchTables(UserTable userTable) {

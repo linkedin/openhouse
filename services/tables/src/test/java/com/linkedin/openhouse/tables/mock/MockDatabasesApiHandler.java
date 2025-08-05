@@ -22,6 +22,12 @@ public class MockDatabasesApiHandler implements DatabasesApiHandler {
   }
 
   @Override
+  public ApiResponse<GetAllDatabasesResponseBody> getAllDatabases(
+      int page, int size, String sortBy) {
+    return null;
+  }
+
+  @Override
   public ApiResponse<Void> updateDatabaseAclPolicies(
       String databaseId,
       UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody,

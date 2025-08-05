@@ -17,6 +17,7 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -53,6 +54,9 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 /**
@@ -551,12 +555,36 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .collect(Collectors.toList());
   }
 
+  @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_PAGINATED_TIME)
+  @Override
+  public Page<TableDto> searchTables(String databaseId, Pageable pageable) {
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "Does not support paginated search for getting all tables in a database");
+    }
+    return ((OpenHouseInternalCatalog) catalog)
+        .listTables(Namespace.of(databaseId), pageable)
+        .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier));
+  }
+
   @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)
   @Override
   public List<TableDtoPrimaryKey> findAllIds() {
     return catalog.listTables(Namespace.empty()).stream()
         .map(key -> mapper.toTableDtoPrimaryKey(key))
         .collect(Collectors.toList());
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)
+  @Override
+  public Page<TableDtoPrimaryKey> findAllIds(Pageable pageable) {
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "Does not support paginated search for getting all databases");
+    }
+    return ((OpenHouseInternalCatalog) catalog)
+        .listTables(Namespace.empty(), pageable)
+        .map(key -> mapper.toTableDtoPrimaryKey(key));
   }
 
   /* IMPLEMENT AS NEEDED */
@@ -609,6 +637,16 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Override
   public void deleteAll() {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public Iterable<TableDto> findAll(Sort sort) {
+    throw getUnsupportedException();
+  }
+
+  @Override
+  public Page<TableDto> findAll(Pageable pageable) {
     throw getUnsupportedException();
   }
 

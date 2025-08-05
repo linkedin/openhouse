@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.common.api.validator;
 
+import java.util.List;
 import javax.validation.ConstraintViolation;
 
 public final class ApiValidatorUtil {
@@ -20,5 +21,28 @@ public final class ApiValidatorUtil {
 
   private ApiValidatorUtil() {
     // hide default constructor for utility class
+  }
+
+  /**
+   * Common method to validate pageable parameters for pagination APIs.
+   *
+   * @param page
+   * @param size
+   * @param sortBy
+   * @param validationFailures
+   */
+  public static void validatePageable(
+      int page, int size, String sortBy, List<String> validationFailures) {
+    if (page < 0) {
+      validationFailures.add(String.format("page : provided %s, cannot be negative", page));
+    }
+    if (size <= 0) {
+      validationFailures.add(String.format("size : provided %s, must be greater than 0", size));
+    }
+    if (sortBy != null && (sortBy.contains(",") || sortBy.contains(":"))) {
+      validationFailures.add(
+          String.format(
+              "sortBy : provided %s, does not support multiple sort fields or directions", sortBy));
+    }
   }
 }

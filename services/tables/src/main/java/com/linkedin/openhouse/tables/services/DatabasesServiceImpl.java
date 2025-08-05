@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.services;
 
+import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
+
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -12,6 +14,8 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +37,16 @@ public class DatabasesServiceImpl implements DatabasesService {
                     tableDtoPrimaryKey.getDatabaseId(), clusterProperties.getClusterName()))
         .distinct()
         .collect(Collectors.toList());
+  }
+
+  @Override
+  public Page<DatabaseDto> getAllDatabases(int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, null);
+    Page<TableDtoPrimaryKey> tableIdentifiers = openHouseInternalRepository.findAllIds(pageable);
+    return tableIdentifiers.map(
+        tableDtoPrimaryKey ->
+            databasesMapper.toDatabaseDto(
+                tableDtoPrimaryKey.getDatabaseId(), clusterProperties.getClusterName()));
   }
 
   @Override

@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
+import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
 
 /** Service Interface for Implementing /tables endpoint. */
@@ -29,6 +30,17 @@ public interface TablesService {
    * @return list of {@link TableDto}
    */
   List<TableDto> searchTables(String databaseId);
+
+  /**
+   * Given a databaseId, prepare list of {@link TableDto}s.
+   *
+   * @param databaseId
+   * @param page
+   * @param size
+   * @param sortBy
+   * @return list of {@link TableDto}
+   */
+  Page<TableDto> searchTables(String databaseId, int page, int size, String sortBy);
 
   /**
    * Given a {@link CreateUpdateTableRequestBody}, create or update a Openhouse table for it

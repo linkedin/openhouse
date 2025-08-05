@@ -9,6 +9,7 @@ import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
+import com.linkedin.openhouse.housetables.client.model.PageUserTable;
 import com.linkedin.openhouse.housetables.client.model.UserTable;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -42,6 +43,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.util.ReflectionUtils;
 import reactor.core.publisher.Mono;
@@ -374,6 +379,70 @@ public class HouseTableRepositoryImplTest {
             .addHeader("Content-Type", "application/json"));
     List<HouseTable> returnList = htsRepo.findAllByDatabaseId(HOUSE_TABLE.getDatabaseId());
     assertThat(returnList).hasSize(2);
+  }
+
+  @Test
+  public void testFindAllPaginated() {
+    List<UserTable> tables = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      HouseTable houseTable = buildHouseTableWithDbTbl("d" + i, "t1");
+      tables.add(houseTableMapper.toUserTable(houseTable));
+    }
+    GetAllEntityResponseBodyUserTable pageResponse = new GetAllEntityResponseBodyUserTable();
+    PageUserTable pageUserTable = new PageUserTable();
+    pageUserTable.setContent(tables);
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(3);
+    pageUserTable.setTotalElements(10L);
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, pageResponse, pageUserTable);
+
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(pageResponse))
+            .addHeader("Content-Type", "application/json"));
+    Pageable pageable = PageRequest.of(0, 3, Sort.unsorted());
+    Page<HouseTable> returnPage = htsRepo.findAll(pageable);
+    Assertions.assertEquals(4, returnPage.getTotalPages());
+    Assertions.assertEquals(10L, returnPage.getTotalElements());
+    Assertions.assertEquals(0, returnPage.getNumber());
+    Assertions.assertEquals(3, returnPage.getSize());
+  }
+
+  @Test
+  public void testFindAllByDatabaseIdPaginated() {
+    List<UserTable> tables = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      HouseTable houseTable = buildHouseTableWithDbTbl("d1", "t" + i);
+      tables.add(houseTableMapper.toUserTable(houseTable));
+    }
+    GetAllEntityResponseBodyUserTable pageResponse = new GetAllEntityResponseBodyUserTable();
+    PageUserTable pageUserTable = new PageUserTable();
+    pageUserTable.setContent(tables);
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(3);
+    pageUserTable.setTotalElements(10L);
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, pageResponse, pageUserTable);
+
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(pageResponse))
+            .addHeader("Content-Type", "application/json"));
+    Pageable pageable = PageRequest.of(0, 3, Sort.unsorted());
+    Page<HouseTable> returnPage = htsRepo.findAllByDatabaseId("d1", pageable);
+    Assertions.assertEquals(4, returnPage.getTotalPages());
+    Assertions.assertEquals(10L, returnPage.getTotalElements());
+    Assertions.assertEquals(0, returnPage.getNumber());
+    Assertions.assertEquals(3, returnPage.getSize());
   }
 
   @Test
