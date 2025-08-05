@@ -2,7 +2,8 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -13,6 +14,7 @@ import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -36,7 +38,8 @@ import org.junit.jupiter.api.Test;
 @Slf4j
 public class OperationsTest extends OpenHouseSparkITest {
   private static final String TRASH_DIR = ".trash";
-  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
   @Test
   public void testRetentionSparkApp() throws Exception {

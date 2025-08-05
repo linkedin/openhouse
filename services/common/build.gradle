@@ -23,6 +23,21 @@ dependencies {
   implementation 'io.jsonwebtoken:jjwt:' + '0.9.1'
   implementation 'org.aspectj:aspectjrt:' + '1.9.19'
 
+  // open telemetry related classed. Latest Okhttp version is 4.10.0, pinning to 4.9.3 to avoid dependency issues
+  implementation 'com.squareup.okhttp3:okhttp:' + ok_http3_version
+  implementation 'com.squareup.okhttp:okhttp:2.7.5'
+  implementation 'com.squareup.okio:okio:3.2.0'
+  implementation 'com.squareup.okio:okio-jvm:3.2.0'
+  implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.20'
+  implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.20'
+  implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.20'
+  implementation 'io.opentelemetry:opentelemetry-api:1.18.0'
+  implementation 'io.opentelemetry:opentelemetry-exporter-otlp:1.18.0'
+  implementation 'io.opentelemetry:opentelemetry-sdk:1.18.0'
+  implementation 'io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.14.0-alpha'
+  implementation 'io.opentelemetry:opentelemetry-semconv:1.14.0-alpha'
+  implementation 'org.apache.commons:commons-lang3:3.12.0'
+
   // version chosen to be consistent with the transitive dependency
   // from the springboot framework's version in other modules.
   testImplementation 'commons-io:commons-io:2.4'

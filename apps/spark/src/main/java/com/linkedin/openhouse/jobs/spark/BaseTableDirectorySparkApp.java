@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import org.apache.hadoop.fs.Path;
 

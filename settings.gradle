@@ -31,8 +31,6 @@ include ':client:jobsclient'
 include ':client:tableclient'
 include ':client:secureclient'
 
-include ':common'
-
 include ':integrations:java:iceberg-1.2:openhouse-java-runtime'
 include ':integrations:java:iceberg-1.2:openhouse-java-itest'
 include ':integrations:java:iceberg-1.5:openhouse-java-runtime'

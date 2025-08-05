@@ -1,9 +1,11 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -54,7 +56,9 @@ public class RetentionSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
-    createApp(args, AppsOtelEmitter.getInstance()).run();
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+    createApp(args, otelEmitter).run();
   }
 
   public static RetentionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {

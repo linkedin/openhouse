@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
@@ -35,7 +36,8 @@ import reactor.core.publisher.Mono;
 @TestMethodOrder(MethodOrderer.MethodName.class)
 public class OperationTasksBuilderTest {
   private static final String METRICS_SCOPE = OperationTasksBuilderTest.class.getName();
-  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
   @Mock private TablesClient tablesClient;
   @Mock private JobsClient jobsClient;
   private final Properties properties = new Properties();

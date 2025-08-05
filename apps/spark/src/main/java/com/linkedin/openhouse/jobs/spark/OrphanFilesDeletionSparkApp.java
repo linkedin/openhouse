@@ -1,13 +1,15 @@
 package com.linkedin.openhouse.jobs.spark;
 
 import com.google.common.collect.Lists;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
@@ -84,7 +86,9 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
-    createApp(args, AppsOtelEmitter.getInstance()).run();
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+    createApp(args, otelEmitter).run();
   }
 
   public static OrphanFilesDeletionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {

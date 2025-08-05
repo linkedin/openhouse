@@ -2,7 +2,8 @@ package com.linkedin.openhouse.jobs.scheduler;
 
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
 import com.linkedin.openhouse.common.JobState;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
@@ -213,7 +214,8 @@ public class JobsScheduler {
             getNumParallelMetadataFetch(cmdLine),
             operationTaskManager,
             jobInfoManager);
-    OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
     JobsScheduler app =
         new JobsScheduler(
             jobExecutors,

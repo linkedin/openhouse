@@ -2,12 +2,11 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.client.ssl.HousetablesApiClientFactory;
 import com.linkedin.openhouse.common.JobState;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.housetables.client.api.JobApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
-import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
@@ -46,10 +45,6 @@ public abstract class BaseSparkApp {
     this(jobId, stateManager, HEARTBEAT_INTERVAL_SECONDS_DEFAULT, otelEmitter);
   }
 
-  protected BaseSparkApp(String jobId, StateManager stateManager, long heartbeatIntervalSeconds) {
-    this(jobId, stateManager, heartbeatIntervalSeconds, AppsOtelEmitter.getInstance());
-  }
-
   protected BaseSparkApp(
       String jobId,
       StateManager stateManager,
@@ -66,7 +61,8 @@ public abstract class BaseSparkApp {
     String className = this.getClass().getSimpleName();
     boolean isSuccess = true;
     try (Operations ops =
-        Operations.withCatalog(SparkSession.builder().appName(className).getOrCreate(), null)) {
+        Operations.withCatalog(
+            SparkSession.builder().appName(className).getOrCreate(), otelEmitter)) {
       log.info("Session created");
       onStarted();
       runInner(ops);

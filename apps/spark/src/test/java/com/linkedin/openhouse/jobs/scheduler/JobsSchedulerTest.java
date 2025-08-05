@@ -1,7 +1,8 @@
 package com.linkedin.openhouse.jobs.scheduler;
 
 import com.linkedin.openhouse.common.JobState;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
@@ -47,7 +48,8 @@ public class JobsSchedulerTest {
   private int dbCount = 4;
   private int tableCount = 4;
   private List<TableMetadata> tableMetadataList = new ArrayList<>();
-  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
   Map<JobConf.JobTypeEnum, Class<? extends OperationTask<?>>> jobTypeToClassMap =
       new HashMap() {

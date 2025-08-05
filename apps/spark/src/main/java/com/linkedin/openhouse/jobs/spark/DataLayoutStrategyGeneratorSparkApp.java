@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.datalayout.datasource.TableFileStats;
 import com.linkedin.openhouse.datalayout.datasource.TablePartitionStats;
 import com.linkedin.openhouse.datalayout.datasource.TableSnapshotStats;
@@ -11,6 +12,7 @@ import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
@@ -180,7 +182,9 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
-    createApp(args, AppsOtelEmitter.getInstance()).run();
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+    createApp(args, otelEmitter).run();
   }
 
   public static DataLayoutStrategyGeneratorSparkApp createApp(

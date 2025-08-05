@@ -2,7 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;

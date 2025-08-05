@@ -2,7 +2,7 @@ package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.google.common.base.Preconditions;
 import com.linkedin.openhouse.common.JobState;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;

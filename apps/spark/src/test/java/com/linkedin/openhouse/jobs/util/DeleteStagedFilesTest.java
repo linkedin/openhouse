@@ -1,11 +1,13 @@
 package com.linkedin.openhouse.jobs.util;
 
 import com.google.common.collect.Lists;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.Operations;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.io.IOException;
 import java.nio.file.FileSystems;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -23,7 +25,8 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
   static final Path TEST_PATH = new Path(baseDir.toString(), TEST_DIR);
   static final String DIR_PREFIX = "dir_";
   static final String FILE_PREFIX = "file_";
-  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
   @BeforeEach
   @AfterEach

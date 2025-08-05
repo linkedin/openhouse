@@ -1,13 +1,19 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.util.Arrays;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class DataLayoutStrategyGeneratorSparkAppTest extends OpenHouseSparkITest {
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+
   @Test
   public void testPartitionedTable() throws Exception {
     try (SparkSession spark = getSparkSession()) {
@@ -23,12 +29,7 @@ public class DataLayoutStrategyGeneratorSparkAppTest extends OpenHouseSparkITest
       Operations ops = Operations.withCatalog(spark, null);
       DataLayoutStrategyGeneratorSparkApp app =
           new DataLayoutStrategyGeneratorSparkApp(
-              "test-job-id",
-              null,
-              fqtn,
-              outputFqtn,
-              partitionLevelOutputFqtn,
-              AppsOtelEmitter.getInstance());
+              "test-job-id", null, fqtn, outputFqtn, partitionLevelOutputFqtn, otelEmitter);
       app.runInner(ops);
       // test
       Assertions.assertEquals(1, spark.sql(String.format("select * from %s", outputFqtn)).count());
@@ -59,12 +60,7 @@ public class DataLayoutStrategyGeneratorSparkAppTest extends OpenHouseSparkITest
       Operations ops = Operations.withCatalog(spark, null);
       DataLayoutStrategyGeneratorSparkApp app =
           new DataLayoutStrategyGeneratorSparkApp(
-              "test-job-id",
-              null,
-              fqtn,
-              outputFqtn,
-              partitionLevelOutputFqtn,
-              AppsOtelEmitter.getInstance());
+              "test-job-id", null, fqtn, outputFqtn, partitionLevelOutputFqtn, otelEmitter);
       app.runInner(ops);
       // test
       Assertions.assertEquals(1, spark.sql(String.format("select * from %s", outputFqtn)).count());

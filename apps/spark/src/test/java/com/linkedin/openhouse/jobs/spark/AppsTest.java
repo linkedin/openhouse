@@ -1,9 +1,11 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
@@ -13,10 +15,12 @@ import org.mockito.stubbing.Answer;
 
 @Slf4j
 public class AppsTest extends OpenHouseSparkITest {
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+
   @Test
   public void testCreateDataCompactionSparkApp() {
     final String tableName = "db.test_data_compaction_app";
-    final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
     DataCompactionSparkApp.createApp(
         new String[] {
           "--jobId",
@@ -95,7 +99,7 @@ public class AppsTest extends OpenHouseSparkITest {
         .when(stateManagerMock)
         .sendHeartbeat(jobId);
     BaseSparkApp app =
-        new BaseSparkApp(jobId, stateManagerMock, heartbeatIntervalSeconds) {
+        new BaseSparkApp(jobId, stateManagerMock, heartbeatIntervalSeconds, otelEmitter) {
           @Override
           protected void runInner(Operations ops) {
             try {

@@ -1,13 +1,14 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutStrategyScorer;
 import com.linkedin.openhouse.datalayout.ranker.GreedyMaxBudgetCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrategyScorer;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
+import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
 import com.linkedin.openhouse.jobs.util.DataLayoutUtil;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
@@ -39,7 +40,7 @@ public class OperationTasksBuilder {
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
-  private static final String METRICS_SCOPE = OperationTasksBuilder.class.getName();
+  private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 

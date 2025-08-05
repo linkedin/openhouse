@@ -1,13 +1,15 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.linkedin.openhouse.common.JobState;
-import com.linkedin.openhouse.common.OtelEmitter;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobResponseBody;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import io.opentelemetry.api.common.Attributes;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -28,7 +30,8 @@ public class OperationTaskTest {
   @Mock TablesClient tablesClient;
   @Mock TableMetadata metadata;
 
-  private final OtelEmitter otelEmitter = AppsOtelEmitter.getInstance();
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
   @BeforeEach
   public void setUp() {
