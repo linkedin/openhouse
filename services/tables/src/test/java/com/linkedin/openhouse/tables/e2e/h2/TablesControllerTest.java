@@ -1556,7 +1556,11 @@ public class TablesControllerTest {
         GET_TABLE_RESPONSE_BODY.getDatabaseId() + "_search_soft_deleted_controllers_test";
     MvcResult result =
         mvc.perform(
-                MockMvcRequestBuilders.get("/v0/databases/" + databaseId + "/softDeletedTables")
+                MockMvcRequestBuilders.get(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/"
+                            + databaseId
+                            + "/softDeletedTables")
                     .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andReturn();
@@ -1586,7 +1590,11 @@ public class TablesControllerTest {
 
     result =
         mvc.perform(
-                MockMvcRequestBuilders.get("/v0/databases/" + databaseId + "/softDeletedTables")
+                MockMvcRequestBuilders.get(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/"
+                            + databaseId
+                            + "/softDeletedTables")
                     .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andReturn();
@@ -1603,7 +1611,8 @@ public class TablesControllerTest {
     // Test with invalid page size
     mvc.perform(
             MockMvcRequestBuilders.get(
-                    "/v0/databases/"
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
                         + GET_TABLE_RESPONSE_BODY.getDatabaseId()
                         + "/softDeletedTables")
                 .param("page", "0")
@@ -1629,7 +1638,8 @@ public class TablesControllerTest {
     // Try to purge a non-existent table
     mvc.perform(
             MockMvcRequestBuilders.delete(
-                    "/v0/databases/"
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
                         + GET_TABLE_RESPONSE_BODY.getDatabaseId()
                         + "/tables/nonExistentTable/purge")
                 .param("purgeAfterMs", String.valueOf(System.currentTimeMillis()))
@@ -1643,7 +1653,8 @@ public class TablesControllerTest {
     // Test with missing purgeAfterMs parameter
     mvc.perform(
             MockMvcRequestBuilders.delete(
-                    "/v0/databases/"
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
                         + GET_TABLE_RESPONSE_BODY.getDatabaseId()
                         + "/tables/"
                         + GET_TABLE_RESPONSE_BODY.getTableId()
@@ -1654,7 +1665,8 @@ public class TablesControllerTest {
     // Test with invalid purgeAfterMs parameter
     mvc.perform(
             MockMvcRequestBuilders.delete(
-                    "/v0/databases/"
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
                         + GET_TABLE_RESPONSE_BODY.getDatabaseId()
                         + "/tables/"
                         + GET_TABLE_RESPONSE_BODY.getTableId()

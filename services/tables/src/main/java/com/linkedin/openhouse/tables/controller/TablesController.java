@@ -430,7 +430,7 @@ public class TablesController {
             responseCode = "500",
             description = "Soft Deleted Tables SEARCH: INTERNAL SERVER ERROR")
       })
-  @GetMapping(value = "/v0/databases/{databaseId}/softDeletedTables")
+  @GetMapping(value = "/v1/databases/{databaseId}/softDeletedTables")
   public ResponseEntity<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
       @Parameter(description = "Database ID") @PathVariable String databaseId,
       @Parameter(description = "Table ID to filter by") @RequestParam(required = false)
@@ -468,7 +468,7 @@ public class TablesController {
             responseCode = "500",
             description = "Soft Deleted Table PURGE: INTERNAL SERVER ERROR")
       })
-  @DeleteMapping(value = "/v0/databases/{databaseId}/tables/{tableId}/purge")
+  @DeleteMapping(value = "/v1/databases/{databaseId}/tables/{tableId}/purge")
   public ResponseEntity<Void> purgeSoftDeletedTable(
       @Parameter(description = "Database ID") @PathVariable String databaseId,
       @Parameter(description = "Table ID") @PathVariable String tableId,
