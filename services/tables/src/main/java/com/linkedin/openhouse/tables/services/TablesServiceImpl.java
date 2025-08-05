@@ -388,9 +388,9 @@ public class TablesServiceImpl implements TablesService {
 
   @Override
   public Page<SoftDeletedTableDto> searchSoftDeletedTables(
-      String databaseId, String tableId, Pageable pageable, String sortBy) {
-    return openHouseInternalRepository.searchSoftDeletedTables(
-        databaseId, tableId, pageable, sortBy);
+      String databaseId, String tableId, int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, null);
+    return openHouseInternalRepository.searchSoftDeletedTables(databaseId, tableId, pageable);
   }
 
   @Override

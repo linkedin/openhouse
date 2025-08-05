@@ -499,9 +499,10 @@ public class HouseTableRepositoryImplTest {
             .setResponseCode(200)
             .setBody((new Gson()).toJson(listResponse))
             .addHeader("Content-Type", "application/json"));
+    Pageable pageable = PageRequest.of(0, 10, Sort.by("tableId").ascending());
 
     Page<HouseTable> returnPage =
-        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, pageable);
 
     Assertions.assertEquals(returnPage.getTotalElements(), 2);
   }
@@ -510,7 +511,7 @@ public class HouseTableRepositoryImplTest {
   public void testSearchSoftDeletedTablesEmptyResult() {
     PageUserTable pageUserTable = new PageUserTable();
     List<UserTable> tables = new ArrayList<>();
-
+    pageUserTable.setContent(tables);
     GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
     Field resultField =
         ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
@@ -526,8 +527,9 @@ public class HouseTableRepositoryImplTest {
             .setBody((new Gson()).toJson(listResponse))
             .addHeader("Content-Type", "application/json"));
 
+    Pageable pageable = PageRequest.of(0, 10, Sort.by("tableId").ascending());
     Page<HouseTable> returnList =
-        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, 0, 10, "tableId");
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, pageable);
 
     Assertions.assertEquals(returnList.getTotalElements(), 0);
   }

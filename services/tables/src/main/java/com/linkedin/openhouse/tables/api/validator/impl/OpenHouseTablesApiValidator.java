@@ -24,7 +24,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -320,26 +319,15 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   @Override
-  public void validateSearchSoftDeletedTables(String databaseId, Pageable pageable) {
-    if (databaseId == null) {
-      throw new RequestValidationFailureException(
-          "databaseId must be provided to search soft deleted tables");
+  public void validateSearchSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, String sortBy) {
+    List<String> validationFailures = new ArrayList<>();
+    validateDatabaseId(databaseId, validationFailures);
+    // TableId is optional so can be null
+    if (tableId != null) {
+      validateTableId(tableId, validationFailures);
     }
-
-    if (pageable == null) {
-      throw new RequestValidationFailureException(
-          "pageable must be provided to search soft deleted tables");
-    }
-
-    if (pageable.getPageSize() <= 0) {
-      throw new RequestValidationFailureException(
-          "pageSize must be greater than 0 to search soft deleted tables");
-    }
-
-    if (pageable.getPageNumber() < 0) {
-      throw new RequestValidationFailureException(
-          "pageNumber must be greater than or equal to 0 to search soft deleted tables");
-    }
+    ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
   }
 
   @Override

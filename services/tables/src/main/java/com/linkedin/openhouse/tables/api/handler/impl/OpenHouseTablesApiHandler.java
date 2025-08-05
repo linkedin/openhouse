@@ -16,7 +16,6 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -193,13 +192,18 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Override
   public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
-      String databaseId, Pageable pageable, String tableId, String sortBy, String actingPrincipal) {
-    tablesApiValidator.validateSearchSoftDeletedTables(databaseId, pageable);
+      String databaseId,
+      String tableId,
+      int page,
+      int size,
+      String sortBy,
+      String actingPrincipal) {
+    tablesApiValidator.validateSearchSoftDeletedTables(databaseId, tableId, page, size, sortBy);
     return ApiResponse.<GetAllSoftDeletedTablesResponseBody>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
             tablesMapper.toGetAllSoftDeletedTablesResponseBody(
-                tableService.searchSoftDeletedTables(databaseId, tableId, pageable, sortBy)))
+                tableService.searchSoftDeletedTables(databaseId, tableId, page, size, sortBy)))
         .build();
   }
 

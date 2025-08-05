@@ -41,8 +41,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.ContextConfiguration;
@@ -822,9 +820,8 @@ public class TablesServiceTest {
             .build(),
         softDeletedTable2);
 
-    Pageable pageable = PageRequest.of(0, 10);
     Page<SoftDeletedTableDto> result =
-        tablesService.searchSoftDeletedTables(databaseId, null, pageable, null);
+        tablesService.searchSoftDeletedTables(databaseId, null, 0, 10, null);
 
     // Verify
     Assertions.assertNotNull(result);
@@ -857,9 +854,8 @@ public class TablesServiceTest {
             .build(),
         softDeletedTable);
 
-    Pageable pageable = PageRequest.of(0, 10);
     Page<SoftDeletedTableDto> result =
-        tablesService.searchSoftDeletedTables(purgeDbId, null, pageable, null);
+        tablesService.searchSoftDeletedTables(purgeDbId, null, 0, 10, null);
     Assertions.assertNotNull(result);
     Assertions.assertEquals(1, result.getContent().size());
     Assertions.assertEquals(TABLE_DTO.getTableId(), result.getContent().get(0).getTableId());
@@ -869,7 +865,7 @@ public class TablesServiceTest {
     // Purge soft deleted table
     tablesService.purgeSoftDeletedTables(
         purgeDbId, TABLE_DTO.getTableId(), purgeAfterMs, TEST_USER);
-    result = tablesService.searchSoftDeletedTables(purgeDbId, null, pageable, null);
+    result = tablesService.searchSoftDeletedTables(purgeDbId, null, 0, 10, null);
     Assertions.assertNotNull(result);
     Assertions.assertEquals(0, result.getContent().size());
   }

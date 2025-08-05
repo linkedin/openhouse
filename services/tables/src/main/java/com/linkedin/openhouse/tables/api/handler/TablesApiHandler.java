@@ -8,7 +8,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponse
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
-import org.springframework.data.domain.Pageable;
 
 /**
  * Interface layer between REST and Tables backend. The implementation is injected into the Service
@@ -176,7 +175,7 @@ public interface TablesApiHandler {
    * @return Response containing a page of soft deleted tables
    */
   ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
-      String databaseId, Pageable pageable, String tableId, String sortBy, String actingPrincipal);
+      String databaseId, String tableId, int page, int size, String sortBy, String actingPrincipal);
 
   /**
    * Function to permanently delete a soft deleted table that has passed its purge time

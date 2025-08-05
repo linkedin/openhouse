@@ -7,7 +7,6 @@ import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
-import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -28,7 +27,7 @@ public interface OpenHouseInternalRepository
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 
   Page<SoftDeletedTableDto> searchSoftDeletedTables(
-      String databaseId, String tableId, Pageable pageable, String sortBy);
+      String databaseId, String tableId, Pageable pageable);
 
   void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
 }

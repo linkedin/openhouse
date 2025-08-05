@@ -8,10 +8,7 @@ import com.linkedin.openhouse.housetables.client.model.CreateUpdateEntityRequest
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.PageUserTable;
-<<<<<<< HEAD
 import com.linkedin.openhouse.housetables.client.model.UserTable;
-=======
->>>>>>> cdca73ee (Add table service integration for purge table)
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -22,14 +19,12 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import java.util.stream.Collectors;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.directory.api.util.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -343,18 +338,25 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public Page<HouseTable> searchSoftDeletedTables(
-      String databaseId, String tableId, int page, int pageSize, String sortBy) {
-    GetAllEntityResponseBodyUserTable userTableResults =
+      String databaseId, String tableId, Pageable pageable) {
+    GetAllEntityResponseBodyUserTable results =
         getHtsRetryTemplate(
                 Arrays.asList(
                     HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
             .execute(
                 context ->
                     apiInstance
-                        .getSoftDeletedUserTables(databaseId, tableId, null, page, pageSize, sortBy)
+                        .getSoftDeletedUserTables(
+                            databaseId,
+                            tableId,
+                            null,
+                            pageable.getPageNumber(),
+                            pageable.getPageSize(),
+                            getSortByStr(pageable))
                         .block());
 
-    return generatePageFromResults(userTableResults.getPageResults());
+    Page<UserTable> userTablePage = getUserTablePageFromPageUserTable(results.getPageResults());
+    return userTablePage.map(houseTableMapper::toHouseTable);
   }
 
   @Override
@@ -366,19 +368,5 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .purgeSoftDeletedUserTables(databaseId, tableId, purgeAfterMs)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
-  }
-
-  private Page<HouseTable> generatePageFromResults(PageUserTable pageResults) {
-    List<HouseTable> houseTables = new ArrayList<>();
-    if (pageResults.getContent() != null) {
-      houseTables =
-          pageResults.getContent().stream()
-              .map(houseTableMapper::toHouseTableWithDatabaseId)
-              .collect(Collectors.toList());
-    }
-    return new PageImpl<>(
-        houseTables,
-        PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
-        pageResults.getTotalElements());
   }
 }

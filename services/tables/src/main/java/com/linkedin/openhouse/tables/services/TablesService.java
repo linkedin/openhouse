@@ -8,7 +8,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 
 /** Service Interface for Implementing /tables endpoint. */
@@ -157,7 +156,7 @@ public interface TablesService {
    * @return list of {@link SoftDeletedTableDto} soft deleted table metadata
    */
   Page<SoftDeletedTableDto> searchSoftDeletedTables(
-      String databaseId, String tableId, Pageable pageable, String sortBy);
+      String databaseId, String tableId, int page, int size, String sortBy);
 
   /**
    * Deletes soft-deleted tables that are older than the specified timestamp.

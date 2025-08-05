@@ -186,32 +186,30 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   }
 
   public Page<SoftDeletedTableDto> searchSoftDeletedTables(
-      Namespace namespace, String tableId, Pageable pageable, String sortBy) {
+      Namespace namespace, String tableId, Pageable pageable) {
     if (namespace.levels().length > 1) {
       throw new ValidationException(
           "Input namespace has more than one levels " + String.join(".", namespace.levels()));
     }
 
-    List<SoftDeletedTableDto> softDeletedTables =
-        houseTableRepository
-            .searchSoftDeletedTables(
-                namespace.toString(),
-                tableId,
-                pageable.getPageNumber(),
-                pageable.getPageSize(),
-                sortBy)
-            .stream()
-            .map(
-                houseTable ->
-                    SoftDeletedTableDto.builder()
-                        .tableId(houseTable.getTableId())
-                        .databaseId(houseTable.getDatabaseId())
-                        .tableLocation(houseTable.getTableLocation())
-                        .deletedAtMs(houseTable.getDeletedAtMs())
-                        .build())
-            .collect(Collectors.toList());
+    try {
+      List<SoftDeletedTableDto> softDeletedTables =
+          houseTableRepository.searchSoftDeletedTables(namespace.toString(), tableId, pageable)
+              .stream()
+              .map(
+                  houseTable ->
+                      SoftDeletedTableDto.builder()
+                          .tableId(houseTable.getTableId())
+                          .databaseId(houseTable.getDatabaseId())
+                          .tableLocation(houseTable.getTableLocation())
+                          .deletedAtMs(houseTable.getDeletedAtMs())
+                          .build())
+              .collect(Collectors.toList());
 
-    return new PageImpl<>(softDeletedTables, pageable, softDeletedTables.size());
+      return new PageImpl<>(softDeletedTables, pageable, softDeletedTables.size());
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to search soft deleted tables", e);
+    }
   }
 
   public void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {

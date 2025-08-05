@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -73,7 +74,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   }
 
   default Page<HouseTable> searchSoftDeletedTables(
-      String databaseId, String tableId, int page, int size, String sortBy) {
+      String databaseId, String tableId, Pageable pageable) {
     List<HouseTable> foundTables = new ArrayList<>();
     for (HouseTable table : softDeletedTables.values()) {
       if (table.getDatabaseId().equals(databaseId)) {
@@ -83,6 +84,8 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
         foundTables.add(table);
       }
     }
+    int page = pageable.getPageNumber();
+    int size = pageable.getPageSize();
     List<HouseTable> pageContent =
         foundTables.subList(
             Math.min(page * size, foundTables.size()),

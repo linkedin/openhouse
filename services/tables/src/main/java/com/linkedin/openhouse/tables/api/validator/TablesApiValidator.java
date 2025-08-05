@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.api.validator;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import org.springframework.data.domain.Pageable;
 
 public interface TablesApiValidator {
 
@@ -123,14 +122,17 @@ public interface TablesApiValidator {
       String databaseId, String tableId, CreateUpdateLockRequestBody createUpdateLockRequestBody);
 
   /**
-   * Function to validate a request to search soft deleted tables in a given databaseId
+   * Function to validate a request to get a Page of Table Resources in a given databaseId.
    *
-   * @param databaseId The database ID to search in
-   * @param pageable Pagination parameters
+   * @param databaseId
+   * @param page
+   * @param size
+   * @param sortBy
    * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
    *     invalid
    */
-  void validateSearchSoftDeletedTables(String databaseId, Pageable pageable);
+  void validateSearchSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, String sortBy);
 
   /**
    * Function to validate a request to purge a soft deleted table

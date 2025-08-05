@@ -262,10 +262,13 @@ public class MockTablesApiHandler implements TablesApiHandler {
   @Override
   public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
       String databaseId,
-      org.springframework.data.domain.Pageable pageable,
       String tableId,
+      int page,
+      int size,
       String sortBy,
       String actingPrincipal) {
+    org.springframework.data.domain.Pageable pageable =
+        org.springframework.data.domain.PageRequest.of(page, size);
     switch (databaseId) {
       case "d200":
         // Create an empty page of GetSoftDeletedTableResponseBody

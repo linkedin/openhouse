@@ -40,13 +40,10 @@ public interface HouseTableRepository
    *
    * @param databaseId The database ID to filter by
    * @param tableId The table ID to filter by (optional, can be null)
-   * @param page The page number
-   * @param pageSize The page size
-   * @param sortBy The field to sort by (optional)
+   * @param pageable Pagination information
    * @return List of soft-deleted HouseTable objects matching the criteria
    */
-  Page<HouseTable> searchSoftDeletedTables(
-      String databaseId, String tableId, int page, int pageSize, String sortBy);
+  Page<HouseTable> searchSoftDeletedTables(String databaseId, String tableId, Pageable pageable);
 
   /**
    * Delete soft-deleted tables that are older than the specified timestamp.
