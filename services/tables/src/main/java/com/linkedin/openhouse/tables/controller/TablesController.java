@@ -437,7 +437,7 @@ public class TablesController {
       @Parameter(description = "Page number") @RequestParam(defaultValue = "0") int page,
       @Parameter(description = "Page size") @RequestParam(defaultValue = "10") int size,
       @Parameter(description = "Sort by field (e.g., 'deletedAtMs', 'tableId', 'purgeAfterMs')")
-          @RequestParam(defaultValue = "tableId")
+          @RequestParam(required = false)
           String sortBy) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllSoftDeletedTablesResponseBody>
         apiResponse =
