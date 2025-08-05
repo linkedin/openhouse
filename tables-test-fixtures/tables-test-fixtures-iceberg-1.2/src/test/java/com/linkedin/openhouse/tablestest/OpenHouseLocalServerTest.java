@@ -16,7 +16,9 @@ public class OpenHouseLocalServerTest {
 
   @Test
   public void testServerStartCustomPortNo() {
-    int portNo = SocketUtils.findAvailableTcpPort();
+    // Use a specific high port range to avoid conflicts with other test infrastructure
+    // Try multiple ports in case the first one is occupied
+    int portNo = SocketUtils.findAvailableTcpPort(59000, 59100);
     OpenHouseLocalServer openHouseLocalServer = new OpenHouseLocalServer(portNo);
     Assertions.assertDoesNotThrow(() -> openHouseLocalServer.start());
     Assertions.assertEquals(openHouseLocalServer.getPort(), portNo);

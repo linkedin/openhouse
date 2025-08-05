@@ -41,8 +41,10 @@ public class PartitionSpecMapper {
               Arrays.asList(
                   Type.TypeID.STRING, Type.TypeID.INTEGER, Type.TypeID.LONG, Type.TypeID.DATE)));
   private static final String TRUNCATE_REGEX = "truncate\\[(\\d+)\\]";
+  private static final String BUCKET_REGEX = "bucket\\[(\\d+)\\]";
   private static final Set<String> SUPPORTED_TRANSFORMS =
-      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX)));
+      Collections.unmodifiableSet(
+          new HashSet<>(Arrays.asList("identity", TRUNCATE_REGEX, BUCKET_REGEX)));
 
   /**
    * Given an Iceberg {@link Table}, extract OpenHouse {@link TimePartitionSpec} If Table is
@@ -209,6 +211,11 @@ public class PartitionSpecMapper {
                     clusteringField.getColumnName(),
                     Integer.parseInt(transform.getTransformParams().get(0)));
                 break;
+              case BUCKET:
+                partitionSpecBuilder.bucket(
+                    clusteringField.getColumnName(),
+                    Integer.parseInt(transform.getTransformParams().get(0)));
+                break;
               default:
                 throw new IllegalArgumentException(
                     String.format(
@@ -261,24 +268,45 @@ public class PartitionSpecMapper {
 
   /**
    * Given a {@link PartitionField}, determine if its transformation is a clustering one, ie.
-   * truncate, and return the corresponding transform.
+   * truncate, bucket, and return the corresponding transform.
    *
    * @param partitionField partitionField
    * @return Transform
    */
   private Optional<Transform> toTransform(PartitionField partitionField) {
     /* String based comparison is necessary as the classes are package-private */
-    Transform transform = null;
     String icebergTransform = partitionField.transform().toString();
-    Matcher truncateMatcher = Pattern.compile(TRUNCATE_REGEX).matcher(icebergTransform);
-    if (truncateMatcher.matches()) {
-      String width = truncateMatcher.group(1);
-      transform =
+
+    String truncateParam = extractTransformParameter(icebergTransform, TRUNCATE_REGEX);
+    if (truncateParam != null) {
+      return Optional.of(
           Transform.builder()
               .transformType(Transform.TransformType.TRUNCATE)
-              .transformParams(Arrays.asList(width))
-              .build();
+              .transformParams(Arrays.asList(truncateParam))
+              .build());
     }
-    return Optional.ofNullable(transform);
+
+    String bucketParam = extractTransformParameter(icebergTransform, BUCKET_REGEX);
+    if (bucketParam != null) {
+      return Optional.of(
+          Transform.builder()
+              .transformType(Transform.TransformType.BUCKET)
+              .transformParams(Arrays.asList(bucketParam))
+              .build());
+    }
+
+    return Optional.empty();
+  }
+
+  /**
+   * Extracts the parameter from a transform string using the given regex pattern.
+   *
+   * @param transformString the transform string (e.g., "truncate[10]", "bucket[5]")
+   * @param regexPattern the regex pattern to match against
+   * @return the extracted parameter or null if no match
+   */
+  private String extractTransformParameter(String transformString, String regexPattern) {
+    Matcher matcher = Pattern.compile(regexPattern).matcher(transformString);
+    return matcher.matches() ? matcher.group(1) : null;
   }
 }

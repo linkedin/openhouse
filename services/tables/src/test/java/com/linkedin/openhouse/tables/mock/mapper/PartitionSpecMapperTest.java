@@ -119,7 +119,17 @@ public class PartitionSpecMapperTest {
           containsInAnyOrder(clusteringColumns.toArray()));
     }
     recreateTempDir();
-    for (String transform : ImmutableList.of("bucket[10]", "void")) {
+    for (String transform : ImmutableList.of("bucket[10]")) {
+      Map<String, String> colTransformMap = new HashMap<>();
+      colTransformMap.put(timePartitioningColumn, "day");
+      clusteringColumns.stream().forEach(x -> colTransformMap.put(x, transform));
+      List<ClusteringColumn> clusteringSpecs =
+          tablesMapper.toClusteringSpec(createDummyIcebergTable(colTransformMap));
+      assertThat(
+          clusteringSpecs.stream().map(x -> x.getColumnName()).collect(Collectors.toList()),
+          containsInAnyOrder(clusteringColumns.toArray()));
+    }
+    for (String transform : ImmutableList.of("void")) {
       Map<String, String> colTransformMap = new HashMap<>();
       colTransformMap.put(timePartitioningColumn, "day");
       clusteringColumns.stream().forEach(x -> colTransformMap.put(x, transform));
@@ -355,6 +365,23 @@ public class PartitionSpecMapperTest {
         4,
         clusteringSpecsTruncate.stream()
             .filter(x -> x.getTransform().getTransformParams().get(0).equals("10"))
+            .collect(Collectors.toList())
+            .size());
+
+    clusteringColumns.stream().forEach(x -> colTransformMap.put(x, "bucket[4]"));
+    List<ClusteringColumn> clusteringSpecsBucket =
+        tablesMapper.toClusteringSpec(createDummyIcebergTable(colTransformMap));
+    // Make sure bucket transform can be converted appropriately
+    Assertions.assertEquals(
+        4,
+        clusteringSpecsBucket.stream()
+            .filter(x -> x.getTransform().getTransformType() == Transform.TransformType.BUCKET)
+            .collect(Collectors.toList())
+            .size());
+    Assertions.assertEquals(
+        4,
+        clusteringSpecsBucket.stream()
+            .filter(x -> x.getTransform().getTransformParams().get(0).equals("4"))
             .collect(Collectors.toList())
             .size());
   }
