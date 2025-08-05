@@ -6,6 +6,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
+/** Utility class for processing Pageable objects. */
 public final class PageableUtil {
   private PageableUtil() {}
 

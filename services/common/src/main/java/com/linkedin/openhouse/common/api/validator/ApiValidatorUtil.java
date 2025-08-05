@@ -23,6 +23,14 @@ public final class ApiValidatorUtil {
     // hide default constructor for utility class
   }
 
+  /**
+   * Common method to validate pageable parameters for pagination APIs.
+   *
+   * @param page
+   * @param size
+   * @param sortBy
+   * @param validationFailures
+   */
   public static void validatePageable(
       int page, int size, String sortBy, List<String> validationFailures) {
     if (page < 0) {
