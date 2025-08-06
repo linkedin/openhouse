@@ -11,6 +11,7 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
@@ -181,6 +182,44 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     updateProperties.set(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri.toString());
     updateProperties.commit();
     transaction.commitTransaction();
+  }
+
+  public Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      Namespace namespace, String tableId, Pageable pageable) {
+    if (namespace.levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
+    }
+
+    try {
+      return houseTableRepository
+          .searchSoftDeletedTables(namespace.toString(), tableId, pageable)
+          .map(
+              houseTable ->
+                  SoftDeletedTableDto.builder()
+                      .tableId(houseTable.getTableId())
+                      .databaseId(houseTable.getDatabaseId())
+                      .tableLocation(houseTable.getTableLocation())
+                      .deletedAtMs(houseTable.getDeletedAtMs())
+                      .purgeAfterMs(houseTable.getPurgeAfterMs())
+                      .build());
+    } catch (Exception e) {
+      throw new RuntimeException(
+          String.format(
+              "Failed to search soft deleted tables with namespace %s and tableId %s",
+              namespace.toString(), tableId),
+          e);
+    }
+  }
+
+  public void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
+    log.info(
+        "Purging soft deleted tables for databaseId: {}, tableId: {}, purgeAfterMs: {}",
+        databaseId,
+        tableId,
+        purgeAfterMs);
+
+    houseTableRepository.purgeSoftDeletedTables(databaseId, tableId, purgeAfterMs);
   }
 
   /**

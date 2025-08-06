@@ -5,6 +5,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 
@@ -162,4 +163,31 @@ public interface TablesApiHandler {
    * @return empty body on successful delete
    */
   ApiResponse<Void> deleteLock(String databaseId, String tableId, String tableCreatorUpdator);
+
+  /**
+   * Function to perform a paginated search on soft deleted tables in a given database ID, with
+   * optional filtering by table ID
+   *
+   * @param databaseId The database ID to search in
+   * @param tableId The table ID to filter by (optional)
+   * @param page The page number
+   * @param size The number of results per page
+   * @param sortBy The field to sort by (optional)
+   * @param actingPrincipal The principal performing the action
+   * @return Response containing a page of soft deleted tables
+   */
+  ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, String sortBy, String actingPrincipal);
+
+  /**
+   * Function to permanently delete a soft deleted table that has passed its purge time
+   *
+   * @param databaseId The database ID
+   * @param tableId The table ID
+   * @param purgeAfterMs The timestamp after which tables should be purged (in milliseconds)
+   * @param actingPrincipal The principal performing the action
+   * @return Empty response on successful purge
+   */
+  ApiResponse<Void> purgeSoftDeletedTable(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal);
 }

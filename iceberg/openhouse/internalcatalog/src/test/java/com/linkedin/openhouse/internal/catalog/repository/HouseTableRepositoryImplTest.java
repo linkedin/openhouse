@@ -467,6 +467,74 @@ public class HouseTableRepositoryImplTest {
   }
 
   @Test
+  public void testSearchSoftDeletedTables() {
+    PageUserTable pageUserTable = new PageUserTable();
+    List<UserTable> tables = new ArrayList<>();
+    long currentTime = System.currentTimeMillis();
+    // Create a soft-deleted table by setting deletedAt to a positive timestamp
+    UserTable softDeletedTable = houseTableMapper.toUserTable(HOUSE_TABLE);
+    softDeletedTable.setDeletedAtMs(currentTime);
+    softDeletedTable.setPurgeAfterMs(currentTime + 10000);
+    tables.add(softDeletedTable);
+
+    // Create another soft-deleted table
+    UserTable anotherSoftDeletedTable = houseTableMapper.toUserTable(HOUSE_TABLE_SAME_DB);
+    anotherSoftDeletedTable.setDeletedAtMs(currentTime - 1000);
+    anotherSoftDeletedTable.setPurgeAfterMs(currentTime + 10000);
+    tables.add(anotherSoftDeletedTable);
+    pageUserTable.setContent(tables);
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(tables.size());
+    pageUserTable.setTotalElements((long) tables.size());
+
+    GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, listResponse, pageUserTable);
+
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(listResponse))
+            .addHeader("Content-Type", "application/json"));
+    Pageable pageable = PageRequest.of(0, 10, Sort.by("tableId").ascending());
+
+    Page<HouseTable> returnPage =
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, pageable);
+
+    Assertions.assertEquals(returnPage.getTotalElements(), 2);
+  }
+
+  @Test
+  public void testSearchSoftDeletedTablesEmptyResult() {
+    PageUserTable pageUserTable = new PageUserTable();
+    List<UserTable> tables = new ArrayList<>();
+    pageUserTable.setContent(tables);
+    GetAllEntityResponseBodyUserTable listResponse = new GetAllEntityResponseBodyUserTable();
+    Field resultField =
+        ReflectionUtils.findField(GetAllEntityResponseBodyUserTable.class, "pageResults");
+    Assertions.assertNotNull(resultField);
+    ReflectionUtils.makeAccessible(resultField);
+    ReflectionUtils.setField(resultField, listResponse, pageUserTable);
+    pageUserTable.setNumber(0);
+    pageUserTable.setSize(1);
+    pageUserTable.setTotalElements(0L);
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(listResponse))
+            .addHeader("Content-Type", "application/json"));
+
+    Pageable pageable = PageRequest.of(0, 10, Sort.by("tableId").ascending());
+    Page<HouseTable> returnList =
+        htsRepo.searchSoftDeletedTables(HOUSE_TABLE.getDatabaseId(), null, pageable);
+
+    Assertions.assertEquals(returnList.getTotalElements(), 0);
+  }
+
+  @Test
   public void testListOfAllTables() {
     List<UserTable> tables = new ArrayList<>();
     tables.add(houseTableMapper.toUserTableWithDatabaseId(HOUSE_TABLE));

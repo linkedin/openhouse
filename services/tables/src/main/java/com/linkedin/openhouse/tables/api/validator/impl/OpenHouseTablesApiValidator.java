@@ -318,6 +318,31 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
+  @Override
+  public void validateSearchSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, String sortBy) {
+    List<String> validationFailures = new ArrayList<>();
+    validateDatabaseId(databaseId, validationFailures);
+    // TableId is optional so can be null
+    if (tableId != null) {
+      validateTableId(tableId, validationFailures);
+    }
+    ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+  }
+
+  @Override
+  public void validatePurgeSoftDeletedTable(String databaseId, String tableId, long purgeAfterMs) {
+    if (databaseId == null || tableId == null) {
+      throw new RequestValidationFailureException(
+          "databaseId and tableId must be provided to purge a soft deleted table");
+    }
+
+    if (purgeAfterMs < 0) {
+      throw new RequestValidationFailureException(
+          "purgeAfterMs must be greater than or equal to 0 to purge a soft deleted table");
+    }
+  }
+
   private void validateDatabaseId(String databaseId, List<String> validationFailures) {
     if (StringUtils.isEmpty(databaseId)) {
       validationFailures.add("databaseId : Cannot be empty");

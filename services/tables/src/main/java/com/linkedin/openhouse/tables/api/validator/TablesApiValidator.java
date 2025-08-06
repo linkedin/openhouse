@@ -120,4 +120,29 @@ public interface TablesApiValidator {
    */
   void validateCreateLock(
       String databaseId, String tableId, CreateUpdateLockRequestBody createUpdateLockRequestBody);
+
+  /**
+   * Function to validate a request to get a Page of Table Resources in a given databaseId.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param page
+   * @param size
+   * @param sortBy
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
+   */
+  void validateSearchSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, String sortBy);
+
+  /**
+   * Function to validate a request to purge a soft deleted table
+   *
+   * @param databaseId The database ID
+   * @param tableId The table ID
+   * @param purgeAfterMs The timestamp after which tables should be purged (in milliseconds)
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
+   */
+  void validatePurgeSoftDeletedTable(String databaseId, String tableId, long purgeAfterMs);
 }

@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -407,6 +408,71 @@ public class TablesController {
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteLock(databaseId, tableId, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Search Soft Deleted Tables",
+      description =
+          "Returns a paginated list of soft deleted tables in the database identified by databaseId.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Soft Deleted Tables SEARCH: OK"),
+        @ApiResponse(responseCode = "400", description = "Soft Deleted Tables SEARCH: BAD REQUEST"),
+        @ApiResponse(
+            responseCode = "401",
+            description = "Soft Deleted Tables SEARCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Soft Deleted Tables SEARCH: FORBIDDEN"),
+        @ApiResponse(
+            responseCode = "500",
+            description = "Soft Deleted Tables SEARCH: INTERNAL SERVER ERROR")
+      })
+  @GetMapping(value = "/v1/databases/{databaseId}/softDeletedTables")
+  public ResponseEntity<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
+      @Parameter(description = "Database ID") @PathVariable String databaseId,
+      @Parameter(description = "Table ID to filter by") @RequestParam(required = false)
+          String tableId,
+      @Parameter(description = "Page number") @RequestParam(defaultValue = "0") int page,
+      @Parameter(description = "Page size") @RequestParam(defaultValue = "10") int size,
+      @Parameter(description = "Sort by field (e.g., 'deletedAtMs', 'tableId', 'purgeAfterMs')")
+          @RequestParam(required = false)
+          String sortBy) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllSoftDeletedTablesResponseBody>
+        apiResponse =
+            tablesApiHandler.searchSoftDeletedTables(
+                databaseId, tableId, page, size, sortBy, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Purge Soft Deleted Table",
+      description =
+          "Permanently deletes a soft deleted table identified by tableId in the database identified by databaseId if it was deleted before purgeAfterMs.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "Soft Deleted Table PURGE: NO CONTENT"),
+        @ApiResponse(responseCode = "400", description = "Soft Deleted Table PURGE: BAD REQUEST"),
+        @ApiResponse(responseCode = "401", description = "Soft Deleted Table PURGE: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Soft Deleted Table PURGE: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Soft Deleted Table PURGE: NOT FOUND"),
+        @ApiResponse(
+            responseCode = "500",
+            description = "Soft Deleted Table PURGE: INTERNAL SERVER ERROR")
+      })
+  @DeleteMapping(value = "/v1/databases/{databaseId}/tables/{tableId}/purge")
+  public ResponseEntity<Void> purgeSoftDeletedTable(
+      @Parameter(description = "Database ID") @PathVariable String databaseId,
+      @Parameter(description = "Table ID") @PathVariable String tableId,
+      @Parameter(description = "Unix timestamp in milliseconds after which tables should be purged")
+          @RequestParam(value = "purgeAfterMs")
+          long purgeAfterMs) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.purgeSoftDeletedTable(
+            databaseId, tableId, purgeAfterMs, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

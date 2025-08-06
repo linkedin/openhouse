@@ -20,6 +20,7 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -656,6 +657,34 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     catalog.renameTable(
         TableIdentifier.of(from.getDatabaseId(), from.getTableId()),
         TableIdentifier.of(to.getDatabaseId(), to.getTableId()));
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_TABLE_SEARCH_SOFT_DELETED_TIME)
+  @Override
+  public Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      String databaseId, String tableId, Pageable pageable) {
+    if (catalog instanceof OpenHouseInternalCatalog) {
+      return ((OpenHouseInternalCatalog) catalog)
+          .searchSoftDeletedTables(Namespace.of(databaseId), tableId, pageable);
+    } else {
+      throw new UnsupportedOperationException(
+          "searchSoftDeletedTables is not supported for this catalog type: "
+              + catalog.getClass().getSimpleName());
+    }
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_PURGE_SOFT_DELETED_TIME)
+  @Override
+  public void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs) {
+    if (catalog instanceof OpenHouseInternalCatalog) {
+      ((OpenHouseInternalCatalog) catalog)
+          .purgeSoftDeletedTables(
+              tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId(), purgeAfterMs);
+    } else {
+      throw new UnsupportedOperationException(
+          "purgeSoftDeletedTableById is not supported for this catalog type: "
+              + catalog.getClass().getName());
+    }
   }
 
   private UnsupportedOperationException getUnsupportedException() {

@@ -9,6 +9,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -383,6 +384,21 @@ public class TablesServiceImpl implements TablesService {
               .build();
       saveTableDto(tableDtoToSave, Optional.of(tableDto));
     }
+  }
+
+  @Override
+  public Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, String sortBy) {
+    Pageable pageable = createPageable(page, size, sortBy, null);
+    return openHouseInternalRepository.searchSoftDeletedTables(databaseId, tableId, pageable);
+  }
+
+  @Override
+  public void purgeSoftDeletedTables(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal) {
+    authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.DELETE_TABLE);
+    openHouseInternalRepository.purgeSoftDeletedTableById(
+        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), purgeAfterMs);
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */

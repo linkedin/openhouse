@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.services;
 
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -144,4 +145,28 @@ public interface TablesService {
    * @param actingPrincipal
    */
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
+
+  /**
+   * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param pageable
+   * @param sortBy The field to sort by (optional)
+   * @return list of {@link SoftDeletedTableDto} soft deleted table metadata
+   */
+  Page<SoftDeletedTableDto> searchSoftDeletedTables(
+      String databaseId, String tableId, int page, int size, String sortBy);
+
+  /**
+   * Deletes soft-deleted tables that are older than the specified timestamp.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param purgeAfterMs
+   * @param actingPrincipal
+   * @return list of {@link TableDto}
+   */
+  void purgeSoftDeletedTables(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal);
 }

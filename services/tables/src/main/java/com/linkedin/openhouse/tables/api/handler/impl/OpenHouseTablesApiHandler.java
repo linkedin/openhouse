@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -186,6 +187,31 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String databaseId, String tableId, String tableCreatorUpdator) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
     tableService.deleteLock(databaseId, tableId, tableCreatorUpdator);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
+  public ApiResponse<GetAllSoftDeletedTablesResponseBody> searchSoftDeletedTables(
+      String databaseId,
+      String tableId,
+      int page,
+      int size,
+      String sortBy,
+      String actingPrincipal) {
+    tablesApiValidator.validateSearchSoftDeletedTables(databaseId, tableId, page, size, sortBy);
+    return ApiResponse.<GetAllSoftDeletedTablesResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            tablesMapper.toGetAllSoftDeletedTablesResponseBody(
+                tableService.searchSoftDeletedTables(databaseId, tableId, page, size, sortBy)))
+        .build();
+  }
+
+  @Override
+  public ApiResponse<Void> purgeSoftDeletedTable(
+      String databaseId, String tableId, long purgeAfterMs, String actingPrincipal) {
+    tablesApiValidator.validatePurgeSoftDeletedTable(databaseId, tableId, purgeAfterMs);
+    tableService.purgeSoftDeletedTables(databaseId, tableId, purgeAfterMs, actingPrincipal);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 }

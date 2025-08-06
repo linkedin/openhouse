@@ -218,7 +218,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public void deleteById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    // Default to hard delete (purge = true for backward compatibility
+    // Default to hard delete (purge = true) for backward compatibility
     deleteById(houseTablePrimaryKey, true);
   }
 
@@ -334,5 +334,39 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   @Override
   public void deleteAll() {
     throw new UnsupportedOperationException("deleteAll is not supported.");
+  }
+
+  @Override
+  public Page<HouseTable> searchSoftDeletedTables(
+      String databaseId, String tableId, Pageable pageable) {
+    GetAllEntityResponseBodyUserTable results =
+        getHtsRetryTemplate(
+                Arrays.asList(
+                    HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+            .execute(
+                context ->
+                    apiInstance
+                        .getSoftDeletedUserTables(
+                            databaseId,
+                            tableId,
+                            null,
+                            pageable.getPageNumber(),
+                            pageable.getPageSize(),
+                            getSortByStr(pageable))
+                        .block());
+
+    Page<UserTable> userTablePage = getUserTablePageFromPageUserTable(results.getPageResults());
+    return userTablePage.map(houseTableMapper::toHouseTable);
+  }
+
+  @Override
+  public void purgeSoftDeletedTables(String databaseId, String tableId, long purgeAfterMs) {
+    getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .purgeSoftDeletedUserTables(databaseId, tableId, purgeAfterMs)
+                    .onErrorResume(e -> handleHtsHttpError(e).then())
+                    .block());
   }
 }
