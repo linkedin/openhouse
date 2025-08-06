@@ -34,7 +34,6 @@ import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
@@ -193,22 +192,23 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     }
 
     try {
-      List<SoftDeletedTableDto> softDeletedTables =
-          houseTableRepository.searchSoftDeletedTables(namespace.toString(), tableId, pageable)
-              .stream()
-              .map(
-                  houseTable ->
-                      SoftDeletedTableDto.builder()
-                          .tableId(houseTable.getTableId())
-                          .databaseId(houseTable.getDatabaseId())
-                          .tableLocation(houseTable.getTableLocation())
-                          .deletedAtMs(houseTable.getDeletedAtMs())
-                          .build())
-              .collect(Collectors.toList());
-
-      return new PageImpl<>(softDeletedTables, pageable, softDeletedTables.size());
+      return houseTableRepository
+          .searchSoftDeletedTables(namespace.toString(), tableId, pageable)
+          .map(
+              houseTable ->
+                  SoftDeletedTableDto.builder()
+                      .tableId(houseTable.getTableId())
+                      .databaseId(houseTable.getDatabaseId())
+                      .tableLocation(houseTable.getTableLocation())
+                      .deletedAtMs(houseTable.getDeletedAtMs())
+                      .purgeAfterMs(houseTable.getPurgeAfterMs())
+                      .build());
     } catch (Exception e) {
-      throw new RuntimeException("Failed to search soft deleted tables", e);
+      throw new RuntimeException(
+          String.format(
+              "Failed to search soft deleted tables with namespace %s and tableId %s",
+              namespace.toString(), tableId),
+          e);
     }
   }
 

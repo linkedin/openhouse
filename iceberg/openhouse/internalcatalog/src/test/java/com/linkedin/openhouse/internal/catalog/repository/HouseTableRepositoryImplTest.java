@@ -480,7 +480,7 @@ public class HouseTableRepositoryImplTest {
     // Create another soft-deleted table
     UserTable anotherSoftDeletedTable = houseTableMapper.toUserTable(HOUSE_TABLE_SAME_DB);
     anotherSoftDeletedTable.setDeletedAtMs(currentTime - 1000);
-    softDeletedTable.setPurgeAfterMs(currentTime + 10000);
+    anotherSoftDeletedTable.setPurgeAfterMs(currentTime + 10000);
     tables.add(anotherSoftDeletedTable);
     pageUserTable.setContent(tables);
     pageUserTable.setNumber(0);

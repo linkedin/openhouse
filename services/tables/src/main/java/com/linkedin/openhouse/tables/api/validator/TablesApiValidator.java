@@ -125,6 +125,7 @@ public interface TablesApiValidator {
    * Function to validate a request to get a Page of Table Resources in a given databaseId.
    *
    * @param databaseId
+   * @param tableId
    * @param page
    * @param size
    * @param sortBy

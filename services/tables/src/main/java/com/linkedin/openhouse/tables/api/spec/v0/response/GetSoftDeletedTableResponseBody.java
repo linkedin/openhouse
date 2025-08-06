@@ -23,7 +23,7 @@ public class GetSoftDeletedTableResponseBody {
   private String databaseId;
 
   @Schema(
-      description = "Unix Timestamp in milliseconds that the table was dropped",
+      description = "Unix Timestamp in milliseconds when the table was dropped",
       example = "1753915710")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private long deletedAtMs;
@@ -37,7 +37,7 @@ public class GetSoftDeletedTableResponseBody {
 
   @Schema(
       description =
-          "Unix Timestamp in milliseconds that the table is marked for permanent deletion",
+          "Unix Timestamp in milliseconds after which the table is marked for permanent deletion",
       example = "1753915710")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private long purgeAfterMs;
