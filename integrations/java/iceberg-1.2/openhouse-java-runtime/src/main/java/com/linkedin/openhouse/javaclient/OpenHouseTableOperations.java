@@ -26,7 +26,6 @@ import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRefParser;
-import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
@@ -134,8 +133,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     } else {
       return !base.schema().sameSchema(metadata.schema())
           || !base.properties().equals(metadata.properties())
-          || !base.spec().equals(metadata.spec())
-          || !base.sortOrder().equals(metadata.sortOrder());
+          || !base.spec().equals(metadata.spec());
     }
   }
 
@@ -180,7 +178,6 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         metadata.properties().entrySet().stream()
             .filter(entry -> !UPDATED_OPENHOUSE_POLICY_KEY.equals(entry.getKey()))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
-    createUpdateTableRequestBody.setSortOrder(SortOrderParser.toJson(metadata.sortOrder()));
     // set tableType from incoming metadata to createUpdateTableRequestBody
     if (metadata.properties() != null
         && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
