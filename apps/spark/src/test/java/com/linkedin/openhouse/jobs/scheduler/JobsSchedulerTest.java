@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.jobs.scheduler;
 
 import com.linkedin.openhouse.common.JobState;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
@@ -15,6 +17,7 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.TableOrphanFilesDeletionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableRetentionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableSnapshotsExpirationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableStatsCollectionTask;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import java.util.ArrayList;
@@ -45,6 +48,8 @@ public class JobsSchedulerTest {
   private int dbCount = 4;
   private int tableCount = 4;
   private List<TableMetadata> tableMetadataList = new ArrayList<>();
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
   Map<JobConf.JobTypeEnum, Class<? extends OperationTask<?>>> jobTypeToClassMap =
       new HashMap() {
@@ -111,7 +116,8 @@ public class JobsSchedulerTest {
         jobsClient,
         operationTaskManager,
         jobInfoManager,
-        operationTasksBuilder);
+        operationTasksBuilder,
+        otelEmitter);
   }
 
   private void mockbuildOperationTaskListInParallel(JobsScheduler jobsScheduler) {
@@ -122,7 +128,10 @@ public class JobsSchedulerTest {
                     jobsScheduler
                         .getTasksBuilder()
                         .processMetadata(
-                            metadata, invocation.getArgument(0), invocation.getArgument(3));
+                            metadata,
+                            invocation.getArgument(0),
+                            invocation.getArgument(3),
+                            otelEmitter);
                 jobsScheduler.getOperationTaskManager().addData(optionalOperationTask.get());
               }
               jobsScheduler.getOperationTaskManager().updateDataGenerationCompletion();
@@ -142,7 +151,10 @@ public class JobsSchedulerTest {
                     jobsScheduler
                         .getTasksBuilder()
                         .processMetadata(
-                            metadata, invocation.getArgument(0), invocation.getArgument(3))
+                            metadata,
+                            invocation.getArgument(0),
+                            invocation.getArgument(3),
+                            otelEmitter)
                         .get());
               }
               return operationTasks;

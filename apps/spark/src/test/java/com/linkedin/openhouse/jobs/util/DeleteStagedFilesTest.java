@@ -1,11 +1,13 @@
 package com.linkedin.openhouse.jobs.util;
 
 import com.google.common.collect.Lists;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.Operations;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
-import io.opentelemetry.api.metrics.Meter;
 import java.io.IOException;
 import java.nio.file.FileSystems;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -23,12 +25,13 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
   static final Path TEST_PATH = new Path(baseDir.toString(), TEST_DIR);
   static final String DIR_PREFIX = "dir_";
   static final String FILE_PREFIX = "file_";
-  private final Meter meter = OtelConfig.getMeter(this.getClass().getName());
+  private final OtelEmitter otelEmitter =
+      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
   @BeforeEach
   @AfterEach
   void cleanUpTestFiles() throws Exception {
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       FileSystem fs = ops.fs();
       fs.delete(TEST_PATH, true);
       Assertions.assertFalse(fs.exists(TEST_PATH));
@@ -37,7 +40,7 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
 
   @Test
   void testShouldDeleteFilesOlderThanXDaysInDir() throws Exception {
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       FileSystem fs = ops.fs();
       generateDirStructure(fs, TEST_PATH.toString(), 3, 3);
       SparkJobUtil.setModifiedTimeStamp(fs, new Path(TEST_PATH.toString(), "dir_2"), 4);
@@ -49,7 +52,7 @@ public class DeleteStagedFilesTest extends OpenHouseSparkITest {
 
   @Test
   void testShouldFindMatchingFilesRecursively() throws Exception {
-    try (Operations ops = Operations.withCatalog(getSparkSession(), meter)) {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       FileSystem fs = ops.fs();
       generateDirStructure(fs, TEST_PATH.toString(), 4, 2);
       SparkJobUtil.setModifiedTimeStamp(fs, new Path(TEST_PATH.toString(), "dir_1"), 7);

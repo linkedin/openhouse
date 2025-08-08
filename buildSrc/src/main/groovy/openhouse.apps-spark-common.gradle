@@ -80,6 +80,7 @@ shadowJar {
 
     relocate('io', 'openhouse.relocated.io') {
       exclude 'io.netty.resolver.dns.macos.**' // dynamically loaded classes
+      exclude 'io.opentelemetry.**'
     }
     relocate('com', 'openhouse.relocated.com') {
       exclude 'com.linkedin.openhouse.**' // don't want our classes to be shaded

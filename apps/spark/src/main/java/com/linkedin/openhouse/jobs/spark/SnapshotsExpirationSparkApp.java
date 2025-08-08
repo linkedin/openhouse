@@ -1,8 +1,12 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -33,8 +37,9 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
       String fqtn,
       int maxAge,
       String granularity,
-      int versions) {
-    super(jobId, stateManager, fqtn);
+      int versions,
+      OtelEmitter otelEmitter) {
+    super(jobId, stateManager, fqtn, otelEmitter);
     // By default, always enforce a time to live for snapshots even if unconfigured
     if (maxAge == 0) {
       this.maxAge = DEFAULT_CONFIGURATION.MAX_AGE;
@@ -58,6 +63,12 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+    createApp(args, otelEmitter).run();
+  }
+
+  public static SnapshotsExpirationSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(
@@ -66,15 +77,13 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
     extraOptions.add(
         new Option("v", "versions", true, "Number of versions to keep after snapshot expiration"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-
-    SnapshotsExpirationSparkApp app =
-        new SnapshotsExpirationSparkApp(
-            getJobId(cmdLine),
-            createStateManager(cmdLine),
-            cmdLine.getOptionValue("tableName"),
-            Integer.parseInt(cmdLine.getOptionValue("maxAge", "0")),
-            cmdLine.getOptionValue("granularity", ""),
-            Integer.parseInt(cmdLine.getOptionValue("versions", "0")));
-    app.run();
+    return new SnapshotsExpirationSparkApp(
+        getJobId(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
+        cmdLine.getOptionValue("tableName"),
+        Integer.parseInt(cmdLine.getOptionValue("maxAge", "0")),
+        cmdLine.getOptionValue("granularity", ""),
+        Integer.parseInt(cmdLine.getOptionValue("versions", "0")),
+        otelEmitter);
   }
 }

@@ -1,13 +1,8 @@
-package com.linkedin.openhouse.jobs.util;
-
-import static io.opentelemetry.semconv.resource.attributes.ResourceAttributes.*;
+package com.linkedin.openhouse.common.metrics;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
-import io.opentelemetry.api.metrics.LongCounter;
-import io.opentelemetry.api.metrics.LongHistogram;
-import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporter;
 import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporterBuilder;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
@@ -17,22 +12,21 @@ import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import io.opentelemetry.sdk.resources.Resource;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.concurrent.Callable;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 
 @Slf4j
-public final class OtelConfig {
+public final class DefaultOtelConfig {
   private static final int METRIC_READER_INTERVAL_MS = 1000;
   private static OpenTelemetry otel;
 
-  private OtelConfig() {}
+  private DefaultOtelConfig() {}
 
-  public static synchronized Meter getMeter(String instrumentationScopeName) {
+  public static synchronized OpenTelemetry getOpenTelemetry() {
     if (otel == null) {
       otel = initOpenTelemetry();
     }
-    return otel.getMeter(instrumentationScopeName);
+    return otel;
   }
 
   private static Attributes getCommonAttributes() {
@@ -40,7 +34,7 @@ public final class OtelConfig {
     String appName = System.getenv("APP_NAME");
     String clusterName = System.getenv("CLUSTER_NAME");
     if (StringUtils.isNotEmpty(appName)) {
-      attributesBuilder.put(SERVICE_NAME, appName);
+      attributesBuilder.put("service_name", appName);
     }
     if (StringUtils.isNotEmpty(clusterName)) {
       attributesBuilder.put("cluster_name", clusterName);
@@ -116,25 +110,6 @@ public final class OtelConfig {
     Runtime.getRuntime()
         .addShutdownHook(new Thread(openTelemetrySdk.getSdkMeterProvider()::shutdown));
     return openTelemetrySdk;
-  }
-
-  public static <T> T executeWithStats(
-      Callable<T> callable, Meter meter, String metricPrefix, Attributes attributes)
-      throws Exception {
-    LongCounter submitCounter = meter.counterBuilder(metricPrefix + "_count").build();
-    LongHistogram runTimer =
-        meter.histogramBuilder(metricPrefix + "_latency").ofLongs().setUnit("ms").build();
-    long startTime = System.currentTimeMillis();
-    String submitStatus = AppConstants.SUCCESS;
-    try {
-      return callable.call();
-    } catch (Exception e) {
-      submitStatus = AppConstants.FAIL;
-      throw e;
-    } finally {
-      runTimer.record(System.currentTimeMillis() - startTime, attributes);
-      submitCounter.add(1, attributes.toBuilder().put(AppConstants.STATUS, submitStatus).build());
-    }
   }
 
   @SuppressWarnings("checkstyle:ParameterAssignment")

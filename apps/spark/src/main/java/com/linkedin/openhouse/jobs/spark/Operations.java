@@ -2,11 +2,11 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
-import io.opentelemetry.api.metrics.Meter;
 import java.io.IOException;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
@@ -49,14 +49,14 @@ public final class Operations implements AutoCloseable {
 
   private final SparkSession spark;
 
-  private final Meter meter;
+  private final OtelEmitter otelEmitter;
 
-  public static Operations of(SparkSession spark, Meter meter) {
-    return new Operations(spark, meter);
+  public static Operations of(SparkSession spark, OtelEmitter otelEmitter) {
+    return new Operations(spark, otelEmitter);
   }
 
-  public static Operations withCatalog(SparkSession spark, Meter meter) {
-    Operations ops = of(spark, meter);
+  public static Operations withCatalog(SparkSession spark, OtelEmitter otelEmitter) {
+    Operations ops = of(spark, otelEmitter);
     ops.useCatalog();
     return ops;
   }

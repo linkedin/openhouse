@@ -1,12 +1,16 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.datalayout.config.DataCompactionConfig;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -35,8 +39,12 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
   private final DataCompactionConfig config;
 
   protected DataCompactionSparkApp(
-      String jobId, StateManager stateManager, String fqtn, DataCompactionConfig config) {
-    super(jobId, stateManager, fqtn);
+      String jobId,
+      StateManager stateManager,
+      String fqtn,
+      DataCompactionConfig config,
+      OtelEmitter otelEmitter) {
+    super(jobId, stateManager, fqtn, otelEmitter);
     this.config = config;
   }
 
@@ -68,37 +76,35 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
           fileGroupRewriteResult.rewrittenDataFilesCount(),
           fileGroupRewriteResult.rewrittenBytesCount());
     }
-    METER
-        .counterBuilder(AppConstants.ADDED_DATA_FILE_COUNT)
-        .build()
-        .add(
-            result.addedDataFilesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_COUNT)
-        .build()
-        .add(
-            result.rewrittenDataFilesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_BYTES)
-        .build()
-        .add(
-            result.rewrittenBytesCount(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-    METER
-        .counterBuilder(AppConstants.REWRITTEN_DATA_FILE_GROUP_COUNT)
-        .build()
-        .add(
-            result.rewriteResults().size(),
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.ADDED_DATA_FILE_COUNT,
+        result.addedDataFilesCount(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.REWRITTEN_DATA_FILE_COUNT,
+        result.rewrittenDataFilesCount(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.REWRITTEN_DATA_FILE_BYTES,
+        result.rewrittenBytesCount(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.REWRITTEN_DATA_FILE_GROUP_COUNT,
+        result.rewriteResults().size(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
   }
 
   public static void main(String[] args) {
-    createApp(args).run();
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+    createApp(args, otelEmitter).run();
   }
 
-  public static DataCompactionSparkApp createApp(String[] args) {
+  public static DataCompactionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(new Option(null, "targetByteSize", true, "Target data file byte size"));
@@ -201,8 +207,9 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
     }
     return new DataCompactionSparkApp(
         getJobId(cmdLine),
-        createStateManager(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
         cmdLine.getOptionValue("tableName"),
-        config);
+        config,
+        otelEmitter);
   }
 }
