@@ -37,8 +37,6 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
-import org.apache.iceberg.SortOrder;
-import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
@@ -546,7 +544,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
     private final ImmutableMap.Builder<String, String> propertiesBuilder = ImmutableMap.builder();
     private PartitionSpec spec = PartitionSpec.unpartitioned();
-    private SortOrder sortOrder = SortOrder.unsorted();
 
     OpenHouseTableBuilder(TableIdentifier identifier, Schema schema) {
       super(identifier, schema);
@@ -574,13 +571,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     public TableBuilder withProperty(String key, String value) {
       this.propertiesBuilder.put(key, value);
       super.withProperty(key, value);
-      return this;
-    }
-
-    @Override
-    public TableBuilder withSortOrder(SortOrder sortOrder) {
-      this.sortOrder = sortOrder != null ? sortOrder : SortOrder.unsorted();
-      super.withSortOrder(sortOrder);
       return this;
     }
 
@@ -627,7 +617,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
       createUpdateTableRequestBody.setClustering(
           ClusteringSpecBuilder.builderFor(schema, spec).build());
       createUpdateTableRequestBody.setTableProperties(propertiesBuilder.build());
-      createUpdateTableRequestBody.setSortOrder(SortOrderParser.toJson(sortOrder));
       String tableLocation =
           tableApi
               .createTableV1(identifier.namespace().toString(), createUpdateTableRequestBody)
