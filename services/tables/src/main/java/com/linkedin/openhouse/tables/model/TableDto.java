@@ -57,6 +57,8 @@ public class TableDto {
 
   private TableType tableType;
 
+  private String sortOrder;
+
   @Convert(converter = TimePartitionSpecConverter.class)
   private TimePartitionSpec timePartitioning;
 
