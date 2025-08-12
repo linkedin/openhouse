@@ -10,6 +10,11 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * OpenHouseOtelEmitter is an implementation of the OtelEmitter interface that uses OpenTelemetry
+ * for emitting metrics. It supports counting, timing, and gauging metrics across multiple
+ * OpenTelemetry instances.
+ */
 public class OpenHouseOtelEmitter implements OtelEmitter {
   protected final List<OpenTelemetry> otels;
 
