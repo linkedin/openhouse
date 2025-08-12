@@ -1,14 +1,18 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import java.util.Arrays;
 import java.util.Collections;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 
 @Slf4j
 public class NoOpSparkApp extends BaseSparkApp {
-  public NoOpSparkApp(String jobId, StateManager stateManager) {
-    super(jobId, stateManager);
+  public NoOpSparkApp(String jobId, StateManager stateManager, OtelEmitter otelEmitter) {
+    super(jobId, stateManager, otelEmitter);
   }
 
   @Override
@@ -17,8 +21,14 @@ public class NoOpSparkApp extends BaseSparkApp {
   }
 
   public static void main(String[] args) {
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+    createApp(args, otelEmitter).run();
+  }
+
+  public static NoOpSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
     CommandLine cmdLine = createCommandLine(args, Collections.emptyList());
-    NoOpSparkApp app = new NoOpSparkApp(getJobId(cmdLine), createStateManager(cmdLine));
-    app.run();
+    return new NoOpSparkApp(
+        getJobId(cmdLine), createStateManager(cmdLine, otelEmitter), otelEmitter);
   }
 }

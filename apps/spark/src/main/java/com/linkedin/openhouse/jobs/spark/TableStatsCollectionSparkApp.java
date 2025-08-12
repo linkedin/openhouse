@@ -1,9 +1,13 @@
 package com.linkedin.openhouse.jobs.spark;
 
 import com.google.gson.Gson;
+import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -18,8 +22,9 @@ import org.apache.commons.cli.Option;
 @Slf4j
 public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
 
-  public TableStatsCollectionSparkApp(String jobId, StateManager stateManager, String fqtn) {
-    super(jobId, stateManager, fqtn);
+  public TableStatsCollectionSparkApp(
+      String jobId, StateManager stateManager, String fqtn, OtelEmitter otelEmitter) {
+    super(jobId, stateManager, fqtn, otelEmitter);
   }
 
   @Override
@@ -41,12 +46,19 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   }
 
   public static void main(String[] args) {
+    OtelEmitter otelEmitter =
+        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+    createApp(args, otelEmitter).run();
+  }
+
+  public static TableStatsCollectionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
-    TableStatsCollectionSparkApp app =
-        new TableStatsCollectionSparkApp(
-            getJobId(cmdLine), createStateManager(cmdLine), cmdLine.getOptionValue("tableName"));
-    app.run();
+    return new TableStatsCollectionSparkApp(
+        getJobId(cmdLine),
+        createStateManager(cmdLine, otelEmitter),
+        cmdLine.getOptionValue("tableName"),
+        otelEmitter);
   }
 }

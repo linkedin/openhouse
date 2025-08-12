@@ -2,16 +2,14 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.client.ssl.HousetablesApiClientFactory;
 import com.linkedin.openhouse.common.JobState;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.housetables.client.api.JobApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
-import com.linkedin.openhouse.jobs.util.OtelConfig;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.metrics.LongCounter;
-import io.opentelemetry.api.metrics.Meter;
 import java.net.MalformedURLException;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -35,21 +33,27 @@ import org.apache.spark.sql.SparkSession;
 @Slf4j
 public abstract class BaseSparkApp {
   private static final long HEARTBEAT_INTERVAL_SECONDS_DEFAULT = 300;
-  protected static final Meter METER = OtelConfig.getMeter(BaseSparkApp.class.getName());
+  protected static final String METRICS_SCOPE = BaseSparkApp.class.getName();
   protected final String jobId;
   protected final StateManager stateManager;
   private final long heartbeatIntervalSeconds;
+  protected final OtelEmitter otelEmitter;
   private final ScheduledExecutorService scheduledExecutorService =
       Executors.newSingleThreadScheduledExecutor();
 
-  protected BaseSparkApp(String jobId, StateManager stateManager) {
-    this(jobId, stateManager, HEARTBEAT_INTERVAL_SECONDS_DEFAULT);
+  protected BaseSparkApp(String jobId, StateManager stateManager, OtelEmitter otelEmitter) {
+    this(jobId, stateManager, HEARTBEAT_INTERVAL_SECONDS_DEFAULT, otelEmitter);
   }
 
-  protected BaseSparkApp(String jobId, StateManager stateManager, long heartbeatIntervalSeconds) {
+  protected BaseSparkApp(
+      String jobId,
+      StateManager stateManager,
+      long heartbeatIntervalSeconds,
+      OtelEmitter otelEmitter) {
     this.jobId = jobId;
     this.stateManager = stateManager;
     this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
+    this.otelEmitter = otelEmitter;
   }
 
   public void run() {
@@ -57,7 +61,8 @@ public abstract class BaseSparkApp {
     String className = this.getClass().getSimpleName();
     boolean isSuccess = true;
     try (Operations ops =
-        Operations.withCatalog(SparkSession.builder().appName(className).getOrCreate(), METER)) {
+        Operations.withCatalog(
+            SparkSession.builder().appName(className).getOrCreate(), otelEmitter)) {
       log.info("Session created");
       onStarted();
       runInner(ops);
@@ -94,30 +99,28 @@ public abstract class BaseSparkApp {
     }
   }
 
-  protected static StateManager createStateManager(CommandLine cmdLine) {
+  protected static StateManager createStateManager(CommandLine cmdLine, OtelEmitter otelEmitter) {
     return new StateManager(
         RetryUtil.getJobsStateApiRetryTemplate(),
-        createJobApiClient(cmdLine.getOptionValue("storageURL")));
+        createJobApiClient(cmdLine.getOptionValue("storageURL"), otelEmitter));
   }
 
   protected static String getJobId(CommandLine cmdLine) {
     return cmdLine.getOptionValue("jobId");
   }
 
-  private static JobApi createJobApiClient(String basePath) {
+  private static JobApi createJobApiClient(String basePath, OtelEmitter otelEmitter) {
     ApiClient client = null;
     try {
       client = HousetablesApiClientFactory.getInstance().createApiClient(basePath, null, null);
     } catch (MalformedURLException | SSLException e) {
       log.error("Jobs Api client creation failed: Failure while initializing ApiClient", e);
-      METER
-          .counterBuilder(AppConstants.JOBS_CLIENT_INITIALIZATION_ERROR)
-          .build()
-          .add(
-              1,
-              Attributes.of(
-                  AttributeKey.stringKey(AppConstants.SERVICE_NAME),
-                  AppConstants.SERVICE_HOUSETABLES));
+      otelEmitter.count(
+          METRICS_SCOPE,
+          AppConstants.JOBS_CLIENT_INITIALIZATION_ERROR,
+          1,
+          Attributes.of(
+              AttributeKey.stringKey(AppConstants.SERVICE_NAME), AppConstants.SERVICE_HOUSETABLES));
       throw new RuntimeException(e);
     }
     return new JobApi(client);
@@ -134,14 +137,20 @@ public abstract class BaseSparkApp {
   private void onFinished(boolean success) {
     log.info("onFinished");
     stateManager.updateFinishTime(jobId);
-    LongCounter counter = METER.counterBuilder(AppConstants.RUN_COUNT).build();
     if (success) {
       stateManager.updateState(jobId, JobState.SUCCEEDED);
-      counter.add(
-          1, Attributes.of(AttributeKey.stringKey(AppConstants.STATUS), AppConstants.SUCCESS));
+      otelEmitter.count(
+          METRICS_SCOPE,
+          AppConstants.RUN_COUNT,
+          1,
+          Attributes.of(AttributeKey.stringKey(AppConstants.STATUS), AppConstants.SUCCESS));
     } else {
       stateManager.updateState(jobId, JobState.FAILED);
-      counter.add(1, Attributes.of(AttributeKey.stringKey(AppConstants.STATUS), AppConstants.FAIL));
+      otelEmitter.count(
+          METRICS_SCOPE,
+          AppConstants.RUN_COUNT,
+          1,
+          Attributes.of(AttributeKey.stringKey(AppConstants.STATUS), AppConstants.FAIL));
     }
     scheduledExecutorService.shutdown();
   }

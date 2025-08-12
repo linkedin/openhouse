@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.exception.TableValidationException;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
@@ -13,8 +14,9 @@ import lombok.extern.slf4j.Slf4j;
 public abstract class BaseTableSparkApp extends BaseSparkApp {
   protected final String fqtn;
 
-  protected BaseTableSparkApp(String jobId, StateManager stateManager, String fqtn) {
-    super(jobId, stateManager);
+  protected BaseTableSparkApp(
+      String jobId, StateManager stateManager, String fqtn, OtelEmitter otelEmitter) {
+    super(jobId, stateManager, otelEmitter);
     this.fqtn = fqtn;
   }
 
@@ -30,14 +32,13 @@ public abstract class BaseTableSparkApp extends BaseSparkApp {
           String.format(
               "Post job validations for OH table %s failed with error %s", fqtn, e.getMessage()),
           e);
-      METER
-          .counterBuilder("post_run_validation_error")
-          .build()
-          .add(
-              1,
-              Attributes.of(
-                  AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn,
-                  AttributeKey.stringKey(AppConstants.JOB_NAME), className));
+      otelEmitter.count(
+          METRICS_SCOPE,
+          "post_run_validation_error",
+          1,
+          Attributes.of(
+              AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn,
+              AttributeKey.stringKey(AppConstants.JOB_NAME), className));
       throw e;
     }
   }

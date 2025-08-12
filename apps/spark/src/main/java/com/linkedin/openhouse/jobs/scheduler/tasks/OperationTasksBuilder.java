@@ -1,18 +1,19 @@
 package com.linkedin.openhouse.jobs.scheduler.tasks;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutStrategyScorer;
 import com.linkedin.openhouse.datalayout.ranker.GreedyMaxBudgetCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrategyScorer;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
+import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
 import com.linkedin.openhouse.jobs.util.DataLayoutUtil;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
-import io.opentelemetry.api.metrics.Meter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +40,7 @@ public class OperationTasksBuilder {
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+  private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
 
@@ -53,14 +55,14 @@ public class OperationTasksBuilder {
   private final JobInfoManager jobInfoManager;
 
   private List<OperationTask<?>> prepareTableOperationTaskList(
-      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
+      JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
     List<TableMetadata> tableMetadataList = tablesClient.getTableMetadataList();
     log.info("Fetched metadata for {} tables", tableMetadataList.size());
-    return processMetadataList(tableMetadataList, jobType, operationMode);
+    return processMetadataList(tableMetadataList, jobType, operationMode, otelEmitter);
   }
 
   private List<OperationTask<?>> prepareReplicationOperationTaskList(
-      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
+      JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
     List<TableMetadata> replicationSetupTableMetadataList = tablesClient.getTableMetadataList();
     // filters tables which are primary and hava replication config defined
     replicationSetupTableMetadataList =
@@ -70,33 +72,35 @@ public class OperationTasksBuilder {
     log.info(
         "Fetched metadata for {} tables for replication setup task",
         replicationSetupTableMetadataList.size());
-    return processMetadataList(replicationSetupTableMetadataList, jobType, operationMode);
+    return processMetadataList(
+        replicationSetupTableMetadataList, jobType, operationMode, otelEmitter);
   }
 
   private List<OperationTask<?>> prepareTableDirectoryOperationTaskList(
-      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
+      JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
     List<DirectoryMetadata> directoryMetadataList = tablesClient.getOrphanTableDirectories();
     log.info("Fetched metadata for {} directories", directoryMetadataList.size());
-    return processMetadataList(directoryMetadataList, jobType, operationMode);
+    return processMetadataList(directoryMetadataList, jobType, operationMode, otelEmitter);
   }
 
   private List<OperationTask<?>> prepareDataLayoutOperationTaskList(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
-      OperationMode operationMode) {
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataList();
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
         rankAndSelectFromTableDataLayoutMetadataList(
-            tableDataLayoutMetadataList, properties, meter);
-    return processMetadataList(selectedTableDataLayoutMetadataList, jobType, operationMode);
+            tableDataLayoutMetadataList, properties, otelEmitter);
+    return processMetadataList(
+        selectedTableDataLayoutMetadataList, jobType, operationMode, otelEmitter);
   }
 
   private List<TableDataLayoutMetadata> rankAndSelectFromTableDataLayoutMetadataList(
       List<TableDataLayoutMetadata> tableDataLayoutMetadataList,
       Properties properties,
-      Meter meter) {
+      OtelEmitter otelEmitter) {
     DataLayoutStrategyScorer scorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(
             COMPACTION_GAIN_WEIGHT_DEFAULT, COMPUTE_COST_WEIGHT_DEFAULT);
@@ -130,26 +134,29 @@ public class OperationTasksBuilder {
         "Total estimated compute cost: {}, total estimated reduced file count: {}",
         totalComputeCost,
         totalReducedFileCount);
-    meter
-        .counterBuilder("data_layout_optimization_estimated_compute_cost")
-        .build()
-        .add((long) totalComputeCost);
-    meter
-        .counterBuilder("data_layout_optimization_estimated_reduced_file_count")
-        .build()
-        .add((long) totalReducedFileCount);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        "data_layout_optimization_estimated_compute_cost",
+        (long) totalComputeCost,
+        null);
+    otelEmitter.count(
+        METRICS_SCOPE,
+        "data_layout_optimization_estimated_reduced_file_count",
+        (long) totalReducedFileCount,
+        null);
     return selectedTableDataLayoutMetadataList;
   }
 
   private List<OperationTask<?>> processMetadataList(
       List<? extends Metadata> metadataList,
       JobConf.JobTypeEnum jobType,
-      OperationMode operationMode) {
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
     List<OperationTask<?>> taskList = new ArrayList<>();
     for (Metadata metadata : metadataList) {
       log.info("Found metadata {}", metadata);
       Optional<OperationTask<?>> optionalOperationTask =
-          processMetadata(metadata, jobType, operationMode);
+          processMetadata(metadata, jobType, operationMode, otelEmitter);
       if (optionalOperationTask.isPresent()) {
         taskList.add(optionalOperationTask.get());
       }
@@ -159,9 +166,13 @@ public class OperationTasksBuilder {
 
   @VisibleForTesting
   public Optional<OperationTask<?>> processMetadata(
-      Metadata metadata, JobConf.JobTypeEnum jobType, OperationMode operationMode) {
+      Metadata metadata,
+      JobConf.JobTypeEnum jobType,
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
     try {
       OperationTask<?> task = taskFactory.create(metadata);
+      task.setOtelEmitter(otelEmitter);
       if (!task.shouldRun()) {
         log.info("Skipping task {}", task);
         return Optional.empty();
@@ -213,7 +224,7 @@ public class OperationTasksBuilder {
   public List<OperationTask<?>> buildOperationTaskList(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
+      OtelEmitter otelEmitter,
       OperationMode operationMode) {
     switch (jobType) {
       case DATA_COMPACTION:
@@ -225,13 +236,13 @@ public class OperationTasksBuilder {
       case TABLE_STATS_COLLECTION:
       case STAGED_FILES_DELETION:
       case DATA_LAYOUT_STRATEGY_GENERATION:
-        return prepareTableOperationTaskList(jobType, operationMode);
+        return prepareTableOperationTaskList(jobType, operationMode, otelEmitter);
       case REPLICATION:
-        return prepareReplicationOperationTaskList(jobType, operationMode);
+        return prepareReplicationOperationTaskList(jobType, operationMode, otelEmitter);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
-        return prepareDataLayoutOperationTaskList(jobType, properties, meter, operationMode);
+        return prepareDataLayoutOperationTaskList(jobType, properties, operationMode, otelEmitter);
       case ORPHAN_DIRECTORY_DELETION:
-        return prepareTableDirectoryOperationTaskList(jobType, operationMode);
+        return prepareTableDirectoryOperationTaskList(jobType, operationMode, otelEmitter);
       default:
         throw new UnsupportedOperationException(
             String.format("Job type %s is not supported", jobType));
@@ -244,13 +255,13 @@ public class OperationTasksBuilder {
   public void buildOperationTaskListInParallel(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
+      OtelEmitter otelEmitter,
       OperationMode operationMode) {
     if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
       // DLO execution job needs to fetch all table metadata before submission
-      buildDataLayoutOperationTaskListInParallel(jobType, properties, meter, operationMode);
+      buildDataLayoutOperationTaskListInParallel(jobType, properties, operationMode, otelEmitter);
     } else {
-      buildOperationTaskListInParallelInternal(jobType, operationMode);
+      buildOperationTaskListInParallelInternal(jobType, operationMode, otelEmitter);
     }
   }
 
@@ -264,7 +275,7 @@ public class OperationTasksBuilder {
    * @param operationMode
    */
   private void buildOperationTaskListInParallelInternal(
-      JobConf.JobTypeEnum jobType, OperationMode operationMode) {
+      JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
     List<String> databases = tablesClient.getDatabases();
     Flux.fromIterable(databases) // iterate databases list
         .parallel(
@@ -291,7 +302,7 @@ public class OperationTasksBuilder {
                       tableMetadata.getDbName(),
                       tableMetadata.getTableName());
                   Optional<OperationTask<?>> optionalOperationTask =
-                      processMetadata(tableMetadata, jobType, operationMode);
+                      processMetadata(tableMetadata, jobType, operationMode, otelEmitter);
                   if (optionalOperationTask.isPresent()) {
                     // Put tableMetadata into operation task manager
                     operationTaskManager.addData(optionalOperationTask.get());
@@ -320,13 +331,13 @@ public class OperationTasksBuilder {
   private void buildDataLayoutOperationTaskListInParallel(
       JobConf.JobTypeEnum jobType,
       Properties properties,
-      Meter meter,
-      OperationMode operationMode) {
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         tablesClient.getTableDataLayoutMetadataListInParallel(numParallelMetadataFetch);
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
         rankAndSelectFromTableDataLayoutMetadataList(
-            tableDataLayoutMetadataList, properties, meter);
+            tableDataLayoutMetadataList, properties, otelEmitter);
     Flux.fromIterable(selectedTableDataLayoutMetadataList)
         .parallel(numParallelMetadataFetch)
         .runOn(Schedulers.boundedElastic())
@@ -337,7 +348,7 @@ public class OperationTasksBuilder {
                     "Got table data layout metadata {} ",
                     tableDataLayoutMetadata.getDataLayoutStrategy());
                 Optional<OperationTask<?>> optionalOperationTask =
-                    processMetadata(tableDataLayoutMetadata, jobType, operationMode);
+                    processMetadata(tableDataLayoutMetadata, jobType, operationMode, otelEmitter);
                 if (optionalOperationTask.isPresent()) {
                   operationTaskManager.addData(optionalOperationTask.get());
                 }
