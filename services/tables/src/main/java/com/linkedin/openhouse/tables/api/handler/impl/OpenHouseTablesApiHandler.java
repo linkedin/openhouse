@@ -220,6 +220,9 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   public ApiResponse<Void> restoreTable(
       String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
+    if (deletedAtMs <= 0) {
+      throw new IllegalArgumentException("deletedAtMs must be a positive timestamp");
+    }
     tableService.restoreTable(databaseId, tableId, deletedAtMs, actingPrincipal);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }

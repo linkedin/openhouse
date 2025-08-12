@@ -724,4 +724,20 @@ public class HouseTableRepositoryImplTest {
     // Should not be retrying table writes regardless of the error to avoid corruption
     Assertions.assertEquals(actualRetryCount, 0);
   }
+
+  @Test
+  public void testRestoreSoftDeletedTables() {
+    EntityResponseBodyUserTable response = new EntityResponseBodyUserTable();
+    response.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
+    Field resultField = ReflectionUtils.findField(EntityResponseBodyUserTable.class, "result");
+    Assertions.assertNotNull(resultField);
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .addHeader("Content-Type", "application/json"));
+
+    htsRepo.restoreTable(
+        HOUSE_TABLE.getDatabaseId(), HOUSE_TABLE.getTableId(), System.currentTimeMillis());
+  }
 }

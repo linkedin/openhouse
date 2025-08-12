@@ -113,6 +113,10 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
       HouseTable restoredTable = softDeletedTables.remove(key);
       // Restore the table to the main repository
       this.save(restoredTable);
+    } else {
+      // Throw NoSuchUserTableException when table is not found in soft deleted tables
+      throw new com.linkedin.openhouse.common.exception.NoSuchUserTableException(
+          databaseId, tableId);
     }
   }
 }
