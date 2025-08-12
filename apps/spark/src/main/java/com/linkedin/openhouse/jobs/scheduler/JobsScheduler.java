@@ -256,7 +256,8 @@ public class JobsScheduler {
       int submitOperationPreSlaGracePeriodInMinutes,
       int statusOperationPreSlaGracePeriodInMinutes) {
     long startTimeMillis = System.currentTimeMillis();
-    otelEmitter.count(METRICS_SCOPE, "scheduler_start_count", 1, null);
+    Attributes attributes = Attributes.of(AttributeKey.stringKey(AppConstants.TYPE), taskType);
+    otelEmitter.count(METRICS_SCOPE, "scheduler_start_count", 1, attributes);
     jobStateCountMap = new ConcurrentHashMap<>();
     Arrays.stream(JobState.values()).sequential().forEach(s -> jobStateCountMap.put(s, 0));
     log.info("Fetching task list based on the job type: {}", jobType);
@@ -361,13 +362,12 @@ public class JobsScheduler {
     if (statusExecutors != null) {
       statusExecutors.shutdown();
     }
-    otelEmitter.count(METRICS_SCOPE, "scheduler_end_count", 1, null);
-    reportMetrics(jobStateCountMap, taskType, startTimeMillis);
+    otelEmitter.count(METRICS_SCOPE, "scheduler_end_count", 1, attributes);
+    reportMetrics(jobStateCountMap, attributes, startTimeMillis);
   }
 
   void reportMetrics(
-      Map<JobState, Integer> jobStateCountMap, String taskType, long startTimeMillis) {
-    Attributes attributes = Attributes.of(AttributeKey.stringKey(AppConstants.TYPE), taskType);
+      Map<JobState, Integer> jobStateCountMap, Attributes attributes, long startTimeMillis) {
     otelEmitter.count(
         METRICS_SCOPE,
         AppConstants.SUCCESSFUL_JOB_COUNT,

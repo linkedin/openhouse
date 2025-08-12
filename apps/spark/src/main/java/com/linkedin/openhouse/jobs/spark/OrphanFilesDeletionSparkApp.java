@@ -67,24 +67,6 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
   }
 
-  private static CommandLine prepareCommandLine(String[] args) {
-    List<Option> extraOptions = new ArrayList<>();
-    extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
-    extraOptions.add(
-        new Option("tr", "trashDir", true, "Orphan files staging dir before deletion"));
-    extraOptions.add(
-        new Option(
-            "r",
-            "ttl",
-            true,
-            "How old files should be to be considered orphaned in seconds, minimum 1d is enforced"));
-    extraOptions.add(
-        new Option(
-            "s", "skipStaging", false, "Whether to skip staging orphan files before deletion"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return cmdLine;
-  }
-
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
