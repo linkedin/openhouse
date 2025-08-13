@@ -98,6 +98,14 @@ public class GetTableResponseBody {
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private TableType tableType;
 
+  @Schema(
+      nullable = true,
+      description = "The sort order of a table",
+      example =
+          "\"sortOrder\":{\"order-id\":1,\"fields\":[{\"transform\":\"identity\",\"source-id\":1,\"direction\":\"asc\",\"null-order\":\"nulls-first\"}]}")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private String sortOrder;
+
   public String toJson() {
     return new Gson().toJson(this);
   }

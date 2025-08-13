@@ -40,6 +40,7 @@ import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableProperties;
@@ -244,9 +245,15 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
           Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
+      String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 
       TableMetadata updatedMetadata = metadata.replaceProperties(properties);
+
+      if (sortOrderJson != null) {
+        SortOrder sortOrder = SortOrderParser.fromJson(updatedMetadata.schema(), sortOrderJson);
+        updatedMetadata = updatedMetadata.replaceSortOrder(sortOrder);
+      }
 
       if (serializedSnapshotsToPut != null) {
         List<Snapshot> snapshotsToPut =

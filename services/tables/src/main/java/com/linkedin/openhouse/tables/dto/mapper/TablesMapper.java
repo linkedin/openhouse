@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.HashMap;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.mapstruct.Mapper;
@@ -31,7 +32,8 @@ import org.springframework.data.domain.Page;
       PoliciesSpecMapper.class,
       HashMap.class,
       TableType.class,
-      DefaultColumnPattern.class
+      DefaultColumnPattern.class,
+      SortOrder.class
     },
     uses = {PartitionSpecMapper.class, PoliciesSpecMapper.class})
 public interface TablesMapper {
@@ -63,8 +65,9 @@ public interface TablesMapper {
     @Mapping(
         source = "requestBody.baseTableVersion",
         target = "tableVersion"), /* store base version to check later */
+    @Mapping(source = "requestBody.sortOrder", target = "sortOrder"),
     @Mapping(target = "lastModifiedTime", ignore = true),
-    @Mapping(target = "creationTime", ignore = true)
+    @Mapping(target = "creationTime", ignore = true),
   })
   TableDto toTableDto(TableDto tableDto, CreateUpdateTableRequestBody requestBody);
 
@@ -104,6 +107,7 @@ public interface TablesMapper {
         source = "requestBody.createUpdateTableRequestBody.tableType",
         target = "tableType",
         defaultExpression = "java(TableType.PRIMARY_TABLE)"),
+    @Mapping(source = "requestBody.createUpdateTableRequestBody.sortOrder", target = "sortOrder"),
     @Mapping(target = "lastModifiedTime", ignore = true),
     @Mapping(target = "creationTime", ignore = true)
   })
