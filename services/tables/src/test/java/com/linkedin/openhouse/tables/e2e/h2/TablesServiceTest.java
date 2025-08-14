@@ -896,10 +896,8 @@ public class TablesServiceTest {
             .build(),
         softDeletedTable);
 
-    // Verify table exists in soft deleted tables
-    Pageable pageable = PageRequest.of(0, 10);
     Page<SoftDeletedTableDto> result =
-        tablesService.searchSoftDeletedTables(restoreDbId, null, pageable, null);
+        tablesService.searchSoftDeletedTables(restoreDbId, null, 0, 10, null);
     Assertions.assertNotNull(result);
     Assertions.assertEquals(1, result.getContent().size());
     Assertions.assertEquals(TABLE_DTO.getTableId(), result.getContent().get(0).getTableId());
@@ -909,7 +907,7 @@ public class TablesServiceTest {
     tablesService.restoreTable(restoreDbId, TABLE_DTO.getTableId(), deletedAtMs, TEST_USER);
 
     // Validate the table is restored by checking it's no longer in soft deleted tables
-    result = tablesService.searchSoftDeletedTables(restoreDbId, null, pageable, null);
+    result = tablesService.searchSoftDeletedTables(restoreDbId, null, 0, 10, null);
     Assertions.assertNotNull(result);
     Assertions.assertEquals(0, result.getContent().size());
   }
