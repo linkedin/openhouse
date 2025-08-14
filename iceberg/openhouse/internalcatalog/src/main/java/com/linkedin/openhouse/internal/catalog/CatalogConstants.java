@@ -6,6 +6,7 @@ public final class CatalogConstants {
   public static final String SNAPSHOTS_REFS_KEY = "snapshotsRefs";
   public static final String SORT_ORDER_KEY = "sortOrder";
   public static final String IS_STAGE_CREATE_KEY = "isStageCreate";
+  public static final String OPENHOUSE_TABLE_VERSION = "openhouse.tableVersion";
   public static final String OPENHOUSE_UUID_KEY = "openhouse.tableUUID";
   public static final String OPENHOUSE_TABLEID_KEY = "openhouse.tableId";
   public static final String OPENHOUSE_DATABASEID_KEY = "openhouse.databaseId";
@@ -13,6 +14,7 @@ public final class CatalogConstants {
   public static final String OPENHOUSE_TABLEURI_KEY = "openhouse.tableUri";
   public static final String OPENHOUSE_CLUSTERID_KEY = "openhouse.clusterId";
   public static final String INITIAL_VERSION = "INITIAL_VERSION";
+  public static final String LAST_UPDATED_MS = "last-updated-ms";
   public static final String APPENDED_SNAPSHOTS = "appended_snapshots";
   public static final String STAGED_SNAPSHOTS = "staged_snapshots";
   public static final String CHERRY_PICKED_SNAPSHOTS = "cherry_picked_snapshots";

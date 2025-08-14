@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FilterFileSystem;
@@ -148,6 +149,19 @@ public class LocalStorageClient extends BaseStorageClient<FileSystem> {
     } catch (IOException e) {
       throw new ServiceUnavailableException(
           "Exception checking path existence " + e.getMessage(), e);
+    }
+  }
+
+  /** Clean up resources when the bean is destroyed. */
+  @PreDestroy
+  public void cleanup() {
+    if (fs != null) {
+      try {
+        log.info("Closing FileSystem for LocalStorageClient");
+        fs.close();
+      } catch (IOException e) {
+        log.error("Error closing FileSystem during LocalStorageClient cleanup", e);
+      }
     }
   }
 }

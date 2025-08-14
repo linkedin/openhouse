@@ -5,6 +5,7 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.configs.StorageProperties;
 import java.io.IOException;
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -66,6 +67,19 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
     } catch (IOException e) {
       throw new ServiceUnavailableException(
           "Exception checking path existence " + e.getMessage(), e);
+    }
+  }
+
+  /** Clean up resources when the bean is destroyed. */
+  @PreDestroy
+  public void cleanup() {
+    if (fs != null) {
+      try {
+        log.info("Closing FileSystem for HdfsStorageClient");
+        fs.close();
+      } catch (IOException e) {
+        log.error("Error closing FileSystem during HdfsStorageClient cleanup", e);
+      }
     }
   }
 }
