@@ -70,7 +70,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         snapshotInspector,
         houseTableMapper,
         tableIdentifier,
-        new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList()));
+        new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList()),
+        fileIOManager);
   }
 
   @Override
