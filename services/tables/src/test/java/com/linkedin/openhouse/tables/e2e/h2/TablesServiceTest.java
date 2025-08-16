@@ -869,4 +869,59 @@ public class TablesServiceTest {
     Assertions.assertNotNull(result);
     Assertions.assertEquals(0, result.getContent().size());
   }
+
+  @Test
+  public void testRestoreTable() {
+    String restoreDbId = TABLE_DTO.getDatabaseId() + "_restore";
+    long deletedAtMs = System.currentTimeMillis();
+
+    HouseTable softDeletedTable =
+        HouseTable.builder()
+            .tableId(TABLE_DTO.getTableId())
+            .databaseId(restoreDbId)
+            .tableLocation(TABLE_DTO.getTableLocation())
+            .tableVersion(TABLE_DTO.getTableVersion())
+            .tableCreator(TABLE_DTO.getTableCreator())
+            .lastModifiedTime(TABLE_DTO.getLastModifiedTime())
+            .creationTime(TABLE_DTO.getCreationTime())
+            .deletedAtMs(deletedAtMs)
+            .purgeAfterMs(System.currentTimeMillis() + 86400000) // 1 day from now
+            .build();
+
+    HouseTablesH2Repository.softDeletedTables.put(
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(restoreDbId)
+            .tableId(TABLE_DTO.getTableId())
+            .deletedAtMs(deletedAtMs)
+            .build(),
+        softDeletedTable);
+
+    Page<SoftDeletedTableDto> result =
+        tablesService.searchSoftDeletedTables(restoreDbId, null, 0, 10, null);
+    Assertions.assertNotNull(result);
+    Assertions.assertEquals(1, result.getContent().size());
+    Assertions.assertEquals(TABLE_DTO.getTableId(), result.getContent().get(0).getTableId());
+    Assertions.assertEquals(restoreDbId, result.getContent().get(0).getDatabaseId());
+
+    // Restore the table
+    tablesService.restoreTable(restoreDbId, TABLE_DTO.getTableId(), deletedAtMs, TEST_USER);
+
+    // Validate the table is restored by checking it's no longer in soft deleted tables
+    result = tablesService.searchSoftDeletedTables(restoreDbId, null, 0, 10, null);
+    Assertions.assertNotNull(result);
+    Assertions.assertEquals(0, result.getContent().size());
+  }
+
+  @Test
+  public void testRestoreTableNotFound() {
+    String nonExistentDbId = TABLE_DTO.getDatabaseId() + "_nonexistent";
+    long deletedAtMs = System.currentTimeMillis();
+
+    // Try to restore a table that doesn't exist in soft deleted tables
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            tablesService.restoreTable(
+                nonExistentDbId, "nonexistent_table", deletedAtMs, TEST_USER));
+  }
 }

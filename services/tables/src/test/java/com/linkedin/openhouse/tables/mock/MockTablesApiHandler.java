@@ -304,6 +304,20 @@ public class MockTablesApiHandler implements TablesApiHandler {
     }
   }
 
+  public ApiResponse<Void> restoreTable(
+      String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
+    switch (databaseId) {
+      case "d204":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+      case "d404":
+        throw new NoSuchUserTableException(databaseId, tableId);
+      case "d403":
+        throw new AccessDeniedException("Access denied");
+      default:
+        return null;
+    }
+  }
+
   private void throwTableException(String tableId) {
     switch (tableId) {
       case "entityconcurrentmodificationexception":

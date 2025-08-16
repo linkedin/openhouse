@@ -49,6 +49,7 @@ public final class MetricsConstant {
   public static final String REPO_TABLE_RENAME_TIME = "repo_table_rename_time";
   public static final String REPO_TABLE_SEARCH_SOFT_DELETED_TIME =
       "repo_table_search_soft_deleted_time";
+  public static final String REPO_RESTORE_TABLE_TIME = "repo_table_restore_deleted_time";
   public static final String REPO_PURGE_SOFT_DELETED_TIME = "repo_table_purge_soft_deleted_time";
   public static final String HTS_LIST_DATABASES_TIME = "hts_list_databases_time";
   public static final String HTS_PAGE_DATABASES_TIME = "hts_page_databases_time";

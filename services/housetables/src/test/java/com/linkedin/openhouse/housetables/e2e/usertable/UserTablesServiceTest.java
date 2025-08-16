@@ -550,6 +550,36 @@ public class UserTablesServiceTest {
   }
 
   @Test
+  public void testUserTableRestoreDoesNotOverwriteExistingTable() {
+    UserTableDto table =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId());
+    Assertions.assertNotNull(table);
+    Assertions.assertDoesNotThrow(
+        () ->
+            userTablesService.deleteUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
+    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    // Get the deleted timestamp
+    UserTable searchByTableId =
+        UserTable.builder()
+            .tableId(TEST_TUPLE_1_0.getTableId())
+            .databaseId(TEST_TUPLE_1_0.getDatabaseId())
+            .build();
+    Page<UserTableDto> softDeletedTablePage =
+        userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 1, null);
+    Assertions.assertEquals(1, softDeletedTablePage.getTotalElements());
+    Assertions.assertTrue(softDeletedTablePage.get().findFirst().isPresent());
+    UserTableDto softDeletedTable = softDeletedTablePage.get().findFirst().get();
+    Assertions.assertThrows(
+        AlreadyExistsException.class,
+        () ->
+            userTablesService.restoreUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                TEST_TUPLE_1_0.getTableId(),
+                softDeletedTable.getDeletedAtMs()));
+  }
+
+  @Test
   public void testUserTablePurge() {
     Assertions.assertDoesNotThrow(
         () ->

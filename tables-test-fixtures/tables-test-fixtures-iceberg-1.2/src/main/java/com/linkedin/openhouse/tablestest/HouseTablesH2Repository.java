@@ -105,4 +105,19 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
                     && entry.getKey().getDatabaseId().equals(databaseId)
                     && entry.getValue().getPurgeAfterMs() < purgeAfterMs);
   }
+
+  default void restoreTable(String databaseId, String tableId, long deletedAtMs) {
+    SoftDeletedTablePrimaryKey key =
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .deletedAtMs(deletedAtMs)
+            .build();
+
+    if (softDeletedTables.containsKey(key)) {
+      HouseTable restoredTable = softDeletedTables.remove(key);
+      // Restore the table to the main repository
+      this.save(restoredTable);
+    }
+  }
 }

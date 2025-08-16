@@ -19,11 +19,13 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.directory.api.util.Strings;
@@ -368,5 +370,30 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .purgeSoftDeletedUserTables(databaseId, tableId, purgeAfterMs)
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
+  }
+
+  @Override
+  public void restoreTable(String databaseId, String tableId, long deletedAtMs) {
+    getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .restoreUserTable(databaseId, tableId, deletedAtMs)
+                    .onErrorResume(e -> handleHtsHttpError(e).then(Mono.empty()))
+                    .block());
+  }
+
+  private Page<HouseTable> generatePageFromResults(PageUserTable pageResults) {
+    List<HouseTable> houseTables = new ArrayList<>();
+    if (pageResults.getContent() != null) {
+      houseTables =
+          pageResults.getContent().stream()
+              .map(houseTableMapper::toHouseTableWithDatabaseId)
+              .collect(Collectors.toList());
+    }
+    return new PageImpl<>(
+        houseTables,
+        PageRequest.of(pageResults.getNumber(), pageResults.getSize()),
+        pageResults.getTotalElements());
   }
 }
