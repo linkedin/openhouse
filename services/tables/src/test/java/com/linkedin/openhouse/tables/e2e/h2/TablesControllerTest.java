@@ -1712,7 +1712,11 @@ public class TablesControllerTest {
 
     MvcResult softDeletedResult =
         mvc.perform(
-                MockMvcRequestBuilders.get("/v0/databases/" + databaseId + "/softDeletedTables")
+                MockMvcRequestBuilders.get(
+                        CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/"
+                            + databaseId
+                            + "/softDeletedTables")
                     .param("tableId", tableId)
                     .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
@@ -1722,14 +1726,23 @@ public class TablesControllerTest {
     Long searchedDeletedAtMs = JsonPath.read(content, "$.pageResults.content[0].deletedAtMs");
     mvc.perform(
             MockMvcRequestBuilders.put(
-                    "/v1/databases/" + databaseId + "/tables/" + tableId + "/restore")
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + databaseId
+                        + "/tables/"
+                        + tableId
+                        + "/restore")
                 .param("deletedAtMs", String.valueOf(searchedDeletedAtMs))
                 .contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isNoContent());
 
     // Verify the table is no longer in soft deleted tables after restore
     mvc.perform(
-            MockMvcRequestBuilders.get("/v0/databases/" + databaseId + "/softDeletedTables")
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + databaseId
+                        + "/softDeletedTables")
                 .param("tableId", tableId)
                 .contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
@@ -1742,7 +1755,8 @@ public class TablesControllerTest {
     // Test restore of a non-existent soft deleted table
     mvc.perform(
             MockMvcRequestBuilders.put(
-                    "/v1/databases/"
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
                         + GET_TABLE_RESPONSE_BODY.getDatabaseId()
                         + "/tables/nonExistentTable/restore")
                 .param("deletedAtMs", String.valueOf(System.currentTimeMillis()))
@@ -1752,7 +1766,8 @@ public class TablesControllerTest {
     // Test with missing deletedAtMs parameter
     mvc.perform(
             MockMvcRequestBuilders.put(
-                    "/v1/databases/"
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
                         + GET_TABLE_RESPONSE_BODY.getDatabaseId()
                         + "/tables/"
                         + GET_TABLE_RESPONSE_BODY.getTableId()
@@ -1763,7 +1778,8 @@ public class TablesControllerTest {
     // Test with invalid deletedAtMs parameter
     mvc.perform(
             MockMvcRequestBuilders.put(
-                    "/v1/databases/"
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
                         + GET_TABLE_RESPONSE_BODY.getDatabaseId()
                         + "/tables/"
                         + GET_TABLE_RESPONSE_BODY.getTableId()
