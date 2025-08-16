@@ -480,7 +480,7 @@ public class TablesController {
   @Operation(
       summary = "Restore Soft Deleted Table",
       description =
-          "Restores a soft deleted table identified by tableId in the database identified by databaseId.",
+          "Restores a soft deleted table identified by tableId, databaseId, and deletedAtMs",
       tags = {"Table"})
   @ApiResponses(
       value = {

@@ -701,7 +701,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
   }
 
-  @Timed(metricKey = MetricsConstant.REPO_PURGE_SOFT_DELETED_TIME)
+  @Timed(metricKey = MetricsConstant.REPO_RESTORE_TABLE_TIME)
   @Override
   public void restoreTable(SoftDeletedTablePrimaryKey softDeletedTablePrimaryKey) {
     if (catalog instanceof OpenHouseInternalCatalog) {

@@ -60,7 +60,7 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler({
     NoSuchUserTableException.class,
     NoSuchJobException.class,
-    NoSuchEntityException.class,
+    NoSuchEntityException.class
   })
   protected ResponseEntity<ErrorResponseBody> handleEntityNotFound(
       NoSuchElementException noSuchElementException) {
@@ -435,7 +435,7 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
       try {
         builder.append(StringUtils.abbreviate(stackTrace, startOffset, width));
         abbreviatedLength += width;
-        if (isDeepestLevel || abbreviatedLength >= STACKTRACE_MAX_WIDTH) {
+        if (isDeepestLevel || abbreviatedLength == STACKTRACE_MAX_WIDTH) {
           break;
         }
         // Extract the deepest level of stacktrace from the remaining stacktrace
