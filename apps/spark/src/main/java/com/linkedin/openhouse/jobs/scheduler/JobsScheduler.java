@@ -830,7 +830,11 @@ public class JobsScheduler {
                   if (jobInfo != null) {
                     Optional<OperationTask<?>> optionalOperationTask =
                         tasksBuilder.createStatusOperationTask(
-                            jobType, jobInfo.getMetadata(), jobInfo.getJobId(), OperationMode.POLL);
+                            jobType,
+                            jobInfo.getMetadata(),
+                            jobInfo.getJobId(),
+                            OperationMode.POLL,
+                            otelEmitter);
                     if (optionalOperationTask.isPresent()) {
                       log.info("Submitting status task {}", optionalOperationTask.get());
                       statusTaskList.add(optionalOperationTask.get());
