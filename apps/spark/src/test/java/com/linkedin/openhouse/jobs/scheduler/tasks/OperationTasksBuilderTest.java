@@ -90,7 +90,8 @@ public class OperationTasksBuilderTest {
             JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
             tableMetadata,
             UUID.randomUUID().toString(),
-            OperationMode.POLL);
+            OperationMode.POLL,
+            otelEmitter);
     Assertions.assertNotNull(optionalOperationTask);
     Assertions.assertTrue(optionalOperationTask.isPresent());
     Assertions.assertTrue(optionalOperationTask.get() instanceof OperationTask);

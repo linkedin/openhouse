@@ -192,9 +192,14 @@ public class OperationTasksBuilder {
   }
 
   public Optional<OperationTask<?>> createStatusOperationTask(
-      JobConf.JobTypeEnum jobType, Metadata metadata, String jobId, OperationMode operationMode) {
+      JobConf.JobTypeEnum jobType,
+      Metadata metadata,
+      String jobId,
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
     try {
       OperationTask<?> task = taskFactory.create(metadata);
+      task.setOtelEmitter(otelEmitter);
       if (!task.shouldRun()) {
         log.info("Skipping task {}", task);
         return Optional.empty();
