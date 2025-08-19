@@ -201,7 +201,15 @@ public class UserTablesServiceImpl implements UserTablesService {
     SoftDeletedUserTableRow existingSoftDeletedTable =
         softDeletedHtsJdbcRepository
             .findById(softDeletedTableKey)
-            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+            .orElseThrow(
+                () ->
+                    new NoSuchUserTableException(
+                        databaseId,
+                        tableId,
+                        String.format(
+                            "No such soft deleted user table for given delete timestamp %s",
+                            deletedAt),
+                        new RuntimeException()));
     Optional<UserTableRow> existingUserTable =
         htsJdbcRepository.findById(
             UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
