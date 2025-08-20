@@ -193,6 +193,13 @@ public class UserTablesServiceImpl implements UserTablesService {
   @Override
   @Transactional
   public UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAt) {
+    Optional<UserTableRow> existingUserTable =
+        htsJdbcRepository.findById(
+            UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+    if (existingUserTable.isPresent()) {
+      // If the table already exists, we throw an exception
+      throw new AlreadyExistsException("Table", existingUserTable.get().getTableId());
+    }
     SoftDeletedUserTableRowPrimaryKey softDeletedTableKey =
         SoftDeletedUserTableRowPrimaryKey.builder()
             .databaseId(databaseId)
@@ -204,13 +211,6 @@ public class UserTablesServiceImpl implements UserTablesService {
             .findById(softDeletedTableKey)
             .orElseThrow(
                 () -> new NoSuchSoftDeletedUserTableException(databaseId, tableId, deletedAt));
-    Optional<UserTableRow> existingUserTable =
-        htsJdbcRepository.findById(
-            UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
-    if (existingUserTable.isPresent()) {
-      // If the table already exists, we throw an exception
-      throw new AlreadyExistsException("Table", existingSoftDeletedTable.getTableId());
-    }
 
     try {
       softDeletedHtsJdbcRepository.deleteById(softDeletedTableKey);
