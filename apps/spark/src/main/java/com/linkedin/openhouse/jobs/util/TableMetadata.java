@@ -30,9 +30,8 @@ public class TableMetadata extends Metadata {
   protected @Nullable List<ReplicationConfig> replicationConfig;
 
   public boolean isMaintenanceJobDisabled(JobConf.JobTypeEnum jobType) {
-    return Boolean.parseBoolean(jobExecutionProperties.get("maintenance.disabled"))
-        || Boolean.parseBoolean(
-            jobExecutionProperties.get(String.format("maintenance.%s.disabled", jobType)));
+    return Boolean.parseBoolean(jobExecutionProperties.get("disabled"))
+        || Boolean.parseBoolean(jobExecutionProperties.get(String.format("%s.disabled", jobType)));
   }
 
   public String fqtn() {
