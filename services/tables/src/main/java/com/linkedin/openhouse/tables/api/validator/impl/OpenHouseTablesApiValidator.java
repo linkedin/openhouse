@@ -104,6 +104,9 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
         createUpdateTableRequestBody.getSchema(),
         validationFailures);
     validationFailures.addAll(validateUUIDForReplicaTable(createUpdateTableRequestBody));
+    validationFailures.addAll(
+        validateUpdateTimestampForReplicatedTable(createUpdateTableRequestBody));
+
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
@@ -140,6 +143,34 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
         }
       } catch (IllegalArgumentException e) {
         validationFailures.add(String.format("UUID: provided %s is an invalid UUID string", uuid));
+      }
+    }
+    return validationFailures;
+  }
+
+  /**
+   * validateUUIDForReplicaTable checks if the LAST-UPDATED-MS value in table properties is valid
+   * for a replicated table, qualified by property
+   * CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY
+   *
+   * @param createUpdateTableRequestBody
+   * @return List<String> representing validation errors
+   */
+  private List<String> validateUpdateTimestampForReplicatedTable(
+      CreateUpdateTableRequestBody createUpdateTableRequestBody) {
+    List<String> validationFailures = new ArrayList<>();
+    Map<String, String> tblProps = createUpdateTableRequestBody.getTableProperties();
+    if (tblProps != null
+        && Boolean.parseBoolean(
+            tblProps.getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"))) {
+      if (!tblProps.containsKey(CatalogConstants.LAST_UPDATED_MS)
+          || Long.parseLong(tblProps.get(CatalogConstants.LAST_UPDATED_MS))
+              > System.currentTimeMillis()) {
+        validationFailures.add(
+            String.format(
+                "tableProperties should contain a valid %s property for replicated table. "
+                    + "Provided %s is missing or is in future",
+                CatalogConstants.LAST_UPDATED_MS, CatalogConstants.LAST_UPDATED_MS));
       }
     }
     return validationFailures;

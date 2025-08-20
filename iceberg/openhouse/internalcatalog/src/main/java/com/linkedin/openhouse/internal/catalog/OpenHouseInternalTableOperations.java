@@ -20,6 +20,7 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCa
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -316,9 +317,23 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         refreshFromMetadataLocation(newMetadataLocation);
       }
       if (isReplicatedTableCreate(properties)) {
-        updateMetadataFieldForStageCreate(metadata, newMetadataLocation);
+        updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
       commitStatus = CommitStatus.SUCCESS;
+    } catch (IOException ioe) {
+      commitStatus = checkCommitStatus(newMetadataLocation, metadata);
+      // clean up the HTS entry
+      try {
+        houseTableRepository.delete(houseTable);
+      } catch (HouseTableCallerException
+          | HouseTableNotFoundException
+          | HouseTableConcurrentUpdateException e) {
+        log.warn(
+            "Failed to delete house table during IOException cleanup for table: {}",
+            tableIdentifier,
+            e);
+      }
+      throw new CommitFailedException(ioe);
     } catch (InvalidIcebergSnapshotException e) {
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException e) {
@@ -634,32 +649,35 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   /**
    * Updates metadata field for staged tables by extracting updateTimeStamp from metadata.properties
-   * and updating the metadata file.
+   * and updating the metadata file. Should be used only for replicated table.
    *
    * @param metadata The table metadata containing properties
    */
-  private void updateMetadataFieldForStageCreate(TableMetadata metadata, String tableLocation) {
-    try {
-      String updateTimeStamp = metadata.properties().get(CatalogConstants.LAST_UPDATED_MS);
-      if (updateTimeStamp != null) {
-        Storage storage = fileIOManager.getStorage(fileIO);
-        // Metadata update support only for HDFS and local storage for replication support
-        if (storage != null
-            && (storage.getClient() instanceof HdfsStorageClient
-                || storage.getClient() instanceof LocalStorageClient)) {
-          StorageClient<?> client = storage.getClient();
-          FileSystem fs = (FileSystem) client.getNativeClient();
-          if (tableLocation != null) {
-            MetadataUpdateUtils.updateMetadataField(
-                fs, tableLocation, CatalogConstants.LAST_UPDATED_MS, Long.valueOf(updateTimeStamp));
-          }
+  private void updateMetadataFieldForTable(TableMetadata metadata, String tableLocation)
+      throws IOException {
+    String updateTimeStamp = metadata.properties().get(CatalogConstants.LAST_UPDATED_MS);
+    if (updateTimeStamp != null) {
+      Storage storage = fileIOManager.getStorage(fileIO);
+      // Support only for HDFS Storage and local storage clients
+      if (storage != null
+          && (storage.getClient() instanceof HdfsStorageClient
+              || storage.getClient() instanceof LocalStorageClient)) {
+        StorageClient<?> client = storage.getClient();
+        FileSystem fs = (FileSystem) client.getNativeClient();
+        if (tableLocation != null) {
+          MetadataUpdateUtils.updateMetadataField(
+              fs, tableLocation, CatalogConstants.LAST_UPDATED_MS, Long.valueOf(updateTimeStamp));
         }
       }
-    } catch (Exception e) {
-      log.error("Failed to update metadata field for staged table: {}", tableIdentifier, e);
     }
   }
 
+  /**
+   * Check if the properties have field values indicating a replicated table create request
+   *
+   * @param properties
+   * @return
+   */
   private boolean isReplicatedTableCreate(Map<String, String> properties) {
     return Boolean.parseBoolean(
             properties.getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"))
