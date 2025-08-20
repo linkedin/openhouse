@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
@@ -202,14 +203,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         softDeletedHtsJdbcRepository
             .findById(softDeletedTableKey)
             .orElseThrow(
-                () ->
-                    new NoSuchUserTableException(
-                        databaseId,
-                        tableId,
-                        String.format(
-                            "No such soft deleted user table for given delete timestamp %s",
-                            deletedAt),
-                        new RuntimeException()));
+                () -> new NoSuchSoftDeletedUserTableException(databaseId, tableId, deletedAt));
     Optional<UserTableRow> existingUserTable =
         htsJdbcRepository.findById(
             UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());

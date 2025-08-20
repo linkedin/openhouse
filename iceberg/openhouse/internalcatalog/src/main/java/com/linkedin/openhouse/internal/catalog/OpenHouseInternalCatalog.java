@@ -8,7 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
+import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -233,11 +233,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     try {
       houseTableRepository.restoreTable(databaseId, tableId, deletedAtMs);
     } catch (HouseTableNotFoundException e) {
-      throw new NoSuchUserTableException(
-          databaseId,
-          tableId,
-          String.format("Soft deleted user table not found with timestamp %s", deletedAtMs),
-          e);
+      throw new NoSuchSoftDeletedUserTableException(databaseId, tableId, deletedAtMs, e);
     } catch (HouseTableConcurrentUpdateException e) {
       throw new AlreadyExistsException("Table", databaseId + "." + tableId, e);
     }
