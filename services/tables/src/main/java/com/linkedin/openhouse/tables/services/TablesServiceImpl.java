@@ -404,6 +404,7 @@ public class TablesServiceImpl implements TablesService {
 
   public void restoreTable(
       String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
+    // TODO: Validation should be at the table owner level when this is self serve through SQL
     authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.CREATE_TABLE);
     openHouseInternalRepository.restoreTable(
         SoftDeletedTablePrimaryKey.builder()
