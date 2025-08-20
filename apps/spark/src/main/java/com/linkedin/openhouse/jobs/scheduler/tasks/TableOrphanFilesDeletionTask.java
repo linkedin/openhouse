@@ -44,6 +44,6 @@ public class TableOrphanFilesDeletionTask extends TableOperationTask<TableMetada
 
   @Override
   protected boolean shouldRun() {
-    return true;
+    return !metadata.isMaintenanceJobDisabled(OPERATION_TYPE);
   }
 }

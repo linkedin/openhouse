@@ -63,6 +63,6 @@ public class TableDataLayoutStrategyExecutionTask
 
   @Override
   protected boolean shouldRun() {
-    return metadata.isPrimary();
+    return metadata.isPrimary() && !metadata.isMaintenanceJobDisabled(OPERATION_TYPE);
   }
 }
