@@ -45,7 +45,7 @@ public class MetadataUpdateUtils {
       writeOutputStream(outputStream, updatedJsonString);
       IOUtils.closeStream(outputStream);
 
-      log.info("Updated json metadata string: {}", updatedJsonString);
+      log.info("Updated json metadata at path: {}", hdfsPath);
     } catch (IOException e) {
       String errMsg =
           String.format(
