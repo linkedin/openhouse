@@ -38,7 +38,7 @@ public class TableStagedFilesDeletionTask extends TableOperationTask<TableMetada
   }
 
   @Override
-  protected boolean shouldRun() {
-    return !metadata.isMaintenanceJobDisabled(OPERATION_TYPE);
+  protected boolean shouldRunTask() {
+    return true;
   }
 }

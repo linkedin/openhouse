@@ -39,7 +39,7 @@ public class TableStatsCollectionTask extends TableOperationTask<TableMetadata> 
   }
 
   @Override
-  protected boolean shouldRun() {
-    return !metadata.isMaintenanceJobDisabled(OPERATION_TYPE);
+  protected boolean shouldRunTask() {
+    return true;
   }
 }

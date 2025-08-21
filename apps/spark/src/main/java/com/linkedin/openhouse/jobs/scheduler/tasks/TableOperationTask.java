@@ -30,6 +30,17 @@ public abstract class TableOperationTask<T extends TableMetadata> extends Operat
     super(jobsClient, tablesClient, metadata);
   }
 
+  @Override
+  protected boolean shouldRun() {
+    return shouldRunTask() && !metadata.isMaintenanceJobDisabled(getType());
+  }
+
+  /**
+   * Subclasses should implement this method to provide specific conditions for when the task should
+   * run, excluding the maintenance disabled check.
+   */
+  protected abstract boolean shouldRunTask();
+
   protected boolean launchJob() {
     String jobName =
         String.format("%s_%s_%s", getType(), metadata.getDbName(), metadata.getTableName());

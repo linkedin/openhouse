@@ -60,7 +60,7 @@ public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetada
   }
 
   @Override
-  protected boolean shouldRun() {
-    return metadata.isPrimary() && !metadata.isMaintenanceJobDisabled(OPERATION_TYPE);
+  protected boolean shouldRunTask() {
+    return metadata.isPrimary();
   }
 }
