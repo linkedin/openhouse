@@ -21,6 +21,7 @@ import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -681,7 +682,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           .searchSoftDeletedTables(Namespace.of(databaseId), tableId, pageable);
     } else {
       throw new UnsupportedOperationException(
-          "searchSoftDeletedTables is not supported for this catalog type: "
+          "SearchSoftDeletedTables is not supported for this catalog type: "
               + catalog.getClass().getSimpleName());
     }
   }
@@ -697,6 +698,21 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       throw new UnsupportedOperationException(
           "purgeSoftDeletedTableById is not supported for this catalog type: "
               + catalog.getClass().getName());
+    }
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_RESTORE_TABLE_TIME)
+  @Override
+  public void restoreTable(SoftDeletedTablePrimaryKey softDeletedTablePrimaryKey) {
+    if (catalog instanceof OpenHouseInternalCatalog) {
+      ((OpenHouseInternalCatalog) catalog)
+          .restoreTable(
+              softDeletedTablePrimaryKey.getDatabaseId(),
+              softDeletedTablePrimaryKey.getTableId(),
+              softDeletedTablePrimaryKey.getDeletedAtMs());
+    } else {
+      throw new UnsupportedOperationException(
+          "restoreTable is not supported for this catalog type: " + catalog.getClass().getName());
     }
   }
 

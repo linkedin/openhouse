@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.repository;
 
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.List;
@@ -30,4 +31,6 @@ public interface OpenHouseInternalRepository
       String databaseId, String tableId, Pageable pageable);
 
   void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
+
+  void restoreTable(SoftDeletedTablePrimaryKey softDeletedTablePrimaryKey);
 }

@@ -447,4 +447,19 @@ public class TablesControllerTest {
           .andExpect(status().is(Integer.parseInt(db.substring(1))));
     }
   }
+
+  @Test
+  public void testRestoreTable() throws Exception {
+    for (String db : Arrays.asList("d204", "d404", "d403")) {
+      mvc.perform(
+              MockMvcRequestBuilders.put(
+                      String.format(
+                          CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/tb1/restore", db))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .accept(MediaType.APPLICATION_JSON)
+                  .header("Authorization", "Bearer " + jwtAccessToken)
+                  .param("deletedAtMs", "1234567890"))
+          .andExpect(status().is(Integer.parseInt(db.substring(1))));
+    }
+  }
 }

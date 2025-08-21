@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownExcept
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
+import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -399,6 +400,18 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.DELETE_TABLE);
     openHouseInternalRepository.purgeSoftDeletedTableById(
         TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build(), purgeAfterMs);
+  }
+
+  public void restoreTable(
+      String databaseId, String tableId, long deletedAtMs, String actingPrincipal) {
+    // TODO: Validation should be at the table owner level when this is self serve through SQL
+    authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, Privileges.CREATE_TABLE);
+    openHouseInternalRepository.restoreTable(
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .deletedAtMs(deletedAtMs)
+            .build());
   }
 
   /** Whether sharing has been enabled for the table denoted by tableDto. */

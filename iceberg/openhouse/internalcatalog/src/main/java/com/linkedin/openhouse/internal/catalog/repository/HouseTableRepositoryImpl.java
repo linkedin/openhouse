@@ -369,4 +369,15 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
   }
+
+  @Override
+  public void restoreTable(String databaseId, String tableId, long deletedAtMs) {
+    getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
+        .execute(
+            context ->
+                apiInstance
+                    .restoreUserTable(databaseId, tableId, deletedAtMs)
+                    .onErrorResume(e -> handleHtsHttpError(e).then(Mono.empty()))
+                    .block());
+  }
 }

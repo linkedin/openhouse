@@ -476,4 +476,36 @@ public class TablesController {
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
+
+  @Operation(
+      summary = "Restore Soft Deleted Table",
+      description =
+          "Restores a soft deleted table identified by tableId, databaseId, and deletedAtMs",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "Soft Deleted Table RESTORE: NO CONTENT"),
+        @ApiResponse(responseCode = "400", description = "Soft Deleted Table RESTORE: BAD REQUEST"),
+        @ApiResponse(
+            responseCode = "401",
+            description = "Soft Deleted Table RESTORE: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Soft Deleted Table RESTORE: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Soft Deleted Table RESTORE: NOT FOUND"),
+        @ApiResponse(
+            responseCode = "500",
+            description = "Soft Deleted Table RESTORE: INTERNAL SERVER ERROR")
+      })
+  @PutMapping(value = "/v1/databases/{databaseId}/tables/{tableId}/restore")
+  public ResponseEntity<Void> restoreTable(
+      @Parameter(description = "Database ID") @PathVariable String databaseId,
+      @Parameter(description = "Table ID") @PathVariable String tableId,
+      @Parameter(description = "Deleted at timestamp in milliseconds")
+          @RequestParam(value = "deletedAtMs")
+          long deletedAtMs) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.restoreTable(
+            databaseId, tableId, deletedAtMs, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
 }

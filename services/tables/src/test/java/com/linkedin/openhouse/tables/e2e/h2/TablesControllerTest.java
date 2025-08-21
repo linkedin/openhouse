@@ -1676,6 +1676,119 @@ public class TablesControllerTest {
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, updateResponseBody);
   }
 
+  @Test
+  @SneakyThrows
+  public void testRestoreTable() {
+    // Test successful restore of a soft deleted table
+    String databaseId = GET_TABLE_RESPONSE_BODY.getDatabaseId() + "_restore_test";
+    String tableId = GET_TABLE_RESPONSE_BODY.getTableId() + "_restore";
+    long deletedAtMs = System.currentTimeMillis();
+
+    // TODO: When soft delete API is exposed, use that instead of manually inserting into house
+    // table repository
+    HouseTable softDeletedTable =
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .clusterId(GET_TABLE_RESPONSE_BODY.getClusterId())
+            .tableUri("file:///tmp/test/" + databaseId + "/" + tableId)
+            .tableUUID("test-uuid-restore")
+            .tableLocation("file:///tmp/test/" + databaseId + "/" + tableId)
+            .tableVersion("v1")
+            .lastModifiedTime(System.currentTimeMillis())
+            .creationTime(System.currentTimeMillis())
+            .tableCreator("testUser")
+            .deletedAtMs(deletedAtMs)
+            .purgeAfterMs(System.currentTimeMillis() + 86400000) // 1 day from now
+            .build();
+
+    HouseTablesH2Repository.softDeletedTables.put(
+        SoftDeletedTablePrimaryKey.builder()
+            .databaseId(softDeletedTable.getDatabaseId())
+            .tableId(softDeletedTable.getTableId())
+            .deletedAtMs(softDeletedTable.getDeletedAtMs())
+            .build(),
+        softDeletedTable);
+
+    MvcResult softDeletedResult =
+        mvc.perform(
+                MockMvcRequestBuilders.get(
+                        CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/"
+                            + databaseId
+                            + "/softDeletedTables")
+                    .param("tableId", tableId)
+                    .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    String content = softDeletedResult.getResponse().getContentAsString();
+    Long searchedDeletedAtMs = JsonPath.read(content, "$.pageResults.content[0].deletedAtMs");
+    mvc.perform(
+            MockMvcRequestBuilders.put(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + databaseId
+                        + "/tables/"
+                        + tableId
+                        + "/restore")
+                .param("deletedAtMs", String.valueOf(searchedDeletedAtMs))
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNoContent());
+
+    // Verify the table is no longer in soft deleted tables after restore
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + databaseId
+                        + "/softDeletedTables")
+                .param("tableId", tableId)
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(0)));
+  }
+
+  @Test
+  @SneakyThrows
+  public void testRestoreTableInvalid() {
+    // Test restore of a non-existent soft deleted table
+    mvc.perform(
+            MockMvcRequestBuilders.put(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/tables/nonExistentTable/restore")
+                .param("deletedAtMs", String.valueOf(System.currentTimeMillis()))
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound());
+
+    // Test with missing deletedAtMs parameter
+    mvc.perform(
+            MockMvcRequestBuilders.put(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/tables/"
+                        + GET_TABLE_RESPONSE_BODY.getTableId()
+                        + "/restore")
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    // Test with invalid deletedAtMs parameter
+    mvc.perform(
+            MockMvcRequestBuilders.put(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                        + "/tables/"
+                        + GET_TABLE_RESPONSE_BODY.getTableId()
+                        + "/restore")
+                .param("deletedAtMs", "-1")
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+  }
+
   private MvcResult getTable(String databaseId, String tableId) throws Exception {
     return mvc.perform(
             MockMvcRequestBuilders.get(

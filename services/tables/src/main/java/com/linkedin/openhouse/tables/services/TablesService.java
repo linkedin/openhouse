@@ -169,4 +169,14 @@ public interface TablesService {
    */
   void purgeSoftDeletedTables(
       String databaseId, String tableId, long purgeAfterMs, String actingPrincipal);
+
+  /**
+   * Restore a soft deleted table
+   *
+   * @param databaseId
+   * @param tableId
+   * @param deletedAtMs
+   * @param actingPrincipal
+   */
+  void restoreTable(String databaseId, String tableId, long deletedAtMs, String actingPrincipal);
 }

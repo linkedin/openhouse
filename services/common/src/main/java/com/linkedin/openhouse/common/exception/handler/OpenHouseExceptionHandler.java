@@ -9,6 +9,7 @@ import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.common.exception.JobStateConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.common.exception.NoSuchJobException;
+import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -60,7 +61,8 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler({
     NoSuchUserTableException.class,
     NoSuchJobException.class,
-    NoSuchEntityException.class
+    NoSuchEntityException.class,
+    NoSuchSoftDeletedUserTableException.class
   })
   protected ResponseEntity<ErrorResponseBody> handleEntityNotFound(
       NoSuchElementException noSuchElementException) {

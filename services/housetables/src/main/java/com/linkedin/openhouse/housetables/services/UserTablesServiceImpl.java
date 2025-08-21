@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
@@ -192,6 +193,13 @@ public class UserTablesServiceImpl implements UserTablesService {
   @Override
   @Transactional
   public UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAt) {
+    Optional<UserTableRow> existingUserTable =
+        htsJdbcRepository.findById(
+            UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+    if (existingUserTable.isPresent()) {
+      // If the table already exists, we throw an exception
+      throw new AlreadyExistsException("Table", existingUserTable.get().getTableId());
+    }
     SoftDeletedUserTableRowPrimaryKey softDeletedTableKey =
         SoftDeletedUserTableRowPrimaryKey.builder()
             .databaseId(databaseId)
@@ -201,7 +209,9 @@ public class UserTablesServiceImpl implements UserTablesService {
     SoftDeletedUserTableRow existingSoftDeletedTable =
         softDeletedHtsJdbcRepository
             .findById(softDeletedTableKey)
-            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+            .orElseThrow(
+                () -> new NoSuchSoftDeletedUserTableException(databaseId, tableId, deletedAt));
+
     try {
       softDeletedHtsJdbcRepository.deleteById(softDeletedTableKey);
       return userTablesMapper.toUserTableDto(
