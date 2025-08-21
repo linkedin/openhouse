@@ -59,7 +59,7 @@ public class TableRetentionTask extends TableOperationTask<TableMetadata> {
   }
 
   @Override
-  protected boolean shouldRun() {
+  protected boolean shouldRunTask() {
     return metadata.isPrimary() && metadata.getRetentionConfig() != null;
   }
 }

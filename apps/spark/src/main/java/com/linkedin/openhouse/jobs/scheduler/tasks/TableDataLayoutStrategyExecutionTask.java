@@ -62,7 +62,7 @@ public class TableDataLayoutStrategyExecutionTask
   }
 
   @Override
-  protected boolean shouldRun() {
+  protected boolean shouldRunTask() {
     return metadata.isPrimary();
   }
 }
