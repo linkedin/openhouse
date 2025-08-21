@@ -1276,6 +1276,59 @@ public class TablesValidatorTest {
   }
 
   @Test
+  public void validateCorrectUpdateTimestampForReplicatedTable() {
+    String UUID = "5a6bfe92-0ed6-4717-8cd6-c01a4ec87dab";
+    Map<String, String> tableProperties = new HashMap<>();
+    tableProperties.put(CatalogConstants.OPENHOUSE_UUID_KEY, UUID);
+    tableProperties.put(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "true");
+    long twoDaysInMillis = 2 * 24 * 60 * 60 * 1000L;
+    tableProperties.put(
+        CatalogConstants.LAST_UPDATED_MS,
+        String.valueOf(System.currentTimeMillis() - twoDaysInMillis));
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "local-cluster",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("local-cluster")
+                    .baseTableVersion("INITIAL_VERSION")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(tableProperties)
+                    .tableType(TableType.REPLICA_TABLE)
+                    .build()));
+  }
+
+  @Test
+  public void validateUpdateTimestampForReplicatedTable() {
+    String UUID = "5a6bfe92-0ed6-4717-8cd6-c01a4ec87dab";
+    Map<String, String> tableProperties = new HashMap<>();
+    tableProperties.put(CatalogConstants.OPENHOUSE_UUID_KEY, UUID);
+    tableProperties.put(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "true");
+    RequestValidationFailureException requestValidationFailureException =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "local-cluster",
+                    "d",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("d")
+                        .tableId("t")
+                        .clusterId("local-cluster")
+                        .baseTableVersion("INITIAL_VERSION")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .tableProperties(tableProperties)
+                        .tableType(TableType.REPLICA_TABLE)
+                        .build()));
+
+    Assertions.assertTrue(
+        requestValidationFailureException.getMessage().contains(CatalogConstants.LAST_UPDATED_MS));
+  }
+
+  @Test
   public void validateCreateTableWithPrimaryTableType() {
     assertDoesNotThrow(
         () ->

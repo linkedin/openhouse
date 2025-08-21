@@ -21,6 +21,7 @@ import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
@@ -1026,7 +1027,11 @@ public class TablesControllerTest {
     GetTableResponseBody responseBody =
         GET_TABLE_RESPONSE_BODY.toBuilder().tableType(TableType.PRIMARY_TABLE).build();
     Map<String, String> props = responseBody.getTableProperties();
-    props.put("openhouse.isTableReplicated", "true");
+    props.put(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "true");
+    long twoDaysInMillis = 2 * 24 * 60 * 60 * 1000L;
+    props.put(
+        CatalogConstants.LAST_UPDATED_MS,
+        String.valueOf(System.currentTimeMillis() - twoDaysInMillis));
     props.put("openhouse.tableUUID", responseBody.getTableUUID());
     props.put("openhouse.databaseId", responseBody.getDatabaseId());
     props.put("openhouse.tableId", responseBody.getTableId());
