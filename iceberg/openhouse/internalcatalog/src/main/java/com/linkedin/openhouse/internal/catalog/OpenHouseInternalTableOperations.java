@@ -119,12 +119,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc);
     if (needToReload) {
       metricsReporter.executeWithStats(
-          r,
-          InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY,
-          InternalCatalogMetricsConstant.DATABASE_TAG,
-          tableIdentifier.namespace().toString(),
-          InternalCatalogMetricsConstant.TABLE_TAG,
-          tableIdentifier.name());
+          r, InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY, getCatalogMetricTags());
     } else {
       r.run();
     }
@@ -277,7 +272,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       metricsReporter.executeWithStats(
           () ->
               TableMetadataParser.write(updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
-          InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY);
+          InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
+          getCatalogMetricTags());
 
       houseTable = houseTableMapper.toHouseTable(updatedMetadata, fileIO);
       if (base != null
@@ -604,5 +600,18 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     for (Map.Entry<String, String> entry : map.entrySet()) {
       log.debug(entry.getKey() + ":" + entry.getValue());
     }
+  }
+
+  /**
+   * Returns consistent metric tags for catalog metadata operations. This ensures both
+   * METADATA_UPDATE_LATENCY and METADATA_RETRIEVAL_LATENCY are always emitted with the same tag
+   * dimensions.
+   *
+   * @return Array of tag key-value pairs for catalog metadata metrics
+   */
+  private String[] getCatalogMetricTags() {
+    return new String[] {
+      InternalCatalogMetricsConstant.DATABASE_TAG, tableIdentifier.namespace().toString()
+    };
   }
 }

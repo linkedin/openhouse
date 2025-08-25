@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.apache.commons.compress.utils.Lists;
@@ -838,7 +839,37 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   @Test
-  void testRefreshMetadataIncludesDatabaseAndTableTags() {
+  void testRefreshMetadataIncludesDatabaseTag() {
+    testMetricIncludesDatabaseTag(
+        InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY,
+        this::setupRefreshMetadataTest,
+        this::executeRefreshMetadata,
+        "Timer should not have table tag (removed because the table tag has super high cardinality and overloads metric emission max size)");
+  }
+
+  @Test
+  void testCommitMetadataUpdateIncludesDatabaseTag() {
+    testMetricIncludesDatabaseTag(
+        InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
+        this::setupCommitMetadataTest,
+        this::executeCommitMetadata,
+        "Timer should not have table tag (only database dimension should be included)");
+  }
+
+  /**
+   * Common test method for verifying metrics include database tag but not table tag.
+   *
+   * @param expectedMetricSuffix The metric name suffix (without catalog prefix)
+   * @param setupFunction Function to set up test-specific mocks
+   * @param executeFunction Function to execute the operation that should record metrics
+   * @param noTableTagMessage Custom message for table tag assertion
+   */
+  private void testMetricIncludesDatabaseTag(
+      String expectedMetricSuffix,
+      Consumer<OpenHouseInternalTableOperations> setupFunction,
+      Consumer<OpenHouseInternalTableOperations> executeFunction,
+      String noTableTagMessage) {
+
     // Create a real SimpleMeterRegistry to capture metrics
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     MetricsReporter realMetricsReporter =
@@ -854,7 +885,18 @@ public class OpenHouseInternalTableOperationsTest {
             TEST_TABLE_IDENTIFIER,
             realMetricsReporter);
 
-    // Setup mock behavior
+    // Setup test-specific mocks
+    setupFunction.accept(operationsWithRealMetrics);
+
+    // Execute the operation that should record the metric
+    executeFunction.accept(operationsWithRealMetrics);
+
+    // Verify the metric was recorded with correct tags
+    verifyMetricTags(meterRegistry, expectedMetricSuffix, noTableTagMessage);
+  }
+
+  /** Sets up mocks specific to refresh metadata tests. */
+  private void setupRefreshMetadataTest(OpenHouseInternalTableOperations operations) {
     HouseTablePrimaryKey primaryKey =
         HouseTablePrimaryKey.builder()
             .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
@@ -862,39 +904,75 @@ public class OpenHouseInternalTableOperationsTest {
             .build();
     when(mockHouseTableRepository.findById(primaryKey)).thenReturn(Optional.of(mockHouseTable));
     when(mockHouseTable.getTableLocation()).thenReturn("test_metadata_location");
+  }
 
-    // Call refreshMetadata directly to avoid the full doRefresh flow
+  /** Sets up mocks specific to commit metadata tests. */
+  private void setupCommitMetadataTest(OpenHouseInternalTableOperations operations) {
+    when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
+        .thenReturn(mockHouseTable);
+    when(mockHouseTableRepository.save(Mockito.any())).thenReturn(mockHouseTable);
+  }
+
+  /** Executes refresh metadata operation for testing. */
+  private void executeRefreshMetadata(OpenHouseInternalTableOperations operations) {
     try {
-      operationsWithRealMetrics.refreshMetadata("test_metadata_location");
+      operations.refreshMetadata("test_metadata_location");
     } catch (Exception e) {
       // We expect this to fail since it's not a real metadata file, but the timer should still be
       // recorded
     }
+  }
 
-    // Verify that the timer was created with the correct metric name and tags
-    String expectedMetricName =
-        "TEST_CATALOG_" + InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY;
+  /** Executes commit metadata operation for testing. */
+  private void executeCommitMetadata(OpenHouseInternalTableOperations operations) {
+    // Create simple metadata for commit
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    // Mock TableMetadataParser to avoid actual file writing but still trigger the metric recording
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      try {
+        operations.doCommit(BASE_TABLE_METADATA, metadata);
+      } catch (Exception e) {
+        // We expect this might fail due to mocked components, but the timer should still be
+        // recorded
+      }
+    }
+  }
+
+  /**
+   * Verifies that a metric was recorded with the correct tags (database tag present, table tag
+   * absent).
+   *
+   * @param meterRegistry The meter registry to search for metrics
+   * @param expectedMetricSuffix The expected metric name suffix
+   * @param noTableTagMessage Custom message for table tag assertion
+   */
+  private void verifyMetricTags(
+      SimpleMeterRegistry meterRegistry, String expectedMetricSuffix, String noTableTagMessage) {
+    String expectedMetricName = "TEST_CATALOG_" + expectedMetricSuffix;
 
     // Find the timer in the registry
     io.micrometer.core.instrument.Timer timer = meterRegistry.find(expectedMetricName).timer();
     Assertions.assertNotNull(timer, "Timer should be created");
 
-    // Verify the tags are present
+    // Verify the database tag is present
     boolean hasDatabaseTag =
         timer.getId().getTags().stream()
             .anyMatch(
                 tag ->
                     tag.getKey().equals(InternalCatalogMetricsConstant.DATABASE_TAG)
                         && tag.getValue().equals("test_db"));
+
+    // Verify the table tag is NOT present
     boolean hasTableTag =
         timer.getId().getTags().stream()
-            .anyMatch(
-                tag ->
-                    tag.getKey().equals(InternalCatalogMetricsConstant.TABLE_TAG)
-                        && tag.getValue().equals("test_table"));
+            .anyMatch(tag -> tag.getKey().equals(InternalCatalogMetricsConstant.TABLE_TAG));
 
     Assertions.assertTrue(hasDatabaseTag, "Timer should have database tag with value 'test_db'");
-    Assertions.assertTrue(hasTableTag, "Timer should have table tag with value 'test_table'");
+    Assertions.assertFalse(hasTableTag, noTableTagMessage);
 
     // Verify the timer was actually used (count > 0)
     Assertions.assertTrue(timer.count() > 0, "Timer should have been used at least once");
