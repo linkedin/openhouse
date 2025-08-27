@@ -38,7 +38,7 @@ public class TableDataLayoutStrategyGenerationTask extends TableOperationTask<Ta
   }
 
   @Override
-  protected boolean shouldRun() {
+  protected boolean shouldRunTask() {
     return metadata.isPrimary();
   }
 }

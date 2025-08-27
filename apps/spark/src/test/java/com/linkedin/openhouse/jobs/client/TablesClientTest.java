@@ -195,6 +195,35 @@ public class TablesClientTest {
   }
 
   @Test
+  void testMaintenanceProperties() {
+    GetTableResponseBody tableResponseBodyMock =
+        createNonPartitionedTableResponseBodyMock(testDbName, testTableName);
+    Mockito.when(tableResponseBodyMock.getTableProperties())
+        .thenReturn(
+            Stream.of(
+                    new String[][] {
+                      {"maintenance.disabled", "true"},
+                      {"maintenance.RETENTION.disabled", "true"},
+                      {"some.other.property", "value"}
+                    })
+                .collect(Collectors.toMap(data -> data[0], data -> data[1])));
+
+    Mono<GetTableResponseBody> tableResponseMock =
+        (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(tableResponseMock.block(any(Duration.class))).thenReturn(tableResponseBodyMock);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(tableResponseMock);
+
+    Optional<TableMetadata> tableMetadata =
+        client.mapTableResponseToTableMetadata(tableResponseBodyMock);
+    Assertions.assertTrue(tableMetadata.isPresent());
+    Assertions.assertEquals(2, tableMetadata.get().getJobExecutionProperties().size());
+    Assertions.assertEquals(
+        "true", tableMetadata.get().getJobExecutionProperties().get("disabled"));
+    Assertions.assertEquals(
+        "true", tableMetadata.get().getJobExecutionProperties().get("RETENTION.disabled"));
+  }
+
+  @Test
   void testGetTableNamesForDBName() {
     String tableLocation = testDbName + "/" + testTableName + "-" + testTableUUID;
     String tableLocationMetadata = tableLocation + "/" + testTableUUID + ".metadata.json";

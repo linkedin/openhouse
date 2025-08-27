@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.util;
 
+import com.linkedin.openhouse.jobs.client.model.JobConf;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,11 @@ public class TableMetadata extends Metadata {
   protected @Nullable RetentionConfig retentionConfig;
   protected @Nullable HistoryConfig historyConfig;
   protected @Nullable List<ReplicationConfig> replicationConfig;
+
+  public boolean isMaintenanceJobDisabled(JobConf.JobTypeEnum jobType) {
+    return Boolean.parseBoolean(jobExecutionProperties.get("disabled"))
+        || Boolean.parseBoolean(jobExecutionProperties.get(String.format("%s.disabled", jobType)));
+  }
 
   public String fqtn() {
     return String.format("%s.%s", dbName, tableName);

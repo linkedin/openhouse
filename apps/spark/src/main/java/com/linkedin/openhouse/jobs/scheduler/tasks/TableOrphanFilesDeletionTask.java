@@ -43,7 +43,7 @@ public class TableOrphanFilesDeletionTask extends TableOperationTask<TableMetada
   }
 
   @Override
-  protected boolean shouldRun() {
+  protected boolean shouldRunTask() {
     return true;
   }
 }

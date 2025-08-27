@@ -39,7 +39,7 @@ public class TableStatsCollectionTask extends TableOperationTask<TableMetadata> 
   }
 
   @Override
-  protected boolean shouldRun() {
+  protected boolean shouldRunTask() {
     return true;
   }
 }
