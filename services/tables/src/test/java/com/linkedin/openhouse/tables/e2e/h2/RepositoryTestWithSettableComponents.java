@@ -104,7 +104,8 @@ public class RepositoryTestWithSettableComponents {
             snapshotInspector,
             houseTableMapper,
             tableIdentifier,
-            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()));
+            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
+            fileIOManager);
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
     creationDTO = openHouseInternalRepository.save(creationDTO);
@@ -120,7 +121,8 @@ public class RepositoryTestWithSettableComponents {
             snapshotInspector,
             houseTableMapper,
             tableIdentifier,
-            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()));
+            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
+            fileIOManager);
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
     doReturn(actualOps.current()).when(spyOperations).refresh();
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
@@ -200,7 +202,8 @@ public class RepositoryTestWithSettableComponents {
               snapshotInspector,
               houseTableMapper,
               tableIdentifier,
-              new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()));
+              new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
+              fileIOManager);
       OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
       BaseTable spyOptsMockedTable =
           Mockito.spy(

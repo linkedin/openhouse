@@ -9,6 +9,7 @@ import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.aws.AwsClientFactories;
@@ -97,6 +98,19 @@ public class S3StorageClient extends BaseStorageClient<S3Client> {
     } catch (URISyntaxException | S3Exception e) {
       throw new ServiceUnavailableException(
           "Error checking S3 object existence: " + e.getMessage(), e);
+    }
+  }
+
+  /** Clean up resources when the bean is destroyed. */
+  @PreDestroy
+  public void cleanup() {
+    if (s3 != null) {
+      try {
+        log.info("Closing S3Client for S3StorageClient");
+        s3.close();
+      } catch (Exception e) {
+        log.error("Error closing S3Client during S3StorageClient cleanup", e);
+      }
     }
   }
 }

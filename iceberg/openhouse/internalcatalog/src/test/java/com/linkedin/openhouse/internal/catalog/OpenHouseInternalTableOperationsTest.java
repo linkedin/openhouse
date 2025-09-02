@@ -4,8 +4,10 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
+import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
+import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -15,6 +17,7 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCa
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
+import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -29,6 +32,10 @@ import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -43,6 +50,7 @@ import org.apache.iceberg.common.DynFields;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -73,6 +81,10 @@ public class OpenHouseInternalTableOperationsTest {
   @Captor private ArgumentCaptor<TableMetadata> tblMetadataCaptor;
   @Mock private FileIOManager fileIOManager;
   @Mock private MetricsReporter mockMetricsReporter;
+  @Mock private FileSystem mockFileSystem;
+  @Mock private LocalStorageClient mockLocalStorageClient;
+  @Mock private FSDataInputStream mockFSDataInputStream;
+  @Mock private FSDataOutputStream mockFSDataOutputStream;
 
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
   private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithMockMetrics;
@@ -95,7 +107,8 @@ public class OpenHouseInternalTableOperationsTest {
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
-            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()));
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager);
 
     // Create a separate instance with mock metrics reporter for testing metrics
     openHouseInternalTableOperationsWithMockMetrics =
@@ -105,7 +118,8 @@ public class OpenHouseInternalTableOperationsTest {
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
-            mockMetricsReporter);
+            mockMetricsReporter,
+            fileIOManager);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
@@ -247,6 +261,125 @@ public class OpenHouseInternalTableOperationsTest {
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
+  }
+
+  @Test
+  void testDoCommitUpdateMetadataForInitalVersionCommit() throws IOException {
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogConstants.LAST_UPDATED_MS, "1233232423");
+    properties.put(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "true");
+    properties.put(CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION);
+    TableMetadata base = BASE_TABLE_METADATA;
+
+    TableMetadata metadata = base.replaceProperties(properties);
+
+    // Setup mocks for filesystem operations
+    LocalStorage mockLocalStorage = mock(LocalStorage.class);
+    when(fileIOManager.getStorage(any(FileIO.class))).thenReturn(mockLocalStorage);
+    when(mockLocalStorage.getClient()).thenReturn((StorageClient) mockLocalStorageClient);
+    when(mockLocalStorageClient.getNativeClient()).thenReturn(mockFileSystem);
+
+    // Mock filesystem operations for MetadataUpdateUtils.updateMetadataField
+    when(mockFileSystem.open(any(Path.class))).thenReturn(mockFSDataInputStream);
+    when(mockFileSystem.create(any(Path.class), eq(true))).thenReturn(mockFSDataOutputStream);
+
+    // Mock input stream to return JSON content that can be parsed
+    String mockJsonContent = "{\"last-updated-ms\": 1233232422}";
+    when(mockFSDataInputStream.read(any(byte[].class)))
+        .thenAnswer(
+            invocation -> {
+              byte[] buffer = invocation.getArgument(0);
+              byte[] content = mockJsonContent.getBytes();
+              System.arraycopy(content, 0, buffer, 0, Math.min(content.length, buffer.length));
+              return content.length;
+            });
+    when(mockFSDataInputStream.read()).thenReturn(-1); // EOF
+
+    try (MockedStatic<MetadataUpdateUtils> mockedMetadataUpdateUtils =
+        mockStatic(MetadataUpdateUtils.class)) {
+      openHouseInternalTableOperations.doCommit(base, metadata);
+
+      // Verify updateMetadataField was called
+      mockedMetadataUpdateUtils.verify(
+          () ->
+              MetadataUpdateUtils.updateMetadataField(
+                  eq(mockFileSystem), anyString(), eq("last-updated-ms"), eq(1233232423L)));
+    }
+
+    Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+
+    Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
+    Assertions.assertEquals(
+        CatalogConstants.INITIAL_VERSION,
+        updatedProperties.get(getCanonicalFieldName("tableVersion")));
+
+    Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
+    Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+
+    // Verify filesystem operations were performed
+    verify(fileIOManager).getStorage(any(FileIO.class));
+    // Called 3 times: 2x for instanceof checks, 1x for assignment
+    verify(mockLocalStorage, times(3)).getClient();
+    verify(mockLocalStorageClient).getNativeClient();
+  }
+
+  @Test
+  void testDoCommitUpdateMetadataNotCalledForNonReplicatedTable() throws IOException {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("last-updated-ms", "1233232423");
+    properties.put(CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION);
+    TableMetadata base = BASE_TABLE_METADATA;
+
+    TableMetadata metadata = base.replaceProperties(properties);
+
+    // Setup mocks for filesystem operations
+    LocalStorage mockLocalStorage = mock(LocalStorage.class);
+    when(fileIOManager.getStorage(any(FileIO.class))).thenReturn(mockLocalStorage);
+    when(mockLocalStorage.getClient()).thenReturn((StorageClient) mockLocalStorageClient);
+    when(mockLocalStorageClient.getNativeClient()).thenReturn(mockFileSystem);
+
+    try (MockedStatic<MetadataUpdateUtils> mockedMetadataUpdateUtils =
+        mockStatic(MetadataUpdateUtils.class)) {
+      openHouseInternalTableOperations.doCommit(base, metadata);
+
+      // Verify updateMetadataField was NOT called since table is not replicated
+      mockedMetadataUpdateUtils.verifyNoInteractions();
+    }
+
+    Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.any(HouseTable.class));
+  }
+
+  @Test
+  void testDoCommitUpdateMetadataNotCalledForNonInitialVersionCommit() throws IOException {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("last-updated-ms", "1233232423");
+    properties.put(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "true");
+    properties.put(CatalogConstants.OPENHOUSE_TABLE_VERSION, "v1.0.0");
+
+    // Set tableLocation to a non-INITIAL_VERSION value so that tableVersion gets set to this value
+    // This will cause isReplicatedTableCreate to return false since tableVersion != INITIAL_VERSION
+    properties.put(getCanonicalFieldName("tableLocation"), "some-existing-table-location");
+
+    // Use existing table metadata (base != null) to simulate a snapshot commit rather than table
+    // creation
+    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata metadata = base.replaceProperties(properties);
+
+    // Setup mocks for filesystem operations
+    LocalStorage mockLocalStorage = mock(LocalStorage.class);
+    when(fileIOManager.getStorage(any(FileIO.class))).thenReturn(mockLocalStorage);
+    when(mockLocalStorage.getClient()).thenReturn((StorageClient) mockLocalStorageClient);
+    when(mockLocalStorageClient.getNativeClient()).thenReturn(mockFileSystem);
+
+    try (MockedStatic<MetadataUpdateUtils> mockedMetadataUpdateUtils =
+        mockStatic(MetadataUpdateUtils.class)) {
+      openHouseInternalTableOperations.doCommit(base, metadata);
+
+      // Verify updateMetadataField was NOT called since this is not an initial version commit
+      mockedMetadataUpdateUtils.verifyNoInteractions();
+    }
+
+    Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.any(HouseTable.class));
   }
 
   @Test
@@ -883,7 +1016,8 @@ public class OpenHouseInternalTableOperationsTest {
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
-            realMetricsReporter);
+            realMetricsReporter,
+            fileIOManager);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);
