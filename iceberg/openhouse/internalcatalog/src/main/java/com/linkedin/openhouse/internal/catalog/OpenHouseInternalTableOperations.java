@@ -643,7 +643,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    */
   private String[] getCatalogMetricTags() {
     return new String[] {
-        InternalCatalogMetricsConstant.DATABASE_TAG, tableIdentifier.namespace().toString()
+      InternalCatalogMetricsConstant.DATABASE_TAG, tableIdentifier.namespace().toString()
     };
   }
 
