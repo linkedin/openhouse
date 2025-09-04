@@ -37,5 +37,6 @@ dependencies {
   testImplementation(testFixtures(project(':services:common')))
   testImplementation (project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
     exclude group: 'org.apache.iceberg'
+    exclude group: 'com.linkedin.iceberg'
   }
 }
