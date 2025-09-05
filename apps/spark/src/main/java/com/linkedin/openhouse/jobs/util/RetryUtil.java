@@ -51,6 +51,15 @@ public final class RetryUtil {
         .build();
   }
 
+  public static RetryTemplate getTrinoClientRetryTemplate() {
+    RetryTemplateBuilder builder = new RetryTemplateBuilder();
+    return builder
+        .maxAttempts(5)
+        .customBackoff(DEFAULT_JOBS_BACKOFF_POLICY)
+        .retryOn(WebClientResponseException.InternalServerError.class)
+        .build();
+  }
+
   public static <T, E extends Throwable> T executeWithRetry(
       RetryTemplate retryTemplate, RetryCallback<T, E> callable, T defaultResult) {
     try {
