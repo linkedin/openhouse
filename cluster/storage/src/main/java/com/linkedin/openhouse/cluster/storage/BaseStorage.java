@@ -16,6 +16,7 @@ public abstract class BaseStorage implements Storage {
 
   @Autowired private StorageProperties storageProperties;
 
+  private String OPENHOUSE_REPLICA_TABLE_LOCATION_ID = "openhouse.replicaTableLocationId";
   /**
    * Check if the storage is configured.
    *
@@ -69,16 +70,34 @@ public abstract class BaseStorage implements Storage {
     Preconditions.checkState(
         storageProperties.getTypes().containsKey(getType().getValue()),
         "Storage properties doesn't contain type: " + getType().getValue());
+
+    String tableLocationId = calculateTableLocationId(tableId, tableUUID, tableProperties);
+
     return URI.create(
             getClient().getEndpoint()
                 + getClient().getRootPrefix()
                 + "/"
                 + databaseId
                 + "/"
-                + tableId
-                + "-"
-                + tableUUID)
+                + tableLocationId)
         .normalize()
         .toString();
+  }
+
+  /**
+   * Determine where to store the table based on its ID and UUID For renamed replica tables, we want
+   * to keep it consistent with the source table ID which may be different from the current table
+   * ID, so read this from properties TODO: Decouple tableId from its table location, and base it
+   * only on UUID as UUID is immutable while tableID is not
+   *
+   * @param tableId
+   * @param tableUUID
+   * @param tableProperties
+   */
+  protected String calculateTableLocationId(
+      String tableId, String tableUUID, Map<String, String> tableProperties) {
+    return tableProperties.containsKey(OPENHOUSE_REPLICA_TABLE_LOCATION_ID)
+        ? tableProperties.get(OPENHOUSE_REPLICA_TABLE_LOCATION_ID)
+        : tableId + "-" + tableUUID;
   }
 }
