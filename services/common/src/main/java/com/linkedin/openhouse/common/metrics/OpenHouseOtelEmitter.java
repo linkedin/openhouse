@@ -31,7 +31,7 @@ public class OpenHouseOtelEmitter implements OtelEmitter {
   }
 
   @Override
-  public void count(String scope, String metric, long count, Attributes attributes) {
+  public synchronized void count(String scope, String metric, long count, Attributes attributes) {
     for (OpenTelemetry otel : otels) {
       Meter meter = otel.getMeter(scope);
       LongCounter counter = meter.counterBuilder(metric).build();
@@ -44,7 +44,7 @@ public class OpenHouseOtelEmitter implements OtelEmitter {
   }
 
   @Override
-  public void time(String scope, String metric, long amount, Attributes attributes) {
+  public synchronized void time(String scope, String metric, long amount, Attributes attributes) {
     for (OpenTelemetry otel : otels) {
       Meter meter = otel.getMeter(scope);
       LongHistogram histogram =
@@ -58,7 +58,7 @@ public class OpenHouseOtelEmitter implements OtelEmitter {
   }
 
   @Override
-  public void gauge(String scope, String metric, long value, Attributes attributes) {
+  public synchronized void gauge(String scope, String metric, long value, Attributes attributes) {
     for (OpenTelemetry otel : otels) {
       Meter meter = otel.getMeter(scope);
       LongGaugeBuilder gaugeBuilder =
