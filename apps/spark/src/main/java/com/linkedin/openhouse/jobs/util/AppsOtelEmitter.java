@@ -22,7 +22,7 @@ public class AppsOtelEmitter extends OpenHouseOtelEmitter {
   }
 
   @Override
-  public <T> T executeWithStats(
+  public synchronized <T> T executeWithStats(
       Callable<T> callable, String scope, String metricPrefix, Attributes attributes)
       throws Exception {
     long startTime = System.currentTimeMillis();
