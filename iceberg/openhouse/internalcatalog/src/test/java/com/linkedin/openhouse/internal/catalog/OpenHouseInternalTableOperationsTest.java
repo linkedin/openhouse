@@ -1095,7 +1095,8 @@ public class OpenHouseInternalTableOperationsTest {
             Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
-            realMetricsReporter);
+            realMetricsReporter,
+            fileIOManager);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);
