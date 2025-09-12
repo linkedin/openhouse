@@ -989,6 +989,22 @@ public class OpenHouseInternalTableOperationsTest {
         "Timer should not have table tag (only database dimension should be included)");
   }
 
+  @Test
+  void testRefreshMetadataLatencyHasHistogramBuckets() {
+    testMetricHasHistogramBuckets(
+        InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY,
+        this::setupRefreshMetadataTest,
+        this::executeRefreshMetadata);
+  }
+
+  @Test
+  void testCommitMetadataUpdateLatencyHasHistogramBuckets() {
+    testMetricHasHistogramBuckets(
+        InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
+        this::setupCommitMetadataTest,
+        this::executeCommitMetadata);
+  }
+
   /**
    * Common test method for verifying metrics include database tag but not table tag.
    *
@@ -1027,6 +1043,69 @@ public class OpenHouseInternalTableOperationsTest {
 
     // Verify the metric was recorded with correct tags
     verifyMetricTags(meterRegistry, expectedMetricSuffix, noTableTagMessage);
+  }
+
+  /**
+   * Common test method for verifying that Timer metrics have histogram buckets configured.
+   *
+   * @param expectedMetricSuffix The metric name suffix (without catalog prefix)
+   * @param setupFunction Function to set up test-specific mocks
+   * @param executeFunction Function to execute the operation that should record metrics
+   */
+  private void testMetricHasHistogramBuckets(
+      String expectedMetricSuffix,
+      Consumer<OpenHouseInternalTableOperations> setupFunction,
+      Consumer<OpenHouseInternalTableOperations> executeFunction) {
+
+    // Create a real SimpleMeterRegistry with histogram configuration
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    // Configure the registry to enable histogram buckets for all timers
+    // This mimics the application.properties setting:
+    // management.metrics.distribution.percentiles-histogram.all=true
+    meterRegistry
+        .config()
+        .meterFilter(
+            new io.micrometer.core.instrument.config.MeterFilter() {
+              @Override
+              public io.micrometer.core.instrument.distribution.DistributionStatisticConfig
+                  configure(
+                      io.micrometer.core.instrument.Meter.Id id,
+                      io.micrometer.core.instrument.distribution.DistributionStatisticConfig
+                          config) {
+                if (id.getType() == io.micrometer.core.instrument.Meter.Type.TIMER) {
+                  return io.micrometer.core.instrument.distribution.DistributionStatisticConfig
+                      .builder()
+                      .percentilesHistogram(true)
+                      .build()
+                      .merge(config);
+                }
+                return config;
+              }
+            });
+
+    MetricsReporter realMetricsReporter =
+        new MetricsReporter(meterRegistry, "TEST_CATALOG", Lists.newArrayList());
+
+    // Create instance with real metrics reporter
+    OpenHouseInternalTableOperations operationsWithRealMetrics =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            Mockito.mock(SnapshotInspector.class),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            realMetricsReporter,
+            fileIOManager);
+
+    // Setup test-specific mocks
+    setupFunction.accept(operationsWithRealMetrics);
+
+    // Execute the operation that should record the metric
+    executeFunction.accept(operationsWithRealMetrics);
+
+    // Verify the metric has histogram buckets
+    verifyMetricHistogramBuckets(meterRegistry, expectedMetricSuffix);
   }
 
   /** Sets up mocks specific to refresh metadata tests. */
@@ -1110,5 +1189,40 @@ public class OpenHouseInternalTableOperationsTest {
 
     // Verify the timer was actually used (count > 0)
     Assertions.assertTrue(timer.count() > 0, "Timer should have been used at least once");
+  }
+
+  /**
+   * Verifies that a Timer metric has histogram buckets configured.
+   *
+   * @param meterRegistry The meter registry to search for metrics
+   * @param expectedMetricSuffix The expected metric name suffix
+   */
+  private void verifyMetricHistogramBuckets(
+      SimpleMeterRegistry meterRegistry, String expectedMetricSuffix) {
+    String expectedMetricName = "TEST_CATALOG_" + expectedMetricSuffix;
+
+    // Find the timer in the registry
+    io.micrometer.core.instrument.Timer timer = meterRegistry.find(expectedMetricName).timer();
+    Assertions.assertNotNull(timer, "Timer should be created");
+
+    // Verify the timer was actually used (count > 0)
+    Assertions.assertTrue(timer.count() > 0, "Timer should have been used at least once");
+
+    // Get the timer's snapshot to access histogram data
+    io.micrometer.core.instrument.distribution.HistogramSnapshot snapshot = timer.takeSnapshot();
+
+    // Verify histogram buckets are present
+    io.micrometer.core.instrument.distribution.CountAtBucket[] buckets = snapshot.histogramCounts();
+    Assertions.assertNotNull(buckets, "Timer should have histogram buckets");
+
+    // Verify that basic histogram statistics are available
+    // Check that total time and max are not null (and not NaN)
+    double totalTime = timer.totalTime(java.util.concurrent.TimeUnit.NANOSECONDS);
+    double maxTime = timer.max(java.util.concurrent.TimeUnit.NANOSECONDS);
+
+    // In Micrometer, totalTime and max return primitive doubles, never null, but may be 0 or NaN.
+    // So, assertNotNull is not meaningful for primitives; instead, check for NaN.
+    Assertions.assertFalse(Double.isNaN(totalTime), "Timer total time should not be NaN");
+    Assertions.assertFalse(Double.isNaN(maxTime), "Timer max time should not be NaN");
   }
 }
