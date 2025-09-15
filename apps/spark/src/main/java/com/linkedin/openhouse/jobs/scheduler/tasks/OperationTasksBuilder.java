@@ -241,6 +241,7 @@ public class OperationTasksBuilder {
       case TABLE_STATS_COLLECTION:
       case STAGED_FILES_DELETION:
       case DATA_LAYOUT_STRATEGY_GENERATION:
+      case SORT_STATS_COLLECTION:
         return prepareTableOperationTaskList(jobType, operationMode, otelEmitter);
       case REPLICATION:
         return prepareReplicationOperationTaskList(jobType, operationMode, otelEmitter);

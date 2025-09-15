@@ -9,7 +9,7 @@ jobs:
         "spark.sql.catalog.openhouse.cluster": "LocalHadoopCluster",
         "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0",
         "spark.sql.autoBroadcastJoinThreshold": "-1",
-        "spark.driver.memory": "1g"
+        "spark.driver.memory": "2g"
       }
   spark:
     engines:
@@ -83,3 +83,9 @@ jobs:
         args: []
         <<: *apps-defaults
         << : *livy-engine
+      - type: SORT_STATS_COLLECTION
+        class-name: com.linkedin.openhouse.jobs.spark.SortStatsCollectionSparkApp
+        args: []
+        <<: *apps-defaults
+        <<: *livy-engine
+
