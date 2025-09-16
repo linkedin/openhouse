@@ -49,7 +49,7 @@ public class SparkRewriteBucketsTest extends OpenHouseSparkITest {
     RewriteDataFiles.Result result =
         SparkActions.get(spark)
             .rewriteDataFiles(table)
-            .filter(Expressions.in(Expressions.bucket("key", 2), 0))
+            .filter(Expressions.in(Expressions.bucket("key", 2), Collections.singletonList(0)))
             .binPack()
             .option("min-input-files", "2")
             .execute();
@@ -63,7 +63,7 @@ public class SparkRewriteBucketsTest extends OpenHouseSparkITest {
     result =
         SparkActions.get(spark)
             .rewriteDataFiles(table)
-            .filter(Expressions.in(Expressions.bucket("key", 2), 1))
+            .filter(Expressions.in(Expressions.bucket("key", 2), Collections.singletonList(1)))
             .binPack()
             .option("min-input-files", "2")
             .execute();
@@ -77,7 +77,7 @@ public class SparkRewriteBucketsTest extends OpenHouseSparkITest {
     result =
         SparkActions.get(spark)
             .rewriteDataFiles(table)
-            .filter(Expressions.in(Expressions.bucket("key", 2), 1))
+            .filter(Expressions.in(Expressions.bucket("key", 2), Collections.singletonList(1)))
             .binPack()
             .option("min-input-files", "2")
             .execute();
