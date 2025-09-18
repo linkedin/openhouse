@@ -80,7 +80,7 @@ allprojects {
               boolean isIceberg120 = version != null && version == '1.2.0'
               boolean isAwsOrAzure = module != null && (module.startsWith('iceberg-aws') || module.startsWith('iceberg-azure'))
               if (isIceberg120 && !isAwsOrAzure) {
-                sub.useTarget("com.linkedin.iceberg:${module}:1.2.0.0-rc2")
+                sub.useTarget("com.linkedin.iceberg:${module}:${version}")
               }
             }
           }
