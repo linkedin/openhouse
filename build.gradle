@@ -76,7 +76,7 @@ allprojects {
             def req = sub.requested
             if (req instanceof org.gradle.api.artifacts.component.ModuleComponentSelector && req.group == 'org.apache.iceberg') {
               def liIcebergVersion = '1.2.0.1'
-              if (req.version != null && req.version.startswith('1.2') && req.module != null) {
+              if (req.version != null && req.version.startsWith('1.2') && req.module != null) {
                 sub.useTarget("com.linkedin.iceberg:${req.module}:${liIcebergVersion}")
               }
             }
