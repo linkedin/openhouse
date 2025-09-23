@@ -27,6 +27,12 @@ dependencies {
     exclude group: 'org.apache.curator', module: 'curator-client'
     exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
+
+  implementation("org.apache.iceberg:iceberg-bundled-guava")
+  implementation("org.apache.iceberg:iceberg-data")
+  implementation("org.apache.iceberg:iceberg-core")
+  implementation("org.apache.iceberg:iceberg-common")
+
   implementation 'commons-cli:commons-cli:1.5.0'
   implementation 'org.reflections:reflections:0.10.2'
   implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
