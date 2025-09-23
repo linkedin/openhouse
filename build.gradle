@@ -69,6 +69,19 @@ allprojects {
         force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
         force 'org.apache.orc:orc-core:1.8.3'
         force 'com.google.guava:guava:31.1-jre'
+
+        // Redirect Apache Iceberg 1.2.0 core modules to LinkedIn groupId/version without changing declarations/imports
+        dependencySubstitution {
+          all { sub ->
+            def req = sub.requested
+            if (req instanceof org.gradle.api.artifacts.component.ModuleComponentSelector && req.group == 'org.apache.iceberg') {
+              def liIcebergVersion = '1.2.0.1'
+              if (req.version != null && req.version.startswith('1.2') && req.module != null) {
+                sub.useTarget("com.linkedin.iceberg:${req.module}:${liIcebergVersion}")
+              }
+            }
+          }
+        }
       }
     }
   }
