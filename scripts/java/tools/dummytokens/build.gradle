@@ -9,6 +9,7 @@ mainClassName = 'com.linkedin.openhouse.tools.dummytokens.DummyTokenGenerator'
 dependencies {
     implementation(project(':services:common')){
         exclude group: 'org.apache.iceberg'
+        exclude group: 'com.linkedin.iceberg'
         exclude group: 'com.azure'
     }
     implementation 'commons-cli:commons-cli:1.5.0'

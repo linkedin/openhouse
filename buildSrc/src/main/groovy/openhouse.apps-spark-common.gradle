@@ -21,17 +21,18 @@ dependencies {
   implementation project(':client:secureclient')
   implementation project(':services:common')
   implementation project(':cluster:storage')
+ 
+  implementation ('org.apache.hadoop:hadoop-common:2.10.0') {
+    exclude group: 'io.netty'
+    exclude group: 'org.apache.curator', module: 'curator-client'
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
+  }
 
   implementation("org.apache.iceberg:iceberg-bundled-guava")
   implementation("org.apache.iceberg:iceberg-data")
   implementation("org.apache.iceberg:iceberg-core")
   implementation("org.apache.iceberg:iceberg-common")
 
-  implementation ('org.apache.hadoop:hadoop-common:2.10.0') {
-    exclude group: 'io.netty'
-    exclude group: 'org.apache.curator', module: 'curator-client'
-    exclude group: 'org.apache.commons', module: 'commons-lang3'
-  }
   implementation 'commons-cli:commons-cli:1.5.0'
   implementation 'org.reflections:reflections:0.10.2'
   implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
@@ -73,6 +74,10 @@ shadowJar {
     exclude(dependency('org.apache.iceberg::'))
     // this dependency will be provided at runtime
     exclude(dependency('org.apache.iceberg:iceberg-spark3-runtime::'))
+
+    // mirror excludes for com.linkedin.iceberg groupId after dependency substitution
+    exclude(dependency('com.linkedin.iceberg::'))
+    exclude(dependency('com.linkedin.iceberg:iceberg-spark3-runtime::'))
 
     // can possibly be removed with gradle8 and shadow upgrade
     // https://github.com/GradleUp/shadow/issues/877#issuecomment-2472922043
