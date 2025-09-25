@@ -30,6 +30,7 @@ ext {
   spark_version = "3.1.1"
   ok_http3_version = "4.11.0"
   junit_version = "5.11.0"
+  li_iceberg_version = "1.2.0.4"
 }
 
 group = 'com.linkedin.openhouse'
@@ -75,10 +76,9 @@ allprojects {
           all { sub ->
             def req = sub.requested
             if (req instanceof org.gradle.api.artifacts.component.ModuleComponentSelector && req.group == 'org.apache.iceberg') {
-              def liIcebergVersion = '1.2.0.1'
               def versionToCheck   = req.version ? '' : req.version
               if (versionToCheck.startsWith('1.2') && req.module != null) {
-                sub.useTarget("com.linkedin.iceberg:${req.module}:${liIcebergVersion}")
+                sub.useTarget("com.linkedin.iceberg:${req.module}:"+li_iceberg_version)
               }
             }
           }
