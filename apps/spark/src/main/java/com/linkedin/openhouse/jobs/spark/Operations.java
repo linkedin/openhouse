@@ -266,7 +266,7 @@ public final class Operations implements AutoCloseable {
    * @param columnPattern If schema type of @columnName is String @columnPattern is used to parse it
    *     to a timestamp. columnPattern should always represent a valid DateTimeFormat
    * @param granularity time granularity in Hour, Day, Month, Year
-   * @param count granularity count representing retention timeline for @fqtn records
+   * @param count count representing retention timeline for @fqtn records
    */
   public void runRetention(
       String fqtn, String columnName, String columnPattern, String granularity, int count) {
