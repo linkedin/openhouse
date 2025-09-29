@@ -10,6 +10,7 @@ import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
 import com.linkedin.openhouse.jobs.util.DataLayoutUtil;
+import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
@@ -147,6 +148,17 @@ public class OperationTasksBuilder {
     return selectedTableDataLayoutMetadataList;
   }
 
+  private List<OperationTask<?>> prepareDatabaseOperationTaskList(
+      JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
+    List<DatabaseMetadata> databaseList =
+        tablesClient.getDatabases().stream()
+            .filter(tablesClient::applyDatabaseFilter)
+            .map(dbName -> DatabaseMetadata.builder().dbName(dbName).build())
+            .collect(Collectors.toList());
+    log.info("Fetched metadata for {} databases", databaseList.size());
+    return processMetadataList(databaseList, jobType, operationMode, otelEmitter);
+  }
+
   private List<OperationTask<?>> processMetadataList(
       List<? extends Metadata> metadataList,
       JobConf.JobTypeEnum jobType,
@@ -249,6 +261,9 @@ public class OperationTasksBuilder {
         return prepareDataLayoutOperationTaskList(jobType, properties, operationMode, otelEmitter);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType, operationMode, otelEmitter);
+      case SOFT_DELETED_TABLE_CLEANUP:
+        // Soft deleted table cleanup job builds tasks in parallel
+        return prepareDatabaseOperationTaskList(jobType, operationMode, otelEmitter);
       default:
         throw new UnsupportedOperationException(
             String.format("Job type %s is not supported", jobType));
@@ -266,6 +281,8 @@ public class OperationTasksBuilder {
     if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
       // DLO execution job needs to fetch all table metadata before submission
       buildDataLayoutOperationTaskListInParallel(jobType, properties, operationMode, otelEmitter);
+    } else if (jobType == JobConf.JobTypeEnum.SOFT_DELETED_TABLE_CLEANUP) {
+      buildDatabaseLevelOperationTasksInParallel(jobType, operationMode, otelEmitter);
     } else {
       buildOperationTaskListInParallelInternal(jobType, operationMode, otelEmitter);
     }
@@ -360,6 +377,41 @@ public class OperationTasksBuilder {
                 }
               } catch (InterruptedException e) {
                 log.warn("Interrupted while waiting for table metadata to be processed", e);
+              }
+            })
+        .sequential()
+        .doAfterTerminate(
+            () -> {
+              operationTaskManager.updateDataGenerationCompletion();
+              log.info(
+                  "The metadata fetched count: {} for the job type: {}",
+                  operationTaskManager.getTotalDataCount(),
+                  jobType);
+            })
+        .subscribe();
+  }
+
+  private void buildDatabaseLevelOperationTasksInParallel(
+      JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
+    List<DatabaseMetadata> databaseMetadataList =
+        tablesClient.getDatabases().stream()
+            .filter(tablesClient::applyDatabaseFilter)
+            .map(dbName -> DatabaseMetadata.builder().dbName(dbName).build())
+            .collect(Collectors.toList());
+
+    Flux.fromIterable(databaseMetadataList)
+        .parallel(numParallelMetadataFetch)
+        .runOn(Schedulers.boundedElastic())
+        .doOnNext(
+            databaseMetadata -> {
+              try {
+                Optional<OperationTask<?>> optionalOperationTask =
+                    processMetadata(databaseMetadata, jobType, operationMode, otelEmitter);
+                if (optionalOperationTask.isPresent()) {
+                  operationTaskManager.addData(optionalOperationTask.get());
+                }
+              } catch (InterruptedException e) {
+                log.warn("Interrupted while processing database for soft deleted cleanup", e);
               }
             })
         .sequential()

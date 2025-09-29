@@ -192,7 +192,8 @@ public class OperationTasksBuilderTest {
             JobConf.JobTypeEnum.ORPHAN_FILES_DELETION,
             JobConf.JobTypeEnum.TABLE_STATS_COLLECTION,
             JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION,
-            JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION);
+            JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
+            JobConf.JobTypeEnum.SOFT_DELETED_TABLE_CLEANUP);
     for (JobConf.JobTypeEnum jobType : jobList) {
       if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
         Mockito.when(tablesClient.getTableDataLayoutMetadataList())
