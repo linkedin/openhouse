@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.client;
 
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.HistoryConfig;
@@ -311,6 +312,13 @@ public class TablesClient {
               Collections.emptySet()));
     }
     return tableNames;
+  }
+
+  public List<DatabaseMetadata> getDatabaseMetadataList() {
+    return getDatabases().stream()
+        .filter(databaseTableFilter::applyDatabaseName)
+        .map(dbName -> DatabaseMetadata.builder().dbName(dbName).build())
+        .collect(Collectors.toList());
   }
 
   /**

@@ -150,11 +150,7 @@ public class OperationTasksBuilder {
 
   private List<OperationTask<?>> prepareDatabaseOperationTaskList(
       JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
-    List<DatabaseMetadata> databaseList =
-        tablesClient.getDatabases().stream()
-            .filter(tablesClient::applyDatabaseFilter)
-            .map(dbName -> DatabaseMetadata.builder().dbName(dbName).build())
-            .collect(Collectors.toList());
+    List<DatabaseMetadata> databaseList = tablesClient.getDatabaseMetadataList();
     log.info("Fetched metadata for {} databases", databaseList.size());
     return processMetadataList(databaseList, jobType, operationMode, otelEmitter);
   }
@@ -393,11 +389,7 @@ public class OperationTasksBuilder {
 
   private void buildDatabaseLevelOperationTasksInParallel(
       JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
-    List<DatabaseMetadata> databaseMetadataList =
-        tablesClient.getDatabases().stream()
-            .filter(tablesClient::applyDatabaseFilter)
-            .map(dbName -> DatabaseMetadata.builder().dbName(dbName).build())
-            .collect(Collectors.toList());
+    List<DatabaseMetadata> databaseMetadataList = tablesClient.getDatabaseMetadataList();
 
     Flux.fromIterable(databaseMetadataList)
         .parallel(numParallelMetadataFetch)

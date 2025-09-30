@@ -24,13 +24,15 @@ public abstract class DatabaseOperationTask extends OperationTask<DatabaseMetada
   }
 
   @Override
-  protected List<String> getArgs() {
-    return Arrays.asList("--databaseName", metadata.getDbName());
+  protected boolean shouldRun() {
+    return shouldRunTask() && !metadata.isMaintenanceJobDisabled(getType());
   }
 
+  protected abstract boolean shouldRunTask();
+
   @Override
-  protected boolean shouldRun() {
-    return true;
+  protected List<String> getArgs() {
+    return Arrays.asList("--databaseName", metadata.getDbName());
   }
 
   protected boolean launchJob() {
