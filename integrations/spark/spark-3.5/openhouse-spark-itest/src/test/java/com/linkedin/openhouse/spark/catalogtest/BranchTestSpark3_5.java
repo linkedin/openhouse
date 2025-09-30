@@ -192,7 +192,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .mkString();
 
       // CRITICAL: Unset WAP ID before advancing main branch to force non-fast-forward cherry-pick
-      // spark.conf().unset("spark.wap.id");
+      spark.conf().unset("spark.wap.id");
       spark.sql("INSERT INTO " + tableName + " VALUES ('main.advance')");
 
       // Cherry-pick WAP to main branch (this tests our enhanced maybeAppendSnapshots)
