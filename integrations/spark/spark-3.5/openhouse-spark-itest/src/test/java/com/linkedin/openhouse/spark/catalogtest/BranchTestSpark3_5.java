@@ -8,7 +8,12 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 /**
  * Comprehensive tests for multi-branch WAP operations in Spark 3.5. Tests validate the enhanced
@@ -17,7 +22,52 @@ import org.junit.jupiter.api.Test;
  * any branches - Fast forward merges for all branches - Backward compatibility with main-only
  * workflows - Forward compatibility for future wap.branch features
  */
+@TestMethodOrder(MethodOrderer.MethodName.class)
+@Execution(ExecutionMode.SAME_THREAD)
 public class BranchTestSpark3_5 extends OpenHouseSparkITest {
+
+  /**
+   * Comprehensive cleanup method to prevent configuration and table bleed-over between tests. This
+   * ensures WAP configurations are properly reset and all test tables are dropped.
+   */
+  @AfterEach
+  public void cleanupAfterTest() {
+    try (SparkSession spark = getSparkSession()) {
+      // Clear WAP configurations to prevent bleed-over between tests
+      spark.conf().unset("spark.wap.id");
+      spark.conf().unset("spark.wap.branch");
+
+      // Drop all test tables to ensure clean state for next test
+      // Get all tables in the d1 database that start with branch_test_ or similar patterns
+      try {
+        List<Row> tables = spark.sql("SHOW TABLES IN openhouse.d1").collectAsList();
+        for (Row table : tables) {
+          String tableName = table.getString(1); // table name is in second column
+          if (tableName.startsWith("branch_test_") || tableName.startsWith("test_")) {
+            String fullTableName = "openhouse.d1." + tableName;
+            spark.sql("DROP TABLE IF EXISTS " + fullTableName);
+          }
+        }
+      } catch (Exception e) {
+        // If SHOW TABLES fails, try to drop common test table patterns
+        // This is a fallback in case the database doesn't exist yet
+        for (String pattern : new String[] {"branch_test_", "test_"}) {
+          for (int i = 0; i < 10; i++) { // Try a few recent timestamps
+            long timestamp = System.currentTimeMillis() - (i * 1000);
+            String tableName = "openhouse.d1." + pattern + timestamp;
+            try {
+              spark.sql("DROP TABLE IF EXISTS " + tableName);
+            } catch (Exception ignored) {
+              // Ignore failures for non-existent tables
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      // Log but don't fail the test for cleanup issues
+      System.err.println("Warning: Failed to cleanup after test: " + e.getMessage());
+    }
+  }
 
   // ===== BASIC BRANCH OPERATIONS =====
 
@@ -27,7 +77,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName);
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
       // Add initial data to main
@@ -56,8 +105,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       assertEquals(2, refs.size());
       assertEquals("feature_a", refs.get(0).getString(0));
       assertEquals("main", refs.get(1).getString(0));
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -69,7 +116,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
 
@@ -81,7 +127,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       // Stage WAP snapshot (should not affect any branch)
       spark.conf().set("spark.wap.id", "multi-branch-wap");
       spark.sql("INSERT INTO " + tableName + " VALUES ('wap.staged.data')");
-      spark.conf().unset("spark.wap.id");
 
       // Verify WAP staging doesn't affect branch visibility
       assertEquals(
@@ -116,8 +161,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
                       + ".snapshots WHERE summary['wap.id'] = 'multi-branch-wap'")
               .collectAsList();
       assertEquals(1, wapSnapshots.size());
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -129,7 +172,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
 
@@ -148,9 +190,9 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
                       + ".snapshots WHERE summary['wap.id'] = 'feature-target-wap'")
               .first()
               .mkString();
-      spark.conf().unset("spark.wap.id");
 
-      // CRITICAL: Advance main branch to force non-fast-forward cherry-pick
+      // CRITICAL: Unset WAP ID before advancing main branch to force non-fast-forward cherry-pick
+      // spark.conf().unset("spark.wap.id");
       spark.sql("INSERT INTO " + tableName + " VALUES ('main.advance')");
 
       // Cherry-pick WAP to main branch (this tests our enhanced maybeAppendSnapshots)
@@ -184,8 +226,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       assertTrue(
           publishedSnapshots.size() >= 1,
           "Should find at least one snapshot with published-wap-id");
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -197,7 +237,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
       // Setup base data
@@ -244,8 +283,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .first()
               .mkString();
       assertEquals(mainSnapshot, featureSnapshot);
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -255,7 +292,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
       // Setup base data
@@ -303,18 +339,15 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .first()
               .mkString();
       assertEquals(mainSnapshot, featureSnapshot);
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
   @Test
-  public void testFastForwardMergeWithWapId() throws Exception {
+  public void testFastForwardFeatureToMainAndWapId() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
 
@@ -335,9 +368,10 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
                       + ".snapshots WHERE summary['wap.id'] = 'test-wap'")
               .first()
               .mkString();
-      spark.conf().unset("spark.wap.id");
 
-      // Advance feature branch normally (not using WAP)
+      // Unset WAP ID before advancing feature branch normally (not using WAP - else WAP staged
+      // snapshot will apply to feature branch)
+      spark.conf().unset("spark.wap.id");
       spark.sql("INSERT INTO " + tableName + ".branch_feature_a VALUES ('feature.data')");
 
       // Verify WAP snapshot doesn't interfere with fast-forward
@@ -372,8 +406,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .collectAsList();
       assertEquals(1, wapSnapshots.size());
       assertEquals(wapSnapshotId, wapSnapshots.get(0).mkString());
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -383,7 +415,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
       // Setup base data
@@ -445,8 +476,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .first()
               .mkString();
       assertEquals(featureASnapshot, featureBSnapshot);
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -456,7 +485,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
       // Setup base data
@@ -509,8 +537,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .first()
               .mkString();
       assertNotEquals(mainSnapshot, featureSnapshot);
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -522,7 +548,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
 
@@ -610,8 +635,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_a'")
               .collectAsList()
               .size());
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -621,7 +644,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
 
@@ -644,7 +666,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
                       + ".snapshots WHERE summary['wap.id'] = 'wap-to-expire'")
               .first()
               .mkString();
-      spark.conf().unset("spark.wap.id");
 
       // Expire specific WAP snapshot
       spark.sql(
@@ -681,12 +702,154 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
               .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_a'")
               .collectAsList()
               .size());
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
   // ===== BACKWARD COMPATIBILITY =====
+
+  @Test
+  public void testWapIdOnFeatureBranchAndMainBranch() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Setup base data in main branch
+      spark.sql("INSERT INTO " + tableName + " VALUES (0, 'main_base')");
+
+      // Create feature branch and add base data to it
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH feature_a");
+      spark.sql("INSERT INTO " + tableName + ".branch_feature_a VALUES (10, 'feature_base')");
+
+      // Verify initial state - main has 1 row, feature has 2 rows
+      assertEquals(1, spark.sql("SELECT * FROM " + tableName + "").collectAsList().size());
+      assertEquals(
+          2, spark.sql("SELECT * FROM " + tableName + ".branch_feature_a").collectAsList().size());
+
+      // Create WAP staged snapshot (invisible to normal reads)
+      spark.conf().set("spark.wap.id", "shared-wap-snapshot");
+      spark.sql("INSERT INTO " + tableName + " VALUES (99, 'wap_staged_data')");
+
+      // Get the WAP snapshot ID
+      String wapSnapshotId =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots WHERE summary['wap.id'] = 'shared-wap-snapshot'")
+              .first()
+              .mkString();
+
+      // Verify WAP staging doesn't affect normal reads (principle 2: invisible until published)
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main should not see WAP staged data");
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + ".branch_feature_a").collectAsList().size(),
+          "Feature should not see WAP staged data");
+
+      // Clear WAP ID to avoid contamination
+      spark.conf().unset("spark.wap.id");
+
+      // Cherry-pick the same WAP snapshot to MAIN branch
+      spark.sql(
+          String.format(
+              "CALL openhouse.system.cherrypick_snapshot('"
+                  + tableName.replace("openhouse.", "")
+                  + "', %s)",
+              wapSnapshotId));
+
+      // Verify cherry-pick to main worked - main should now have the WAP data
+      List<Row> mainAfterCherryPick = spark.sql("SELECT * FROM " + tableName + "").collectAsList();
+      assertEquals(2, mainAfterCherryPick.size(), "Main should have base + cherry-picked WAP data");
+      boolean mainHasWapData =
+          mainAfterCherryPick.stream().anyMatch(row -> "wap_staged_data".equals(row.getString(1)));
+      assertTrue(mainHasWapData, "Main should contain cherry-picked WAP data");
+
+      // Verify feature branch is still unaffected
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + ".branch_feature_a").collectAsList().size(),
+          "Feature branch should be unchanged");
+
+      // Demonstrate that WAP snapshots work independently on different branches by
+      // creating a separate WAP snapshot while on the feature branch context
+
+      // Create another WAP snapshot that could be applied to feature branch
+      spark.conf().set("spark.wap.id", "feature-specific-wap");
+      spark.sql("INSERT INTO " + tableName + ".branch_feature_a VALUES (50, 'feature_wap_data')");
+
+      String featureWapSnapshotId =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots WHERE summary['wap.id'] = 'feature-specific-wap'")
+              .first()
+              .mkString();
+
+      // Clear WAP ID again
+      spark.conf().unset("spark.wap.id");
+
+      // Verify that both WAP snapshots exist but are invisible to normal reads
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main should still only show cherry-picked data");
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + ".branch_feature_a").collectAsList().size(),
+          "Feature should not show new WAP data yet");
+
+      // Show that we can cherry-pick the feature WAP to main as well (demonstrating cross-branch
+      // capability)
+      spark.sql(
+          String.format(
+              "CALL openhouse.system.cherrypick_snapshot('"
+                  + tableName.replace("openhouse.", "")
+                  + "', %s)",
+              featureWapSnapshotId));
+
+      // Verify main now has both cherry-picked WAP snapshots
+      List<Row> finalMain = spark.sql("SELECT * FROM " + tableName + "").collectAsList();
+      assertEquals(3, finalMain.size(), "Main should have base + first WAP + second WAP data");
+
+      boolean hasOriginalWap =
+          finalMain.stream().anyMatch(row -> "wap_staged_data".equals(row.getString(1)));
+      boolean hasFeatureWap =
+          finalMain.stream().anyMatch(row -> "feature_wap_data".equals(row.getString(1)));
+      assertTrue(hasOriginalWap, "Main should contain first cherry-picked WAP data");
+      assertTrue(hasFeatureWap, "Main should contain second cherry-picked WAP data");
+
+      // Verify feature branch is still independent and unchanged by main's cherry-picks
+      List<Row> finalFeature =
+          spark.sql("SELECT * FROM " + tableName + ".branch_feature_a").collectAsList();
+      assertEquals(
+          2, finalFeature.size(), "Feature should still only have base + feature_base data");
+
+      // Verify that both original WAP snapshots are still available in metadata
+      List<Row> originalWapSnapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots WHERE summary['wap.id'] = 'shared-wap-snapshot'")
+              .collectAsList();
+      List<Row> featureWapSnapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots WHERE summary['wap.id'] = 'feature-specific-wap'")
+              .collectAsList();
+      assertEquals(1, originalWapSnapshots.size(), "Original WAP snapshot should still exist");
+      assertEquals(1, featureWapSnapshots.size(), "Feature WAP snapshot should still exist");
+    }
+  }
 
   @Test
   public void testBackwardCompatibilityMainBranchOnly() throws Exception {
@@ -694,7 +857,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
 
@@ -713,7 +875,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
                       + ".snapshots WHERE summary['wap.id'] = 'compat-test-wap'")
               .first()
               .mkString();
-      spark.conf().unset("spark.wap.id");
 
       // Traditional cherry-pick to main
       spark.sql(
@@ -732,8 +893,227 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       // Traditional snapshot queries should work
       assertTrue(
           spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList().size() >= 3);
+    }
+  }
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
+  // ===== WAP BRANCH TESTING =====
+  // These tests validate the intended WAP branch functionality.
+  // WAP branch should stage writes to a specific branch without affecting main.
+
+  @Test
+  public void testStagedChangesVisibleViaConf() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Setup base data
+      spark.sql("INSERT INTO " + tableName + " VALUES (1, 'base_data')");
+
+      // Create WAP branch and insert staged data
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH wap_branch");
+      spark.conf().set("spark.wap.branch", "wap_branch");
+      spark.sql("INSERT INTO " + tableName + " VALUES (2, 'staged_data')");
+
+      // When spark.wap.branch is set, SELECT should see WAP branch data (2 rows)
+      List<Row> wapVisible = spark.sql("SELECT * FROM " + tableName).collectAsList();
+      assertEquals(
+          2, wapVisible.size(), "Should see both base and staged data when wap.branch is set");
+
+      // When spark.wap.branch is unset, SELECT should see only main data (1 row)
+      spark.conf().unset("spark.wap.branch");
+      List<Row> mainOnly = spark.sql("SELECT * FROM " + tableName).collectAsList();
+      assertEquals(1, mainOnly.size(), "Should see only base data when wap.branch is unset");
+    }
+  }
+
+  @Test
+  public void testStagedChangesHidden() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Setup base data
+      spark.sql("INSERT INTO " + tableName + " VALUES (0, 'base')");
+
+      // Create WAP branch for staged operations
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH wap");
+
+      // Set WAP branch for staged testing
+      spark.conf().set("spark.wap.branch", "wap");
+
+      // INSERT INTO table -> inserts to the WAP branch
+      spark.sql("INSERT INTO " + tableName + " VALUES (1, 'staged_data')");
+
+      // When spark.wap.branch is set:
+      // ✅ SELECT * FROM table → reads from the WAP branch
+      List<Row> tableData = spark.sql("SELECT * FROM " + tableName + "").collectAsList();
+      assertEquals(
+          2,
+          tableData.size(),
+          "SELECT * FROM table should read from WAP branch when spark.wap.branch is set");
+      boolean hasBase = tableData.stream().anyMatch(row -> "base".equals(row.getString(1)));
+      boolean hasStaged =
+          tableData.stream().anyMatch(row -> "staged_data".equals(row.getString(1)));
+      assertTrue(hasBase, "WAP branch should contain base data");
+      assertTrue(hasStaged, "WAP branch should contain staged data");
+
+      // ✅ SELECT * FROM table.branch_wap → explicitly reads from WAP branch
+      List<Row> wapBranchData =
+          spark.sql("SELECT * FROM " + tableName + ".branch_wap").collectAsList();
+      assertEquals(2, wapBranchData.size(), "Explicit WAP branch select should show staged data");
+
+      // ✅ SELECT * FROM table.branch_main → explicitly reads from main branch
+      List<Row> mainBranchData =
+          spark.sql("SELECT * FROM " + tableName + ".branch_main").collectAsList();
+      assertEquals(
+          1, mainBranchData.size(), "Explicit main branch select should only show base data");
+      assertEquals(
+          "base", mainBranchData.get(0).getString(1), "Main branch should only contain base data");
+
+      // Now unset spark.wap.branch and ensure main branch is the referenced data
+      spark.conf().unset("spark.wap.branch");
+
+      // When spark.wap.branch is unset, SELECT * FROM table should read from main branch
+      List<Row> afterUnsetData = spark.sql("SELECT * FROM " + tableName + "").collectAsList();
+      assertEquals(
+          1,
+          afterUnsetData.size(),
+          "SELECT * FROM table should read from main branch when spark.wap.branch is unset");
+      assertEquals(
+          "base",
+          afterUnsetData.get(0).getString(1),
+          "After unsetting wap.branch, should read from main");
+
+      // INSERT INTO table should go to main branch when spark.wap.branch is unset
+      spark.sql("INSERT INTO " + tableName + " VALUES (2, 'main_data')");
+      List<Row> finalMainData = spark.sql("SELECT * FROM " + tableName + "").collectAsList();
+      assertEquals(
+          2, finalMainData.size(), "Main branch should now have 2 rows after unsetting wap.branch");
+      boolean hasMainData =
+          finalMainData.stream().anyMatch(row -> "main_data".equals(row.getString(1)));
+      assertTrue(hasMainData, "Main branch should contain the newly inserted data");
+
+      // WAP branch should remain unchanged
+      List<Row> finalWapData =
+          spark.sql("SELECT * FROM " + tableName + ".branch_wap").collectAsList();
+      assertEquals(
+          2, finalWapData.size(), "WAP branch should remain unchanged with base + staged data");
+    }
+  }
+
+  @Test
+  public void testPublishWapBranch() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Setup base data
+      spark.sql("INSERT INTO " + tableName + " VALUES (0, 'base')");
+
+      // Create staging branch
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH staging");
+
+      // Stage changes to WAP branch
+      spark.conf().set("spark.wap.branch", "staging");
+      spark.sql("INSERT INTO " + tableName + " VALUES (1, 'staged_for_publish')");
+
+      // When spark.wap.branch is set, SELECT * FROM table should read from WAP branch
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "SELECT * FROM table should read from WAP branch when spark.wap.branch is set");
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'staging'")
+              .collectAsList()
+              .size(),
+          "Staging should have staged data");
+
+      // Verify main branch still only has base data
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + ".branch_main").collectAsList().size(),
+          "Main branch should not have staged data");
+
+      // Fast-forward main branch to staging branch to publish the staged changes
+      spark.sql("CALL openhouse.system.fast_forward('" + tableName + "', 'main', 'staging')");
+
+      // Verify data is now published to main branch (need to explicitly check main branch)
+      List<Row> publishedData =
+          spark.sql("SELECT * FROM " + tableName + ".branch_main").collectAsList();
+      assertEquals(2, publishedData.size(), "Main branch should now have published data");
+
+      boolean hasPublished =
+          publishedData.stream().anyMatch(row -> "staged_for_publish".equals(row.getString(1)));
+      assertTrue(hasPublished, "Main branch should contain the published staged data");
+
+      // Verify that with wap.branch still set, SELECT * FROM table still reads from WAP branch
+      List<Row> wapData = spark.sql("SELECT * FROM " + tableName + "").collectAsList();
+      assertEquals(2, wapData.size(), "SELECT * FROM table should still read from WAP branch");
+    }
+  }
+
+  @Test
+  public void testWapIdAndWapBranchIncompatible() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Setup base data
+      spark.sql("INSERT INTO " + tableName + " VALUES (0, 'base')");
+
+      // Create staging branch
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH staging");
+
+      // Set both WAP ID and WAP branch - this should be invalid
+      spark.conf().set("spark.wap.id", "test-wap-id");
+      spark.conf().set("spark.wap.branch", "staging");
+
+      // Attempt to write with both configurations should fail
+      assertThrows(
+          Exception.class,
+          () -> spark.sql("INSERT INTO " + tableName + " VALUES (1, 'invalid')"),
+          "Cannot use both wap.id and wap.branch simultaneously");
+    }
+  }
+
+  @Test
+  public void testCannotWriteToBothBranches() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Setup base data
+      spark.sql("INSERT INTO " + tableName + " VALUES (0, 'base')");
+
+      // Create branches
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH feature");
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH staging");
+
+      // Set WAP branch
+      spark.conf().set("spark.wap.branch", "staging");
+
+      // ❌ INVALID: Cannot write to both normal branch and WAP branch
+      assertThrows(
+          Exception.class,
+          () -> spark.sql("INSERT INTO " + tableName + ".branch_feature VALUES (1, 'invalid')"),
+          "Cannot write to explicit branch when wap.branch is set");
     }
   }
 
@@ -745,7 +1125,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
       // Setup base data
@@ -786,8 +1165,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       assertEquals(2, refs.size());
       assertEquals("feature_a", refs.get(0).getString(0));
       assertEquals("main", refs.get(1).getString(0));
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 
@@ -797,7 +1174,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       String tableId = "branch_test_" + System.currentTimeMillis();
       String tableName = "openhouse.d1." + tableId;
 
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
 
@@ -816,7 +1192,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
                       + ".snapshots WHERE summary['wap.id'] = 'valid-wap'")
               .first()
               .mkString();
-      spark.conf().unset("spark.wap.id");
 
       // Verify valid WAP cherry-pick works
       spark.sql(
@@ -871,8 +1246,6 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
                       + ".snapshots WHERE summary['wap.id'] = 'valid-wap'")
               .collectAsList();
       assertEquals(1, validWaps.size());
-
-      spark.sql("DROP TABLE IF EXISTS " + tableName + "");
     }
   }
 }
