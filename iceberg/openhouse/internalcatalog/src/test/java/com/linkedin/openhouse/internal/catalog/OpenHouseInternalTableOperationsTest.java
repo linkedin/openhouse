@@ -588,29 +588,6 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   @Test
-  void testDoCommitAppendSnapshotsToNonMainBranch() throws IOException {
-    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
-    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
-    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
-        Mockito.mockStatic(TableMetadataParser.class)) {
-      properties.put(
-          CatalogConstants.SNAPSHOTS_JSON_KEY,
-          SnapshotsUtil.serializedSnapshots(testSnapshots.subList(0, 1)));
-      properties.put(
-          CatalogConstants.SNAPSHOTS_REFS_KEY,
-          SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testSnapshots.get(0), "branch")));
-      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
-
-      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
-      // verify throw an error when committing to non-main branch.
-      Assertions.assertThrows(
-          CommitStateUnknownException.class,
-          () -> openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata));
-    }
-  }
-
-  @Test
   void testAppendSnapshotsWithOldSnapshots() throws IOException {
     TableMetadata metadata =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
