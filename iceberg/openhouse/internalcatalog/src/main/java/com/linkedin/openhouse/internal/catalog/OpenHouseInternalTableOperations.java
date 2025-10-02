@@ -571,8 +571,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /**
-   * Determines the target branch for snapshot commits by matching snapshot IDs. When multiple
-   * branches are present, finds which branch should receive the new snapshots.
+   * Determines the target branch for snapshot commits using explicit branch targeting information.
+   * The snapshotRefs parameter contains the explicit branch targeting from the client commit
+   * operation.
    */
   private String determineTargetBranch(
       Map<String, SnapshotRef> snapshotRefs, List<Snapshot> newSnapshots, String defaultBranch) {
@@ -581,42 +582,102 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
 
     // If there's only one branch in the refs, use that as the target
+    // This is the most common case - client explicitly specified which branch to commit to
     if (snapshotRefs.size() == 1) {
-      return snapshotRefs.keySet().iterator().next();
+      String targetBranch = snapshotRefs.keySet().iterator().next();
+      log.debug("Using explicit target branch from commit context: {}", targetBranch);
+      return targetBranch;
     }
 
-    // CRITICAL FIX: For multi-branch scenarios, find which branch should get the new snapshots
+    // Multiple branches specified in commit - need to determine which one based on snapshot
+    // relationships
+    log.info(
+        "Multiple branches in snapshotRefs ({}), analyzing snapshot relationships",
+        snapshotRefs.size());
     if (!newSnapshots.isEmpty()) {
-      // Get the latest snapshot ID from new snapshots
-      long latestSnapshotId = newSnapshots.get(newSnapshots.size() - 1).snapshotId();
+      Snapshot latestSnapshot = newSnapshots.get(newSnapshots.size() - 1);
+      long latestSnapshotId = latestSnapshot.snapshotId();
+      log.info("Latest snapshot ID: {}", latestSnapshotId);
 
-      // Find which branch in snapshotRefs should point to this snapshot
+      // First try: exact snapshot ID match within the explicitly targeted branches
+      List<String> exactMatches = new ArrayList<>();
       for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
         String branchName = entry.getKey();
         long branchSnapshotId = entry.getValue().snapshotId();
 
         if (branchSnapshotId == latestSnapshotId) {
-          log.debug(
-              "Determined target branch '{}' by snapshot ID match: {}",
-              branchName,
-              latestSnapshotId);
-          return branchName;
+          exactMatches.add(branchName);
         }
       }
-    }
 
-    // Fallback: if we can't match by snapshot ID, prefer non-main branches for branch operations
-    for (String branchName : snapshotRefs.keySet()) {
-      if (!branchName.equals(SnapshotRef.MAIN_BRANCH)) {
-        log.debug(
-            "Multiple branches, no snapshot match, preferring non-main branch: {}", branchName);
-        return branchName;
+      if (exactMatches.size() == 1) {
+        String targetBranch = exactMatches.get(0);
+        log.info(
+            "Determined target branch '{}' by exact snapshot ID match within commit context: {}",
+            targetBranch,
+            latestSnapshotId);
+        return targetBranch;
+      } else if (exactMatches.size() > 1) {
+        log.error(
+            "Multiple branches point to same snapshot {}: {}", latestSnapshotId, exactMatches);
+        throw new IllegalStateException(
+            String.format(
+                "Multiple explicitly targeted branches point to the same snapshot %s: %s. "
+                    + "This indicates an invalid commit state.",
+                latestSnapshotId, exactMatches));
+      }
+
+      // Second try: parent-child relationship match within the explicitly targeted branches
+      Long parentSnapshotId = latestSnapshot.parentId();
+      log.info("Parent snapshot ID: {}", parentSnapshotId);
+      if (parentSnapshotId != null) {
+        List<String> parentMatches = new ArrayList<>();
+        for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
+          String branchName = entry.getKey();
+          long branchSnapshotId = entry.getValue().snapshotId();
+
+          if (branchSnapshotId == parentSnapshotId) {
+            parentMatches.add(branchName);
+            log.info("Branch '{}' matches parent snapshot {}", branchName, parentSnapshotId);
+          }
+        }
+
+        if (parentMatches.size() == 1) {
+          String targetBranch = parentMatches.get(0);
+          log.info(
+              "Determined target branch '{}' by parent-child relationship within commit context: new snapshot {} is child of branch snapshot {}",
+              targetBranch,
+              latestSnapshotId,
+              parentSnapshotId);
+          return targetBranch;
+        } else if (parentMatches.size() > 1) {
+          log.error(
+              "Multiple branches point to parent snapshot {}: {}", parentSnapshotId, parentMatches);
+          throw new IllegalStateException(
+              String.format(
+                  "Multiple explicitly targeted branches point to parent snapshot %s: %s. "
+                      + "Cannot determine which branch should receive child snapshot %s. "
+                      + "This indicates ambiguous commit targeting - the client should specify a single target branch.",
+                  parentSnapshotId, parentMatches, latestSnapshotId));
+        }
+        // If parentMatches.size() == 0, none of the explicitly targeted branches are parents
+        // This could happen in cherry-pick or other non-linear operations
       }
     }
 
-    // Final fallback to main
-    log.debug("Multiple branches, falling back to main branch");
-    return SnapshotRef.MAIN_BRANCH;
+    // If we reach here, we have multiple explicitly targeted branches but couldn't determine
+    // the target based on snapshot relationships. This suggests the commit operation itself
+    // is ambiguous or invalid.
+    log.error(
+        "Cannot determine target branch from explicitly targeted branches: {}",
+        snapshotRefs.keySet());
+    throw new IllegalStateException(
+        String.format(
+            "Cannot determine target branch from explicitly targeted branches: %s. "
+                + "The commit specifies multiple target branches but snapshot relationships "
+                + "don't clearly indicate which branch should receive the new snapshots. "
+                + "This suggests an invalid or ambiguous commit operation.",
+            snapshotRefs.keySet()));
   }
 
   public TableMetadata maybeAppendSnapshots(
@@ -658,8 +719,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         } else if (snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)) {
           // a snapshot created on a non fast-forward cherry-pick snapshot
           // Determine target branch from snapshotRefs or default to MAIN_BRANCH
+          // Pass only the current snapshot being processed, not the entire list
           String targetBranch =
-              determineTargetBranch(snapshotRefs, snapshotsToAppend, SnapshotRef.MAIN_BRANCH);
+              determineTargetBranch(
+                  snapshotRefs, Collections.singletonList(snapshot), SnapshotRef.MAIN_BRANCH);
           metadataBuilder.setBranchSnapshot(snapshot, targetBranch);
           appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
           cherryPickedSnapshots.add(
@@ -668,8 +731,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           // a regular snapshot - assign to appropriate branch using snapshotRefs context
           if (MapUtils.isNotEmpty(snapshotRefs)) {
             // We have explicit branch information, use it to assign snapshot
+            // Pass only the current snapshot being processed, not the entire list
             String targetBranch =
-                determineTargetBranch(snapshotRefs, snapshotsToAppend, SnapshotRef.MAIN_BRANCH);
+                determineTargetBranch(
+                    snapshotRefs, Collections.singletonList(snapshot), SnapshotRef.MAIN_BRANCH);
             metadataBuilder.setBranchSnapshot(snapshot, targetBranch);
           } else {
             // No explicit branch refs - treat as staged snapshot
@@ -679,7 +744,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
         }
       }
-    } else if (MapUtils.isNotEmpty(snapshotRefs)) {
+    }
+
+    // Handle ref updates (this can happen independently of snapshot append operations)
+    if (MapUtils.isNotEmpty(snapshotRefs)) {
       // Handle ref updates for all branches (fast-forward cherry-pick or rollback operations)
       for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
         String branchName = entry.getKey();
