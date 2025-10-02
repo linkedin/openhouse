@@ -23,7 +23,6 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -574,17 +573,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           allClientSnapshots.stream()
               .collect(Collectors.toMap(s -> String.valueOf(s.snapshotId()), s -> s));
     }
-  }
-
-  /**
-   * Combines cherry-picked snapshot IDs from both snapshot processing and standalone ref
-   * operations.
-   */
-  private List<String> combineCherryPickedSnapshots(
-      List<String> fromSnapshotProcessing, List<String> fromStandaloneRefUpdates) {
-    List<String> allCherryPicks = new ArrayList<>(fromSnapshotProcessing);
-    allCherryPicks.addAll(fromStandaloneRefUpdates);
-    return allCherryPicks;
   }
 
   /** Checks if a branch needs to be updated based on current refs and new snapshot ID. */
