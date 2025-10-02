@@ -779,6 +779,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       this.stagedSnapshots = new ArrayList<>(stagedSnapshots);
       this.cherryPickedSnapshots = new ArrayList<>(cherryPickedSnapshots);
     }
+
+    static SnapshotOperationResult empty() {
+      return new SnapshotOperationResult(
+          Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    }
   }
 
   /** Categorizes snapshots by type and applies them to the metadata builder. */
@@ -814,27 +819,51 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /**
-   * Updates branch references for fast-forward cherry-pick or rollback operations. Returns list of
-   * cherry-picked snapshot IDs.
+   * Updates branch references to point to specific snapshots.
+   *
+   * <p>This handles two scenarios:
+   *
+   * <ul>
+   *   <li>Standalone ref operations: Moving branches to existing snapshots (fast-forward/rollback)
+   *   <li>Guided snapshot assignment: Using refs to guide where new snapshots should be assigned
+   * </ul>
+   *
+   * @param recordAsCherryPicks whether to record ref updates as cherry-pick operations
+   * @return list of snapshot IDs that were cherry-picked (only when recordAsCherryPicks is true)
    */
   private List<String> updateBranchReferences(
       TableMetadata metadata,
       Map<String, SnapshotRef> snapshotRefs,
-      TableMetadata.Builder metadataBuilder) {
+      TableMetadata.Builder metadataBuilder,
+      boolean recordAsCherryPicks) {
 
     List<String> cherryPickedSnapshots = new ArrayList<>();
 
     for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
       String branchName = entry.getKey();
-      long newSnapshotId = entry.getValue().snapshotId();
+      long targetSnapshotId = entry.getValue().snapshotId();
 
-      if (needsBranchUpdate(metadata, branchName, newSnapshotId)) {
-        metadataBuilder.setBranchSnapshot(newSnapshotId, branchName);
-        cherryPickedSnapshots.add(String.valueOf(newSnapshotId));
+      if (needsBranchUpdate(metadata, branchName, targetSnapshotId)) {
+        metadataBuilder.setBranchSnapshot(targetSnapshotId, branchName);
+
+        if (recordAsCherryPicks) {
+          cherryPickedSnapshots.add(String.valueOf(targetSnapshotId));
+        }
       }
     }
 
     return cherryPickedSnapshots;
+  }
+
+  /**
+   * Combines cherry-picked snapshot IDs from both snapshot processing and standalone ref
+   * operations.
+   */
+  private List<String> combineCherryPickedSnapshots(
+      List<String> fromSnapshotProcessing, List<String> fromStandaloneRefUpdates) {
+    List<String> allCherryPicks = new ArrayList<>(fromSnapshotProcessing);
+    allCherryPicks.addAll(fromStandaloneRefUpdates);
+    return allCherryPicks;
   }
 
   /** Checks if a branch needs to be updated based on current refs and new snapshot ID. */
@@ -893,43 +922,49 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
 
     /**
-     * Apply snapshots to current TableMetadata. The following cases are handled:
+     * Process snapshots and branch reference updates. Two main operation types:
      *
-     * <p>[1] A regular (non-wap) snapshot is being added to any branch.
+     * <p><b>Snapshot Processing:</b> When snapshots list is non-empty:
      *
-     * <p>[2] A staged (wap) snapshot is being created on top of current snapshot as its base.
-     * Recognized by STAGED_WAP_ID_PROP. These are stage-only and not committed to any branch.
+     * <ul>
+     *   <li>[1] Regular snapshots - committed to branches (if snapshotRefs provided) or staged
+     *   <li>[2] WAP staged snapshots (STAGED_WAP_ID_PROP) - staged but not committed to branches
+     *   <li>[3] Cherry-picked snapshots (SOURCE_SNAPSHOT_ID_PROP) - committed to target branches
+     * </ul>
      *
-     * <p>[3] A staged (wap) snapshot is being cherry picked to any branch wherein current snapshot
-     * in the target branch is not the same as the base snapshot the staged (wap) snapshot was
-     * created on. Recognized by SOURCE_SNAPSHOT_ID_PROP. This case is called non-fast forward
-     * cherry pick.
+     * <p><b>Branch Reference Updates:</b> When snapshotRefs is non-empty:
      *
-     * <p>Additionally, branch ref updates can occur independently for fast-forward cherry-pick or
-     * rollback operations where existing snapshots are assigned to branches.
+     * <ul>
+     *   <li>If snapshots are also provided: snapshotRefs guides branch assignment during processing
+     *   <li>If only snapshotRefs provided: standalone fast-forward/rollback operations on existing
+     *       snapshots
+     * </ul>
      */
-    SnapshotOperationResult snapshotResult =
+    SnapshotOperationResult snapshotProcessingResults =
         CollectionUtils.isNotEmpty(snapshots)
             ? categorizeAndApplySnapshots(snapshots, snapshotRefs, metadataBuilder)
-            : new SnapshotOperationResult(
-                Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            : SnapshotOperationResult.empty();
 
-    // Handle ref updates (this can happen independently of snapshot processing operations)
-    List<String> refUpdateResults =
-        MapUtils.isNotEmpty(snapshotRefs)
-            ? updateBranchReferences(metadata, snapshotRefs, metadataBuilder)
-            : Collections.emptyList();
+    // Update branch references (for standalone fast-forward/rollback operations)
+    List<String> standaloneRefCherryPicks = Collections.emptyList();
+    if (MapUtils.isNotEmpty(snapshotRefs)) {
+      boolean recordRefUpdatesAsCherryPicks = CollectionUtils.isEmpty(snapshots);
+      standaloneRefCherryPicks =
+          updateBranchReferences(
+              metadata, snapshotRefs, metadataBuilder, recordRefUpdatesAsCherryPicks);
+    }
 
     if (recordAction) {
-      // Combine cherry-picked snapshots from both operations
-      List<String> allCherryPickedSnapshots = new ArrayList<>(snapshotResult.cherryPickedSnapshots);
-      allCherryPickedSnapshots.addAll(refUpdateResults);
+      // Combine cherry-picked snapshots from both snapshot processing and standalone ref updates
+      List<String> allCherryPickedSnapshots =
+          combineCherryPickedSnapshots(
+              snapshotProcessingResults.cherryPickedSnapshots, standaloneRefCherryPicks);
 
       recordSnapshotActions(
           metadata,
           metadataBuilder,
-          snapshotResult.appendedSnapshots,
-          snapshotResult.stagedSnapshots,
+          snapshotProcessingResults.appendedSnapshots,
+          snapshotProcessingResults.stagedSnapshots,
           allCherryPickedSnapshots);
     }
     return metadataBuilder.build();
