@@ -164,6 +164,1122 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
     }
   }
 
+  @Test
+  public void testWapIdAfterCreateTable() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_id_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      // Create table without any data (no snapshots exist)
+      spark.sql("CREATE TABLE " + tableName + " (name string)");
+
+      // Enable WAP on the table
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Verify no snapshots exist yet
+      List<Row> initialSnapshots =
+          spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList();
+      assertEquals(0, initialSnapshots.size(), "Newly created table should have no snapshots");
+
+      // Verify no branches exist yet (empty table has no branches)
+      List<Row> initialRefs = spark.sql("SELECT name FROM " + tableName + ".refs").collectAsList();
+      assertEquals(0, initialRefs.size(), "Empty table should have no branches initially");
+
+      // ===== WAP STAGING ON EMPTY TABLE =====
+
+      // 1. Create WAP staged data on empty table (should create staging snapshot)
+      spark.conf().set("spark.wap.id", "wap-stage-1");
+      spark.sql("INSERT INTO " + tableName + " VALUES ('wap_staged_data_1')");
+      spark.conf().unset("spark.wap.id");
+
+      // Verify WAP snapshot was created
+      List<Row> wapSnapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id, summary FROM "
+                      + tableName
+                      + ".snapshots "
+                      + "WHERE summary['wap.id'] = 'wap-stage-1'")
+              .collectAsList();
+      assertEquals(1, wapSnapshots.size(), "Should have 1 WAP staged snapshot");
+
+      // Verify no branches exist yet (WAP staging doesn't create branches)
+      List<Row> refsAfterWapStaging =
+          spark.sql("SELECT name FROM " + tableName + ".refs").collectAsList();
+      assertEquals(0, refsAfterWapStaging.size(), "WAP staging should not create branches");
+
+      // Verify WAP data is not visible in main queries (no branch exists)
+      assertEquals(
+          0,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Should see 0 rows - no branches exist, WAP data is staged");
+
+      // ===== WAP PUBLISHING TO CREATE MAIN BRANCH =====
+
+      // 2. Publish WAP data to create main branch
+      String wapSnapshotId = String.valueOf(wapSnapshots.get(0).getLong(0));
+      spark.sql(
+          "CALL openhouse.system.cherrypick_snapshot('"
+              + tableName.replace("openhouse.", "")
+              + "', "
+              + wapSnapshotId
+              + ")");
+
+      // Verify main branch now exists
+      List<Row> refsAfterPublishing =
+          spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
+      assertEquals(
+          1, refsAfterPublishing.size(), "Should have main branch after publishing WAP data");
+      assertEquals("main", refsAfterPublishing.get(0).getString(0), "Should have main branch");
+
+      // Verify WAP data is now visible in main branch
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 1 row after WAP publishing");
+
+      List<Row> mainData = spark.sql("SELECT name FROM " + tableName + "").collectAsList();
+      assertEquals(
+          "wap_staged_data_1", mainData.get(0).getString(0), "Should see published WAP data");
+
+      // ===== MULTI-WAP OPERATIONS =====
+
+      // 3. Create multiple WAP staged data sets
+      spark.conf().set("spark.wap.id", "wap-stage-2");
+      spark.sql("INSERT INTO " + tableName + " VALUES ('wap_staged_data_2')");
+      spark.conf().unset("spark.wap.id");
+
+      spark.conf().set("spark.wap.id", "wap-stage-3");
+      spark.sql("INSERT INTO " + tableName + " VALUES ('wap_staged_data_3')");
+      spark.conf().unset("spark.wap.id");
+
+      // Verify multiple WAP snapshots exist
+      List<Row> allWapSnapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots "
+                      + "WHERE summary['wap.id'] IS NOT NULL")
+              .collectAsList();
+      assertEquals(3, allWapSnapshots.size(), "Should have 3 WAP staged snapshots");
+
+      // Verify main branch is unchanged (WAP data is staged)
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should still have 1 row (staged WAP not visible)");
+
+      // ===== SELECTIVE WAP PUBLISHING =====
+
+      // 4. Publish second WAP data set only
+      List<Row> wap2Snapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots "
+                      + "WHERE summary['wap.id'] = 'wap-stage-2'")
+              .collectAsList();
+      String wap2SnapshotId = String.valueOf(wap2Snapshots.get(0).getLong(0));
+      spark.sql(
+          "CALL openhouse.system.cherrypick_snapshot('"
+              + tableName.replace("openhouse.", "")
+              + "', "
+              + wap2SnapshotId
+              + ")");
+
+      // Verify main branch now has both published datasets
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 2 rows after second WAP publishing");
+
+      List<Row> publishedData =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals(
+          "wap_staged_data_1",
+          publishedData.get(0).getString(0),
+          "First row should be first WAP data");
+      assertEquals(
+          "wap_staged_data_2",
+          publishedData.get(1).getString(0),
+          "Second row should be second WAP data");
+
+      // ===== UNPUBLISHED WAP DATA VERIFICATION =====
+
+      // 5. Verify third WAP data remains unpublished
+      List<Row> wap3Snapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots "
+                      + "WHERE summary['wap.id'] = 'wap-stage-3'")
+              .collectAsList();
+      assertEquals(1, wap3Snapshots.size(), "Third WAP snapshot should still exist");
+
+      // Verify unpublished WAP data is not visible
+      List<Row> currentData =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertFalse(
+          currentData.stream().anyMatch(row -> "wap_staged_data_3".equals(row.getString(0))),
+          "Unpublished WAP data should not be visible in main branch");
+
+      // ===== REGULAR DATA VS WAP DATA =====
+
+      // 6. Add regular (non-WAP) data to main branch
+      spark.sql("INSERT INTO " + tableName + " VALUES ('regular_data')");
+
+      // Verify main branch now has mixed data
+      assertEquals(
+          3,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 3 rows (2 published WAP + 1 regular)");
+
+      List<Row> finalData =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals("regular_data", finalData.get(0).getString(0), "Should contain regular data");
+      assertEquals(
+          "wap_staged_data_1", finalData.get(1).getString(0), "Should contain first WAP data");
+      assertEquals(
+          "wap_staged_data_2", finalData.get(2).getString(0), "Should contain second WAP data");
+
+      // ===== SNAPSHOT HISTORY VERIFICATION =====
+
+      // 7. Verify snapshot counts and types
+      List<Row> totalSnapshots =
+          spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList();
+      assertTrue(
+          totalSnapshots.size() >= 4, "Should have at least 4 snapshots (3 WAP + 1 regular)");
+
+      // Verify WAP snapshots still exist in metadata
+      List<Row> remainingWapSnapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".snapshots "
+                      + "WHERE summary['wap.id'] IS NOT NULL")
+              .collectAsList();
+      assertEquals(
+          3, remainingWapSnapshots.size(), "All 3 WAP snapshots should still exist in metadata");
+
+      // Verify main branch has the latest published snapshot (points to regular INSERT snapshot)
+      List<Row> mainSnapshotRef =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'main'")
+              .collectAsList();
+      assertEquals(1, mainSnapshotRef.size(), "Main branch should exist and point to a snapshot");
+    }
+  }
+
+  @Test
+  public void testBranchAfterCreateTable() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      // Create table without any data (no snapshots exist)
+      spark.sql("CREATE TABLE " + tableName + " (name string)");
+
+      // Verify no snapshots exist yet
+      List<Row> initialSnapshots =
+          spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList();
+      assertEquals(0, initialSnapshots.size(), "Newly created table should have no snapshots");
+
+      // Create branch on table with no existing snapshots
+      // According to Iceberg specification, this should succeed and create an empty snapshot
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH feature_on_empty");
+
+      // Verify that an empty snapshot was created for the branch
+      List<Row> snapshotsAfterBranchCreation =
+          spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList();
+      assertEquals(
+          1,
+          snapshotsAfterBranchCreation.size(),
+          "Should have 1 empty snapshot after branch creation");
+
+      // Verify the empty snapshot properties
+      Row emptySnapshot = snapshotsAfterBranchCreation.get(0);
+      // The parent_id should be null for the empty snapshot
+      assertNull(
+          emptySnapshot.get(emptySnapshot.fieldIndex("parent_id")),
+          "Empty snapshot should have no parent");
+
+      // Verify the branch was created successfully
+      List<Row> refsAfterBranchCreation =
+          spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
+      assertEquals(
+          1,
+          refsAfterBranchCreation.size(),
+          "Should have feature_on_empty branch (main doesn't exist yet)");
+      assertEquals(
+          "feature_on_empty",
+          refsAfterBranchCreation.get(0).getString(0),
+          "Should have feature_on_empty branch");
+
+      // Verify that main branch still doesn't exist (as expected)
+      boolean hasMainBranch =
+          refsAfterBranchCreation.stream().anyMatch(row -> "main".equals(row.getString(0)));
+      assertFalse(hasMainBranch, "Main branch should not exist on empty table");
+
+      // Now insert data to create a data snapshot
+      spark.sql("INSERT INTO " + tableName + " VALUES ('initial.data')");
+
+      // Verify we now have 2 snapshots (empty + data)
+      List<Row> snapshotsAfterInsert =
+          spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList();
+      assertEquals(
+          2, snapshotsAfterInsert.size(), "Should have 2 snapshots after insert (empty + data)");
+
+      // Now we should have main branch as well
+      List<Row> refsAfterInsert =
+          spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
+      assertEquals(2, refsAfterInsert.size(), "Should have feature_on_empty and main branches");
+
+      // Create another branch after data exists - this should also succeed
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH feature_after_snapshot");
+
+      // Verify we now have 3 branches (feature_on_empty, main, feature_after_snapshot)
+      List<Row> refs =
+          spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
+      assertEquals(3, refs.size(), "Should have 3 branches total");
+
+      // Verify all expected branches exist
+      Set<String> branchNames =
+          refs.stream().map(row -> row.getString(0)).collect(Collectors.toSet());
+      assertTrue(branchNames.contains("feature_on_empty"), "feature_on_empty branch should exist");
+      assertTrue(branchNames.contains("main"), "main branch should exist");
+      assertTrue(
+          branchNames.contains("feature_after_snapshot"),
+          "feature_after_snapshot branch should exist");
+
+      // ===== BRANCH ISOLATION TESTING =====
+
+      // 1. Test initial state: main and feature_after_snapshot should have the same data
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 1 row");
+      assertEquals(
+          1,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_after_snapshot'")
+              .collectAsList()
+              .size(),
+          "feature_after_snapshot branch should have 1 row");
+
+      // 2. Test feature_on_empty branch should be empty (points to empty snapshot)
+      assertEquals(
+          0,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_on_empty'")
+              .collectAsList()
+              .size(),
+          "feature_on_empty branch should have 0 rows (points to empty snapshot)");
+
+      // 3. Add data to feature_on_empty branch only
+      spark.sql(
+          "INSERT INTO " + tableName + ".branch_feature_on_empty VALUES ('empty_branch_data')");
+
+      // Verify isolation: feature_on_empty now has data, others unchanged
+      assertEquals(
+          1,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_on_empty'")
+              .collectAsList()
+              .size(),
+          "feature_on_empty branch should now have 1 row");
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should still have 1 row (unchanged)");
+      assertEquals(
+          1,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_after_snapshot'")
+              .collectAsList()
+              .size(),
+          "feature_after_snapshot branch should still have 1 row (unchanged)");
+
+      // 4. Add different data to feature_after_snapshot branch
+      spark.sql(
+          "INSERT INTO "
+              + tableName
+              + ".branch_feature_after_snapshot VALUES ('snapshot_branch_data')");
+
+      // Verify isolation: each branch has its own data
+      assertEquals(
+          1,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_on_empty'")
+              .collectAsList()
+              .size(),
+          "feature_on_empty branch should still have 1 row");
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should still have 1 row (unchanged)");
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_after_snapshot'")
+              .collectAsList()
+              .size(),
+          "feature_after_snapshot branch should now have 2 rows");
+
+      // 5. Add data to main branch
+      spark.sql("INSERT INTO " + tableName + " VALUES ('main_branch_data')");
+
+      // Verify complete isolation: each branch maintains its own data
+      assertEquals(
+          1,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_on_empty'")
+              .collectAsList()
+              .size(),
+          "feature_on_empty branch should still have 1 row");
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should now have 2 rows");
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_after_snapshot'")
+              .collectAsList()
+              .size(),
+          "feature_after_snapshot branch should still have 2 rows (unchanged)");
+
+      // 6. Verify data content isolation
+      List<Row> featureOnEmptyData =
+          spark
+              .sql(
+                  "SELECT name FROM "
+                      + tableName
+                      + " VERSION AS OF 'feature_on_empty' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "empty_branch_data",
+          featureOnEmptyData.get(0).getString(0),
+          "feature_on_empty should contain its specific data");
+
+      List<Row> mainData =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals(
+          "initial.data", mainData.get(0).getString(0), "main should contain initial data");
+      assertEquals(
+          "main_branch_data",
+          mainData.get(1).getString(0),
+          "main should contain its specific data");
+
+      List<Row> featureAfterSnapshotData =
+          spark
+              .sql(
+                  "SELECT name FROM "
+                      + tableName
+                      + " VERSION AS OF 'feature_after_snapshot' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "initial.data",
+          featureAfterSnapshotData.get(0).getString(0),
+          "feature_after_snapshot should contain initial data");
+      assertEquals(
+          "snapshot_branch_data",
+          featureAfterSnapshotData.get(1).getString(0),
+          "feature_after_snapshot should contain its specific data");
+
+      // 7. Verify snapshot isolation: each branch should have different snapshot histories
+      List<Row> mainSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'main'")
+              .collectAsList();
+      List<Row> featureOnEmptySnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'feature_on_empty'")
+              .collectAsList();
+      List<Row> featureAfterSnapshotSnapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id FROM "
+                      + tableName
+                      + ".refs WHERE name = 'feature_after_snapshot'")
+              .collectAsList();
+
+      assertNotEquals(
+          mainSnapshots.get(0).getLong(0),
+          featureOnEmptySnapshots.get(0).getLong(0),
+          "main and feature_on_empty should point to different snapshots");
+      assertNotEquals(
+          mainSnapshots.get(0).getLong(0),
+          featureAfterSnapshotSnapshots.get(0).getLong(0),
+          "main and feature_after_snapshot should point to different snapshots");
+      assertNotEquals(
+          featureOnEmptySnapshots.get(0).getLong(0),
+          featureAfterSnapshotSnapshots.get(0).getLong(0),
+          "feature_on_empty and feature_after_snapshot should point to different snapshots");
+    }
+  }
+
+  @Test
+  public void testWapBranchAfterCreateTable() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      // Create table without any data (no snapshots exist)
+      spark.sql("CREATE TABLE " + tableName + " (name string)");
+
+      // Enable WAP on the table
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Verify no snapshots exist yet
+      List<Row> initialSnapshots =
+          spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList();
+      assertEquals(0, initialSnapshots.size(), "Newly created table should have no snapshots");
+
+      // Create branch on table with no existing snapshots
+      // According to Iceberg specification, this should succeed and create an empty snapshot
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH feature_empty");
+
+      // Verify that an empty snapshot was created for the branch
+      List<Row> snapshotsAfterBranchCreation =
+          spark.sql("SELECT * FROM " + tableName + ".snapshots").collectAsList();
+      assertEquals(
+          1,
+          snapshotsAfterBranchCreation.size(),
+          "Should have 1 empty snapshot after branch creation");
+
+      // Verify the branch was created successfully
+      List<Row> refsAfterBranchCreation =
+          spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
+      assertEquals(
+          1,
+          refsAfterBranchCreation.size(),
+          "Should have feature_empty branch (main doesn't exist yet)");
+      assertEquals(
+          "feature_empty",
+          refsAfterBranchCreation.get(0).getString(0),
+          "Should have feature_empty branch");
+
+      // ===== WAP BRANCH TESTING =====
+
+      // 1. Set WAP branch and insert data - should go to the feature_empty branch
+      spark.conf().set("spark.wap.branch", "feature_empty");
+      spark.sql("INSERT INTO " + tableName + " VALUES ('wap_branch_data_1')");
+
+      // Verify WAP branch data is visible when spark.wap.branch is set
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Should see 1 row when spark.wap.branch=feature_empty");
+
+      List<Row> wapBranchData = spark.sql("SELECT name FROM " + tableName + "").collectAsList();
+      assertEquals(
+          "wap_branch_data_1", wapBranchData.get(0).getString(0), "Should see WAP branch data");
+
+      // Verify feature_empty branch directly
+      assertEquals(
+          1,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_empty'")
+              .collectAsList()
+              .size(),
+          "feature_empty branch should have 1 row");
+
+      // Unset WAP branch - queries should now see main branch (which doesn't exist yet, so empty)
+      spark.conf().unset("spark.wap.branch");
+      assertEquals(
+          0,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Should see 0 rows when spark.wap.branch is unset (main doesn't exist)");
+
+      // ===== MULTI-BRANCH WAP TESTING =====
+
+      // 2. Create main branch with regular data
+      spark.sql("INSERT INTO " + tableName + " VALUES ('main_data')");
+
+      // Now we should have main branch
+      List<Row> refs =
+          spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
+      assertEquals(2, refs.size(), "Should have feature_empty and main branches");
+
+      // Verify main branch data when spark.wap.branch is unset
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 1 row");
+      List<Row> mainData = spark.sql("SELECT name FROM " + tableName + "").collectAsList();
+      assertEquals("main_data", mainData.get(0).getString(0), "Should see main branch data");
+
+      // 3. Create another branch and test WAP branch functionality
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH feature_wap_test");
+
+      // Set WAP branch to feature_wap_test and add data
+      spark.conf().set("spark.wap.branch", "feature_wap_test");
+      spark.sql("INSERT INTO " + tableName + " VALUES ('wap_branch_data_2')");
+
+      // Verify WAP branch data is visible when spark.wap.branch=feature_wap_test
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Should see 2 rows when spark.wap.branch=feature_wap_test (main_data + wap_branch_data_2)");
+
+      // ===== COMPREHENSIVE WAP BRANCH ISOLATION VERIFICATION =====
+
+      // Verify each branch has independent data
+      spark.conf().unset("spark.wap.branch");
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 1 row when WAP branch is unset");
+
+      assertEquals(
+          1,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_empty'")
+              .collectAsList()
+              .size(),
+          "feature_empty branch should have 1 row");
+
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_wap_test'")
+              .collectAsList()
+              .size(),
+          "feature_wap_test branch should have 2 rows");
+
+      // Verify data content isolation
+      List<Row> finalMainData =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals("main_data", finalMainData.get(0).getString(0), "main should contain main_data");
+
+      List<Row> finalFeatureEmptyData =
+          spark
+              .sql("SELECT name FROM " + tableName + " VERSION AS OF 'feature_empty' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "wap_branch_data_1",
+          finalFeatureEmptyData.get(0).getString(0),
+          "feature_empty should contain wap_branch_data_1");
+
+      List<Row> finalFeatureWapTestData =
+          spark
+              .sql(
+                  "SELECT name FROM "
+                      + tableName
+                      + " VERSION AS OF 'feature_wap_test' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "main_data",
+          finalFeatureWapTestData.get(0).getString(0),
+          "feature_wap_test should contain main_data");
+      assertEquals(
+          "wap_branch_data_2",
+          finalFeatureWapTestData.get(1).getString(0),
+          "feature_wap_test should contain wap_branch_data_2");
+
+      // ===== WAP BRANCH SWITCHING BEHAVIOR =====
+
+      // 4. Test switching between WAP branches
+      spark.conf().set("spark.wap.branch", "feature_empty");
+      List<Row> switchToFeatureEmpty =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals(
+          "wap_branch_data_1",
+          switchToFeatureEmpty.get(0).getString(0),
+          "Should see feature_empty data when switched");
+
+      spark.conf().set("spark.wap.branch", "feature_wap_test");
+      List<Row> switchToFeatureWapTest =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals(
+          2, switchToFeatureWapTest.size(), "Should see 2 rows when switched to feature_wap_test");
+      assertEquals(
+          "main_data", switchToFeatureWapTest.get(0).getString(0), "First row should be main_data");
+      assertEquals(
+          "wap_branch_data_2",
+          switchToFeatureWapTest.get(1).getString(0),
+          "Second row should be wap_branch_data_2");
+
+      // 5. Test INSERT behavior with WAP branch set
+      spark.conf().set("spark.wap.branch", "feature_empty");
+      spark.sql("INSERT INTO " + tableName + " VALUES ('additional_wap_data')");
+
+      // Verify the insert went to the WAP branch
+      assertEquals(
+          2,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Should see 2 rows in feature_empty after additional insert");
+
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_empty'")
+              .collectAsList()
+              .size(),
+          "feature_empty branch should have 2 rows after additional insert");
+
+      // Verify other branches are unchanged
+      spark.conf().unset("spark.wap.branch");
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should still have 1 row (unchanged)");
+
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'feature_wap_test'")
+              .collectAsList()
+              .size(),
+          "feature_wap_test branch should still have 2 rows (unchanged)");
+
+      // ===== SNAPSHOT HISTORY VERIFICATION =====
+
+      // 6. Verify that each branch points to different snapshots
+      List<Row> finalMainSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'main'")
+              .collectAsList();
+      List<Row> finalFeatureEmptySnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'feature_empty'")
+              .collectAsList();
+      List<Row> finalFeatureWapTestSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'feature_wap_test'")
+              .collectAsList();
+
+      assertNotEquals(
+          finalMainSnapshots.get(0).getLong(0),
+          finalFeatureEmptySnapshots.get(0).getLong(0),
+          "main and feature_empty should point to different snapshots");
+      assertNotEquals(
+          finalMainSnapshots.get(0).getLong(0),
+          finalFeatureWapTestSnapshots.get(0).getLong(0),
+          "main and feature_wap_test should point to different snapshots");
+      assertNotEquals(
+          finalFeatureEmptySnapshots.get(0).getLong(0),
+          finalFeatureWapTestSnapshots.get(0).getLong(0),
+          "feature_empty and feature_wap_test should point to different snapshots");
+
+      // Clean up WAP branch configuration
+      spark.conf().unset("spark.wap.branch");
+    }
+  }
+
+  @Test
+  public void testWapBranchCommitWithMultipleBranches() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "wap_multi_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      // Create table and enable WAP
+      spark.sql("CREATE TABLE " + tableName + " (name string)");
+      spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
+
+      // Step 1: Start with main at snapshotX
+      spark.sql("INSERT INTO " + tableName + " VALUES ('main_data')");
+
+      // Verify main branch exists and get its snapshot
+      List<Row> mainSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'main'")
+              .collectAsList();
+      assertEquals(1, mainSnapshots.size(), "Main branch should exist");
+      long snapshotX = mainSnapshots.get(0).getLong(0);
+      System.out.println("SnapshotX (main): " + snapshotX);
+
+      // Step 2: Create branchA from main → branchA also points to snapshotX
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH branchA");
+
+      // Verify branchA points to same snapshot as main
+      List<Row> branchASnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchA'")
+              .collectAsList();
+      assertEquals(1, branchASnapshots.size(), "BranchA should exist");
+      long branchASnapshotAfterCreation = branchASnapshots.get(0).getLong(0);
+      assertEquals(
+          snapshotX, branchASnapshotAfterCreation, "BranchA should point to same snapshot as main");
+
+      // Step 3: Set branchA as the WAP branch and commit data
+      spark.conf().set("spark.wap.branch", "branchA");
+      spark.sql("INSERT INTO " + tableName + " VALUES ('branchA_data')");
+
+      // Step 4: Verify branchA now points to snapshotY (child of snapshotX)
+      List<Row> branchASnapshotsAfterCommit =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchA'")
+              .collectAsList();
+      long snapshotY = branchASnapshotsAfterCommit.get(0).getLong(0);
+      assertNotEquals(
+          snapshotX, snapshotY, "BranchA should now point to a new snapshot (snapshotY)");
+      System.out.println("SnapshotY (branchA after commit): " + snapshotY);
+
+      // Verify branchA has both main_data and branchA_data
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchA'")
+              .collectAsList()
+              .size(),
+          "BranchA should have 2 rows after commit");
+
+      // Verify main still points to snapshotX and has only main_data
+      spark.conf().unset("spark.wap.branch");
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should still have 1 row");
+
+      // Step 5: Create branchB from branchA → branchB points to snapshotY
+      // First create the branch, then set it to point to the same snapshot as branchA
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH branchB");
+      spark.sql("CALL openhouse.system.fast_forward('" + tableName + "', 'branchB', 'branchA')");
+
+      // Verify branchB points to snapshotY
+      List<Row> branchBSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchB'")
+              .collectAsList();
+      long branchBSnapshotAfterCreation = branchBSnapshots.get(0).getLong(0);
+      assertEquals(
+          snapshotY,
+          branchBSnapshotAfterCreation,
+          "BranchB should point to snapshotY (same as branchA)");
+
+      // Step 6: Make a commit on branchB → branchB now points to snapshotZ (child of snapshotY)
+      // Use direct branch syntax to target branchB specifically
+      spark.sql("INSERT INTO " + tableName + ".branch_branchB VALUES ('branchB_data')");
+
+      // Verify branchB now points to snapshotZ
+      List<Row> branchBSnapshotsAfterCommit =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchB'")
+              .collectAsList();
+      long snapshotZ = branchBSnapshotsAfterCommit.get(0).getLong(0);
+      assertNotEquals(
+          snapshotY, snapshotZ, "BranchB should now point to a new snapshot (snapshotZ)");
+      System.out.println("SnapshotZ (branchB after commit): " + snapshotZ);
+
+      // ===== VERIFICATION OF FINAL STATE =====
+
+      // Verify all three branches exist and point to different snapshots
+      List<Row> allRefs =
+          spark
+              .sql("SELECT name, snapshot_id FROM " + tableName + ".refs ORDER BY name")
+              .collectAsList();
+      assertEquals(3, allRefs.size(), "Should have 3 branches: main, branchA, branchB");
+
+      // Verify snapshot relationships
+      List<Row> mainFinalSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'main'")
+              .collectAsList();
+      List<Row> branchAFinalSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchA'")
+              .collectAsList();
+      List<Row> branchBFinalSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchB'")
+              .collectAsList();
+
+      long finalSnapshotX = mainFinalSnapshots.get(0).getLong(0);
+      long finalSnapshotY = branchAFinalSnapshots.get(0).getLong(0);
+      long finalSnapshotZ = branchBFinalSnapshots.get(0).getLong(0);
+
+      assertEquals(snapshotX, finalSnapshotX, "Main should still point to snapshotX");
+      assertEquals(snapshotY, finalSnapshotY, "BranchA should still point to snapshotY");
+      assertEquals(snapshotZ, finalSnapshotZ, "BranchB should point to snapshotZ");
+
+      // Verify data isolation between branches
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 1 row");
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchA'")
+              .collectAsList()
+              .size(),
+          "BranchA should have 2 rows");
+      assertEquals(
+          3,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchB'")
+              .collectAsList()
+              .size(),
+          "BranchB should have 3 rows");
+
+      // Verify content
+      List<Row> mainData =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals("main_data", mainData.get(0).getString(0), "Main should contain main_data");
+
+      List<Row> branchAData =
+          spark
+              .sql("SELECT name FROM " + tableName + " VERSION AS OF 'branchA' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "branchA_data", branchAData.get(0).getString(0), "BranchA should contain branchA_data");
+      assertEquals(
+          "main_data", branchAData.get(1).getString(0), "BranchA should contain main_data");
+
+      List<Row> branchBData =
+          spark
+              .sql("SELECT name FROM " + tableName + " VERSION AS OF 'branchB' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "branchA_data", branchBData.get(0).getString(0), "BranchB should contain branchA_data");
+      assertEquals(
+          "branchB_data", branchBData.get(1).getString(0), "BranchB should contain branchB_data");
+      assertEquals(
+          "main_data", branchBData.get(2).getString(0), "BranchB should contain main_data");
+
+      // Verify parent-child relationships in snapshot metadata
+      List<Row> allSnapshots =
+          spark
+              .sql(
+                  "SELECT snapshot_id, parent_id FROM "
+                      + tableName
+                      + ".snapshots ORDER BY committed_at")
+              .collectAsList();
+      assertTrue(allSnapshots.size() >= 3, "Should have at least 3 snapshots");
+
+      // Clean up WAP configuration
+      spark.conf().unset("spark.wap.branch");
+    }
+  }
+
+  @Test
+  public void testRegularCommitWithMultipleBranches() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = "regular_multi_branch_test_" + System.currentTimeMillis();
+      String tableName = "openhouse.d1." + tableId;
+
+      // Create table (no WAP needed for this test)
+      spark.sql("CREATE TABLE " + tableName + " (name string)");
+
+      // Step 1: Start with main at snapshotX
+      spark.sql("INSERT INTO " + tableName + " VALUES ('main_data')");
+
+      // Verify main branch exists and get its snapshot
+      List<Row> mainSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'main'")
+              .collectAsList();
+      assertEquals(1, mainSnapshots.size(), "Main branch should exist");
+      long snapshotX = mainSnapshots.get(0).getLong(0);
+      System.out.println("SnapshotX (main): " + snapshotX);
+
+      // Step 2: Create branchA from main → branchA also points to snapshotX
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH branchA");
+
+      // Verify branchA points to same snapshot as main
+      List<Row> branchASnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchA'")
+              .collectAsList();
+      assertEquals(1, branchASnapshots.size(), "BranchA should exist");
+      long branchASnapshotAfterCreation = branchASnapshots.get(0).getLong(0);
+      assertEquals(
+          snapshotX, branchASnapshotAfterCreation, "BranchA should point to same snapshot as main");
+
+      // Step 3: Commit some data on branchA → branchA now points to snapshotY (child of snapshotX)
+      spark.sql("INSERT INTO " + tableName + ".branch_branchA VALUES ('branchA_data')");
+
+      // Verify branchA now points to snapshotY (child of snapshotX)
+      List<Row> branchASnapshotsAfterCommit =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchA'")
+              .collectAsList();
+      long snapshotY = branchASnapshotsAfterCommit.get(0).getLong(0);
+      assertNotEquals(
+          snapshotX, snapshotY, "BranchA should now point to a new snapshot (snapshotY)");
+      System.out.println("SnapshotY (branchA after commit): " + snapshotY);
+
+      // Verify branchA has both main_data and branchA_data
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchA'")
+              .collectAsList()
+              .size(),
+          "BranchA should have 2 rows after commit");
+
+      // Verify main still points to snapshotX and has only main_data
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should still have 1 row");
+
+      // Step 4: Create branchB from branchA → branchB points to snapshotY
+      // First create the branch, then set it to point to the same snapshot as branchA
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH branchB");
+      spark.sql("CALL openhouse.system.fast_forward('" + tableName + "', 'branchB', 'branchA')");
+
+      // Verify branchB points to snapshotY
+      List<Row> branchBSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchB'")
+              .collectAsList();
+      long branchBSnapshotAfterCreation = branchBSnapshots.get(0).getLong(0);
+      assertEquals(
+          snapshotY,
+          branchBSnapshotAfterCreation,
+          "BranchB should point to snapshotY (same as branchA)");
+
+      // Step 5: Make a commit on branchB → branchB now points to snapshotZ (child of snapshotY)
+      spark.sql("INSERT INTO " + tableName + ".branch_branchB VALUES ('branchB_data')");
+
+      // Verify branchB now points to snapshotZ
+      List<Row> branchBSnapshotsAfterCommit =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchB'")
+              .collectAsList();
+      long snapshotZ = branchBSnapshotsAfterCommit.get(0).getLong(0);
+      assertNotEquals(
+          snapshotY, snapshotZ, "BranchB should now point to a new snapshot (snapshotZ)");
+      System.out.println("SnapshotZ (branchB after commit): " + snapshotZ);
+
+      // ===== VERIFICATION OF FINAL STATE =====
+
+      // Verify all three branches exist and point to different snapshots
+      List<Row> allRefs =
+          spark
+              .sql("SELECT name, snapshot_id FROM " + tableName + ".refs ORDER BY name")
+              .collectAsList();
+      assertEquals(3, allRefs.size(), "Should have 3 branches: main, branchA, branchB");
+
+      // Verify snapshot relationships
+      List<Row> mainFinalSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'main'")
+              .collectAsList();
+      List<Row> branchAFinalSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchA'")
+              .collectAsList();
+      List<Row> branchBFinalSnapshots =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchB'")
+              .collectAsList();
+
+      long finalSnapshotX = mainFinalSnapshots.get(0).getLong(0);
+      long finalSnapshotY = branchAFinalSnapshots.get(0).getLong(0);
+      long finalSnapshotZ = branchBFinalSnapshots.get(0).getLong(0);
+
+      assertEquals(snapshotX, finalSnapshotX, "Main should still point to snapshotX");
+      assertEquals(snapshotY, finalSnapshotY, "BranchA should still point to snapshotY");
+      assertEquals(snapshotZ, finalSnapshotZ, "BranchB should point to snapshotZ");
+
+      // Verify all snapshots are different
+      assertNotEquals(
+          finalSnapshotX, finalSnapshotY, "SnapshotX and snapshotY should be different");
+      assertNotEquals(
+          finalSnapshotY, finalSnapshotZ, "SnapshotY and snapshotZ should be different");
+      assertNotEquals(
+          finalSnapshotX, finalSnapshotZ, "SnapshotX and snapshotZ should be different");
+
+      // Verify data isolation between branches
+      assertEquals(
+          1,
+          spark.sql("SELECT * FROM " + tableName + "").collectAsList().size(),
+          "Main branch should have 1 row");
+      assertEquals(
+          2,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchA'")
+              .collectAsList()
+              .size(),
+          "BranchA should have 2 rows");
+      assertEquals(
+          3,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchB'")
+              .collectAsList()
+              .size(),
+          "BranchB should have 3 rows");
+
+      // Verify content
+      List<Row> mainData =
+          spark.sql("SELECT name FROM " + tableName + " ORDER BY name").collectAsList();
+      assertEquals("main_data", mainData.get(0).getString(0), "Main should contain main_data");
+
+      List<Row> branchAData =
+          spark
+              .sql("SELECT name FROM " + tableName + " VERSION AS OF 'branchA' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "branchA_data", branchAData.get(0).getString(0), "BranchA should contain branchA_data");
+      assertEquals(
+          "main_data", branchAData.get(1).getString(0), "BranchA should contain main_data");
+
+      List<Row> branchBData =
+          spark
+              .sql("SELECT name FROM " + tableName + " VERSION AS OF 'branchB' ORDER BY name")
+              .collectAsList();
+      assertEquals(
+          "branchA_data", branchBData.get(0).getString(0), "BranchB should contain branchA_data");
+      assertEquals(
+          "branchB_data", branchBData.get(1).getString(0), "BranchB should contain branchB_data");
+      assertEquals(
+          "main_data", branchBData.get(2).getString(0), "BranchB should contain main_data");
+
+      // ===== TEST THE SPECIFIC SCENARIO THAT WOULD HAVE BEEN AMBIGUOUS =====
+
+      // At this point, we have:
+      // - main points to snapshotX
+      // - branchA points to snapshotY
+      // - branchB points to snapshotZ
+      //
+      // If we were to commit a new snapshot as child of snapshotY, our fixed logic should work
+      // because only the explicitly targeted branch (via branch-specific insert syntax) should be
+      // considered
+
+      // Verify that we can still commit to branchA even though multiple branches exist
+      spark.sql("INSERT INTO " + tableName + ".branch_branchA VALUES ('additional_branchA_data')");
+
+      // Verify branchA advanced but branchB didn't
+      List<Row> branchAFinalSnapshots2 =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchA'")
+              .collectAsList();
+      List<Row> branchBFinalSnapshots2 =
+          spark
+              .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = 'branchB'")
+              .collectAsList();
+
+      long finalSnapshotY2 = branchAFinalSnapshots2.get(0).getLong(0);
+      long finalSnapshotZ2 = branchBFinalSnapshots2.get(0).getLong(0);
+
+      assertNotEquals(snapshotY, finalSnapshotY2, "BranchA should have advanced to a new snapshot");
+      assertEquals(snapshotZ, finalSnapshotZ2, "BranchB should remain at the same snapshot");
+
+      // Verify data counts
+      assertEquals(
+          3,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchA'")
+              .collectAsList()
+              .size(),
+          "BranchA should now have 3 rows");
+      assertEquals(
+          3,
+          spark
+              .sql("SELECT * FROM " + tableName + " VERSION AS OF 'branchB'")
+              .collectAsList()
+              .size(),
+          "BranchB should still have 3 rows (unchanged)");
+    }
+  }
+
   // ===== CHERRY PICKING BETWEEN BRANCHES =====
 
   @Test
