@@ -558,301 +558,22 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     return result;
   }
 
-  /**
-   * Determines the target branch for a snapshot commit based on the provided snapshotRefs.
-   *
-   * @param snapshotRefs map of branch names to snapshot references
-   * @param defaultBranch default branch to use if no specific branch can be determined
-   * @return target branch name for the snapshot commit
-   */
-  private String determineTargetBranch(
-      Map<String, SnapshotRef> snapshotRefs, String defaultBranch) {
-    return determineTargetBranch(snapshotRefs, Collections.emptyList(), defaultBranch);
-  }
+  /** Represents the semantic difference between current server state and client-desired state. */
+  private static class StateDiff {
+    final List<Snapshot> newSnapshots;
+    final Map<String, Long> branchUpdates; // branch -> snapshotId
+    final Map<String, Snapshot> snapshotLookup; // snapshotId -> Snapshot for efficiency
 
-  /**
-   * Returns the single target branch when only one branch is explicitly specified. This is the most
-   * common case - client explicitly specified which branch to commit to.
-   */
-  private String getSingleTargetBranch(Map<String, SnapshotRef> snapshotRefs) {
-    String targetBranch = snapshotRefs.keySet().iterator().next();
-    log.debug("Using explicit target branch from commit context: {}", targetBranch);
-    return targetBranch;
-  }
-
-  /**
-   * Finds branches that exactly match the given snapshot ID. Returns the single matching branch, or
-   * null if there are zero or multiple matches.
-   */
-  private String findExactSnapshotMatch(Map<String, SnapshotRef> snapshotRefs, long snapshotId) {
-    List<String> exactMatches = new ArrayList<>();
-    for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
-      String branchName = entry.getKey();
-      long branchSnapshotId = entry.getValue().snapshotId();
-
-      if (branchSnapshotId == snapshotId) {
-        exactMatches.add(branchName);
-      }
+    StateDiff(
+        List<Snapshot> newSnapshots,
+        Map<String, Long> branchUpdates,
+        List<Snapshot> allClientSnapshots) {
+      this.newSnapshots = List.copyOf(newSnapshots);
+      this.branchUpdates = Map.copyOf(branchUpdates);
+      this.snapshotLookup =
+          allClientSnapshots.stream()
+              .collect(Collectors.toMap(s -> String.valueOf(s.snapshotId()), s -> s));
     }
-
-    if (exactMatches.size() == 1) {
-      String targetBranch = exactMatches.get(0);
-      log.info(
-          "Determined target branch '{}' by exact snapshot ID match within commit context: {}",
-          targetBranch,
-          snapshotId);
-      return targetBranch;
-    } else if (exactMatches.size() > 1) {
-      log.error("Multiple branches point to same snapshot {}: {}", snapshotId, exactMatches);
-      throw new IllegalStateException(
-          String.format(
-              "Multiple explicitly targeted branches point to the same snapshot %s: %s. "
-                  + "This indicates an invalid commit state.",
-              snapshotId, exactMatches));
-    }
-
-    // No exact match or zero matches
-    return null;
-  }
-
-  /**
-   * Finds branches that match parent-child relationship with the given snapshot. Returns the single
-   * matching branch, or null if there are zero or multiple matches.
-   */
-  private String findParentChildMatch(
-      Map<String, SnapshotRef> snapshotRefs, long parentSnapshotId, long childSnapshotId) {
-    List<String> parentMatches = new ArrayList<>();
-    for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
-      String branchName = entry.getKey();
-      long branchSnapshotId = entry.getValue().snapshotId();
-
-      if (branchSnapshotId == parentSnapshotId) {
-        parentMatches.add(branchName);
-        log.info("Branch '{}' matches parent snapshot {}", branchName, parentSnapshotId);
-      }
-    }
-
-    if (parentMatches.size() == 1) {
-      String targetBranch = parentMatches.get(0);
-      log.info(
-          "Determined target branch '{}' by parent-child relationship within commit context: new snapshot {} is child of branch snapshot {}",
-          targetBranch,
-          childSnapshotId,
-          parentSnapshotId);
-      return targetBranch;
-    } else if (parentMatches.size() > 1) {
-      log.error(
-          "Multiple branches point to parent snapshot {}: {}", parentSnapshotId, parentMatches);
-      throw new IllegalStateException(
-          String.format(
-              "Multiple explicitly targeted branches point to parent snapshot %s: %s. "
-                  + "Cannot determine which branch should receive child snapshot %s. "
-                  + "This indicates ambiguous commit targeting - the client should specify a single target branch.",
-              parentSnapshotId, parentMatches, childSnapshotId));
-    }
-
-    // No parent match or zero matches - could happen in cherry-pick or other non-linear operations
-    return null;
-  }
-
-  /**
-   * Determines target branch when multiple branches are specified by analyzing snapshot
-   * relationships.
-   */
-  private String determineTargetFromMultipleBranches(
-      Map<String, SnapshotRef> snapshotRefs, List<Snapshot> newSnapshots) {
-
-    log.info(
-        "Multiple branches in snapshotRefs ({}), analyzing snapshot relationships",
-        snapshotRefs.size());
-
-    if (!newSnapshots.isEmpty()) {
-      Snapshot latestSnapshot = newSnapshots.get(newSnapshots.size() - 1);
-      long latestSnapshotId = latestSnapshot.snapshotId();
-      log.info("Latest snapshot ID: {}", latestSnapshotId);
-
-      // First try: exact snapshot ID match
-      String exactMatch = findExactSnapshotMatch(snapshotRefs, latestSnapshotId);
-      if (exactMatch != null) {
-        return exactMatch;
-      }
-
-      // Second try: parent-child relationship match
-      Long parentSnapshotId = latestSnapshot.parentId();
-      log.info("Parent snapshot ID: {}", parentSnapshotId);
-      if (parentSnapshotId != null) {
-        String parentMatch = findParentChildMatch(snapshotRefs, parentSnapshotId, latestSnapshotId);
-        if (parentMatch != null) {
-          return parentMatch;
-        }
-      }
-    }
-
-    // If we reach here, we have multiple explicitly targeted branches but couldn't determine
-    // the target based on snapshot relationships. This suggests the commit operation itself
-    // is ambiguous or invalid.
-    log.error(
-        "Cannot determine target branch from explicitly targeted branches: {}",
-        snapshotRefs.keySet());
-    throw new IllegalStateException(
-        String.format(
-            "Cannot determine target branch from explicitly targeted branches: %s. "
-                + "The commit specifies multiple target branches but snapshot relationships "
-                + "don't clearly indicate which branch should receive the new snapshots. "
-                + "This suggests an invalid or ambiguous commit operation.",
-            snapshotRefs.keySet()));
-  }
-
-  /**
-   * Determines the target branch for snapshot commits using explicit branch targeting information.
-   * The snapshotRefs parameter contains the explicit branch targeting from the client commit
-   * operation.
-   */
-  private String determineTargetBranch(
-      Map<String, SnapshotRef> snapshotRefs, List<Snapshot> newSnapshots, String defaultBranch) {
-
-    // Handle simple case: no explicit branch targeting
-    if (MapUtils.isEmpty(snapshotRefs)) {
-      return defaultBranch;
-    }
-
-    // Handle simple case: single branch explicitly specified
-    if (snapshotRefs.size() == 1) {
-      return getSingleTargetBranch(snapshotRefs);
-    }
-
-    // Handle complex case: multiple branches with snapshot relationship analysis
-    return determineTargetFromMultipleBranches(snapshotRefs, newSnapshots);
-  }
-
-  /**
-   * Applies a regular (non-WAP, non-cherry-picked) snapshot by assigning it to a branch or staging
-   * it.
-   */
-  private void applyRegularSnapshot(
-      Snapshot snapshot,
-      Map<String, SnapshotRef> snapshotRefs,
-      TableMetadata.Builder metadataBuilder) {
-
-    if (MapUtils.isNotEmpty(snapshotRefs)) {
-      // We have explicit branch information, use it to assign snapshot
-      String targetBranch =
-          determineTargetBranch(
-              snapshotRefs, Collections.singletonList(snapshot), SnapshotRef.MAIN_BRANCH);
-      metadataBuilder.setBranchSnapshot(snapshot, targetBranch);
-    } else {
-      // No branch information provided - add snapshot without assigning to any branch
-      // The snapshot will exist in metadata but won't be the HEAD of any branch
-      // Branch refs can be updated later via separate calls to applySnapshotOperations with
-      // snapshotRefs
-      metadataBuilder.addSnapshot(snapshot);
-    }
-  }
-
-  /** Applies a WAP staged snapshot - not committed to any branch. */
-  private void applyStagedSnapshot(Snapshot snapshot, TableMetadata.Builder metadataBuilder) {
-    metadataBuilder.addSnapshot(snapshot);
-  }
-
-  /** Applies a cherry-picked snapshot - non fast-forward cherry pick. */
-  private void applyCherryPickedSnapshot(
-      Snapshot snapshot,
-      Map<String, SnapshotRef> snapshotRefs,
-      TableMetadata.Builder metadataBuilder) {
-    String targetBranch =
-        determineTargetBranch(
-            snapshotRefs, Collections.singletonList(snapshot), SnapshotRef.MAIN_BRANCH);
-    metadataBuilder.setBranchSnapshot(snapshot, targetBranch);
-  }
-
-  /** Result of categorizing and applying snapshots. */
-  private static class SnapshotOperationResult {
-    final List<String> appendedSnapshots;
-    final List<String> stagedSnapshots;
-    final List<String> cherryPickedSnapshots;
-
-    SnapshotOperationResult(
-        List<String> appendedSnapshots,
-        List<String> stagedSnapshots,
-        List<String> cherryPickedSnapshots) {
-      this.appendedSnapshots = new ArrayList<>(appendedSnapshots);
-      this.stagedSnapshots = new ArrayList<>(stagedSnapshots);
-      this.cherryPickedSnapshots = new ArrayList<>(cherryPickedSnapshots);
-    }
-
-    static SnapshotOperationResult empty() {
-      return new SnapshotOperationResult(
-          Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-    }
-  }
-
-  /** Categorizes snapshots by type and applies them to the metadata builder. */
-  private SnapshotOperationResult categorizeAndApplySnapshots(
-      List<Snapshot> snapshots,
-      Map<String, SnapshotRef> snapshotRefs,
-      TableMetadata.Builder metadataBuilder) {
-
-    List<String> appendedSnapshots = new ArrayList<>();
-    List<String> stagedSnapshots = new ArrayList<>();
-    List<String> cherryPickedSnapshots = new ArrayList<>();
-
-    for (Snapshot snapshot : snapshots) {
-      snapshotInspector.validateSnapshot(snapshot);
-
-      if (snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)) {
-        applyStagedSnapshot(snapshot, metadataBuilder);
-        stagedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-
-      } else if (snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)) {
-        applyCherryPickedSnapshot(snapshot, snapshotRefs, metadataBuilder);
-        appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-        cherryPickedSnapshots.add(
-            String.valueOf(snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)));
-
-      } else {
-        applyRegularSnapshot(snapshot, snapshotRefs, metadataBuilder);
-        appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-      }
-    }
-
-    return new SnapshotOperationResult(appendedSnapshots, stagedSnapshots, cherryPickedSnapshots);
-  }
-
-  /**
-   * Updates branch references to point to specific snapshots.
-   *
-   * <p>This handles two scenarios:
-   *
-   * <ul>
-   *   <li>Standalone ref operations: Moving branches to existing snapshots (fast-forward/rollback)
-   *   <li>Guided snapshot assignment: Using refs to guide where new snapshots should be assigned
-   * </ul>
-   *
-   * @param recordAsCherryPicks whether to record ref updates as cherry-pick operations
-   * @return list of snapshot IDs that were cherry-picked (only when recordAsCherryPicks is true)
-   */
-  private List<String> updateBranchReferences(
-      TableMetadata metadata,
-      Map<String, SnapshotRef> snapshotRefs,
-      TableMetadata.Builder metadataBuilder,
-      boolean recordAsCherryPicks) {
-
-    List<String> cherryPickedSnapshots = new ArrayList<>();
-
-    for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
-      String branchName = entry.getKey();
-      long targetSnapshotId = entry.getValue().snapshotId();
-
-      if (needsBranchUpdate(metadata, branchName, targetSnapshotId)) {
-        metadataBuilder.setBranchSnapshot(targetSnapshotId, branchName);
-
-        if (recordAsCherryPicks) {
-          cherryPickedSnapshots.add(String.valueOf(targetSnapshotId));
-        }
-      }
-    }
-
-    return cherryPickedSnapshots;
   }
 
   /**
@@ -914,60 +635,226 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     metadataBuilder.setProperties(updatedProperties);
   }
 
+  /**
+   * Applies client-requested changes to server state using functional approach.
+   *
+   * <p>Contract: currentState + clientDesiredState -> newState + metrics
+   *
+   * <p>Client sends desired final state, server computes semantic diff and applies it.
+   */
   public TableMetadata applySnapshotOperations(
-      TableMetadata metadata,
-      List<Snapshot> snapshots,
-      Map<String, SnapshotRef> snapshotRefs,
+      TableMetadata currentMetadata,
+      List<Snapshot> clientSnapshots,
+      Map<String, SnapshotRef> clientRefs,
       boolean recordAction) {
-    TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
 
-    /**
-     * Process snapshots and branch reference updates. Two main operation types:
-     *
-     * <p><b>Snapshot Processing:</b> When snapshots list is non-empty:
-     *
-     * <ul>
-     *   <li>[1] Regular snapshots - committed to branches (if snapshotRefs provided) or staged
-     *   <li>[2] WAP staged snapshots (STAGED_WAP_ID_PROP) - staged but not committed to branches
-     *   <li>[3] Cherry-picked snapshots (SOURCE_SNAPSHOT_ID_PROP) - committed to target branches
-     * </ul>
-     *
-     * <p><b>Branch Reference Updates:</b> When snapshotRefs is non-empty:
-     *
-     * <ul>
-     *   <li>If snapshots are also provided: snapshotRefs guides branch assignment during processing
-     *   <li>If only snapshotRefs provided: standalone fast-forward/rollback operations on existing
-     *       snapshots
-     * </ul>
-     */
-    SnapshotOperationResult snapshotProcessingResults =
-        CollectionUtils.isNotEmpty(snapshots)
-            ? categorizeAndApplySnapshots(snapshots, snapshotRefs, metadataBuilder)
-            : SnapshotOperationResult.empty();
+    return computeStateDiff(currentMetadata, clientSnapshots, clientRefs)
+        .map(
+            diff -> {
+              TableMetadata newMetadata = applyStateDiff(currentMetadata, diff);
+              return recordAction
+                  ? recordTransition(currentMetadata, newMetadata, diff)
+                  : newMetadata;
+            })
+        .orElse(currentMetadata);
+  }
 
-    // Update branch references (for standalone fast-forward/rollback operations)
-    List<String> standaloneRefCherryPicks = Collections.emptyList();
-    if (MapUtils.isNotEmpty(snapshotRefs)) {
-      boolean recordRefUpdatesAsCherryPicks = CollectionUtils.isEmpty(snapshots);
-      standaloneRefCherryPicks =
-          updateBranchReferences(
-              metadata, snapshotRefs, metadataBuilder, recordRefUpdatesAsCherryPicks);
+  /** Computes semantic difference between current server state and client-desired state. */
+  private Optional<StateDiff> computeStateDiff(
+      TableMetadata currentMetadata,
+      List<Snapshot> clientSnapshots,
+      Map<String, SnapshotRef> clientRefs) {
+
+    if (CollectionUtils.isEmpty(clientSnapshots) && MapUtils.isEmpty(clientRefs)) {
+      return Optional.empty(); // No changes requested
     }
 
-    if (recordAction) {
-      // Combine cherry-picked snapshots from both snapshot processing and standalone ref updates
-      List<String> allCherryPickedSnapshots =
-          combineCherryPickedSnapshots(
-              snapshotProcessingResults.cherryPickedSnapshots, standaloneRefCherryPicks);
+    Set<Long> currentSnapshotIds =
+        currentMetadata.snapshots().stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
-      recordSnapshotActions(
-          metadata,
-          metadataBuilder,
-          snapshotProcessingResults.appendedSnapshots,
-          snapshotProcessingResults.stagedSnapshots,
-          allCherryPickedSnapshots);
+    // Find truly new snapshots (not in current metadata)
+    List<Snapshot> newSnapshots =
+        Optional.ofNullable(clientSnapshots).orElse(Collections.emptyList()).stream()
+            .filter(s -> !currentSnapshotIds.contains(s.snapshotId()))
+            .collect(Collectors.toList());
+
+    // Find branch updates needed
+    Map<String, Long> branchUpdates =
+        Optional.ofNullable(clientRefs).orElse(Collections.emptyMap()).entrySet().stream()
+            .filter(
+                entry ->
+                    needsBranchUpdate(
+                        currentMetadata, entry.getKey(), entry.getValue().snapshotId()))
+            .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().snapshotId()));
+
+    return Optional.of(
+        new StateDiff(
+            newSnapshots,
+            branchUpdates,
+            Optional.ofNullable(clientSnapshots).orElse(Collections.emptyList())));
+  }
+
+  /** Applies the computed state diff to create new metadata. */
+  private TableMetadata applyStateDiff(TableMetadata currentMetadata, StateDiff diff) {
+    TableMetadata.Builder builder = TableMetadata.buildFrom(currentMetadata);
+
+    // Add new snapshots (respecting Iceberg semantics)
+    diff.newSnapshots.forEach(
+        snapshot -> {
+          snapshotInspector.validateSnapshot(snapshot);
+
+          if (isWapStaged(snapshot)) {
+            // WAP snapshots are always staged (never assigned to branches initially)
+            builder.addSnapshot(snapshot);
+          } else {
+            // All other snapshots: assign to branch if specified, otherwise stage
+            findTargetBranchForSnapshot(snapshot, diff.branchUpdates)
+                .ifPresentOrElse(
+                    targetBranch -> builder.setBranchSnapshot(snapshot, targetBranch),
+                    () -> builder.addSnapshot(snapshot));
+          }
+        });
+
+    // Update branch pointers to existing snapshots
+    diff.branchUpdates.entrySet().stream()
+        .filter(entry -> !isNewSnapshot(entry.getValue(), diff.newSnapshots))
+        .forEach(entry -> builder.setBranchSnapshot(entry.getValue(), entry.getKey()));
+
+    return builder.build();
+  }
+
+  /** Checks if snapshot is WAP staged (should not be assigned to any branch). */
+  private boolean isWapStaged(Snapshot snapshot) {
+    return snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP);
+  }
+
+  /** Checks if snapshot is cherry-picked (should go directly to target branch). */
+  private boolean isCherryPicked(Snapshot snapshot) {
+    return snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP);
+  }
+
+  /**
+   * Finds which branch this snapshot should be assigned to based on branch updates. Fails fast if
+   * multiple branches want the same snapshot (ambiguous commit).
+   */
+  private Optional<String> findTargetBranchForSnapshot(
+      Snapshot snapshot, Map<String, Long> branchUpdates) {
+    List<String> matchingBranches =
+        branchUpdates.entrySet().stream()
+            .filter(entry -> entry.getValue() == snapshot.snapshotId())
+            .map(Map.Entry::getKey)
+            .toList();
+
+    if (matchingBranches.size() > 1) {
+      throw new IllegalStateException(
+          "Multiple branches (%s) specify the same target snapshot %d. "
+              + "This indicates an ambiguous commit operation - each snapshot can only be assigned to one branch."
+                  .formatted(matchingBranches, snapshot.snapshotId()));
     }
-    return metadataBuilder.build();
+
+    return matchingBranches.stream().findFirst();
+  }
+
+  /** Checks if this snapshot ID is in the list of new snapshots being added. */
+  private boolean isNewSnapshot(Long snapshotId, List<Snapshot> newSnapshots) {
+    return newSnapshots.stream().anyMatch(s -> s.snapshotId() == snapshotId);
+  }
+
+  /** Records metrics and properties about the state transition that occurred. */
+  private TableMetadata recordTransition(
+      TableMetadata originalMetadata, TableMetadata newMetadata, StateDiff diff) {
+
+    Map<String, String> properties = new HashMap<>(newMetadata.properties());
+
+    // Categorize new snapshots by their semantic type for metrics
+    Map<String, List<String>> snapshotsByType =
+        diff.newSnapshots.stream()
+            .collect(
+                Collectors.groupingBy(
+                    this::getSnapshotCategory,
+                    Collectors.mapping(s -> String.valueOf(s.snapshotId()), Collectors.toList())));
+
+    // Record snapshot metrics by type
+    recordIfPresent(
+        properties,
+        snapshotsByType,
+        "appended",
+        CatalogConstants.APPENDED_SNAPSHOTS,
+        InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR);
+    recordIfPresent(
+        properties,
+        snapshotsByType,
+        "staged",
+        CatalogConstants.STAGED_SNAPSHOTS,
+        InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR);
+
+    // For cherry-picked snapshots, record the SOURCE snapshot IDs that were cherry-picked
+    List<String> cherryPickSourceIds =
+        diff.newSnapshots.stream()
+            .filter(this::isCherryPicked)
+            .map(this::getCherryPickSourceId)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .collect(Collectors.toList());
+
+    if (!cherryPickSourceIds.isEmpty()) {
+      properties.put(
+          getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
+          String.join(",", cherryPickSourceIds));
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR, cherryPickSourceIds.size());
+    }
+
+    // Record branch updates that don't involve new snapshots (pure ref moves)
+    List<String> refOnlyCherryPicks =
+        diff.branchUpdates.entrySet().stream()
+            .filter(entry -> !isNewSnapshot(entry.getValue(), diff.newSnapshots))
+            .map(entry -> String.valueOf(entry.getValue()))
+            .collect(Collectors.toList());
+
+    if (!refOnlyCherryPicks.isEmpty()) {
+      String existing =
+          properties.get(getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS));
+      String combined =
+          existing != null
+              ? existing + "," + String.join(",", refOnlyCherryPicks)
+              : String.join(",", refOnlyCherryPicks);
+      properties.put(getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS), combined);
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR, refOnlyCherryPicks.size());
+    }
+
+    return TableMetadata.buildFrom(newMetadata).setProperties(properties).build();
+  }
+
+  /** Categorizes snapshot for metrics based on its semantic type. */
+  private String getSnapshotCategory(Snapshot snapshot) {
+    if (isWapStaged(snapshot)) return "staged";
+    if (isCherryPicked(snapshot))
+      return "appended"; // Cherry-picked snapshots are NEW, so they're "appended"
+    return "appended";
+  }
+
+  /** Extracts the source snapshot ID for cherry-picked snapshots. */
+  private Optional<String> getCherryPickSourceId(Snapshot snapshot) {
+    return Optional.ofNullable(snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP));
+  }
+
+  /** Records snapshot category in properties if snapshots exist. */
+  private void recordIfPresent(
+      Map<String, String> properties,
+      Map<String, List<String>> categorized,
+      String category,
+      String propertyKey,
+      String metricKey) {
+
+    Optional.ofNullable(categorized.get(category))
+        .filter(CollectionUtils::isNotEmpty)
+        .ifPresent(
+            snapshots -> {
+              properties.put(getCanonicalFieldName(propertyKey), String.join(",", snapshots));
+              metricsReporter.count(metricKey, snapshots.size());
+            });
   }
 
   /** Helper function to dump contents for map in debugging mode. */
