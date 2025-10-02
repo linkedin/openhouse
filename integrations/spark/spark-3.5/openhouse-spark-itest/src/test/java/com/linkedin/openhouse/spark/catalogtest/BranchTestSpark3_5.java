@@ -17,7 +17,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 
 /**
  * Comprehensive tests for multi-branch WAP operations in Spark 3.5. Tests validate the enhanced
- * maybeAppendSnapshots functionality that supports: - Non-main branch operations (add/expire
+ * applySnapshotOperations functionality that supports: - Non-main branch operations (add/expire
  * snapshots from any branch) - WAP.id staging with multi-branch support - Cherry picking between
  * any branches - Fast forward merges for all branches - Backward compatibility with main-only
  * workflows - Forward compatibility for future wap.branch features
@@ -1311,7 +1311,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       spark.conf().unset("spark.wap.id");
       spark.sql("INSERT INTO " + tableName + " VALUES ('main.advance')");
 
-      // Cherry-pick WAP to main branch (this tests our enhanced maybeAppendSnapshots)
+      // Cherry-pick WAP to main branch (this tests our enhanced applySnapshotOperations)
       // Main should have 2 rows now (main.base + main.advance)
       assertEquals(2, spark.sql("SELECT * FROM " + tableName + "").collectAsList().size());
       spark.sql(

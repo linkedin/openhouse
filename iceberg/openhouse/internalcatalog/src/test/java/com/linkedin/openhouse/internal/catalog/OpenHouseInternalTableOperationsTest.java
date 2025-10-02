@@ -599,12 +599,12 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertThrows(
         IllegalArgumentException.class,
         () ->
-            openHouseInternalTableOperations.maybeAppendSnapshots(
+            openHouseInternalTableOperations.applySnapshotOperations(
                 metadata, snapshots, ImmutableMap.of(), false));
     // the latest snapshots have larger timestamp than the previous metadata timestamp, so it should
     // pass the validation
     snapshots.addAll(IcebergTestUtil.getFutureSnapshots());
-    openHouseInternalTableOperations.maybeAppendSnapshots(
+    openHouseInternalTableOperations.applySnapshotOperations(
         metadata, snapshots, ImmutableMap.of(), false);
   }
 
