@@ -23,6 +23,7 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -538,6 +539,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       TableMetadata metadata, List<Snapshot> snapshotsToDelete) {
     TableMetadata result = metadata;
     if (CollectionUtils.isNotEmpty(snapshotsToDelete)) {
+      // Validate that snapshots to delete are not referenced by any branches or tags
+      validateSnapshotsNotReferenced(metadata, snapshotsToDelete);
+
       Set<Long> snapshotIds =
           snapshotsToDelete.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
       Map<String, String> updatedProperties = new HashMap<>(result.properties());
@@ -552,7 +556,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               .build()
               .removeSnapshotsIf(s -> snapshotIds.contains(s.snapshotId()));
       metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, snapshotsToDelete.size());
+          InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, (double) snapshotsToDelete.size());
     }
     return result;
   }
@@ -584,6 +588,59 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
     SnapshotRef currentRef = metadata.refs().get(branchName);
     return currentRef == null || currentRef.snapshotId() != newSnapshotId;
+  }
+
+  /** Validates that no two branches are trying to point to the same snapshot (ambiguous commit). */
+  private void validateNoBranchConflicts(Map<String, Long> branchUpdates) {
+    // Group branches by target snapshot ID
+    Map<Long, List<String>> snapshotToBranches = new HashMap<>();
+    for (Map.Entry<String, Long> entry : branchUpdates.entrySet()) {
+      snapshotToBranches
+          .computeIfAbsent(entry.getValue(), k -> new ArrayList<>())
+          .add(entry.getKey());
+    }
+
+    // Check for conflicts (multiple branches pointing to same snapshot)
+    for (Map.Entry<Long, List<String>> entry : snapshotToBranches.entrySet()) {
+      List<String> branches = entry.getValue();
+      if (branches.size() > 1) {
+        throw new IllegalStateException(
+            String.format(
+                "Multiple branches (%s) specify the same target snapshot %d. "
+                    + "This indicates an ambiguous commit operation - each snapshot can only be assigned to one branch.",
+                branches, entry.getKey()));
+      }
+    }
+  }
+
+  /** Validates that snapshots to be deleted are not referenced by any branches or tags. */
+  private void validateSnapshotsNotReferenced(
+      TableMetadata metadata, List<Snapshot> snapshotsToDelete) {
+    if (MapUtils.isEmpty(metadata.refs()) || CollectionUtils.isEmpty(snapshotsToDelete)) {
+      return; // No refs to check or no snapshots to delete
+    }
+
+    Set<Long> snapshotIdsToDelete =
+        snapshotsToDelete.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+
+    // Check if any snapshot to delete is referenced by branches or tags
+    for (Map.Entry<String, SnapshotRef> refEntry : metadata.refs().entrySet()) {
+      String refName = refEntry.getKey();
+      SnapshotRef ref = refEntry.getValue();
+
+      if (snapshotIdsToDelete.contains(ref.snapshotId())) {
+        List<String> referencingRefs =
+            metadata.refs().entrySet().stream()
+                .filter(entry -> snapshotIdsToDelete.contains(entry.getValue().snapshotId()))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot expire %d. Still referenced by refs: %s",
+                ref.snapshotId(), referencingRefs));
+      }
+    }
   }
 
   /** Records snapshot actions in table properties and reports metrics. */
@@ -674,6 +731,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                     needsBranchUpdate(
                         currentMetadata, entry.getKey(), entry.getValue().snapshotId()))
             .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().snapshotId()));
+
+    // Check for ambiguous commits: multiple branches trying to point to the same snapshot
+    validateNoBranchConflicts(branchUpdates);
 
     return Optional.of(
         new StateDiff(
