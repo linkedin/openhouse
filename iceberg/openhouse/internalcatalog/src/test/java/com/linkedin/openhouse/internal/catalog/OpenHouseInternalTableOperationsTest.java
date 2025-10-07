@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -42,6 +43,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotRefParser;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
@@ -1633,15 +1635,15 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata with all snapshots, where the last one is referenced by main branch
-    TableMetadata base =
+    TableMetadata tempBase =
         testSnapshots.subList(0, testSnapshots.size() - 1).stream()
             .reduce(
                 BASE_TABLE_METADATA,
                 (metadata, snapshot) ->
                     TableMetadata.buildFrom(metadata).addSnapshot(snapshot).build(),
                 (m1, m2) -> m2);
-    base =
-        TableMetadata.buildFrom(base)
+    final TableMetadata base =
+        TableMetadata.buildFrom(tempBase)
             .setBranchSnapshot(testSnapshots.get(testSnapshots.size() - 1), SnapshotRef.MAIN_BRANCH)
             .build();
 
@@ -1669,10 +1671,11 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata with unreferenced snapshots only (no main branch or other refs)
-    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata tempBase = BASE_TABLE_METADATA;
     for (Snapshot snapshot : testSnapshots) {
-      base = TableMetadata.buildFrom(base).addSnapshot(snapshot).build();
+      tempBase = TableMetadata.buildFrom(tempBase).addSnapshot(snapshot).build();
     }
+    final TableMetadata base = tempBase;
     // Note: No setBranchSnapshot or setRef calls - all snapshots are unreferenced
 
     // Attempt to delete all unreferenced snapshots
@@ -1756,5 +1759,337 @@ public class OpenHouseInternalTableOperationsTest {
             openHouseInternalTableOperations.applySnapshotOperations(
                 base, newSnapshots, refs, false),
         "Should successfully pull WAP snapshot into main branch");
+  }
+
+  /**
+   * Integration test that verifies committing with base and metadata that are at least two commits
+   * divergent. This simulates scenarios where:
+   *
+   * <ul>
+   *   <li>Base metadata is at version N
+   *   <li>New metadata represents state at version N+2 or later (skipping intermediate versions)
+   *   <li>The commit should still succeed and write complete metadata
+   * </ul>
+   *
+   * <p>This test validates that Iceberg can handle "jump" commits where the metadata being
+   * committed has evolved significantly from the base.
+   */
+  @Test
+  void testMultipleDiffCommit() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+
+      // ========== Create base at N with 1 snapshot ==========
+      TableMetadata baseAtN =
+          TableMetadata.buildFrom(BASE_TABLE_METADATA)
+              .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      // ========== Create divergent metadata at N+3 with 4 snapshots ==========
+      // Simulate evolving through N+1 and N+2 without committing
+      TableMetadata intermediate1 =
+          TableMetadata.buildFrom(baseAtN)
+              .setBranchSnapshot(testSnapshots.get(1), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      TableMetadata intermediate2 =
+          TableMetadata.buildFrom(intermediate1)
+              .setBranchSnapshot(testSnapshots.get(2), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      TableMetadata metadataAtNPlus3 =
+          TableMetadata.buildFrom(intermediate2)
+              .setBranchSnapshot(testSnapshots.get(3), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      // Add custom properties for commit
+      Map<String, String> divergentProperties = new HashMap<>(metadataAtNPlus3.properties());
+      List<Snapshot> snapshots4 = testSnapshots.subList(0, 4);
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots4));
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots4.get(3))));
+
+      TableMetadata finalDivergentMetadata =
+          metadataAtNPlus3.replaceProperties(divergentProperties);
+
+      // ========== COMMIT: Base at N, Metadata at N+3 (divergent by 3 commits) ==========
+      openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+
+      TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+
+      // Verify the divergent commit contains all 4 snapshots
+      Assertions.assertEquals(
+          4,
+          capturedMetadata.snapshots().size(),
+          "Divergent commit should contain all 4 snapshots despite jumping from base with 1 snapshot");
+
+      Set<Long> expectedSnapshotIds =
+          snapshots4.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+      Set<Long> actualSnapshotIds =
+          capturedMetadata.snapshots().stream()
+              .map(Snapshot::snapshotId)
+              .collect(Collectors.toSet());
+      Assertions.assertEquals(
+          expectedSnapshotIds,
+          actualSnapshotIds,
+          "All snapshot IDs should be present after divergent commit");
+
+      // Verify main ref points to the expected snapshot (the 4th snapshot)
+      SnapshotRef mainRef = capturedMetadata.ref(SnapshotRef.MAIN_BRANCH);
+      Assertions.assertNotNull(mainRef, "Main branch ref should exist");
+      Assertions.assertEquals(
+          testSnapshots.get(3).snapshotId(),
+          mainRef.snapshotId(),
+          "Main branch should point to the 4th snapshot after divergent commit");
+    }
+  }
+
+  /**
+   * Test committing with divergent metadata and multiple valid branches. Base is at N with MAIN,
+   * metadata is at N+3 with both MAIN and feature_a branches pointing to different snapshots.
+   */
+  @Test
+  void testMultipleDiffCommitWithValidBranch() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+
+      // ========== Create base at N with 1 snapshot ==========
+      TableMetadata baseAtN =
+          TableMetadata.buildFrom(BASE_TABLE_METADATA)
+              .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      // ========== Create divergent metadata at N+3 with 4 snapshots and 2 branches ==========
+      TableMetadata intermediate1 =
+          TableMetadata.buildFrom(baseAtN)
+              .setBranchSnapshot(testSnapshots.get(1), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      TableMetadata intermediate2 =
+          TableMetadata.buildFrom(intermediate1)
+              .setBranchSnapshot(testSnapshots.get(2), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      TableMetadata metadataAtNPlus3 =
+          TableMetadata.buildFrom(intermediate2)
+              .setBranchSnapshot(testSnapshots.get(3), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      // Add custom properties for commit with multiple branches
+      Map<String, String> divergentProperties = new HashMap<>(metadataAtNPlus3.properties());
+      List<Snapshot> snapshots4 = testSnapshots.subList(0, 4);
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots4));
+
+      // Create refs for both MAIN (pointing to snapshot 3) and feature_a (pointing to snapshot 2)
+      Map<String, String> multipleRefs = new HashMap<>();
+      multipleRefs.put(
+          SnapshotRef.MAIN_BRANCH,
+          SnapshotRefParser.toJson(
+              SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId()).build()));
+      multipleRefs.put(
+          "feature_a",
+          SnapshotRefParser.toJson(
+              SnapshotRef.branchBuilder(testSnapshots.get(2).snapshotId()).build()));
+
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(multipleRefs));
+
+      TableMetadata finalDivergentMetadata =
+          metadataAtNPlus3.replaceProperties(divergentProperties);
+
+      // ========== COMMIT: Should succeed with multiple valid branches ==========
+      openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+
+      TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+
+      // Verify all 4 snapshots are present
+      Assertions.assertEquals(
+          4,
+          capturedMetadata.snapshots().size(),
+          "Divergent commit with multiple branches should contain all 4 snapshots");
+
+      // Verify main ref points to the expected snapshot
+      SnapshotRef mainRef = capturedMetadata.ref(SnapshotRef.MAIN_BRANCH);
+      Assertions.assertNotNull(mainRef, "Main branch ref should exist");
+      Assertions.assertEquals(
+          testSnapshots.get(3).snapshotId(),
+          mainRef.snapshotId(),
+          "Main branch should point to the 4th snapshot");
+
+      // Verify feature_a ref points to the expected snapshot
+      SnapshotRef featureRef = capturedMetadata.ref("feature_a");
+      Assertions.assertNotNull(featureRef, "Feature_a branch ref should exist");
+      Assertions.assertEquals(
+          testSnapshots.get(2).snapshotId(),
+          featureRef.snapshotId(),
+          "Feature_a branch should point to the 3rd snapshot");
+    }
+  }
+
+  /**
+   * Test committing with divergent metadata where multiple branches point to the same snapshot.
+   * This is VALID when done through setBranchSnapshot() - the end state is allowed.
+   */
+  @Test
+  void testMultipleDiffCommitWithMultipleBranchesPointingToSameSnapshot() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+
+      // ========== Create base at N with 1 snapshot ==========
+      TableMetadata baseAtN =
+          TableMetadata.buildFrom(BASE_TABLE_METADATA)
+              .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      // ========== Create divergent metadata with MAIN and feature_a both pointing to snapshot 3
+      // ==========
+      TableMetadata.Builder builder = TableMetadata.buildFrom(baseAtN);
+      // Add snapshots 1, 2, 3 without assigning to branches
+      builder.addSnapshot(testSnapshots.get(1));
+      builder.addSnapshot(testSnapshots.get(2));
+      builder.addSnapshot(testSnapshots.get(3));
+      // Set BOTH branches to point to the same existing snapshot (using snapshot ID)
+      builder.setBranchSnapshot(testSnapshots.get(3).snapshotId(), SnapshotRef.MAIN_BRANCH);
+      builder.setBranchSnapshot(testSnapshots.get(3).snapshotId(), "feature_a");
+      TableMetadata metadataWithBothBranches = builder.build();
+
+      // Add custom properties with snapshots
+      Map<String, String> divergentProperties =
+          new HashMap<>(metadataWithBothBranches.properties());
+      List<Snapshot> snapshots4 = testSnapshots.subList(0, 4);
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots4));
+
+      // Create refs matching the setBranchSnapshot calls - both pointing to snapshot 3
+      Map<String, String> sameSnapshotRefs = new HashMap<>();
+      sameSnapshotRefs.put(
+          SnapshotRef.MAIN_BRANCH,
+          SnapshotRefParser.toJson(
+              SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId()).build()));
+      sameSnapshotRefs.put(
+          "feature_a",
+          SnapshotRefParser.toJson(
+              SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId()).build()));
+
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(sameSnapshotRefs));
+
+      TableMetadata finalDivergentMetadata =
+          metadataWithBothBranches.replaceProperties(divergentProperties);
+
+      // ========== COMMIT: Should SUCCEED - this is a valid end state ==========
+      openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+
+      TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+
+      // Verify all 4 snapshots are present
+      Assertions.assertEquals(
+          4,
+          capturedMetadata.snapshots().size(),
+          "Commit with multiple branches pointing to same snapshot should contain all 4 snapshots");
+
+      // Verify BOTH refs point to the same snapshot
+      SnapshotRef mainRef = capturedMetadata.ref(SnapshotRef.MAIN_BRANCH);
+      Assertions.assertNotNull(mainRef, "Main branch ref should exist");
+      Assertions.assertEquals(
+          testSnapshots.get(3).snapshotId(),
+          mainRef.snapshotId(),
+          "Main branch should point to the 4th snapshot");
+
+      SnapshotRef featureRef = capturedMetadata.ref("feature_a");
+      Assertions.assertNotNull(featureRef, "Feature_a branch ref should exist");
+      Assertions.assertEquals(
+          testSnapshots.get(3).snapshotId(),
+          featureRef.snapshotId(),
+          "Feature_a branch should also point to the 4th snapshot (same as main)");
+
+      // Verify they point to the SAME snapshot
+      Assertions.assertEquals(
+          mainRef.snapshotId(),
+          featureRef.snapshotId(),
+          "Both branches should point to the same snapshot ID");
+    }
+  }
+
+  /**
+   * Test committing with divergent metadata where multiple branches try to point to the same
+   * snapshot (ambiguous commit). This should throw an IllegalStateException.
+   */
+  @Test
+  void testMultipleDiffCommitWithInvalidBranch() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+
+      // ========== Create base at N with 1 snapshot ==========
+      TableMetadata baseAtN =
+          TableMetadata.buildFrom(BASE_TABLE_METADATA)
+              .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      // ========== Create metadata with 4 snapshots but only snapshot 0 in refs ==========
+      // Build metadata with all 4 snapshots added, but keep MAIN pointing to snapshot 0
+      TableMetadata.Builder builder = TableMetadata.buildFrom(baseAtN);
+      // Add snapshots 1, 2, 3 without assigning them to any branch
+      builder.addSnapshot(testSnapshots.get(1));
+      builder.addSnapshot(testSnapshots.get(2));
+      builder.addSnapshot(testSnapshots.get(3));
+      TableMetadata metadataWithAllSnapshots = builder.build();
+
+      // Add custom properties with AMBIGUOUS branch refs - both pointing to same snapshot
+      Map<String, String> divergentProperties =
+          new HashMap<>(metadataWithAllSnapshots.properties());
+      List<Snapshot> snapshots4 = testSnapshots.subList(0, 4);
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots4));
+
+      // Create INVALID refs: both MAIN and feature_a pointing to the SAME snapshot (ambiguous!)
+      Map<String, String> ambiguousRefs = new HashMap<>();
+      ambiguousRefs.put(
+          SnapshotRef.MAIN_BRANCH,
+          SnapshotRefParser.toJson(
+              SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId()).build()));
+      ambiguousRefs.put(
+          "feature_a",
+          SnapshotRefParser.toJson(
+              SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId())
+                  .build())); // Same snapshot!
+
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(ambiguousRefs));
+
+      TableMetadata finalDivergentMetadata =
+          metadataWithAllSnapshots.replaceProperties(divergentProperties);
+
+      // ========== COMMIT: Should throw CommitStateUnknownException due to ambiguous branches
+      // ==========
+      CommitStateUnknownException exception =
+          Assertions.assertThrows(
+              CommitStateUnknownException.class,
+              () -> openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata),
+              "Should throw CommitStateUnknownException when multiple branches point to same snapshot");
+
+      // Verify error message indicates the ambiguous commit
+      String exceptionMessage = exception.getMessage();
+      Assertions.assertTrue(
+          exceptionMessage.contains("Multiple branches")
+              && exceptionMessage.contains("same target snapshot"),
+          "Error message should indicate multiple branches targeting same snapshot: "
+              + exceptionMessage);
+    }
   }
 }
