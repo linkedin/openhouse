@@ -24,25 +24,39 @@ public class IntervalToCronConverter {
    * @return schedule
    */
   public static String generateCronExpression(String interval) {
+    return new IntervalToCronConverter().generateCronExpressionInstance(interval);
+  }
+
+  /** Instance variant for testability (uses {@link #newRandom()}). */
+  public String generateCronExpressionInstance(String interval) {
     if (interval == null || interval.isEmpty()) {
       String errorMessage = "Replication interval is null or empty";
       log.error(errorMessage);
       throw new RequestValidationFailureException(errorMessage);
     }
     int count = Integer.parseInt(interval.substring(0, interval.length() - 1));
-    // Generating random hourly and minute intervals for the cron expression
-    int hour = new Random().nextInt(24);
-    int minute = new int[] {0, 15, 30, 45}[new Random().nextInt(4)];
+    // Generating random minute for the cron expression; hour is chosen per granularity below
+    int minute = new int[] {0, 15, 30, 45}[randomInt(4)];
 
     String granularity = interval.substring(interval.length() - 1);
     String schedule;
 
     if (granularity.equals(TimePartitionSpec.Granularity.HOUR.getGranularity())) {
+      // For hourly schedules like "12H", Quartz cron uses "start/interval" for the hour field.
+      // To ensure multiple triggers within the same day, the start hour must be in [0, interval-1].
+      int boundedInterval = Math.max(1, Math.min(count, 24));
+      int hour = randomInt(boundedInterval);
       schedule = generateHourlyCronExpression(hour, minute, count);
     } else {
+      int hour = randomInt(24);
       schedule = generateDailyCronExpression(hour, minute, count);
     }
     return schedule;
+  }
+
+  /** Protected factory for Random to facilitate deterministic tests via subclassing. */
+  protected int randomInt(int bound) {
+    return new Random().nextInt(bound);
   }
 
   private static String generateDailyCronExpression(int hour, int minute, int dailyInterval) {
