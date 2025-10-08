@@ -18,7 +18,7 @@ public class IntervalToCronConverter {
 
   /**
    * Public api to generate a cron schedule for a {@link ReplicationConfig} based on a given
-   * interval string in the form 12H, 1D, 2D, 3D.
+   * interval string in the form 3H, 6H, 12H, 1D, 2D, 3D.
    *
    * @param interval
    * @return schedule
@@ -27,7 +27,7 @@ public class IntervalToCronConverter {
     return new IntervalToCronConverter().generateCronExpressionInstance(interval);
   }
 
-  /** Instance variant for testability (uses {@link #newRandom()}). */
+  /** Instance variant for testability (uses {@link #randomInt(int)} ()}). */
   public String generateCronExpressionInstance(String interval) {
     if (interval == null || interval.isEmpty()) {
       String errorMessage = "Replication interval is null or empty";
@@ -43,7 +43,6 @@ public class IntervalToCronConverter {
 
     if (granularity.equals(TimePartitionSpec.Granularity.HOUR.getGranularity())) {
       // For hourly schedules like "12H", Quartz cron uses "start/interval" for the hour field.
-      // To ensure multiple triggers within the same day, the start hour must be in [0, interval-1].
       int boundedInterval = Math.max(1, Math.min(count, 24));
       int hour = randomInt(boundedInterval);
       schedule = generateHourlyCronExpression(hour, minute, count);
