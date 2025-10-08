@@ -23,7 +23,6 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -35,8 +34,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.PartitionField;
@@ -61,7 +58,6 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
-import org.springframework.data.util.Pair;
 
 @AllArgsConstructor
 @Slf4j
@@ -230,6 +226,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY, true);
     }
 
+    metadata = applySnapshots(base, metadata);
+
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
 
@@ -261,8 +259,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
       }
-      String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
-      String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
           Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
@@ -273,27 +269,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (sortOrderJson != null) {
         SortOrder sortOrder = SortOrderParser.fromJson(updatedMetadata.schema(), sortOrderJson);
         updatedMetadata = updatedMetadata.replaceSortOrder(sortOrder);
-      }
-
-      if (serializedSnapshotsToPut != null) {
-        List<Snapshot> snapshotsToPut =
-            SnapshotsUtil.parseSnapshots(fileIO, serializedSnapshotsToPut);
-        Pair<List<Snapshot>, List<Snapshot>> snapshotsDiff =
-            SnapshotsUtil.symmetricDifferenceSplit(snapshotsToPut, updatedMetadata.snapshots());
-        List<Snapshot> appendedSnapshots = snapshotsDiff.getFirst();
-        List<Snapshot> deletedSnapshots = snapshotsDiff.getSecond();
-        snapshotInspector.validateSnapshotsUpdate(
-            updatedMetadata, appendedSnapshots, deletedSnapshots);
-        Map<String, SnapshotRef> snapshotRefs =
-            serializedSnapshotRefs == null
-                ? new HashMap<>()
-                : SnapshotsUtil.parseSnapshotRefs(serializedSnapshotRefs);
-
-        // Multi-branch support is now enabled with snapshot ID matching
-
-        updatedMetadata =
-            applySnapshotOperations(updatedMetadata, appendedSnapshots, snapshotRefs, true);
-        updatedMetadata = maybeDeleteSnapshots(updatedMetadata, deletedSnapshots);
       }
 
       final TableMetadata updatedMtDataRef = updatedMetadata;
@@ -506,6 +481,551 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     return builder.build();
   }
 
+  // ==================== Functional Snapshot Application Pipeline ====================
+
+  /**
+   * Immutable state object representing the complete snapshot diff and categorization. All fields
+   * are final and collections are unmodifiable.
+   */
+  @lombok.Value
+  @lombok.Builder
+  private static class SnapshotState {
+    List<Snapshot> providedSnapshots;
+    Map<String, SnapshotRef> providedRefs;
+    List<Snapshot> existingSnapshots;
+    Map<String, SnapshotRef> existingRefs;
+
+    // Categorization
+    List<Snapshot> wapSnapshots;
+    List<Snapshot> cherryPickedSnapshots;
+    List<Snapshot> regularSnapshots;
+
+    // Diff results
+    List<Snapshot> newSnapshots;
+    List<Snapshot> existingRetainedSnapshots;
+    List<Snapshot> deletedSnapshots;
+
+    // Branch updates
+    Map<String, SnapshotRef> branchUpdates;
+
+    // Metrics for recording
+    int appendedCount;
+    int stagedCount;
+    int cherryPickedCount;
+    int deletedCount;
+  }
+
+  /**
+   * Applies snapshot updates from metadata properties using a functional pipeline. This method
+   * follows principles: immutability, pure functions, and composition.
+   *
+   * <p>Pipeline stages: 1. Extract snapshots from properties 2. Parse snapshots from JSON 3. Parse
+   * references from JSON 4. Compute complete state diff (categorize, identify changes) 5. Validate
+   * entire operation 6. Apply state changes 7. Record metrics/properties
+   *
+   * @param base The base table metadata (may be null for table creation)
+   * @param metadata The new metadata with properties containing snapshot updates
+   * @return Updated metadata with snapshots applied
+   */
+  TableMetadata applySnapshots(TableMetadata base, TableMetadata metadata) {
+    // Check if snapshots update is requested
+    if (!metadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY)) {
+      // No snapshot updates requested, return unchanged
+      return metadata;
+    }
+
+    return Optional.ofNullable(metadata.properties().get(CatalogConstants.SNAPSHOTS_JSON_KEY))
+        .map(
+            snapshotsJson -> {
+              // Stage 1-3: Extract and parse
+              SnapshotState.SnapshotStateBuilder stateBuilder = SnapshotState.builder();
+
+              // Extract and parse snapshots (Stage 1-2)
+              List<Snapshot> providedSnapshots = parseSnapshotsFromJson(snapshotsJson);
+              stateBuilder.providedSnapshots(Collections.unmodifiableList(providedSnapshots));
+
+              // Extract and parse references (Stage 3)
+              Map<String, SnapshotRef> providedRefs =
+                  Optional.ofNullable(
+                          metadata.properties().get(CatalogConstants.SNAPSHOTS_REFS_KEY))
+                      .map(this::parseReferencesFromJson)
+                      .orElse(Collections.emptyMap());
+              stateBuilder.providedRefs(Collections.unmodifiableMap(providedRefs));
+
+              // Get existing state from base
+              List<Snapshot> existingSnapshots =
+                  Optional.ofNullable(base)
+                      .map(TableMetadata::snapshots)
+                      .orElse(Collections.emptyList());
+              stateBuilder.existingSnapshots(Collections.unmodifiableList(existingSnapshots));
+
+              Map<String, SnapshotRef> existingRefs =
+                  Optional.ofNullable(base).map(TableMetadata::refs).orElse(Collections.emptyMap());
+              stateBuilder.existingRefs(Collections.unmodifiableMap(existingRefs));
+
+              // Stage 4: Compute complete state diff
+              SnapshotState state = computeStateDiff(stateBuilder);
+
+              // Stage 5: Validate entire operation
+              validateOperation(state, base);
+
+              // Stage 6: Apply state changes
+              TableMetadata updated = applyStateChanges(metadata, state);
+
+              // Stage 7: Record metrics/properties
+              return recordMetrics(updated, state);
+            })
+        .orElse(metadata); // No snapshot updates if key not present
+  }
+
+  /** Stage 2: Parse snapshots from JSON string. Pure function - no side effects. */
+  private List<Snapshot> parseSnapshotsFromJson(String snapshotsJson) {
+    return SnapshotsUtil.parseSnapshots(fileIO, snapshotsJson);
+  }
+
+  /** Stage 3: Parse references from JSON string. Pure function - no side effects. */
+  private Map<String, SnapshotRef> parseReferencesFromJson(String refsJson) {
+    return SnapshotsUtil.parseSnapshotRefs(refsJson);
+  }
+
+  /**
+   * Stage 4: Compute complete state diff. Pure function that categorizes snapshots and identifies
+   * changes.
+   */
+  private SnapshotState computeStateDiff(SnapshotState.SnapshotStateBuilder builder) {
+    SnapshotState partial = builder.build();
+
+    Map<Long, Snapshot> providedById =
+        partial.getProvidedSnapshots().stream()
+            .collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
+    Map<Long, Snapshot> existingById =
+        partial.getExistingSnapshots().stream()
+            .collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
+
+    // Categorize all snapshots by type
+    SnapshotCategories categories =
+        categorizeAllSnapshots(partial.getProvidedSnapshots(), existingById);
+
+    // Identify snapshot changes (new, retained, deleted)
+    SnapshotChanges changes =
+        identifySnapshotChanges(
+            partial.getProvidedSnapshots(),
+            partial.getExistingSnapshots(),
+            providedById,
+            existingById);
+
+    // Identify branch updates
+    Map<String, SnapshotRef> branchUpdates =
+        computeBranchUpdates(partial.getProvidedRefs(), partial.getExistingRefs());
+
+    // Compute metrics
+    SnapshotMetrics metrics = computeSnapshotMetrics(categories, changes, existingById);
+
+    // Build complete state
+    return builder
+        .wapSnapshots(Collections.unmodifiableList(categories.wapSnapshots))
+        .cherryPickedSnapshots(Collections.unmodifiableList(categories.cherryPickedSnapshots))
+        .regularSnapshots(Collections.unmodifiableList(categories.regularSnapshots))
+        .newSnapshots(Collections.unmodifiableList(changes.newSnapshots))
+        .existingRetainedSnapshots(Collections.unmodifiableList(changes.existingRetainedSnapshots))
+        .deletedSnapshots(Collections.unmodifiableList(changes.deletedSnapshots))
+        .branchUpdates(Collections.unmodifiableMap(branchUpdates))
+        .appendedCount(metrics.appendedCount)
+        .stagedCount(metrics.stagedCount)
+        .cherryPickedCount(metrics.cherryPickedCount)
+        .deletedCount(metrics.deletedCount)
+        .build();
+  }
+
+  /** Container for categorized snapshots. */
+  @lombok.Value
+  private static class SnapshotCategories {
+    List<Snapshot> wapSnapshots;
+    List<Snapshot> cherryPickedSnapshots;
+    List<Snapshot> regularSnapshots;
+  }
+
+  /** Categorize all snapshots into WAP, cherry-picked, and regular. */
+  private SnapshotCategories categorizeAllSnapshots(
+      List<Snapshot> providedSnapshots, Map<Long, Snapshot> existingById) {
+    List<Snapshot> wapSnapshots = categorizeWapSnapshots(providedSnapshots);
+    List<Snapshot> cherryPickedSnapshots =
+        categorizeCherryPickedSnapshots(providedSnapshots, existingById);
+    List<Snapshot> regularSnapshots =
+        categorizeRegularSnapshots(providedSnapshots, wapSnapshots, cherryPickedSnapshots);
+
+    return new SnapshotCategories(wapSnapshots, cherryPickedSnapshots, regularSnapshots);
+  }
+
+  /** Container for snapshot changes. */
+  @lombok.Value
+  private static class SnapshotChanges {
+    List<Snapshot> newSnapshots;
+    List<Snapshot> existingRetainedSnapshots;
+    List<Snapshot> deletedSnapshots;
+  }
+
+  /** Identify which snapshots are new, retained, or deleted. */
+  private SnapshotChanges identifySnapshotChanges(
+      List<Snapshot> providedSnapshots,
+      List<Snapshot> existingSnapshots,
+      Map<Long, Snapshot> providedById,
+      Map<Long, Snapshot> existingById) {
+
+    List<Snapshot> newSnapshots =
+        providedSnapshots.stream()
+            .filter(s -> !existingById.containsKey(s.snapshotId()))
+            .collect(Collectors.toList());
+
+    List<Snapshot> existingRetainedSnapshots =
+        providedSnapshots.stream()
+            .filter(s -> existingById.containsKey(s.snapshotId()))
+            .collect(Collectors.toList());
+
+    List<Snapshot> deletedSnapshots =
+        existingSnapshots.stream()
+            .filter(s -> !providedById.containsKey(s.snapshotId()))
+            .collect(Collectors.toList());
+
+    return new SnapshotChanges(newSnapshots, existingRetainedSnapshots, deletedSnapshots);
+  }
+
+  /** Container for snapshot metrics. */
+  @lombok.Value
+  private static class SnapshotMetrics {
+    int appendedCount;
+    int stagedCount;
+    int cherryPickedCount;
+    int deletedCount;
+  }
+
+  /** Compute metrics based on categorized snapshots and changes. */
+  private SnapshotMetrics computeSnapshotMetrics(
+      SnapshotCategories categories, SnapshotChanges changes, Map<Long, Snapshot> existingById) {
+
+    int appendedCount =
+        (int)
+            categories.regularSnapshots.stream()
+                .filter(s -> !existingById.containsKey(s.snapshotId()))
+                .count();
+    int stagedCount = categories.wapSnapshots.size();
+    int cherryPickedCount = categories.cherryPickedSnapshots.size();
+    int deletedCount = changes.deletedSnapshots.size();
+
+    return new SnapshotMetrics(appendedCount, stagedCount, cherryPickedCount, deletedCount);
+  }
+
+  /**
+   * Categorize WAP (Write-Audit-Publish) snapshots. A snapshot is WAP if it has the WAP ID in its
+   * summary.
+   */
+  private List<Snapshot> categorizeWapSnapshots(List<Snapshot> snapshots) {
+    return snapshots.stream()
+        .filter(
+            s -> s.summary() != null && s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Categorize cherry-picked snapshots. A snapshot is cherry-picked if it exists in the current
+   * metadata but has a different parent than in the provided snapshots (indicating it was moved to
+   * a different branch).
+   */
+  private List<Snapshot> categorizeCherryPickedSnapshots(
+      List<Snapshot> providedSnapshots, Map<Long, Snapshot> existingById) {
+
+    return providedSnapshots.stream()
+        .filter(
+            provided -> {
+              Snapshot existing = existingById.get(provided.snapshotId());
+              if (existing == null) {
+                return false; // New snapshot, not cherry-picked
+              }
+              // Check if parent changed (indicating cherry-pick to different branch)
+              Long providedParent = provided.parentId();
+              Long existingParent = existing.parentId();
+              return !Objects.equal(providedParent, existingParent);
+            })
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Categorize regular (appended) snapshots. Regular snapshots are those that are not WAP or
+   * cherry-picked.
+   */
+  private List<Snapshot> categorizeRegularSnapshots(
+      List<Snapshot> allSnapshots,
+      List<Snapshot> wapSnapshots,
+      List<Snapshot> cherryPickedSnapshots) {
+
+    Set<Long> wapIds = wapSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+    Set<Long> cherryPickedIds =
+        cherryPickedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+
+    return allSnapshots.stream()
+        .filter(s -> !wapIds.contains(s.snapshotId()) && !cherryPickedIds.contains(s.snapshotId()))
+        .collect(Collectors.toList());
+  }
+
+  /** Compute branch updates by comparing provided and existing refs. */
+  private Map<String, SnapshotRef> computeBranchUpdates(
+      Map<String, SnapshotRef> providedRefs, Map<String, SnapshotRef> existingRefs) {
+
+    return providedRefs.entrySet().stream()
+        .filter(
+            entry -> {
+              SnapshotRef existing = existingRefs.get(entry.getKey());
+              return existing == null || existing.snapshotId() != entry.getValue().snapshotId();
+            })
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
+  /** Stage 5: Validate entire operation. Throws exceptions for invalid operations. */
+  private void validateOperation(SnapshotState state, TableMetadata base) {
+    // Validation 1: Current snapshot not deleted without replacements
+    validateCurrentSnapshotNotDeleted(state, base);
+
+    // Validation 2: No ambiguous commits (multiple branches → same snapshot)
+    validateNoAmbiguousCommits(state);
+
+    // Validation 3: Deleted snapshots not referenced by branches/tags
+    validateDeletedSnapshotsNotReferenced(state);
+
+    // Validation 4: Individual snapshot validation using SnapshotInspector
+    validateIndividualSnapshots(state);
+  }
+
+  /**
+   * Validate that current snapshot is not deleted without replacements. Package-private for
+   * testing.
+   */
+  void validateCurrentSnapshotNotDeleted(SnapshotState state, TableMetadata base) {
+    if (base == null || base.currentSnapshot() == null) {
+      return; // No current snapshot to validate
+    }
+
+    long currentSnapshotId = base.currentSnapshot().snapshotId();
+    boolean currentDeleted =
+        state.getDeletedSnapshots().stream().anyMatch(s -> s.snapshotId() == currentSnapshotId);
+
+    if (currentDeleted && state.getNewSnapshots().isEmpty()) {
+      throw new InvalidIcebergSnapshotException(
+          String.format(
+              "Cannot delete the current snapshot %s without adding replacement snapshots. "
+                  + "Deleted: [%s], New: [%s]",
+              currentSnapshotId,
+              state.getDeletedSnapshots().stream()
+                  .map(s -> Long.toString(s.snapshotId()))
+                  .collect(Collectors.joining(", ")),
+              state.getNewSnapshots().stream()
+                  .map(s -> Long.toString(s.snapshotId()))
+                  .collect(Collectors.joining(", "))));
+    }
+  }
+
+  /**
+   * Validate no ambiguous commits (multiple branches pointing to same snapshot in one commit).
+   * Package-private for testing.
+   */
+  void validateNoAmbiguousCommits(SnapshotState state) {
+    Map<Long, List<String>> snapshotToBranches =
+        state.getBranchUpdates().entrySet().stream()
+            .collect(
+                Collectors.groupingBy(
+                    e -> e.getValue().snapshotId(),
+                    Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
+
+    snapshotToBranches.forEach(
+        (snapshotId, branches) -> {
+          if (branches.size() > 1) {
+            throw new InvalidIcebergSnapshotException(
+                String.format(
+                    "Ambiguous commit: snapshot %s is referenced by multiple branches [%s] in a single commit. "
+                        + "Each snapshot can only be referenced by one branch per commit.",
+                    snapshotId, String.join(", ", branches)));
+          }
+        });
+  }
+
+  /**
+   * Validate that deleted snapshots are not referenced by any branches or tags. Package-private for
+   * testing.
+   */
+  void validateDeletedSnapshotsNotReferenced(SnapshotState state) {
+    Set<Long> deletedIds =
+        state.getDeletedSnapshots().stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+
+    Map<Long, List<String>> referencedIdsToRefs =
+        state.getProvidedRefs().entrySet().stream()
+            .collect(
+                Collectors.groupingBy(
+                    e -> e.getValue().snapshotId(),
+                    Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
+
+    Map<Long, List<String>> invalidDeletes =
+        deletedIds.stream()
+            .filter(referencedIdsToRefs::containsKey)
+            .collect(Collectors.toMap(id -> id, referencedIdsToRefs::get));
+
+    if (!invalidDeletes.isEmpty()) {
+      String details =
+          invalidDeletes.entrySet().stream()
+              .map(
+                  e ->
+                      String.format(
+                          "snapshot %s (referenced by: %s)",
+                          e.getKey(), String.join(", ", e.getValue())))
+              .collect(Collectors.joining("; "));
+      throw new InvalidIcebergSnapshotException(
+          String.format(
+              "Cannot delete snapshots that are still referenced by branches/tags: %s", details));
+    }
+  }
+
+  /**
+   * Validate individual snapshots using existing SnapshotInspector. Package-private for testing.
+   */
+  void validateIndividualSnapshots(SnapshotState state) {
+    state
+        .getNewSnapshots()
+        .forEach(
+            snapshot -> {
+              if (snapshotInspector != null) {
+                snapshotInspector.validateSnapshot(snapshot);
+              }
+            });
+  }
+
+  /**
+   * Stage 6: Apply state changes to create new TableMetadata. Pure function - creates new metadata
+   * without mutating existing.
+   *
+   * <p>This method uses Iceberg's proper APIs: - removeSnapshots() to delete snapshots -
+   * addSnapshot() to add new snapshots - setBranchSnapshot() to set branch references
+   *
+   * <p>The order of operations matters: 1. Start with base metadata (buildFrom copies all existing
+   * state) 2. Remove deleted snapshots first (using proper removeSnapshots API) 3. Remove stale
+   * branch references 4. Add new snapshots and set branch pointers
+   */
+  private TableMetadata applyStateChanges(TableMetadata metadata, SnapshotState state) {
+    TableMetadata.Builder builder = TableMetadata.buildFrom(metadata);
+
+    // Step 1: Remove deleted snapshots using proper Iceberg API
+    if (!state.getDeletedSnapshots().isEmpty()) {
+      Set<Long> deletedIds =
+          state.getDeletedSnapshots().stream()
+              .map(Snapshot::snapshotId)
+              .collect(Collectors.toSet());
+      builder.removeSnapshots(deletedIds);
+    }
+
+    // Step 2: Remove stale branch references (branches that are no longer in provided refs)
+    Set<String> providedRefNames = state.getProvidedRefs().keySet();
+    metadata.refs().keySet().stream()
+        .filter(refName -> !providedRefNames.contains(refName))
+        .forEach(builder::removeRef);
+
+    // Step 3: Identify existing snapshots (after deletions)
+    Set<Long> existingSnapshotIds =
+        metadata.snapshots().stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+    Set<Long> deletedIds =
+        state.getDeletedSnapshots().stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+    existingSnapshotIds.removeAll(deletedIds);
+
+    // Step 4: Identify snapshots referenced by branches
+    Set<Long> referencedByBranches =
+        state.getProvidedRefs().values().stream()
+            .map(SnapshotRef::snapshotId)
+            .collect(Collectors.toSet());
+
+    // Step 5: Add unreferenced new snapshots (referenced ones are added via setBranchSnapshot)
+    state.getProvidedSnapshots().stream()
+        .filter(s -> !existingSnapshotIds.contains(s.snapshotId()))
+        .filter(s -> !referencedByBranches.contains(s.snapshotId()))
+        .forEach(builder::addSnapshot);
+
+    // Step 6: Set branch pointers for all provided refs
+    state
+        .getProvidedRefs()
+        .forEach(
+            (branchName, ref) -> {
+              Snapshot snapshot =
+                  state.getProvidedSnapshots().stream()
+                      .filter(s -> s.snapshotId() == ref.snapshotId())
+                      .findFirst()
+                      .orElseThrow(
+                          () ->
+                              new InvalidIcebergSnapshotException(
+                                  String.format(
+                                      "Branch %s references non-existent snapshot %s",
+                                      branchName, ref.snapshotId())));
+
+              if (existingSnapshotIds.contains(snapshot.snapshotId())) {
+                // Snapshot already exists - just update the branch pointer if needed
+                SnapshotRef existingRef = metadata.refs().get(branchName);
+                if (existingRef == null || existingRef.snapshotId() != ref.snapshotId()) {
+                  builder.setRef(branchName, ref);
+                }
+              } else {
+                // Snapshot is new - setBranchSnapshot will add it and set the branch pointer
+                builder.setBranchSnapshot(snapshot, branchName);
+              }
+            });
+
+    return builder.build();
+  }
+
+  /**
+   * Stage 7: Record metrics and add properties to metadata. Returns new metadata with updated
+   * properties.
+   */
+  private TableMetadata recordMetrics(TableMetadata metadata, SnapshotState state) {
+    Map<String, String> newProperties = new HashMap<>(metadata.properties());
+
+    // Helper to format snapshot IDs as comma-separated string
+    java.util.function.Function<List<Snapshot>, String> formatIds =
+        snapshots ->
+            snapshots.stream()
+                .map(s -> Long.toString(s.snapshotId()))
+                .collect(Collectors.joining(","));
+
+    // Record categorization metrics as comma-separated snapshot IDs
+    if (!state.getRegularSnapshots().isEmpty()) {
+      List<Snapshot> newRegularSnapshots =
+          state.getRegularSnapshots().stream()
+              .filter(s -> state.getNewSnapshots().contains(s))
+              .collect(Collectors.toList());
+      if (!newRegularSnapshots.isEmpty()) {
+        newProperties.put(
+            getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
+            formatIds.apply(newRegularSnapshots));
+      }
+    }
+    if (!state.getWapSnapshots().isEmpty()) {
+      newProperties.put(
+          getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
+          formatIds.apply(state.getWapSnapshots()));
+    }
+    if (!state.getCherryPickedSnapshots().isEmpty()) {
+      newProperties.put(
+          getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
+          formatIds.apply(state.getCherryPickedSnapshots()));
+    }
+    if (!state.getDeletedSnapshots().isEmpty()) {
+      newProperties.put(
+          getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
+          formatIds.apply(state.getDeletedSnapshots()));
+    }
+
+    // Remove the transient snapshot keys from properties
+    newProperties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
+    newProperties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
+
+    return metadata.replaceProperties(newProperties);
+  }
+
+  // ==================== End Functional Snapshot Application Pipeline ====================
+
   /**
    * If this commit comes from Iceberg built-in retry in
    * org.apache.iceberg.PropertiesUpdate#commit() Then throw fatal {@link CommitFailedException} to
@@ -533,376 +1053,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // it throw AlreadyExistsException and will not trigger retry.
       metricsReporter.count(InternalCatalogMetricsConstant.MISSING_COMMIT_KEY);
     }
-  }
-
-  public TableMetadata maybeDeleteSnapshots(
-      TableMetadata metadata, List<Snapshot> snapshotsToDelete) {
-    TableMetadata result = metadata;
-    if (CollectionUtils.isNotEmpty(snapshotsToDelete)) {
-      // Validate that snapshots to delete are not referenced by any branches or tags
-      validateSnapshotsNotReferenced(metadata, snapshotsToDelete);
-
-      Set<Long> snapshotIds =
-          snapshotsToDelete.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-      Map<String, String> updatedProperties = new HashMap<>(result.properties());
-      updatedProperties.put(
-          getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
-          snapshotsToDelete.stream()
-              .map(s -> Long.toString(s.snapshotId()))
-              .collect(Collectors.joining(",")));
-      result =
-          TableMetadata.buildFrom(result)
-              .setProperties(updatedProperties)
-              .build()
-              .removeSnapshotsIf(s -> snapshotIds.contains(s.snapshotId()));
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, (double) snapshotsToDelete.size());
-    }
-    return result;
-  }
-
-  /** Represents the semantic difference between current server state and client-desired state. */
-  private static class StateDiff {
-    final List<Snapshot> newSnapshots;
-    final Map<String, Long> branchUpdates; // branch -> snapshotId
-    final Map<String, Snapshot> snapshotLookup; // snapshotId -> Snapshot for efficiency
-
-    StateDiff(
-        List<Snapshot> newSnapshots,
-        Map<String, Long> branchUpdates,
-        List<Snapshot> allClientSnapshots) {
-      this.newSnapshots = List.copyOf(newSnapshots);
-      this.branchUpdates = Map.copyOf(branchUpdates);
-      this.snapshotLookup =
-          allClientSnapshots.stream()
-              .collect(Collectors.toMap(s -> String.valueOf(s.snapshotId()), s -> s));
-    }
-  }
-
-  /** Checks if a branch needs to be updated based on current refs and new snapshot ID. */
-  private boolean needsBranchUpdate(TableMetadata metadata, String branchName, long newSnapshotId) {
-    if (MapUtils.isEmpty(metadata.refs())) {
-      // No refs exist yet, this is a new branch
-      return true;
-    }
-
-    SnapshotRef currentRef = metadata.refs().get(branchName);
-    return currentRef == null || currentRef.snapshotId() != newSnapshotId;
-  }
-
-  /** Validates that no two branches are trying to point to the same snapshot (ambiguous commit). */
-  private void validateNoBranchConflicts(Map<String, Long> branchUpdates) {
-    // Group branches by target snapshot ID
-    Map<Long, List<String>> snapshotToBranches = new HashMap<>();
-    for (Map.Entry<String, Long> entry : branchUpdates.entrySet()) {
-      snapshotToBranches
-          .computeIfAbsent(entry.getValue(), k -> new ArrayList<>())
-          .add(entry.getKey());
-    }
-
-    // Check for conflicts (multiple branches pointing to same snapshot)
-    for (Map.Entry<Long, List<String>> entry : snapshotToBranches.entrySet()) {
-      List<String> branches = entry.getValue();
-      if (branches.size() > 1) {
-        throw new IllegalStateException(
-            String.format(
-                "Multiple branches (%s) specify the same target snapshot %d. "
-                    + "This indicates an ambiguous commit operation - each snapshot can only be assigned to one branch.",
-                branches, entry.getKey()));
-      }
-    }
-  }
-
-  /** Validates that snapshots to be deleted are not referenced by any branches or tags. */
-  private void validateSnapshotsNotReferenced(
-      TableMetadata metadata, List<Snapshot> snapshotsToDelete) {
-    if (MapUtils.isEmpty(metadata.refs()) || CollectionUtils.isEmpty(snapshotsToDelete)) {
-      return; // No refs to check or no snapshots to delete
-    }
-
-    Set<Long> snapshotIdsToDelete =
-        snapshotsToDelete.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-
-    // Check if any snapshot to delete is referenced by branches or tags
-    for (Map.Entry<String, SnapshotRef> refEntry : metadata.refs().entrySet()) {
-      String refName = refEntry.getKey();
-      SnapshotRef ref = refEntry.getValue();
-
-      if (snapshotIdsToDelete.contains(ref.snapshotId())) {
-        List<String> referencingRefs =
-            metadata.refs().entrySet().stream()
-                .filter(entry -> snapshotIdsToDelete.contains(entry.getValue().snapshotId()))
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
-
-        throw new IllegalArgumentException(
-            String.format(
-                "Cannot expire %d. Still referenced by refs: %s",
-                ref.snapshotId(), referencingRefs));
-      }
-    }
-  }
-
-  /** Records snapshot actions in table properties and reports metrics. */
-  private void recordSnapshotActions(
-      TableMetadata metadata,
-      TableMetadata.Builder metadataBuilder,
-      List<String> appendedSnapshots,
-      List<String> stagedSnapshots,
-      List<String> cherryPickedSnapshots) {
-
-    Map<String, String> updatedProperties = new HashMap<>(metadata.properties());
-
-    if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
-      updatedProperties.put(
-          getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-          appendedSnapshots.stream().collect(Collectors.joining(",")));
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedSnapshots.size());
-    }
-
-    if (CollectionUtils.isNotEmpty(stagedSnapshots)) {
-      updatedProperties.put(
-          getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-          stagedSnapshots.stream().collect(Collectors.joining(",")));
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, stagedSnapshots.size());
-    }
-
-    if (CollectionUtils.isNotEmpty(cherryPickedSnapshots)) {
-      updatedProperties.put(
-          getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-          cherryPickedSnapshots.stream().collect(Collectors.joining(",")));
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR, cherryPickedSnapshots.size());
-    }
-
-    metadataBuilder.setProperties(updatedProperties);
-  }
-
-  /**
-   * Applies client-requested changes to server state using functional approach.
-   *
-   * <p>Contract: currentState + clientDesiredState -> newState + metrics
-   *
-   * <p>Client sends desired final state, server computes semantic diff and applies it.
-   */
-  public TableMetadata applySnapshotOperations(
-      TableMetadata currentMetadata,
-      List<Snapshot> clientSnapshots,
-      Map<String, SnapshotRef> clientRefs,
-      boolean recordAction) {
-
-    return computeStateDiff(currentMetadata, clientSnapshots, clientRefs)
-        .map(
-            diff -> {
-              TableMetadata newMetadata = applyStateDiff(currentMetadata, diff);
-              return recordAction
-                  ? recordTransition(currentMetadata, newMetadata, diff)
-                  : newMetadata;
-            })
-        .orElse(currentMetadata);
-  }
-
-  /** Computes semantic difference between current server state and client-desired state. */
-  private Optional<StateDiff> computeStateDiff(
-      TableMetadata currentMetadata,
-      List<Snapshot> clientSnapshots,
-      Map<String, SnapshotRef> clientRefs) {
-
-    if (CollectionUtils.isEmpty(clientSnapshots) && MapUtils.isEmpty(clientRefs)) {
-      return Optional.empty(); // No changes requested
-    }
-
-    Set<Long> currentSnapshotIds =
-        currentMetadata.snapshots().stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-
-    // Find truly new snapshots (not in current metadata)
-    List<Snapshot> newSnapshots =
-        Optional.ofNullable(clientSnapshots).orElse(Collections.emptyList()).stream()
-            .filter(s -> !currentSnapshotIds.contains(s.snapshotId()))
-            .collect(Collectors.toList());
-
-    // Find branch updates needed
-    Map<String, Long> branchUpdates =
-        Optional.ofNullable(clientRefs).orElse(Collections.emptyMap()).entrySet().stream()
-            .filter(
-                entry ->
-                    needsBranchUpdate(
-                        currentMetadata, entry.getKey(), entry.getValue().snapshotId()))
-            .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().snapshotId()));
-
-    // Check for ambiguous commits: multiple branches trying to point to the same snapshot
-    validateNoBranchConflicts(branchUpdates);
-
-    return Optional.of(
-        new StateDiff(
-            newSnapshots,
-            branchUpdates,
-            Optional.ofNullable(clientSnapshots).orElse(Collections.emptyList())));
-  }
-
-  /** Applies the computed state diff to create new metadata. */
-  private TableMetadata applyStateDiff(TableMetadata currentMetadata, StateDiff diff) {
-    TableMetadata.Builder builder = TableMetadata.buildFrom(currentMetadata);
-
-    // Add new snapshots (respecting Iceberg semantics)
-    diff.newSnapshots.forEach(
-        snapshot -> {
-          snapshotInspector.validateSnapshot(snapshot);
-
-          if (isWapStaged(snapshot)) {
-            // WAP snapshots are always staged (never assigned to branches initially)
-            builder.addSnapshot(snapshot);
-          } else {
-            // All other snapshots: assign to branch if specified, otherwise stage
-            findTargetBranchForSnapshot(snapshot, diff.branchUpdates)
-                .ifPresentOrElse(
-                    targetBranch -> builder.setBranchSnapshot(snapshot, targetBranch),
-                    () -> builder.addSnapshot(snapshot));
-          }
-        });
-
-    // Update branch pointers to existing snapshots
-    diff.branchUpdates.entrySet().stream()
-        .filter(entry -> !isNewSnapshot(entry.getValue(), diff.newSnapshots))
-        .forEach(entry -> builder.setBranchSnapshot(entry.getValue(), entry.getKey()));
-
-    return builder.build();
-  }
-
-  /** Checks if snapshot is WAP staged (should not be assigned to any branch). */
-  private boolean isWapStaged(Snapshot snapshot) {
-    return snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP);
-  }
-
-  /** Checks if snapshot is cherry-picked (should go directly to target branch). */
-  private boolean isCherryPicked(Snapshot snapshot) {
-    return snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP);
-  }
-
-  /**
-   * Finds which branch this snapshot should be assigned to based on branch updates. Fails fast if
-   * multiple branches want the same snapshot (ambiguous commit).
-   */
-  private Optional<String> findTargetBranchForSnapshot(
-      Snapshot snapshot, Map<String, Long> branchUpdates) {
-    List<String> matchingBranches =
-        branchUpdates.entrySet().stream()
-            .filter(entry -> entry.getValue() == snapshot.snapshotId())
-            .map(Map.Entry::getKey)
-            .toList();
-
-    if (matchingBranches.size() > 1) {
-      throw new IllegalStateException(
-          "Multiple branches (%s) specify the same target snapshot %d. "
-              + "This indicates an ambiguous commit operation - each snapshot can only be assigned to one branch."
-                  .formatted(matchingBranches, snapshot.snapshotId()));
-    }
-
-    return matchingBranches.stream().findFirst();
-  }
-
-  /** Checks if this snapshot ID is in the list of new snapshots being added. */
-  private boolean isNewSnapshot(Long snapshotId, List<Snapshot> newSnapshots) {
-    return newSnapshots.stream().anyMatch(s -> s.snapshotId() == snapshotId);
-  }
-
-  /** Records metrics and properties about the state transition that occurred. */
-  private TableMetadata recordTransition(
-      TableMetadata originalMetadata, TableMetadata newMetadata, StateDiff diff) {
-
-    Map<String, String> properties = new HashMap<>(newMetadata.properties());
-
-    // Categorize new snapshots by their semantic type for metrics
-    Map<String, List<String>> snapshotsByType =
-        diff.newSnapshots.stream()
-            .collect(
-                Collectors.groupingBy(
-                    this::getSnapshotCategory,
-                    Collectors.mapping(s -> String.valueOf(s.snapshotId()), Collectors.toList())));
-
-    // Record snapshot metrics by type
-    recordIfPresent(
-        properties,
-        snapshotsByType,
-        "appended",
-        CatalogConstants.APPENDED_SNAPSHOTS,
-        InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR);
-    recordIfPresent(
-        properties,
-        snapshotsByType,
-        "staged",
-        CatalogConstants.STAGED_SNAPSHOTS,
-        InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR);
-
-    // For cherry-picked snapshots, record the SOURCE snapshot IDs that were cherry-picked
-    List<String> cherryPickSourceIds =
-        diff.newSnapshots.stream()
-            .filter(this::isCherryPicked)
-            .map(this::getCherryPickSourceId)
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .collect(Collectors.toList());
-
-    if (!cherryPickSourceIds.isEmpty()) {
-      properties.put(
-          getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-          String.join(",", cherryPickSourceIds));
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR, cherryPickSourceIds.size());
-    }
-
-    // Record branch updates that don't involve new snapshots (pure ref moves)
-    List<String> refOnlyCherryPicks =
-        diff.branchUpdates.entrySet().stream()
-            .filter(entry -> !isNewSnapshot(entry.getValue(), diff.newSnapshots))
-            .map(entry -> String.valueOf(entry.getValue()))
-            .collect(Collectors.toList());
-
-    if (!refOnlyCherryPicks.isEmpty()) {
-      String existing =
-          properties.get(getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS));
-      String combined =
-          existing != null
-              ? existing + "," + String.join(",", refOnlyCherryPicks)
-              : String.join(",", refOnlyCherryPicks);
-      properties.put(getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS), combined);
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR, refOnlyCherryPicks.size());
-    }
-
-    return TableMetadata.buildFrom(newMetadata).setProperties(properties).build();
-  }
-
-  /** Categorizes snapshot for metrics based on its semantic type. */
-  private String getSnapshotCategory(Snapshot snapshot) {
-    if (isWapStaged(snapshot)) return "staged";
-    if (isCherryPicked(snapshot))
-      return "appended"; // Cherry-picked snapshots are NEW, so they're "appended"
-    return "appended";
-  }
-
-  /** Extracts the source snapshot ID for cherry-picked snapshots. */
-  private Optional<String> getCherryPickSourceId(Snapshot snapshot) {
-    return Optional.ofNullable(snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP));
-  }
-
-  /** Records snapshot category in properties if snapshots exist. */
-  private void recordIfPresent(
-      Map<String, String> properties,
-      Map<String, List<String>> categorized,
-      String category,
-      String propertyKey,
-      String metricKey) {
-
-    Optional.ofNullable(categorized.get(category))
-        .filter(CollectionUtils::isNotEmpty)
-        .ifPresent(
-            snapshots -> {
-              properties.put(getCanonicalFieldName(propertyKey), String.join(",", snapshots));
-              metricsReporter.count(metricKey, snapshots.size());
-            });
   }
 
   /** Helper function to dump contents for map in debugging mode. */
