@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.Storage;
@@ -521,7 +522,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    *
    * <p>Pipeline stages: 1. Extract snapshots from properties 2. Parse snapshots from JSON 3. Parse
    * references from JSON 4. Compute complete state diff (categorize, identify changes) 5. Validate
-   * entire operation 6. Apply state changes 7. Record metrics/properties
+   * entire operation 6. Apply state changes (returns builder) 7. Add metric properties to builder
+   * 8. Build once at top level to preserve lastUpdatedMillis from snapshot operations
    *
    * @param base The base table metadata (may be null for table creation)
    * @param metadata The new metadata with properties containing snapshot updates
@@ -569,11 +571,14 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               // Stage 5: Validate entire operation
               validateOperation(state, base);
 
-              // Stage 6: Apply state changes
-              TableMetadata updated = applyStateChanges(metadata, state);
+              // Stage 6: Apply state changes - returns builder
+              TableMetadata.Builder builder = applyStateChanges(metadata, state);
 
-              // Stage 7: Record metrics/properties
-              return recordMetrics(updated, state);
+              // Stage 7: Record metrics and add metric properties to builder
+              builder = recordMetrics(builder, state);
+
+              // Build once at the end to preserve lastUpdatedMillis from snapshot operations
+              return builder.build();
             })
         .orElse(metadata); // No snapshot updates if key not present
   }
@@ -604,7 +609,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
     // Categorize all snapshots by type
     SnapshotCategories categories =
-        categorizeAllSnapshots(partial.getProvidedSnapshots(), existingById);
+        categorizeAllSnapshots(
+            partial.getProvidedSnapshots(),
+            existingById,
+            partial.getExistingRefs(),
+            partial.getProvidedRefs());
 
     // Identify snapshot changes (new, retained, deleted)
     SnapshotChanges changes =
@@ -647,10 +656,24 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   /** Categorize all snapshots into WAP, cherry-picked, and regular. */
   private SnapshotCategories categorizeAllSnapshots(
-      List<Snapshot> providedSnapshots, Map<Long, Snapshot> existingById) {
-    List<Snapshot> wapSnapshots = categorizeWapSnapshots(providedSnapshots);
+      List<Snapshot> providedSnapshots,
+      Map<Long, Snapshot> existingById,
+      Map<String, SnapshotRef> existingRefs,
+      Map<String, SnapshotRef> providedRefs) {
+    List<Snapshot> wapSnapshots =
+        categorizeWapSnapshots(providedSnapshots, existingRefs, providedRefs);
     List<Snapshot> cherryPickedSnapshots =
-        categorizeCherryPickedSnapshots(providedSnapshots, existingById);
+        categorizeCherryPickedSnapshots(
+            providedSnapshots, existingById, existingRefs, providedRefs);
+
+    // Cherry-picked snapshots should not be considered WAP/staged anymore
+    Set<Long> cherryPickedIds =
+        cherryPickedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+    wapSnapshots =
+        wapSnapshots.stream()
+            .filter(s -> !cherryPickedIds.contains(s.snapshotId()))
+            .collect(Collectors.toList());
+
     List<Snapshot> regularSnapshots =
         categorizeRegularSnapshots(providedSnapshots, wapSnapshots, cherryPickedSnapshots);
 
@@ -716,23 +739,60 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /**
-   * Categorize WAP (Write-Audit-Publish) snapshots. A snapshot is WAP if it has the WAP ID in its
-   * summary.
+   * Categorize WAP (Write-Audit-Publish) snapshots. A snapshot is considered WAP/staged if it has
+   * the wap.id property AND is not on any branch in either the existing or provided metadata. This
+   * correctly handles: 1. Snapshots that were on branches in base - not WAP even if unreferenced in
+   * new metadata 2. Snapshots being published (staged -> branch) - not WAP as they're now on a
+   * branch
+   *
+   * @param snapshots List of provided snapshots
+   * @param existingRefs Existing snapshot refs from base metadata
+   * @param providedRefs Provided snapshot refs from new metadata
+   * @return List of WAP snapshots
    */
-  private List<Snapshot> categorizeWapSnapshots(List<Snapshot> snapshots) {
+  private List<Snapshot> categorizeWapSnapshots(
+      List<Snapshot> snapshots,
+      Map<String, SnapshotRef> existingRefs,
+      Map<String, SnapshotRef> providedRefs) {
+    // Get set of snapshot IDs that are/were on branches
+    Set<Long> branchSnapshotIds = new java.util.HashSet<>();
+    branchSnapshotIds.addAll(
+        existingRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet()));
+    branchSnapshotIds.addAll(
+        providedRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet()));
+
     return snapshots.stream()
         .filter(
             s -> s.summary() != null && s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
+        .filter(s -> !branchSnapshotIds.contains(s.snapshotId()))
         .collect(Collectors.toList());
   }
 
   /**
-   * Categorize cherry-picked snapshots. A snapshot is cherry-picked if it exists in the current
+   * Categorize cherry-picked snapshots. A snapshot is cherry-picked if: 1. It exists in the current
    * metadata but has a different parent than in the provided snapshots (indicating it was moved to
-   * a different branch).
+   * a different branch), OR 2. It is referenced as the source of a cherry-pick by another
+   * snapshot's "source-snapshot-id", OR 3. It has wap.id AND was staged (not on a branch) in
+   * existing refs AND is now on a branch in provided refs (indicating it's being published)
    */
   private List<Snapshot> categorizeCherryPickedSnapshots(
-      List<Snapshot> providedSnapshots, Map<Long, Snapshot> existingById) {
+      List<Snapshot> providedSnapshots,
+      Map<Long, Snapshot> existingById,
+      Map<String, SnapshotRef> existingRefs,
+      Map<String, SnapshotRef> providedRefs) {
+
+    // Find snapshots that are sources of cherry-picks
+    Set<Long> cherryPickSourceIds =
+        providedSnapshots.stream()
+            .filter(s -> s.summary() != null && s.summary().containsKey("source-snapshot-id"))
+            .map(s -> Long.parseLong(s.summary().get("source-snapshot-id")))
+            .collect(Collectors.toSet());
+
+    // Get snapshot IDs on branches
+    Set<Long> existingBranchSnapshotIds =
+        existingRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
+    Set<Long> providedBranchSnapshotIds =
+        providedRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
 
     return providedSnapshots.stream()
         .filter(
@@ -744,7 +804,20 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               // Check if parent changed (indicating cherry-pick to different branch)
               Long providedParent = provided.parentId();
               Long existingParent = existing.parentId();
-              return !Objects.equal(providedParent, existingParent);
+              boolean parentChanged = !Objects.equal(providedParent, existingParent);
+
+              // Check if this snapshot is the source of a cherry-pick
+              boolean isCherryPickSource = cherryPickSourceIds.contains(provided.snapshotId());
+
+              // Check if this is a WAP snapshot being published (staged -> branch)
+              boolean hasWapId =
+                  provided.summary() != null
+                      && provided.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP);
+              boolean wasStaged = !existingBranchSnapshotIds.contains(provided.snapshotId());
+              boolean isNowOnBranch = providedBranchSnapshotIds.contains(provided.snapshotId());
+              boolean isBeingPublished = hasWapId && wasStaged && isNowOnBranch;
+
+              return parentChanged || isCherryPickSource || isBeingPublished;
             })
         .collect(Collectors.toList());
   }
@@ -897,8 +970,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /**
-   * Stage 6: Apply state changes to create new TableMetadata. Pure function - creates new metadata
-   * without mutating existing.
+   * Stage 6: Apply state changes to create TableMetadata builder. Returns builder (not built) to
+   * allow metric properties to be added before the final build, preserving lastUpdatedMillis.
    *
    * <p>This method uses Iceberg's proper APIs: - removeSnapshots() to delete snapshots -
    * addSnapshot() to add new snapshots - setBranchSnapshot() to set branch references
@@ -906,8 +979,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * <p>The order of operations matters: 1. Start with base metadata (buildFrom copies all existing
    * state) 2. Remove deleted snapshots first (using proper removeSnapshots API) 3. Remove stale
    * branch references 4. Add new snapshots and set branch pointers
+   *
+   * @return Builder with all snapshot changes applied but not yet built
    */
-  private TableMetadata applyStateChanges(TableMetadata metadata, SnapshotState state) {
+  private TableMetadata.Builder applyStateChanges(TableMetadata metadata, SnapshotState state) {
     TableMetadata.Builder builder = TableMetadata.buildFrom(metadata);
 
     // Step 1: Remove deleted snapshots using proper Iceberg API
@@ -972,15 +1047,36 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               }
             });
 
-    return builder.build();
+    return builder;
   }
 
   /**
-   * Stage 7: Record metrics and add properties to metadata. Returns new metadata with updated
-   * properties.
+   * Stage 7: Add metric properties to builder. Returns the builder for final build in
+   * applySnapshots. This allows the single build to preserve lastUpdatedMillis from snapshot
+   * operations.
+   *
+   * @param builder Builder with snapshot changes already applied
+   * @param state Snapshot state containing metrics to record
+   * @return Builder with metric properties added, ready to be built
    */
-  private TableMetadata recordMetrics(TableMetadata metadata, SnapshotState state) {
-    Map<String, String> newProperties = new HashMap<>(metadata.properties());
+  private TableMetadata.Builder recordMetrics(TableMetadata.Builder builder, SnapshotState state) {
+    // Emit metrics to reporter
+    if (state.getAppendedCount() > 0) {
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, state.getAppendedCount());
+    }
+    if (state.getStagedCount() > 0) {
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, state.getStagedCount());
+    }
+    if (state.getCherryPickedCount() > 0) {
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR, state.getCherryPickedCount());
+    }
+    if (state.getDeletedCount() > 0) {
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, state.getDeletedCount());
+    }
 
     // Helper to format snapshot IDs as comma-separated string
     java.util.function.Function<List<Snapshot>, String> formatIds =
@@ -996,32 +1092,36 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               .filter(s -> state.getNewSnapshots().contains(s))
               .collect(Collectors.toList());
       if (!newRegularSnapshots.isEmpty()) {
-        newProperties.put(
-            getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-            formatIds.apply(newRegularSnapshots));
+        builder.setProperties(
+            Collections.singletonMap(
+                getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
+                formatIds.apply(newRegularSnapshots)));
       }
     }
     if (!state.getWapSnapshots().isEmpty()) {
-      newProperties.put(
-          getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-          formatIds.apply(state.getWapSnapshots()));
+      builder.setProperties(
+          Collections.singletonMap(
+              getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
+              formatIds.apply(state.getWapSnapshots())));
     }
     if (!state.getCherryPickedSnapshots().isEmpty()) {
-      newProperties.put(
-          getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-          formatIds.apply(state.getCherryPickedSnapshots()));
+      builder.setProperties(
+          Collections.singletonMap(
+              getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
+              formatIds.apply(state.getCherryPickedSnapshots())));
     }
     if (!state.getDeletedSnapshots().isEmpty()) {
-      newProperties.put(
-          getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
-          formatIds.apply(state.getDeletedSnapshots()));
+      builder.setProperties(
+          Collections.singletonMap(
+              getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
+              formatIds.apply(state.getDeletedSnapshots())));
     }
 
     // Remove the transient snapshot keys from properties
-    newProperties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
-    newProperties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
+    builder.removeProperties(
+        Sets.newHashSet(CatalogConstants.SNAPSHOTS_JSON_KEY, CatalogConstants.SNAPSHOTS_REFS_KEY));
 
-    return metadata.replaceProperties(newProperties);
+    return builder;
   }
 
   // ==================== End Functional Snapshot Application Pipeline ====================
