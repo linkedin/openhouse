@@ -201,7 +201,7 @@ public class OpenHouseInternalTableOperationsTest {
       Assertions.assertEquals(
           5,
           updatedProperties
-              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version and deleted_snapshots*/
+              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version and appended_snapshots*/
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
@@ -1339,8 +1339,6 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertFalse(Double.isNaN(maxTime), "Timer max time should not be NaN");
   }
 
-  // ===== SNAPSHOT DELETION SAFETY TESTS =====
-
   /**
    * Tests that attempting to delete a snapshot referenced by the main branch throws an exception.
    * Verifies that InvalidIcebergSnapshotException is thrown with appropriate error message.
@@ -2415,6 +2413,125 @@ public class OpenHouseInternalTableOperationsTest {
           exceptionMessage.contains(expectedMessage),
           "Error message should indicate multiple branches targeting same snapshot: "
               + exceptionMessage);
+    }
+  }
+
+  /**
+   * Tests divergent commit (N to N+3) that includes both regular snapshots and WAP staged
+   * snapshots. Verifies that staged snapshots remain properly tracked as staged even during a
+   * multi-version jump commit.
+   */
+  @Test
+  void testMultipleDiffCommitWithWAPSnapshots() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    List<Snapshot> wapSnapshots = IcebergTestUtil.getWapSnapshots();
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+
+      // ========== Create base at N with 1 snapshot ==========
+      TableMetadata baseAtN =
+          TableMetadata.buildFrom(BASE_TABLE_METADATA)
+              .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+              .build();
+
+      // ========== Create divergent metadata at N+3 with 2 regular + 2 WAP snapshots ==========
+      // Simulate evolving through N+1 and N+2 without committing
+      // The new metadata will have:
+      // - testSnapshots[0] (existing in base, main branch)
+      // - testSnapshots[1] (new, main branch will advance here)
+      // - wapSnapshots[0] (new, staged - no branch reference)
+      // - wapSnapshots[1] (new, staged - no branch reference)
+
+      TableMetadata metadataAtNPlus3 =
+          TableMetadata.buildFrom(baseAtN)
+              .setBranchSnapshot(testSnapshots.get(1), SnapshotRef.MAIN_BRANCH)
+              .addSnapshot(wapSnapshots.get(0))
+              .addSnapshot(wapSnapshots.get(1))
+              .build();
+
+      // Add custom properties for commit
+      Map<String, String> divergentProperties = new HashMap<>(metadataAtNPlus3.properties());
+
+      // Include 2 regular snapshots (0, 1) and 2 WAP snapshots (0, 1)
+      List<Snapshot> allSnapshots = new ArrayList<>();
+      allSnapshots.add(testSnapshots.get(0));
+      allSnapshots.add(testSnapshots.get(1));
+      allSnapshots.add(wapSnapshots.get(0));
+      allSnapshots.add(wapSnapshots.get(1));
+
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(allSnapshots));
+
+      // Only main branch ref pointing to testSnapshots[1], WAP snapshots have no refs
+      divergentProperties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testSnapshots.get(1))));
+      divergentProperties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+      TableMetadata finalDivergentMetadata =
+          metadataAtNPlus3.replaceProperties(divergentProperties);
+
+      // ========== COMMIT: Base at N, Metadata at N+3 (divergent by 3 commits) ==========
+      openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
+      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+
+      TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+      Map<String, String> updatedProperties = capturedMetadata.properties();
+
+      // Verify the divergent commit contains all 4 snapshots
+      Assertions.assertEquals(
+          4,
+          capturedMetadata.snapshots().size(),
+          "Divergent commit should contain all 4 snapshots (2 regular + 2 WAP)");
+
+      Set<Long> expectedSnapshotIds =
+          allSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+      Set<Long> actualSnapshotIds =
+          capturedMetadata.snapshots().stream()
+              .map(Snapshot::snapshotId)
+              .collect(Collectors.toSet());
+      Assertions.assertEquals(
+          expectedSnapshotIds,
+          actualSnapshotIds,
+          "All snapshot IDs (regular + WAP) should be present after divergent commit");
+
+      // Verify main ref points to the expected snapshot (testSnapshots[1])
+      SnapshotRef mainRef = capturedMetadata.ref(SnapshotRef.MAIN_BRANCH);
+      Assertions.assertNotNull(mainRef, "Main branch ref should exist");
+      Assertions.assertEquals(
+          testSnapshots.get(1).snapshotId(),
+          mainRef.snapshotId(),
+          "Main branch should point to testSnapshots[1] after divergent commit");
+
+      // Verify WAP snapshots are tracked as staged
+      String stagedSnapshots = updatedProperties.get(getCanonicalFieldName("staged_snapshots"));
+      Assertions.assertNotNull(stagedSnapshots, "Staged snapshots should be tracked");
+      Set<String> stagedSnapshotIds = Set.of(stagedSnapshots.split(","));
+      Assertions.assertTrue(
+          stagedSnapshotIds.contains(Long.toString(wapSnapshots.get(0).snapshotId())),
+          "WAP snapshot 0 should be tracked as staged");
+      Assertions.assertTrue(
+          stagedSnapshotIds.contains(Long.toString(wapSnapshots.get(1).snapshotId())),
+          "WAP snapshot 1 should be tracked as staged");
+
+      // Verify regular snapshot is tracked as appended (not testSnapshots[0] since it was in base)
+      String appendedSnapshots = updatedProperties.get(getCanonicalFieldName("appended_snapshots"));
+      Assertions.assertNotNull(appendedSnapshots, "Appended snapshots should be tracked");
+      Assertions.assertEquals(
+          Long.toString(testSnapshots.get(1).snapshotId()),
+          appendedSnapshots,
+          "testSnapshots[1] should be tracked as appended");
+
+      Assertions.assertNull(
+          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")),
+          "No snapshots should be cherry-picked in this scenario");
+      Assertions.assertNull(
+          updatedProperties.get(getCanonicalFieldName("deleted_snapshots")),
+          "No snapshots should be deleted in this scenario");
+
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
 }
