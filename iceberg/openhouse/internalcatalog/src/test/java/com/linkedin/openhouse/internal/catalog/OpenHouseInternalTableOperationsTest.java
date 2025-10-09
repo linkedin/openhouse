@@ -129,6 +129,10 @@ public class OpenHouseInternalTableOperationsTest {
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
   }
 
+  /**
+   * Tests committing snapshots to a table with no existing snapshots (initial version). Verifies
+   * that all snapshots are appended and tracked in table properties.
+   */
   @Test
   void testDoCommitAppendSnapshotsInitialVersion() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -164,6 +168,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests committing additional snapshots to a table that already has existing snapshots. Verifies
+   * that only new snapshots are appended and tracked appropriately.
+   */
   @Test
   void testDoCommitAppendSnapshotsExistingVersion() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -208,6 +216,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests committing changes that both append new snapshots and delete existing ones. Verifies that
+   * both appended and deleted snapshots are correctly tracked in properties.
+   */
   @Test
   void testDoCommitAppendAndDeleteSnapshots() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -266,6 +278,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests that metadata file updates are performed for replicated table initial version commits.
+   * Verifies that updateMetadataField is called with the correct parameters for replicated tables.
+   */
   @Test
   void testDoCommitUpdateMetadataForInitalVersionCommit() throws IOException {
     Map<String, String> properties = new HashMap<>();
@@ -326,6 +342,10 @@ public class OpenHouseInternalTableOperationsTest {
     verify(mockLocalStorageClient).getNativeClient();
   }
 
+  /**
+   * Tests that metadata file updates are not performed for non-replicated tables. Verifies that
+   * updateMetadataField is never called when the table is not replicated.
+   */
   @Test
   void testDoCommitUpdateMetadataNotCalledForNonReplicatedTable() throws IOException {
     Map<String, String> properties = new HashMap<>();
@@ -352,6 +372,10 @@ public class OpenHouseInternalTableOperationsTest {
     Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.any(HouseTable.class));
   }
 
+  /**
+   * Tests that metadata file updates are not performed for non-initial version commits. Verifies
+   * that updateMetadataField is only called during table creation, not for subsequent updates.
+   */
   @Test
   void testDoCommitUpdateMetadataNotCalledForNonInitialVersionCommit() throws IOException {
     Map<String, String> properties = new HashMap<>();
@@ -385,6 +409,10 @@ public class OpenHouseInternalTableOperationsTest {
     Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.any(HouseTable.class));
   }
 
+  /**
+   * Tests committing changes that delete some snapshots while keeping others. Verifies that deleted
+   * snapshots are properly tracked in table properties.
+   */
   @Test
   void testDoCommitDeleteSnapshots() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -433,6 +461,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests that commits to staged tables do not persist to the repository. Verifies that table
+   * metadata is set locally but save() and findById() are never called.
+   */
   @Test
   void testDoCommitDoesntPersistForStagedTable() {
     TableMetadata metadata =
@@ -454,6 +486,10 @@ public class OpenHouseInternalTableOperationsTest {
             .get());
   }
 
+  /**
+   * Tests that repository exceptions are properly converted to Iceberg exceptions. Verifies that
+   * various repository exceptions map to CommitFailedException or CommitStateUnknownException.
+   */
   @Test
   void testDoCommitExceptionHandling() {
     TableMetadata base = BASE_TABLE_METADATA;
@@ -482,6 +518,11 @@ public class OpenHouseInternalTableOperationsTest {
         () -> openHouseInternalTableOperations.doCommit(base, metadata));
   }
 
+  /**
+   * Tests that attempting to delete a snapshot that is still referenced by a branch throws an
+   * exception. Verifies that InvalidIcebergSnapshotException is thrown when snapshot refs conflict
+   * with deletions.
+   */
   @Test
   void testDoCommitSnapshotsValidationThrowsException() throws IOException {
     TableMetadata metadata =
@@ -528,6 +569,10 @@ public class OpenHouseInternalTableOperationsTest {
         "Should throw exception when trying to delete referenced snapshots");
   }
 
+  /**
+   * Tests committing WAP (write-audit-publish) staged snapshots to an initial version table.
+   * Verifies that snapshots are marked as staged but not appended to the main branch.
+   */
   @Test
   void testDoCommitAppendStageOnlySnapshotsInitialVersion() throws IOException {
     List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 2);
@@ -557,6 +602,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests committing WAP staged snapshots to a table with existing snapshots. Verifies that new
+   * snapshots are tracked as staged without being appended to main.
+   */
   @Test
   void testDoCommitAppendStageOnlySnapshotsExistingVersion() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -600,6 +649,11 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests validation that rejects appending snapshots older than the current metadata timestamp.
+   * Verifies that IllegalArgumentException is thrown for stale snapshots unless newer ones are
+   * included.
+   */
   @Test
   void testAppendSnapshotsWithOldSnapshots() throws IOException {
     // Create base metadata (existing table state)
@@ -640,6 +694,10 @@ public class OpenHouseInternalTableOperationsTest {
     openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadataWithFuture);
   }
 
+  /**
+   * Tests cherry-picking a staged snapshot to main when the base snapshot hasn't changed. Verifies
+   * that the existing staged snapshot is promoted without creating a new snapshot.
+   */
   @Test
   void testDoCommitCherryPickSnapshotBaseUnchanged() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -681,6 +739,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests cherry-picking a staged snapshot when the base has changed since staging. Verifies that a
+   * new snapshot is created and appended to track the rebased changes.
+   */
   @Test
   void testDoCommitCherryPickSnapshotBaseChanged() throws IOException {
     List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots();
@@ -721,6 +783,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests cherry-picking the first staged snapshot (with no parent) to the main branch. Verifies
+   * that the staged snapshot is promoted directly without creating a new snapshot.
+   */
   @Test
   void testDoCommitCherryPickFirstSnapshot() throws IOException {
     List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 1);
@@ -755,6 +821,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests deleting the last staged snapshot when no references point to it. Verifies that no
+   * snapshot operations are tracked since the snapshot was unreferenced.
+   */
   @Test
   void testDoCommitDeleteLastStagedSnapshotWhenNoRefs() throws IOException {
     List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 1);
@@ -782,6 +852,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests rebuilding an unpartitioned table's partition spec with a new schema. Verifies that the
+   * rebuilt spec remains unpartitioned.
+   */
   @Test
   void testRebuildPartitionSpecUnpartitioned() {
     Schema originalSchema =
@@ -796,6 +870,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertTrue(rebuiltSpec.isUnpartitioned());
   }
 
+  /**
+   * Tests rebuilding partition spec when the new schema has the same field IDs as the original.
+   * Verifies that partition fields are correctly mapped using matching field IDs.
+   */
   @Test
   void testRebuildPartitionSpec_NewSchemaSameFieldIds() {
     Schema originalSchema =
@@ -833,6 +911,11 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertEquals(3, rebuiltSpec.fields().get(2).sourceId());
   }
 
+  /**
+   * Tests rebuilding partition spec when the new schema has different field IDs for same field
+   * names. Verifies that partition fields are correctly remapped to new field IDs based on field
+   * names.
+   */
   @Test
   void testRebuildPartitionSpec_NewSchemaDifferentFieldIds() {
     Schema originalSchema =
@@ -878,6 +961,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertEquals(2, rebuiltSpec.fields().get(2).sourceId());
   }
 
+  /**
+   * Tests rebuilding partition spec when a partition field is missing from the new schema. Verifies
+   * that an IllegalArgumentException is thrown for the missing field.
+   */
   @Test
   void testRebuildPartitionSpec_fieldMissingInNewSchema() {
     Schema originalSchema =
@@ -899,6 +986,10 @@ public class OpenHouseInternalTableOperationsTest {
         "Field field1 does not exist in the new schema", exception.getMessage());
   }
 
+  /**
+   * Tests rebuilding sort order when the new schema has the same field IDs as the original.
+   * Verifies that sort fields are correctly mapped using matching field IDs.
+   */
   @Test
   void testRebuildSortOrder_NewSchemaSameFieldIds() {
     Schema originalSchema =
@@ -925,6 +1016,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertEquals(2, rebuiltSortOrder.fields().get(1).sourceId());
   }
 
+  /**
+   * Tests rebuilding sort order when the new schema has different field IDs for same field names.
+   * Verifies that sort fields are correctly remapped to new field IDs based on field names.
+   */
   @Test
   void testRebuildSortOrder_NewSchemaDifferentFieldIds() {
     Schema originalSchema =
@@ -951,6 +1046,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertEquals(1, rebuiltSortOrder.fields().get(1).sourceId());
   }
 
+  /**
+   * Tests rebuilding sort order when a sort field is missing from the new schema. Verifies that an
+   * IllegalArgumentException is thrown for the missing field.
+   */
   @Test
   void testRebuildSortOrder_fieldMissingInNewSchema() {
     Schema originalSchema =
@@ -969,6 +1068,10 @@ public class OpenHouseInternalTableOperationsTest {
         "Field field1 does not exist in the new schema", exception.getMessage());
   }
 
+  /**
+   * Tests that refresh metadata operations record metrics with database tag but not table tag.
+   * Verifies that only the database dimension is included to avoid high cardinality.
+   */
   @Test
   void testRefreshMetadataIncludesDatabaseTag() {
     testMetricIncludesDatabaseTag(
@@ -978,6 +1081,10 @@ public class OpenHouseInternalTableOperationsTest {
         "Timer should not have table tag (removed because the table tag has super high cardinality and overloads metric emission max size)");
   }
 
+  /**
+   * Tests that commit metadata update operations record metrics with database tag but not table
+   * tag. Verifies that only the database dimension is included to avoid high cardinality.
+   */
   @Test
   void testCommitMetadataUpdateIncludesDatabaseTag() {
     testMetricIncludesDatabaseTag(
@@ -987,6 +1094,10 @@ public class OpenHouseInternalTableOperationsTest {
         "Timer should not have table tag (only database dimension should be included)");
   }
 
+  /**
+   * Tests that refresh metadata latency timer has histogram buckets configured. Verifies that the
+   * metrics can be used for histogram-based monitoring and alerting.
+   */
   @Test
   void testRefreshMetadataLatencyHasHistogramBuckets() {
     testMetricHasHistogramBuckets(
@@ -995,6 +1106,10 @@ public class OpenHouseInternalTableOperationsTest {
         this::executeRefreshMetadata);
   }
 
+  /**
+   * Tests that commit metadata update latency timer has histogram buckets configured. Verifies that
+   * the metrics can be used for histogram-based monitoring and alerting.
+   */
   @Test
   void testCommitMetadataUpdateLatencyHasHistogramBuckets() {
     testMetricHasHistogramBuckets(
@@ -1226,6 +1341,10 @@ public class OpenHouseInternalTableOperationsTest {
 
   // ===== SNAPSHOT DELETION SAFETY TESTS =====
 
+  /**
+   * Tests that attempting to delete a snapshot referenced by the main branch throws an exception.
+   * Verifies that InvalidIcebergSnapshotException is thrown with appropriate error message.
+   */
   @Test
   void testDeleteSnapshotWithMainReference() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1276,6 +1395,10 @@ public class OpenHouseInternalTableOperationsTest {
         "Error message should indicate snapshot is still referenced: " + exception.getMessage());
   }
 
+  /**
+   * Tests that unreferenced snapshots can be successfully deleted from the table. Verifies that
+   * deleted snapshots are removed from metadata and tracked in properties.
+   */
   @Test
   void testDeleteSnapshotWithNoReference() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1337,6 +1460,11 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests that attempting to delete a snapshot referenced by multiple branches throws an exception.
+   * Verifies that InvalidIcebergSnapshotException is thrown indicating the snapshot is still
+   * referenced.
+   */
   @Test
   void testDeleteSnapshotWithMultipleReference() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1394,6 +1522,10 @@ public class OpenHouseInternalTableOperationsTest {
             + exceptionMessage);
   }
 
+  /**
+   * Tests that attempting to delete a snapshot referenced by a tag throws an exception. Verifies
+   * that InvalidIcebergSnapshotException is thrown with branch/tag reference details.
+   */
   @Test
   void testDeleteSnapshotWithBranchReference() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1456,6 +1588,10 @@ public class OpenHouseInternalTableOperationsTest {
             + exceptionMessage);
   }
 
+  /**
+   * Tests that attempting to delete an empty list of snapshots makes no changes to the table.
+   * Verifies that no snapshots are deleted and no deletion properties are set.
+   */
   @Test
   void testDeleteEmptySnapshotList() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1497,6 +1633,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertNull(deletedSnapshots, "No deleted snapshots property should be set");
   }
 
+  /**
+   * Tests that attempting to delete a null list of snapshots makes no changes to the table.
+   * Verifies that no snapshots are deleted and no deletion properties are set.
+   */
   @Test
   void testDeleteNullSnapshotList() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1538,6 +1678,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertNull(deletedSnapshots, "No deleted snapshots property should be set");
   }
 
+  /**
+   * Tests that attempting to delete a snapshot that doesn't exist in the metadata has no effect.
+   * Verifies that snapshot count remains unchanged and no deletion tracking occurs.
+   */
   @Test
   void testDeleteNonExistentSnapshot() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1583,6 +1727,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertNull(deletedSnapshots, "No deleted snapshots should be tracked");
   }
 
+  /**
+   * Tests that snapshot deletion operations record the correct metrics. Verifies that
+   * SNAPSHOTS_DELETED_CTR counter is incremented by the number of deleted snapshots.
+   */
   @Test
   void testDeleteSnapshotMetricsRecorded() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1618,6 +1766,10 @@ public class OpenHouseInternalTableOperationsTest {
             eq((double) 2)); // 2 snapshots deleted
   }
 
+  /**
+   * Tests that snapshot deletion metrics are recorded when deleting unreferenced snapshots.
+   * Verifies that SNAPSHOTS_DELETED_CTR counter tracks deletions with branch references present.
+   */
   @Test
   void testDeleteSnapshotMetricsRecordedBranch() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1655,6 +1807,10 @@ public class OpenHouseInternalTableOperationsTest {
             eq((double) 2)); // 2 snapshots deleted
   }
 
+  /**
+   * Tests that snapshot deletion metrics are not recorded when no actual deletion occurs. Verifies
+   * that SNAPSHOTS_DELETED_CTR counter is not called for non-existent snapshots.
+   */
   @Test
   void testDeleteSnapshotMetricsRecordedNonExistent() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1695,6 +1851,11 @@ public class OpenHouseInternalTableOperationsTest {
         .count(eq(InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR), Mockito.anyDouble());
   }
 
+  /**
+   * Tests that attempting to delete all snapshots fails when the main branch references a snapshot.
+   * Verifies that InvalidIcebergSnapshotException is thrown to prevent deleting referenced
+   * snapshots.
+   */
   @Test
   void testDeleteAllSnapshotsFailsWhenMainBranchReferenced() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1750,6 +1911,10 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertTrue(exceptionMessage.contains(expectedMessage));
   }
 
+  /**
+   * Tests that deleting all unreferenced snapshots succeeds without errors. Verifies that all
+   * snapshots can be deleted when no branches or tags reference them.
+   */
   @Test
   void testDeleteAllUnreferencedSnapshotsSucceeds() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1800,6 +1965,10 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * Tests that multiple branches can point to different snapshots without conflicts. Verifies that
+   * commits with multiple valid branch references succeed without exceptions.
+   */
   @Test
   void testValidMultipleBranchesWithDifferentSnapshots() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1840,6 +2009,10 @@ public class OpenHouseInternalTableOperationsTest {
         "Should NOT throw exception when branches target different snapshots");
   }
 
+  /**
+   * Tests the standard Write-Audit-Publish (WAP) workflow where a staged snapshot becomes main.
+   * Verifies that pulling a WAP snapshot into the main branch succeeds without errors.
+   */
   @Test
   void testStandardWAPScenario() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -1885,17 +2058,8 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Integration test that verifies committing with base and metadata that are at least two commits
-   * divergent. This simulates scenarios where:
-   *
-   * <ul>
-   *   <li>Base metadata is at version N
-   *   <li>New metadata represents state at version N+2 or later (skipping intermediate versions)
-   *   <li>The commit should still succeed and write complete metadata
-   * </ul>
-   *
-   * <p>This test validates that Iceberg can handle "jump" commits where the metadata being
-   * committed has evolved significantly from the base.
+   * Tests committing metadata that has diverged multiple versions from the base (N to N+3).
+   * Verifies that "jump" commits succeed with all snapshots and references correctly applied.
    */
   @Test
   void testMultipleDiffCommit() throws IOException {
@@ -1974,8 +2138,8 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Test committing with divergent metadata and multiple valid branches. Base is at N with MAIN,
-   * metadata is at N+3 with both MAIN and feature_a branches pointing to different snapshots.
+   * Tests divergent commit (N to N+3) with multiple branches pointing to different snapshots.
+   * Verifies that divergent commits succeed when branch references are valid and non-conflicting.
    */
   @Test
   void testMultipleDiffCommitWithValidBranch() throws IOException {
@@ -2060,8 +2224,9 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Test committing with divergent metadata where multiple branches point to the same snapshot.
-   * This is VALID when done through setBranchSnapshot() - the end state is allowed.
+   * Tests committing with multiple branches advancing forward, each pointing to different
+   * snapshots. Verifies that complex multi-branch commits succeed when each branch has a unique
+   * target snapshot.
    */
   @Test
   void testMultipleDiffCommitWithMultipleBranchesPointingToSameSnapshot() throws IOException {
@@ -2139,7 +2304,7 @@ public class OpenHouseInternalTableOperationsTest {
 
     TableMetadata finalNewMetadata = newMetadata.replaceProperties(newProperties);
 
-    // ========== COMMIT: Should SUCCEED ==========
+    // commit should succeed
     openHouseInternalTableOperations.doCommit(finalBaseMetadata, finalNewMetadata);
     Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
@@ -2184,8 +2349,8 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Test committing with divergent metadata where multiple branches try to point to the same
-   * snapshot (ambiguous commit). This should throw an IllegalStateException.
+   * Tests that committing with multiple branches pointing to the same snapshot throws an exception.
+   * Verifies that InvalidIcebergSnapshotException is thrown for ambiguous branch configurations.
    */
   @Test
   void testMultipleDiffCommitWithInvalidBranch() throws IOException {
@@ -2234,8 +2399,6 @@ public class OpenHouseInternalTableOperationsTest {
       TableMetadata finalDivergentMetadata =
           metadataWithAllSnapshots.replaceProperties(divergentProperties);
 
-      // ========== COMMIT: Should throw CommitStateUnknownException due to ambiguous branches
-      // ==========
       InvalidIcebergSnapshotException exception =
           Assertions.assertThrows(
               InvalidIcebergSnapshotException.class,
