@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -30,7 +31,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.hadoop.conf.Configuration;
@@ -483,52 +483,6 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   @Test
-  void testDoCommitWithValidSnapshotDeletion() throws IOException {
-    TableMetadata metadata =
-        BASE_TABLE_METADATA.replaceProperties(ImmutableMap.of("random", "value"));
-    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
-    Map<String, String> properties = new HashMap<>(metadata.properties());
-
-    // The key insight: SNAPSHOTS_JSON_KEY determines what snapshots SHOULD exist after commit
-    // Only include snapshot 2 - this means snapshots 0 and 1 should be deleted
-    properties.put(
-        CatalogConstants.SNAPSHOTS_JSON_KEY,
-        SnapshotsUtil.serializedSnapshots(testSnapshots.subList(2, 3))); // Only snapshot 2
-    properties.put(
-        CatalogConstants.SNAPSHOTS_REFS_KEY,
-        SnapshotsUtil.serializeMap(
-            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
-                testSnapshots.get(2)))); // snapshot 2 -> main
-    properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
-    metadata = metadata.replaceProperties(properties);
-
-    // Create initial metadata with snapshots 0, 1, 2 where only snapshot 2 is referenced
-    TableMetadata metadataWithSnapshots =
-        TableMetadata.buildFrom(metadata)
-            .addSnapshot(testSnapshots.get(0)) // Unreferenced - will be deleted
-            .addSnapshot(testSnapshots.get(1)) // Unreferenced - will be deleted
-            .setBranchSnapshot(
-                testSnapshots.get(2), SnapshotRef.MAIN_BRANCH) // Referenced - will be kept
-            .build();
-
-    // Target metadata: same branch setup but snapshots 0,1 removed via SNAPSHOTS_JSON_KEY
-    TableMetadata metadataWithSnapshotsDeleted =
-        TableMetadata.buildFrom(metadata)
-            .setBranchSnapshot(
-                testSnapshots.get(2), SnapshotRef.MAIN_BRANCH) // Only snapshot 2 remains
-            .build();
-
-    // This should succeed because snapshots 0 and 1 are unreferenced and can be safely deleted
-    Assertions.assertDoesNotThrow(
-        () ->
-            openHouseInternalTableOperations.doCommit(
-                metadataWithSnapshots, metadataWithSnapshotsDeleted));
-
-    // ideally we also verify that snapshots 0 and 1 are deleted, but doCommit doesn't return the
-    // metadata with the deleted snapshots
-  }
-
-  @Test
   void testDoCommitSnapshotsValidationThrowsException() throws IOException {
     TableMetadata metadata =
         BASE_TABLE_METADATA.replaceProperties(ImmutableMap.of("random", "value"));
@@ -567,7 +521,7 @@ public class OpenHouseInternalTableOperationsTest {
     // This should throw exception because snapshot 1 is marked for deletion but still referenced by
     // main
     Assertions.assertThrows(
-        CommitStateUnknownException.class,
+        InvalidIcebergSnapshotException.class,
         () ->
             openHouseInternalTableOperations.doCommit(
                 metadataWithSnapshots, metadataWithSnapshotsDeleted),
@@ -595,12 +549,10 @@ public class OpenHouseInternalTableOperationsTest {
               .map(s -> Long.toString(s.snapshotId()))
               .collect(Collectors.joining(",")),
           updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertNull(
+          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
@@ -640,35 +592,52 @@ public class OpenHouseInternalTableOperationsTest {
               .map(s -> Long.toString(s.snapshotId()))
               .collect(Collectors.joining(",")),
           updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertNull(
+          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
 
   @Test
   void testAppendSnapshotsWithOldSnapshots() throws IOException {
-    TableMetadata metadata =
+    // Create base metadata (existing table state)
+    TableMetadata baseMetadata =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
-            .setPreviousFileLocation("tmp_location")
+            .setPreviousFileLocation("tmp_location") // this is key
             .setLocation(BASE_TABLE_METADATA.metadataFileLocation())
             .build();
+
     // all snapshots are from the past and snapshots add should fail the validation
     List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1))));
+
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
+
     Assertions.assertThrows(
         IllegalArgumentException.class,
-        () ->
-            openHouseInternalTableOperations.applySnapshotOperations(
-                metadata, snapshots, ImmutableMap.of(), false));
+        () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata));
+
     // the latest snapshots have larger timestamp than the previous metadata timestamp, so it should
     // pass the validation
     snapshots.addAll(IcebergTestUtil.getFutureSnapshots());
-    openHouseInternalTableOperations.applySnapshotOperations(
-        metadata, snapshots, ImmutableMap.of(), false);
+    Map<String, String> propertiesWithFuture = new HashMap<>(baseMetadata.properties());
+    propertiesWithFuture.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots));
+    propertiesWithFuture.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1))));
+
+    TableMetadata newMetadataWithFuture = baseMetadata.replaceProperties(propertiesWithFuture);
+    openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadataWithFuture);
   }
 
   @Test
@@ -702,15 +671,12 @@ public class OpenHouseInternalTableOperationsTest {
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify the staged snapshot is cherry picked by use the existing one
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
       Assertions.assertEquals(
           Long.toString(testWapSnapshots.get(0).snapshotId()),
           updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
@@ -727,7 +693,7 @@ public class OpenHouseInternalTableOperationsTest {
     Map<String, String> properties = new HashMap<>(base.properties());
     try (MockedStatic<TableMetadataParser> ignoreWriteMock =
         Mockito.mockStatic(TableMetadataParser.class)) {
-      // cherry pick the staged snapshot whose base has changed
+      // cherry-pick the staged snapshot whose base has changed
       properties.put(
           CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testWapSnapshots));
       properties.put(
@@ -742,17 +708,15 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
-      // verify the staged snapshot is cherry picked by creating a new snapshot and append it
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      // verify the staged snapshot is cherry-picked by creating a new snapshot and append it
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
       Assertions.assertEquals(
           Long.toString(testWapSnapshots.get(2).snapshotId()),
           updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
       Assertions.assertEquals(
           Long.toString(testWapSnapshots.get(1).snapshotId()),
           updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
@@ -781,15 +745,12 @@ public class OpenHouseInternalTableOperationsTest {
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify the staged snapshot is cherry picked by using the existing one
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
       Assertions.assertEquals(
           Long.toString(testWapSnapshots.get(0).snapshotId()),
           updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
@@ -812,14 +773,11 @@ public class OpenHouseInternalTableOperationsTest {
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       // verify nothing happens
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertEquals(
-          null, updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertNull(
+          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertNull(updatedProperties.get(getCanonicalFieldName("deleted_snapshots")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
@@ -1283,31 +1241,38 @@ public class OpenHouseInternalTableOperationsTest {
             .build();
 
     // Get the current head snapshot that is referenced by main branch
-    Snapshot referencedSnapshot = testSnapshots.get(testSnapshots.size() - 1);
+    Snapshot referencedSnapshot = testSnapshots.get(3);
 
-    // Attempt to delete a snapshot that is currently referenced by a branch
-    List<Snapshot> snapshotsToDelete = List.of(referencedSnapshot);
+    // Create new metadata that attempts to delete the referenced snapshot
+    // The SNAPSHOTS_JSON_KEY will only include first 3 snapshots (excluding the referenced one)
+    // But SNAPSHOTS_REFS_KEY will still reference snapshot 3, causing a conflict
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(
+            testSnapshots.subList(0, 3))); // Only snapshots 0-2, excluding referenced snapshot 3
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+                referencedSnapshot))); // Still references snapshot 3
 
-    // Capture final variables for lambda
-    final TableMetadata finalBase = baseMetadata;
-    final List<Snapshot> finalSnapshotsToDelete = snapshotsToDelete;
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     // This MUST throw IllegalArgumentException for referenced snapshots
-    IllegalArgumentException exception =
+    InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                openHouseInternalTableOperations.maybeDeleteSnapshots(
-                    finalBase, finalSnapshotsToDelete),
-            "Should throw IllegalArgumentException when trying to delete referenced snapshot");
+            InvalidIcebergSnapshotException.class,
+            () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+            "Should throw InvalidIcebergSnapshotException when trying to delete referenced snapshot");
 
     // Verify error message mentions the reference
     String expectedMessage =
-        "Cannot expire " + referencedSnapshot.snapshotId() + ". Still referenced by refs:";
+        "Cannot delete the current snapshot "
+            + referencedSnapshot.snapshotId()
+            + " without adding replacement snapshots";
     Assertions.assertTrue(
-        exception.getMessage().contains(expectedMessage)
-            || exception.getMessage().contains("Still referenced by")
-            || exception.getMessage().contains("referenced"),
+        exception.getMessage().contains(expectedMessage),
         "Error message should indicate snapshot is still referenced: " + exception.getMessage());
   }
 
@@ -1316,7 +1281,7 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata with multiple snapshots
-    TableMetadata base =
+    TableMetadata baseMetadata =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
             .addSnapshot(testSnapshots.get(0)) // Unreferenced - can be deleted
             .addSnapshot(testSnapshots.get(1)) // Unreferenced - can be deleted
@@ -1326,12 +1291,25 @@ public class OpenHouseInternalTableOperationsTest {
             .build();
 
     // Delete unreferenced snapshots (first two snapshots)
-    List<Snapshot> unreferencedSnapshots = testSnapshots.subList(0, 2);
+    // New metadata keeps snapshots 2 and 3
+    Snapshot referencedSnapshot = testSnapshots.get(3);
+    List<Snapshot> remainingSnapshots = testSnapshots.subList(2, 4);
+
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(remainingSnapshots));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(referencedSnapshot)));
+
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     TableMetadata result =
-        openHouseInternalTableOperations.maybeDeleteSnapshots(base, unreferencedSnapshots);
+        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
 
     // Verify unreferenced snapshots were removed
+    List<Snapshot> unreferencedSnapshots = testSnapshots.subList(0, 2);
     for (Snapshot unreferenced : unreferencedSnapshots) {
       boolean snapshotExists =
           result.snapshots().stream().anyMatch(s -> s.snapshotId() == unreferenced.snapshotId());
@@ -1341,21 +1319,20 @@ public class OpenHouseInternalTableOperationsTest {
     }
 
     // Verify referenced snapshot still exists
-    Snapshot referencedSnapshot = testSnapshots.get(3);
     boolean referencedExists =
         result.snapshots().stream()
             .anyMatch(s -> s.snapshotId() == referencedSnapshot.snapshotId());
     Assertions.assertTrue(referencedExists, "Referenced snapshot should still exist");
 
     // Verify deletion tracking
-    Map<String, String> properties = result.properties();
-    String deletedSnapshots =
-        properties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
-    Assertions.assertNotNull(deletedSnapshots);
+    Map<String, String> resultProperties = result.properties();
+    String deletedSnapshotsStr =
+        resultProperties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
+    Assertions.assertNotNull(deletedSnapshotsStr);
 
     for (Snapshot unreferenced : unreferencedSnapshots) {
       Assertions.assertTrue(
-          deletedSnapshots.contains(Long.toString(unreferenced.snapshotId())),
+          deletedSnapshotsStr.contains(Long.toString(unreferenced.snapshotId())),
           "Unreferenced snapshot should be tracked as deleted");
     }
   }
@@ -1364,49 +1341,55 @@ public class OpenHouseInternalTableOperationsTest {
   void testDeleteSnapshotWithMultipleReference() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
-    // Create metadata with snapshot referenced by multiple branches
-    // Reference the same snapshot from multiple branches
-    Snapshot sharedSnapshot = testSnapshots.get(1);
+    // Create metadata with 2 snapshots: one referenced by multiple branches, one unreferenced
+    Snapshot sharedSnapshot = testSnapshots.get(0); // This will be referenced by both branches
+    Snapshot mainSnapshot = testSnapshots.get(1); // This one stays but is not referenced
+
     TableMetadata baseMetadata =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
-            .addSnapshot(sharedSnapshot) // Add snapshot first
+            .addSnapshot(sharedSnapshot)
+            .addSnapshot(mainSnapshot)
             .setRef(
                 SnapshotRef.MAIN_BRANCH,
-                SnapshotRef.branchBuilder(sharedSnapshot.snapshotId()).build())
+                SnapshotRef.branchBuilder(mainSnapshot.snapshotId()).build())
             .setRef(
                 "feature_branch", SnapshotRef.branchBuilder(sharedSnapshot.snapshotId()).build())
+            .setRef(
+                "feature_branch1", SnapshotRef.branchBuilder(sharedSnapshot.snapshotId()).build())
             .build();
-    // Add other snapshots to the metadata (skip index 1 - shared snapshot already added)
-    List<Snapshot> snapshotsToAdd =
-        IntStream.range(0, testSnapshots.size())
-            .filter(i -> i != 1)
-            .mapToObj(testSnapshots::get)
-            .collect(Collectors.toList());
 
-    for (Snapshot snapshot : snapshotsToAdd) {
-      baseMetadata = TableMetadata.buildFrom(baseMetadata).addSnapshot(snapshot).build();
-    }
+    // Attempt to delete the shared snapshot by creating new metadata without it
+    // Keep the unreferenced snapshot so we're not deleting everything
+    List<Snapshot> remainingSnapshots = List.of(mainSnapshot);
 
-    // Attempt to delete the shared snapshot
-    List<Snapshot> snapshotsToDelete = List.of(sharedSnapshot);
+    // Keep refs pointing to the shared snapshot (causing conflict)
+    Map<String, SnapshotRef> refs = baseMetadata.refs();
+    Map<String, String> serializedRefs =
+        refs.entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> org.apache.iceberg.SnapshotRefParser.toJson(e.getValue())));
 
-    // Capture final variables for lambda
-    final TableMetadata finalBase = baseMetadata;
-    final List<Snapshot> finalSnapshotsToDelete = snapshotsToDelete;
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(remainingSnapshots));
+    properties.put(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(serializedRefs));
 
-    // This MUST throw IllegalArgumentException for snapshots referenced by multiple branches
-    IllegalArgumentException exception =
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
+
+    // This MUST throw InvalidIcebergSnapshotException for snapshots referenced by multiple branches
+    InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                openHouseInternalTableOperations.maybeDeleteSnapshots(
-                    finalBase, finalSnapshotsToDelete),
-            "Should throw IllegalArgumentException when trying to delete snapshot referenced by multiple branches");
+            InvalidIcebergSnapshotException.class,
+            () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+            "Should throw InvalidIcebergSnapshotException when trying to delete snapshot referenced by multiple branches");
 
-    // Verify error message mentions multiple references
+    // Verify error message mentions the snapshot is still referenced
     String exceptionMessage = exception.getMessage();
     Assertions.assertTrue(
-        exceptionMessage.contains("Still referenced by refs"),
+        exceptionMessage.contains("Still referenced by refs")
+            || exceptionMessage.contains("still referenced"),
         "Error message should indicate snapshot is still referenced by branches: "
             + exceptionMessage);
   }
@@ -1431,26 +1414,44 @@ public class OpenHouseInternalTableOperationsTest {
           TableMetadata.buildFrom(baseMetadata).addSnapshot(testSnapshots.get(i)).build();
     }
 
-    // Attempt to delete snapshot that has a tag reference
-    List<Snapshot> snapshotsToDelete = List.of(taggedSnapshot);
+    // Make baseMetadata effectively final for lambda usage
+    final TableMetadata finalBaseMetadata = baseMetadata;
 
-    // Capture final variables for lambda
-    final TableMetadata finalBase = baseMetadata;
-    final List<Snapshot> finalSnapshotsToDelete = snapshotsToDelete;
+    // Attempt to delete snapshot that has a tag reference by creating new metadata without it
+    List<Snapshot> remainingSnapshots =
+        finalBaseMetadata.snapshots().stream()
+            .filter(s -> s.snapshotId() != taggedSnapshot.snapshotId())
+            .collect(Collectors.toList());
 
-    // This MUST throw IllegalArgumentException for snapshots referenced by tags
-    IllegalArgumentException exception =
+    Map<String, String> properties = new HashMap<>(finalBaseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(remainingSnapshots));
+    // Keep refs pointing to the tagged snapshot (causing conflict)
+    Map<String, String> serializedRefs =
+        finalBaseMetadata.refs().entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> org.apache.iceberg.SnapshotRefParser.toJson(e.getValue())));
+    properties.put(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(serializedRefs));
+
+    TableMetadata newMetadata = finalBaseMetadata.replaceProperties(properties);
+
+    // This MUST throw InvalidIcebergSnapshotException for snapshots referenced by tags
+    InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                openHouseInternalTableOperations.maybeDeleteSnapshots(
-                    finalBase, finalSnapshotsToDelete),
-            "Should throw IllegalArgumentException when trying to delete snapshot referenced by tag");
+            InvalidIcebergSnapshotException.class,
+            () -> openHouseInternalTableOperations.applySnapshots(finalBaseMetadata, newMetadata),
+            "Should throw InvalidIcebergSnapshotException when trying to delete snapshot referenced by tag");
 
     // Verify error message mentions tag reference
     String exceptionMessage = exception.getMessage();
+    String expectedMessage =
+        "Cannot delete snapshots that are still referenced by branches/tags: snapshot "
+            + taggedSnapshot.snapshotId()
+            + " (referenced by: feature_branch)";
     Assertions.assertTrue(
-        exceptionMessage.contains("Still referenced by refs"),
+        exceptionMessage.contains(expectedMessage),
         "Error message should indicate snapshot is still referenced by branches: "
             + exceptionMessage);
   }
@@ -1460,29 +1461,39 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata
-    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata baseMetadata = BASE_TABLE_METADATA;
     for (Snapshot snapshot : testSnapshots) {
-      base =
-          TableMetadata.buildFrom(base)
+      baseMetadata =
+          TableMetadata.buildFrom(baseMetadata)
               .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
               .build();
     }
 
-    // Delete empty list
-    List<Snapshot> emptyList = List.of();
+    // Delete empty list - new metadata is same as base (no snapshots deleted)
+    Snapshot lastSnapshot = testSnapshots.get(testSnapshots.size() - 1);
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(baseMetadata.snapshots()));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
 
-    TableMetadata result = openHouseInternalTableOperations.maybeDeleteSnapshots(base, emptyList);
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
+
+    TableMetadata result =
+        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
 
     // Verify no changes were made
     Assertions.assertEquals(
-        base.snapshots().size(),
+        baseMetadata.snapshots().size(),
         result.snapshots().size(),
         "No snapshots should be deleted when list is empty");
 
     // Verify no deletion tracking properties were added
-    Map<String, String> properties = result.properties();
+    Map<String, String> resultProperties = result.properties();
     String deletedSnapshots =
-        properties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
+        resultProperties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
     Assertions.assertNull(deletedSnapshots, "No deleted snapshots property should be set");
   }
 
@@ -1491,27 +1502,39 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata
-    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata baseMetadata = BASE_TABLE_METADATA;
     for (Snapshot snapshot : testSnapshots) {
-      base =
-          TableMetadata.buildFrom(base)
+      baseMetadata =
+          TableMetadata.buildFrom(baseMetadata)
               .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
               .build();
     }
 
-    // Delete null list
-    TableMetadata result = openHouseInternalTableOperations.maybeDeleteSnapshots(base, null);
+    // Delete null list - new metadata is same as base (no snapshots deleted)
+    Snapshot lastSnapshot = testSnapshots.get(testSnapshots.size() - 1);
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(baseMetadata.snapshots()));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
+
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
+
+    TableMetadata result =
+        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
 
     // Verify no changes were made
     Assertions.assertEquals(
-        base.snapshots().size(),
+        baseMetadata.snapshots().size(),
         result.snapshots().size(),
         "No snapshots should be deleted when list is null");
 
     // Verify no deletion tracking properties were added
-    Map<String, String> properties = result.properties();
+    Map<String, String> resultProperties = result.properties();
     String deletedSnapshots =
-        properties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
+        resultProperties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
     Assertions.assertNull(deletedSnapshots, "No deleted snapshots property should be set");
   }
 
@@ -1520,10 +1543,10 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata
-    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata baseMetadata = BASE_TABLE_METADATA;
     for (Snapshot snapshot : testSnapshots) {
-      base =
-          TableMetadata.buildFrom(base)
+      baseMetadata =
+          TableMetadata.buildFrom(baseMetadata)
               .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
               .build();
     }
@@ -1532,25 +1555,32 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> extraSnapshots = IcebergTestUtil.getExtraSnapshots();
     Snapshot nonExistentSnapshot = extraSnapshots.get(0);
 
-    List<Snapshot> snapshotsToDelete = List.of(nonExistentSnapshot);
+    // New metadata is same as base (non-existent snapshot can't be removed)
+    Snapshot lastSnapshot = testSnapshots.get(testSnapshots.size() - 1);
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(baseMetadata.snapshots()));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
+
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     TableMetadata result =
-        openHouseInternalTableOperations.maybeDeleteSnapshots(base, snapshotsToDelete);
+        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
 
     // Verify original snapshots are unchanged
     Assertions.assertEquals(
-        base.snapshots().size(),
+        baseMetadata.snapshots().size(),
         result.snapshots().size(),
         "Snapshot count should be unchanged when deleting non-existent snapshot");
 
-    // Verify deletion is still tracked (documenting current behavior)
-    Map<String, String> properties = result.properties();
+    // Verify deletion is not tracked (since no actual deletion occurred)
+    Map<String, String> resultProperties = result.properties();
     String deletedSnapshots =
-        properties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
-    Assertions.assertNotNull(deletedSnapshots);
-    Assertions.assertTrue(
-        deletedSnapshots.contains(Long.toString(nonExistentSnapshot.snapshotId())),
-        "Non-existent snapshot should still be tracked as deleted");
+        resultProperties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
+    Assertions.assertNull(deletedSnapshots, "No deleted snapshots should be tracked");
   }
 
   @Test
@@ -1558,22 +1588,34 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata
-    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata baseMetadata = BASE_TABLE_METADATA;
     for (Snapshot snapshot : testSnapshots) {
-      base = TableMetadata.buildFrom(base).addSnapshot(snapshot).build();
+      baseMetadata = TableMetadata.buildFrom(baseMetadata).addSnapshot(snapshot).build();
     }
 
-    // Delete some snapshots
-    List<Snapshot> snapshotsToDelete = testSnapshots.subList(0, 2);
+    // Make baseMetadata effectively final for lambda usage
+    final TableMetadata finalBaseMetadata = baseMetadata;
+
+    // Delete some snapshots (first two snapshots)
+    List<Snapshot> remainingSnapshots = testSnapshots.subList(2, testSnapshots.size());
+
+    Map<String, String> properties = new HashMap<>(finalBaseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(remainingSnapshots));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(new HashMap<>())); // No refs since all are unreferenced
+
+    TableMetadata newMetadata = finalBaseMetadata.replaceProperties(properties);
 
     // Use the operations instance with mock metrics reporter
-    openHouseInternalTableOperationsWithMockMetrics.maybeDeleteSnapshots(base, snapshotsToDelete);
+    openHouseInternalTableOperationsWithMockMetrics.applySnapshots(finalBaseMetadata, newMetadata);
 
     // Verify metrics were recorded
     Mockito.verify(mockMetricsReporter)
         .count(
             eq(InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR),
-            eq((double) snapshotsToDelete.size()));
+            eq((double) 2)); // 2 snapshots deleted
   }
 
   @Test
@@ -1581,7 +1623,7 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata with snapshots that have branch references
-    TableMetadata base =
+    TableMetadata baseMetadata =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
             .addSnapshot(testSnapshots.get(0)) // Unreferenced - can be deleted
             .addSnapshot(testSnapshots.get(1)) // Unreferenced - can be deleted
@@ -1589,17 +1631,28 @@ public class OpenHouseInternalTableOperationsTest {
                 testSnapshots.get(2), SnapshotRef.MAIN_BRANCH) // Referenced - cannot be deleted
             .build();
 
-    // Delete unreferenced snapshots (emits metrics for basic deletion)
-    List<Snapshot> snapshotsToDelete = testSnapshots.subList(0, 2);
+    // Delete unreferenced snapshots (first two snapshots)
+    Snapshot referencedSnapshot = testSnapshots.get(2);
+    List<Snapshot> remainingSnapshots = List.of(referencedSnapshot);
+
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(remainingSnapshots));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(referencedSnapshot)));
+
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     // Use the operations instance with mock metrics reporter
-    openHouseInternalTableOperationsWithMockMetrics.maybeDeleteSnapshots(base, snapshotsToDelete);
+    openHouseInternalTableOperationsWithMockMetrics.applySnapshots(baseMetadata, newMetadata);
 
     // Verify metrics were recorded for the basic deletion
     Mockito.verify(mockMetricsReporter)
         .count(
             eq(InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR),
-            eq((double) snapshotsToDelete.size()));
+            eq((double) 2)); // 2 snapshots deleted
   }
 
   @Test
@@ -1607,63 +1660,94 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata
-    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata baseMetadata = BASE_TABLE_METADATA;
     for (Snapshot snapshot : testSnapshots) {
-      base =
-          TableMetadata.buildFrom(base)
+      baseMetadata =
+          TableMetadata.buildFrom(baseMetadata)
               .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
               .build();
     }
 
+    // Make baseMetadata effectively final for lambda usage
+    final TableMetadata finalBaseMetadata = baseMetadata;
+
     // Create a snapshot that doesn't exist in the metadata
     List<Snapshot> extraSnapshots = IcebergTestUtil.getExtraSnapshots();
     Snapshot nonExistentSnapshot = extraSnapshots.get(0);
-    List<Snapshot> snapshotsToDelete = List.of(nonExistentSnapshot);
+
+    // New metadata is same as base (non-existent snapshot can't be removed)
+    Snapshot lastSnapshot = testSnapshots.get(testSnapshots.size() - 1);
+    Map<String, String> properties = new HashMap<>(finalBaseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(finalBaseMetadata.snapshots()));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
+
+    TableMetadata newMetadata = finalBaseMetadata.replaceProperties(properties);
 
     // Use the operations instance with mock metrics reporter
-    openHouseInternalTableOperationsWithMockMetrics.maybeDeleteSnapshots(base, snapshotsToDelete);
+    openHouseInternalTableOperationsWithMockMetrics.applySnapshots(finalBaseMetadata, newMetadata);
 
-    // Verify metrics are still recorded even for non-existent snapshots
-    Mockito.verify(mockMetricsReporter)
-        .count(
-            eq(InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR),
-            eq((double) snapshotsToDelete.size()));
+    // Verify metrics are not recorded for non-existent snapshots (no actual deletion)
+    Mockito.verify(mockMetricsReporter, Mockito.never())
+        .count(eq(InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR), Mockito.anyDouble());
   }
 
   @Test
   void testDeleteAllSnapshotsFailsWhenMainBranchReferenced() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
-    // Create base metadata with all snapshots, where the last one is referenced by main branch
-    TableMetadata tempBase =
-        testSnapshots.subList(0, testSnapshots.size() - 1).stream()
-            .reduce(
-                BASE_TABLE_METADATA,
-                (metadata, snapshot) ->
-                    TableMetadata.buildFrom(metadata).addSnapshot(snapshot).build(),
-                (m1, m2) -> m2);
-    final TableMetadata base =
-        TableMetadata.buildFrom(tempBase)
-            .setBranchSnapshot(testSnapshots.get(testSnapshots.size() - 1), SnapshotRef.MAIN_BRANCH)
+    // Create metadata with 2 snapshots: one referenced by multiple branches, one unreferenced
+    Snapshot unreferencedSnapshot =
+        testSnapshots.get(0); // This will be referenced by both branches
+    Snapshot mainSnapshot = testSnapshots.get(1); // This one stays but is not referenced
+
+    TableMetadata baseMetadata =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA)
+            .addSnapshot(unreferencedSnapshot)
+            .addSnapshot(mainSnapshot)
+            .setRef(
+                SnapshotRef.MAIN_BRANCH,
+                SnapshotRef.branchBuilder(mainSnapshot.snapshotId()).build())
             .build();
 
-    // Attempt to delete ALL snapshots (including the one referenced by main)
-    List<Snapshot> allSnapshots = new ArrayList<>(testSnapshots);
+    // Attempt to delete the shared snapshot by creating new metadata without it
+    // Keep the unreferenced snapshot so we're not deleting everything
+    List<Snapshot> remainingSnapshots = List.of(mainSnapshot);
 
-    // This should fail because we cannot delete the snapshot referenced by main branch
-    IllegalArgumentException exception =
+    // Keep refs pointing to the shared snapshot (causing conflict)
+    Map<String, SnapshotRef> refs = baseMetadata.refs();
+    Map<String, String> serializedRefs =
+        refs.entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> org.apache.iceberg.SnapshotRefParser.toJson(e.getValue())));
+
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(List.of()));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(mainSnapshot)));
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
+
+    // This MUST throw InvalidIcebergSnapshotException for snapshots referenced by multiple branches
+    InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
-            IllegalArgumentException.class,
-            () -> openHouseInternalTableOperations.maybeDeleteSnapshots(base, allSnapshots),
-            "Should throw IllegalArgumentException when trying to delete all snapshots including main branch reference");
+            InvalidIcebergSnapshotException.class,
+            () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+            "Should throw InvalidIcebergSnapshotException when trying to delete snapshot referenced by multiple branches");
 
-    // Verify error message indicates the snapshot is still referenced
+    // Verify error message mentions the snapshot is still referenced
     String exceptionMessage = exception.getMessage();
-    Assertions.assertTrue(
-        exceptionMessage.contains("Still referenced by refs")
-            || exceptionMessage.contains("referenced")
-            || exceptionMessage.contains("Cannot expire"),
-        "Error message should indicate snapshot is still referenced: " + exceptionMessage);
+    String expectedMessage =
+        "Cannot delete the current snapshot "
+            + mainSnapshot.snapshotId()
+            + " without adding replacement snapshots.";
+    Assertions.assertTrue(exceptionMessage.contains(expectedMessage));
   }
 
   @Test
@@ -1671,20 +1755,30 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata with unreferenced snapshots only (no main branch or other refs)
-    TableMetadata tempBase = BASE_TABLE_METADATA;
+    TableMetadata baseMetadata = BASE_TABLE_METADATA;
     for (Snapshot snapshot : testSnapshots) {
-      tempBase = TableMetadata.buildFrom(tempBase).addSnapshot(snapshot).build();
+      baseMetadata = TableMetadata.buildFrom(baseMetadata).addSnapshot(snapshot).build();
     }
-    final TableMetadata base = tempBase;
     // Note: No setBranchSnapshot or setRef calls - all snapshots are unreferenced
 
+    // Make baseMetadata effectively final for lambda usage
+    final TableMetadata finalBaseMetadata = baseMetadata;
+
     // Attempt to delete all unreferenced snapshots
-    List<Snapshot> allSnapshots = new ArrayList<>(testSnapshots);
+    Map<String, String> properties = new HashMap<>(finalBaseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(List.of())); // Empty - all snapshots deleted
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(new HashMap<>())); // No refs
+
+    TableMetadata newMetadata = finalBaseMetadata.replaceProperties(properties);
 
     // This should succeed since no snapshots are referenced by any branch/tag
     TableMetadata result =
         Assertions.assertDoesNotThrow(
-            () -> openHouseInternalTableOperations.maybeDeleteSnapshots(base, allSnapshots),
+            () -> openHouseInternalTableOperations.applySnapshots(finalBaseMetadata, newMetadata),
             "Should succeed when deleting all unreferenced snapshots");
 
     // Verify all snapshots were removed from the metadata
@@ -1694,12 +1788,12 @@ public class OpenHouseInternalTableOperationsTest {
         "All unreferenced snapshots should be deleted, resulting in empty snapshots list");
 
     // Verify deletion tracking shows all snapshots were deleted
-    Map<String, String> properties = result.properties();
+    Map<String, String> resultProperties = result.properties();
     String deletedSnapshots =
-        properties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
+        resultProperties.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS));
     Assertions.assertNotNull(deletedSnapshots, "Deleted snapshots should be tracked");
 
-    for (Snapshot snapshot : allSnapshots) {
+    for (Snapshot snapshot : testSnapshots) {
       Assertions.assertTrue(
           deletedSnapshots.contains(Long.toString(snapshot.snapshotId())),
           "Snapshot " + snapshot.snapshotId() + " should be tracked as deleted");
@@ -1711,13 +1805,13 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
     // Create base metadata
-    TableMetadata base =
+    TableMetadata baseMetadata =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
             .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
             .build();
 
-    // Add multiple new snapshots
-    List<Snapshot> newSnapshots = testSnapshots.subList(1, 4); // snapshots 1, 2, 3
+    // New metadata includes all snapshots (base + new ones)
+    List<Snapshot> allSnapshots = testSnapshots.subList(0, 4); // snapshots 0, 1, 2, 3
 
     // Create snapshotRefs where each branch points to a DIFFERENT snapshot (valid scenario)
     Map<String, SnapshotRef> validRefs = new HashMap<>();
@@ -1725,11 +1819,24 @@ public class OpenHouseInternalTableOperationsTest {
     validRefs.put("branch_b", SnapshotRef.branchBuilder(testSnapshots.get(2).snapshotId()).build());
     validRefs.put("branch_c", SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId()).build());
 
+    // Serialize the refs
+    Map<String, String> serializedRefs =
+        validRefs.entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> org.apache.iceberg.SnapshotRefParser.toJson(e.getValue())));
+
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(allSnapshots));
+    properties.put(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(serializedRefs));
+
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
+
     // This should NOT throw an exception
     Assertions.assertDoesNotThrow(
-        () ->
-            openHouseInternalTableOperations.applySnapshotOperations(
-                base, newSnapshots, validRefs, false),
+        () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
         "Should NOT throw exception when branches target different snapshots");
   }
 
@@ -1739,7 +1846,7 @@ public class OpenHouseInternalTableOperationsTest {
     List<Snapshot> wapSnapshots = IcebergTestUtil.getWapSnapshots();
 
     // Create base with existing snapshots and a WAP snapshot
-    TableMetadata base =
+    TableMetadata baseMetadata =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
             .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
             .addSnapshot(wapSnapshots.get(0)) // WAP snapshot (not referenced by any branch)
@@ -1747,17 +1854,33 @@ public class OpenHouseInternalTableOperationsTest {
 
     // Standard WAP scenario: pull the WAP snapshot into main branch
     Snapshot wapSnapshot = wapSnapshots.get(0);
-    List<Snapshot> newSnapshots = List.of(); // No new snapshots, just referencing the existing WAP
+
+    // New metadata keeps the same snapshots but changes the main branch ref to point to WAP
+    // snapshot
+    List<Snapshot> allSnapshots = List.of(testSnapshots.get(0), wapSnapshot);
 
     // Create refs to pull WAP snapshot into main branch
     Map<String, SnapshotRef> refs = new HashMap<>();
     refs.put(SnapshotRef.MAIN_BRANCH, SnapshotRef.branchBuilder(wapSnapshot.snapshotId()).build());
 
+    // Serialize the refs
+    Map<String, String> serializedRefs =
+        refs.entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> org.apache.iceberg.SnapshotRefParser.toJson(e.getValue())));
+
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(allSnapshots));
+    properties.put(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(serializedRefs));
+
+    TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
+
     // Should succeed - standard WAP workflow where WAP snapshot becomes the new main
     Assertions.assertDoesNotThrow(
-        () ->
-            openHouseInternalTableOperations.applySnapshotOperations(
-                base, newSnapshots, refs, false),
+        () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
         "Should successfully pull WAP snapshot into main branch");
   }
 
@@ -1942,85 +2065,121 @@ public class OpenHouseInternalTableOperationsTest {
    */
   @Test
   void testMultipleDiffCommitWithMultipleBranchesPointingToSameSnapshot() throws IOException {
+    // Combine regular snapshots (4) + extra snapshots (4) to get 8 total snapshots
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    List<Snapshot> extraSnapshots = IcebergTestUtil.getExtraSnapshots();
+    List<Snapshot> allSnapshots = new ArrayList<>();
+    allSnapshots.addAll(testSnapshots);
+    allSnapshots.addAll(extraSnapshots);
 
-    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
-        Mockito.mockStatic(TableMetadataParser.class)) {
+    // ========== Create base metadata with 2 branches ==========
+    // Base has snapshots 0, 1, 2, 3 with MAIN at snapshot 0 and feature_a at snapshot 1
+    TableMetadata.Builder baseBuilder = TableMetadata.buildFrom(BASE_TABLE_METADATA);
+    baseBuilder.addSnapshot(allSnapshots.get(0));
+    baseBuilder.addSnapshot(allSnapshots.get(1));
+    baseBuilder.addSnapshot(allSnapshots.get(2));
+    baseBuilder.addSnapshot(allSnapshots.get(3));
+    baseBuilder.setBranchSnapshot(allSnapshots.get(0).snapshotId(), SnapshotRef.MAIN_BRANCH);
+    baseBuilder.setBranchSnapshot(allSnapshots.get(1).snapshotId(), "feature_a");
+    TableMetadata baseMetadata = baseBuilder.build();
 
-      // ========== Create base at N with 1 snapshot ==========
-      TableMetadata baseAtN =
-          TableMetadata.buildFrom(BASE_TABLE_METADATA)
-              .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
-              .build();
+    // Add custom properties with base snapshots
+    Map<String, String> baseProperties = new HashMap<>(baseMetadata.properties());
+    List<Snapshot> baseSnapshots = allSnapshots.subList(0, 4);
+    baseProperties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(baseSnapshots));
 
-      // ========== Create divergent metadata with MAIN and feature_a both pointing to snapshot 3
-      // ==========
-      TableMetadata.Builder builder = TableMetadata.buildFrom(baseAtN);
-      // Add snapshots 1, 2, 3 without assigning to branches
-      builder.addSnapshot(testSnapshots.get(1));
-      builder.addSnapshot(testSnapshots.get(2));
-      builder.addSnapshot(testSnapshots.get(3));
-      // Set BOTH branches to point to the same existing snapshot (using snapshot ID)
-      builder.setBranchSnapshot(testSnapshots.get(3).snapshotId(), SnapshotRef.MAIN_BRANCH);
-      builder.setBranchSnapshot(testSnapshots.get(3).snapshotId(), "feature_a");
-      TableMetadata metadataWithBothBranches = builder.build();
+    Map<String, String> baseRefs = new HashMap<>();
+    baseRefs.put(
+        SnapshotRef.MAIN_BRANCH,
+        SnapshotRefParser.toJson(
+            SnapshotRef.branchBuilder(allSnapshots.get(0).snapshotId()).build()));
+    baseRefs.put(
+        "feature_a",
+        SnapshotRefParser.toJson(
+            SnapshotRef.branchBuilder(allSnapshots.get(1).snapshotId()).build()));
 
-      // Add custom properties with snapshots
-      Map<String, String> divergentProperties =
-          new HashMap<>(metadataWithBothBranches.properties());
-      List<Snapshot> snapshots4 = testSnapshots.subList(0, 4);
-      divergentProperties.put(
-          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots4));
+    baseProperties.put(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(baseRefs));
 
-      // Create refs matching the setBranchSnapshot calls - both pointing to snapshot 3
-      Map<String, String> sameSnapshotRefs = new HashMap<>();
-      sameSnapshotRefs.put(
-          SnapshotRef.MAIN_BRANCH,
-          SnapshotRefParser.toJson(
-              SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId()).build()));
-      sameSnapshotRefs.put(
-          "feature_a",
-          SnapshotRefParser.toJson(
-              SnapshotRef.branchBuilder(testSnapshots.get(3).snapshotId()).build()));
+    TableMetadata finalBaseMetadata = baseMetadata.replaceProperties(baseProperties);
 
-      divergentProperties.put(
-          CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(sameSnapshotRefs));
+    // ========== Create new metadata with 3 branches, all advanced 2 snapshots further ==========
+    // New metadata has snapshots 0-7 with MAIN at snapshot 2, feature_a at snapshot 3, feature_b at
+    // snapshot 4
+    TableMetadata.Builder newBuilder = TableMetadata.buildFrom(BASE_TABLE_METADATA);
+    for (int i = 0; i < 8; i++) {
+      newBuilder.addSnapshot(allSnapshots.get(i));
+    }
+    newBuilder.setBranchSnapshot(allSnapshots.get(2).snapshotId(), SnapshotRef.MAIN_BRANCH);
+    newBuilder.setBranchSnapshot(allSnapshots.get(3).snapshotId(), "feature_a");
+    newBuilder.setBranchSnapshot(allSnapshots.get(4).snapshotId(), "feature_b");
+    TableMetadata newMetadata = newBuilder.build();
 
-      TableMetadata finalDivergentMetadata =
-          metadataWithBothBranches.replaceProperties(divergentProperties);
+    // Add custom properties with new snapshots
+    Map<String, String> newProperties = new HashMap<>(newMetadata.properties());
+    List<Snapshot> newSnapshots = allSnapshots.subList(0, 8);
+    newProperties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(newSnapshots));
 
-      // ========== COMMIT: Should SUCCEED - this is a valid end state ==========
-      openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+    Map<String, String> newRefs = new HashMap<>();
+    newRefs.put(
+        SnapshotRef.MAIN_BRANCH,
+        SnapshotRefParser.toJson(
+            SnapshotRef.branchBuilder(allSnapshots.get(2).snapshotId()).build()));
+    newRefs.put(
+        "feature_a",
+        SnapshotRefParser.toJson(
+            SnapshotRef.branchBuilder(allSnapshots.get(3).snapshotId()).build()));
+    newRefs.put(
+        "feature_b",
+        SnapshotRefParser.toJson(
+            SnapshotRef.branchBuilder(allSnapshots.get(4).snapshotId()).build()));
 
-      TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+    newProperties.put(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(newRefs));
 
-      // Verify all 4 snapshots are present
+    TableMetadata finalNewMetadata = newMetadata.replaceProperties(newProperties);
+
+    // ========== COMMIT: Should SUCCEED ==========
+    openHouseInternalTableOperations.doCommit(finalBaseMetadata, finalNewMetadata);
+    Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+
+    TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+
+    // Verify all 8 snapshots are present
+    Assertions.assertEquals(
+        8, capturedMetadata.snapshots().size(), "Commit should contain all 8 snapshots");
+
+    // Verify MAIN branch advanced 2 snapshots (from snapshot 0 to snapshot 2)
+    SnapshotRef mainRef = capturedMetadata.ref(SnapshotRef.MAIN_BRANCH);
+    Assertions.assertNotNull(mainRef, "Main branch ref should exist");
+    Assertions.assertEquals(
+        allSnapshots.get(2).snapshotId(),
+        mainRef.snapshotId(),
+        "Main branch should point to snapshot 2 (advanced 2 snapshots from snapshot 0)");
+
+    // Verify feature_a branch advanced 2 snapshots (from snapshot 1 to snapshot 3)
+    SnapshotRef featureARef = capturedMetadata.ref("feature_a");
+    Assertions.assertNotNull(featureARef, "Feature_a branch ref should exist");
+    Assertions.assertEquals(
+        allSnapshots.get(3).snapshotId(),
+        featureARef.snapshotId(),
+        "Feature_a branch should point to snapshot 3 (advanced 2 snapshots from snapshot 1)");
+
+    // Verify feature_b branch exists and points to snapshot 4 (new branch in this commit)
+    SnapshotRef featureBRef = capturedMetadata.ref("feature_b");
+    Assertions.assertNotNull(featureBRef, "Feature_b branch ref should exist");
+    Assertions.assertEquals(
+        allSnapshots.get(4).snapshotId(),
+        featureBRef.snapshotId(),
+        "Feature_b branch should point to snapshot 4");
+
+    // Verify correct lineage: snapshots should be in order
+    List<Snapshot> capturedSnapshots = capturedMetadata.snapshots();
+    for (int i = 0; i < 8; i++) {
       Assertions.assertEquals(
-          4,
-          capturedMetadata.snapshots().size(),
-          "Commit with multiple branches pointing to same snapshot should contain all 4 snapshots");
-
-      // Verify BOTH refs point to the same snapshot
-      SnapshotRef mainRef = capturedMetadata.ref(SnapshotRef.MAIN_BRANCH);
-      Assertions.assertNotNull(mainRef, "Main branch ref should exist");
-      Assertions.assertEquals(
-          testSnapshots.get(3).snapshotId(),
-          mainRef.snapshotId(),
-          "Main branch should point to the 4th snapshot");
-
-      SnapshotRef featureRef = capturedMetadata.ref("feature_a");
-      Assertions.assertNotNull(featureRef, "Feature_a branch ref should exist");
-      Assertions.assertEquals(
-          testSnapshots.get(3).snapshotId(),
-          featureRef.snapshotId(),
-          "Feature_a branch should also point to the 4th snapshot (same as main)");
-
-      // Verify they point to the SAME snapshot
-      Assertions.assertEquals(
-          mainRef.snapshotId(),
-          featureRef.snapshotId(),
-          "Both branches should point to the same snapshot ID");
+          allSnapshots.get(i).snapshotId(),
+          capturedSnapshots.get(i).snapshotId(),
+          "Snapshot " + i + " should be preserved in correct order");
     }
   }
 
@@ -2077,17 +2236,20 @@ public class OpenHouseInternalTableOperationsTest {
 
       // ========== COMMIT: Should throw CommitStateUnknownException due to ambiguous branches
       // ==========
-      CommitStateUnknownException exception =
+      InvalidIcebergSnapshotException exception =
           Assertions.assertThrows(
-              CommitStateUnknownException.class,
+              InvalidIcebergSnapshotException.class,
               () -> openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata),
-              "Should throw CommitStateUnknownException when multiple branches point to same snapshot");
+              "Should throw InvalidIcebergSnapshotException when multiple branches point to same snapshot");
 
       // Verify error message indicates the ambiguous commit
       String exceptionMessage = exception.getMessage();
+      String expectedMessage =
+          "Ambiguous commit: snapshot "
+              + testSnapshots.get(3).snapshotId()
+              + " is referenced by multiple branches [feature_a, main] in a single commit. Each snapshot can only be referenced by one branch per commit.";
       Assertions.assertTrue(
-          exceptionMessage.contains("Multiple branches")
-              && exceptionMessage.contains("same target snapshot"),
+          exceptionMessage.contains(expectedMessage),
           "Error message should indicate multiple branches targeting same snapshot: "
               + exceptionMessage);
     }
