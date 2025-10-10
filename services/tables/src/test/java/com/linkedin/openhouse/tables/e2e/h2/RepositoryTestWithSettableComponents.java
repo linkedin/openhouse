@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
+import com.linkedin.openhouse.internal.catalog.SnapshotDiffApplier;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -63,6 +64,8 @@ public class RepositoryTestWithSettableComponents {
 
   @Autowired MeterRegistry meterRegistry;
 
+  @Autowired SnapshotDiffApplier snapshotDiffApplier;
+
   FileIO fileIO;
 
   @PostConstruct
@@ -96,7 +99,6 @@ public class RepositoryTestWithSettableComponents {
     // will fail)
     MetricsReporter metricsReporter =
         new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
-    SnapshotDiffApplier snapshotDiffApplier = new SnapshotDiffApplier(metricsReporter);
     OpenHouseInternalTableOperations actualOps =
         new OpenHouseInternalTableOperations(
             houseTablesRepository,
@@ -116,7 +118,6 @@ public class RepositoryTestWithSettableComponents {
     // The requirement to trigger htsRepo.save call are: Detectable updates in Transaction itself.
     MetricsReporter metricsReporter2 =
         new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
-    SnapshotDiffApplier snapshotDiffApplier2 = new SnapshotDiffApplier(metricsReporter2);
     OpenHouseInternalTableOperations mockOps =
         new OpenHouseInternalTableOperations(
             htsRepo,
@@ -125,7 +126,7 @@ public class RepositoryTestWithSettableComponents {
             tableIdentifier,
             metricsReporter2,
             fileIOManager,
-            snapshotDiffApplier2);
+            snapshotDiffApplier);
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
     doReturn(actualOps.current()).when(spyOperations).refresh();
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
@@ -200,7 +201,6 @@ public class RepositoryTestWithSettableComponents {
       HouseTableRepository htsRepo = provideFailedHtsRepoWhenGet(c);
       MetricsReporter metricsReporter =
           new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
-      SnapshotDiffApplier snapshotDiffApplier = new SnapshotDiffApplier(metricsReporter);
       OpenHouseInternalTableOperations mockOps =
           new OpenHouseInternalTableOperations(
               htsRepo,
