@@ -103,26 +103,31 @@ public class OpenHouseInternalTableOperationsTest {
     Mockito.when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
         .thenReturn(mockHouseTable);
     HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
+    MetricsReporter metricsReporter =
+        new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList());
+    SnapshotDiffApplier snapshotDiffApplier = new SnapshotDiffApplier(metricsReporter);
     openHouseInternalTableOperations =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
             fileIO,
-            Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
-            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
-            fileIOManager);
+            metricsReporter,
+            fileIOManager,
+            snapshotDiffApplier);
 
     // Create a separate instance with mock metrics reporter for testing metrics
+    SnapshotDiffApplier snapshotDiffApplierWithMockMetrics =
+        new SnapshotDiffApplier(mockMetricsReporter);
     openHouseInternalTableOperationsWithMockMetrics =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
             fileIO,
-            Mockito.mock(SnapshotInspector.class),
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             mockMetricsReporter,
-            fileIOManager);
+            fileIOManager,
+            snapshotDiffApplierWithMockMetrics);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
@@ -677,7 +682,9 @@ public class OpenHouseInternalTableOperationsTest {
 
     Assertions.assertThrows(
         IllegalArgumentException.class,
-        () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata));
+        () ->
+            openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                baseMetadata, newMetadata));
 
     // the latest snapshots have larger timestamp than the previous metadata timestamp, so it should
     // pass the validation
@@ -691,7 +698,8 @@ public class OpenHouseInternalTableOperationsTest {
             IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1))));
 
     TableMetadata newMetadataWithFuture = baseMetadata.replaceProperties(propertiesWithFuture);
-    openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadataWithFuture);
+    openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+        baseMetadata, newMetadataWithFuture);
   }
 
   /**
@@ -1136,17 +1144,19 @@ public class OpenHouseInternalTableOperationsTest {
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     MetricsReporter realMetricsReporter =
         new MetricsReporter(meterRegistry, "TEST_CATALOG", Lists.newArrayList());
+    HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
+    SnapshotDiffApplier snapshotDiffApplier = new SnapshotDiffApplier(realMetricsReporter);
 
     // Create instance with real metrics reporter
     OpenHouseInternalTableOperations operationsWithRealMetrics =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
-            new HadoopFileIO(new Configuration()),
-            Mockito.mock(SnapshotInspector.class),
+            fileIO,
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             realMetricsReporter,
-            fileIOManager);
+            fileIOManager,
+            snapshotDiffApplier);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);
@@ -1199,17 +1209,19 @@ public class OpenHouseInternalTableOperationsTest {
 
     MetricsReporter realMetricsReporter =
         new MetricsReporter(meterRegistry, "TEST_CATALOG", Lists.newArrayList());
+    HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
+    SnapshotDiffApplier snapshotDiffApplier = new SnapshotDiffApplier(realMetricsReporter);
 
     // Create instance with real metrics reporter
     OpenHouseInternalTableOperations operationsWithRealMetrics =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
-            new HadoopFileIO(new Configuration()),
-            Mockito.mock(SnapshotInspector.class),
+            fileIO,
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             realMetricsReporter,
-            fileIOManager);
+            fileIOManager,
+            snapshotDiffApplier);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);
@@ -1380,7 +1392,9 @@ public class OpenHouseInternalTableOperationsTest {
     InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
             InvalidIcebergSnapshotException.class,
-            () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+            () ->
+                openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                    baseMetadata, newMetadata),
             "Should throw InvalidIcebergSnapshotException when trying to delete referenced snapshot");
 
     // Verify error message mentions the reference
@@ -1427,7 +1441,8 @@ public class OpenHouseInternalTableOperationsTest {
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     TableMetadata result =
-        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
+        openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+            baseMetadata, newMetadata);
 
     // Verify unreferenced snapshots were removed
     List<Snapshot> unreferencedSnapshots = testSnapshots.subList(0, 2);
@@ -1508,7 +1523,9 @@ public class OpenHouseInternalTableOperationsTest {
     InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
             InvalidIcebergSnapshotException.class,
-            () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+            () ->
+                openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                    baseMetadata, newMetadata),
             "Should throw InvalidIcebergSnapshotException when trying to delete snapshot referenced by multiple branches");
 
     // Verify error message mentions the snapshot is still referenced
@@ -1571,7 +1588,9 @@ public class OpenHouseInternalTableOperationsTest {
     InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
             InvalidIcebergSnapshotException.class,
-            () -> openHouseInternalTableOperations.applySnapshots(finalBaseMetadata, newMetadata),
+            () ->
+                openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                    finalBaseMetadata, newMetadata),
             "Should throw InvalidIcebergSnapshotException when trying to delete snapshot referenced by tag");
 
     // Verify error message mentions tag reference
@@ -1616,7 +1635,8 @@ public class OpenHouseInternalTableOperationsTest {
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     TableMetadata result =
-        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
+        openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+            baseMetadata, newMetadata);
 
     // Verify no changes were made
     Assertions.assertEquals(
@@ -1661,7 +1681,8 @@ public class OpenHouseInternalTableOperationsTest {
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     TableMetadata result =
-        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
+        openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+            baseMetadata, newMetadata);
 
     // Verify no changes were made
     Assertions.assertEquals(
@@ -1710,7 +1731,8 @@ public class OpenHouseInternalTableOperationsTest {
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     TableMetadata result =
-        openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata);
+        openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+            baseMetadata, newMetadata);
 
     // Verify original snapshots are unchanged
     Assertions.assertEquals(
@@ -1755,7 +1777,8 @@ public class OpenHouseInternalTableOperationsTest {
     TableMetadata newMetadata = finalBaseMetadata.replaceProperties(properties);
 
     // Use the operations instance with mock metrics reporter
-    openHouseInternalTableOperationsWithMockMetrics.applySnapshots(finalBaseMetadata, newMetadata);
+    openHouseInternalTableOperationsWithMockMetrics.snapshotDiffApplier.applySnapshots(
+        finalBaseMetadata, newMetadata);
 
     // Verify metrics were recorded
     Mockito.verify(mockMetricsReporter)
@@ -1796,7 +1819,8 @@ public class OpenHouseInternalTableOperationsTest {
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     // Use the operations instance with mock metrics reporter
-    openHouseInternalTableOperationsWithMockMetrics.applySnapshots(baseMetadata, newMetadata);
+    openHouseInternalTableOperationsWithMockMetrics.snapshotDiffApplier.applySnapshots(
+        baseMetadata, newMetadata);
 
     // Verify metrics were recorded for the basic deletion
     Mockito.verify(mockMetricsReporter)
@@ -1842,7 +1866,8 @@ public class OpenHouseInternalTableOperationsTest {
     TableMetadata newMetadata = finalBaseMetadata.replaceProperties(properties);
 
     // Use the operations instance with mock metrics reporter
-    openHouseInternalTableOperationsWithMockMetrics.applySnapshots(finalBaseMetadata, newMetadata);
+    openHouseInternalTableOperationsWithMockMetrics.snapshotDiffApplier.applySnapshots(
+        finalBaseMetadata, newMetadata);
 
     // Verify metrics are not recorded for non-existent snapshots (no actual deletion)
     Mockito.verify(mockMetricsReporter, Mockito.never())
@@ -1897,7 +1922,9 @@ public class OpenHouseInternalTableOperationsTest {
     InvalidIcebergSnapshotException exception =
         Assertions.assertThrows(
             InvalidIcebergSnapshotException.class,
-            () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+            () ->
+                openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                    baseMetadata, newMetadata),
             "Should throw InvalidIcebergSnapshotException when trying to delete snapshot referenced by multiple branches");
 
     // Verify error message mentions the snapshot is still referenced
@@ -1941,7 +1968,9 @@ public class OpenHouseInternalTableOperationsTest {
     // This should succeed since no snapshots are referenced by any branch/tag
     TableMetadata result =
         Assertions.assertDoesNotThrow(
-            () -> openHouseInternalTableOperations.applySnapshots(finalBaseMetadata, newMetadata),
+            () ->
+                openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                    finalBaseMetadata, newMetadata),
             "Should succeed when deleting all unreferenced snapshots");
 
     // Verify all snapshots were removed from the metadata
@@ -2003,7 +2032,9 @@ public class OpenHouseInternalTableOperationsTest {
 
     // This should NOT throw an exception
     Assertions.assertDoesNotThrow(
-        () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+        () ->
+            openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                baseMetadata, newMetadata),
         "Should NOT throw exception when branches target different snapshots");
   }
 
@@ -2051,7 +2082,9 @@ public class OpenHouseInternalTableOperationsTest {
 
     // Should succeed - standard WAP workflow where WAP snapshot becomes the new main
     Assertions.assertDoesNotThrow(
-        () -> openHouseInternalTableOperations.applySnapshots(baseMetadata, newMetadata),
+        () ->
+            openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
+                baseMetadata, newMetadata),
         "Should successfully pull WAP snapshot into main branch");
   }
 

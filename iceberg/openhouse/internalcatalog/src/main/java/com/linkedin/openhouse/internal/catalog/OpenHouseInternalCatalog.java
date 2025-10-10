@@ -59,22 +59,24 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired StorageType storageType;
 
-  @Autowired SnapshotInspector snapshotInspector;
-
   @Autowired HouseTableMapper houseTableMapper;
 
   @Autowired MeterRegistry meterRegistry;
 
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
+    FileIO fileIO = resolveFileIO(tableIdentifier);
+    MetricsReporter metricsReporter =
+        new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList());
+    SnapshotDiffApplier snapshotDiffApplier = new SnapshotDiffApplier(metricsReporter);
     return new OpenHouseInternalTableOperations(
         houseTableRepository,
-        resolveFileIO(tableIdentifier),
-        snapshotInspector,
+        fileIO,
         houseTableMapper,
         tableIdentifier,
-        new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList()),
-        fileIOManager);
+        metricsReporter,
+        fileIOManager,
+        snapshotDiffApplier);
   }
 
   @Override
