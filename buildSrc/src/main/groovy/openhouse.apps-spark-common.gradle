@@ -99,7 +99,7 @@ shadowJar {
     relocate('org','openhouse.relocated.org') {
       exclude 'org.apache.iceberg.**' // these are runtime classes, we shouldn't relocate them unless we shade them
       exclude '%regex[org.apache.hadoop.*]' // these are runtime classes too, use regex to exclude string literals
-      exclude 'org.apache.commons.**' // these are part of method signatures reused in sub-classes
+      exclude '%regex[org.apache.commons.*]' // these are part of method signatures reused in sub-classes
       exclude 'org.apache.avro.**' // these runtime classes too
       exclude 'org.apache.spark.**' // these runtime classes too
       exclude 'org.springframework.**' // otherwise fails with ClassNotFoundException: org.springframework.http.codec.ClientCodecConfigurer
