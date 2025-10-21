@@ -104,6 +104,11 @@ public class SnapshotDiffApplier {
     private final List<Snapshot> newSnapshots;
     private final List<Snapshot> deletedSnapshots;
     private final Map<String, SnapshotRef> branchUpdates;
+    private final Set<Long> deletedIds;
+    private final List<Snapshot> newRegularSnapshots;
+    private final Set<String> staleRefs;
+    private final Set<Long> existingAfterDeletionIds;
+    private final List<Snapshot> unreferencedNewSnapshots;
 
     SnapshotDiff(
         List<Snapshot> providedSnapshots,
@@ -141,6 +146,19 @@ public class SnapshotDiffApplier {
               .filter(s -> !providedById.containsKey(s.snapshotId()))
               .collect(Collectors.toList());
       this.branchUpdates = computeBranchUpdates();
+      this.deletedIds =
+          deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+      this.newRegularSnapshots =
+          regularSnapshots.stream().filter(newSnapshots::contains).collect(Collectors.toList());
+      this.staleRefs = Sets.difference(existingRefs.keySet(), providedRefs.keySet());
+      this.existingAfterDeletionIds = Sets.difference(existingById.keySet(), deletedIds);
+      this.unreferencedNewSnapshots =
+          providedSnapshots.stream()
+              .filter(
+                  s ->
+                      !existingAfterDeletionIds.contains(s.snapshotId())
+                          && !providedBranchIds.contains(s.snapshotId()))
+              .collect(Collectors.toList());
     }
 
     private List<Snapshot> computeWapSnapshots() {
@@ -252,8 +270,7 @@ public class SnapshotDiffApplier {
       }
 
       long currentSnapshotId = base.currentSnapshot().snapshotId();
-      boolean currentDeleted =
-          deletedSnapshots.stream().anyMatch(s -> s.snapshotId() == currentSnapshotId);
+      boolean currentDeleted = deletedIds.contains(currentSnapshotId);
 
       if (currentDeleted && newSnapshots.isEmpty()) {
         throw new InvalidIcebergSnapshotException(
@@ -307,9 +324,6 @@ public class SnapshotDiffApplier {
      *     branch or tag
      */
     private void validateDeletedSnapshotsNotReferenced() {
-      Set<Long> deletedIds =
-          deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-
       Map<Long, List<String>> referencedIdsToRefs =
           providedRefs.entrySet().stream()
               .collect(
@@ -340,28 +354,14 @@ public class SnapshotDiffApplier {
 
       // Remove deleted snapshots
       if (!deletedSnapshots.isEmpty()) {
-        Set<Long> deletedIds =
-            deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
         builder.removeSnapshots(deletedIds);
       }
 
       // Remove stale branch references
-      metadata.refs().keySet().stream()
-          .filter(refName -> !providedRefs.containsKey(refName))
-          .forEach(builder::removeRef);
-
-      // Track existing snapshot IDs after deletions
-      Set<Long> existingAfterDeletion =
-          metadata.snapshots().stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-      deletedSnapshots.forEach(s -> existingAfterDeletion.remove(s.snapshotId()));
+      staleRefs.forEach(builder::removeRef);
 
       // Add unreferenced new snapshots
-      providedSnapshots.stream()
-          .filter(
-              s ->
-                  !existingAfterDeletion.contains(s.snapshotId())
-                      && !providedBranchIds.contains(s.snapshotId()))
-          .forEach(builder::addSnapshot);
+      unreferencedNewSnapshots.forEach(builder::addSnapshot);
 
       // Set branch pointers
       providedRefs.forEach(
@@ -374,7 +374,7 @@ public class SnapshotDiffApplier {
                       branchName, ref.snapshotId()));
             }
 
-            if (existingAfterDeletion.contains(snapshot.snapshotId())) {
+            if (existingAfterDeletionIds.contains(snapshot.snapshotId())) {
               SnapshotRef existingRef = metadata.refs().get(branchName);
               if (existingRef == null || existingRef.snapshotId() != ref.snapshotId()) {
                 builder.setRef(branchName, ref);
@@ -412,8 +412,6 @@ public class SnapshotDiffApplier {
       }
 
       // Record snapshot IDs in properties
-      List<Snapshot> newRegularSnapshots =
-          regularSnapshots.stream().filter(newSnapshots::contains).collect(Collectors.toList());
       if (!newRegularSnapshots.isEmpty()) {
         builder.setProperties(
             Collections.singletonMap(
