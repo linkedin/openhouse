@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.common.metrics;
 
+import static io.opentelemetry.semconv.resource.attributes.ResourceAttributes.SERVICE_NAME;
+
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
@@ -34,7 +36,7 @@ public final class DefaultOtelConfig {
     String appName = System.getenv("APP_NAME");
     String clusterName = System.getenv("CLUSTER_NAME");
     if (StringUtils.isNotEmpty(appName)) {
-      attributesBuilder.put("service_name", appName);
+      attributesBuilder.put(SERVICE_NAME, appName);
     }
     if (StringUtils.isNotEmpty(clusterName)) {
       attributesBuilder.put("cluster_name", clusterName);
