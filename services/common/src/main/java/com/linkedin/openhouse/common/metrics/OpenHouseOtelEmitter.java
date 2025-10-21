@@ -65,7 +65,6 @@ public class OpenHouseOtelEmitter implements OtelEmitter {
           meter.gaugeBuilder(metric).ofLongs().setUnit(TimeUnit.MILLISECONDS.toString());
       if (attributes == null) {
         gaugeBuilder.buildWithCallback(measurement -> measurement.record(value));
-        return;
       } else {
         gaugeBuilder.buildWithCallback(measurement -> measurement.record(value, attributes));
       }
