@@ -68,11 +68,12 @@ public class SnapshotDiffApplier {
 
     // Compute diff (all maps created once in constructor)
     SnapshotDiff diff =
-        new SnapshotDiff(providedSnapshots, providedRefs, existingSnapshots, existingRefs);
+        new SnapshotDiff(
+            providedSnapshots, providedRefs, existingSnapshots, existingRefs, metadata);
 
     // Validate, apply, record metrics, build
     diff.validate(base);
-    TableMetadata.Builder builder = diff.applyTo(metadata);
+    TableMetadata.Builder builder = diff.applyTo();
     diff.recordMetrics(builder);
     return builder.build();
   }
@@ -88,12 +89,14 @@ public class SnapshotDiffApplier {
     private final Map<String, SnapshotRef> providedRefs;
     private final List<Snapshot> existingSnapshots;
     private final Map<String, SnapshotRef> existingRefs;
+    private final TableMetadata metadata;
 
     // Computed maps (created once)
-    private final Map<Long, Snapshot> providedById;
-    private final Map<Long, Snapshot> existingById;
-    private final Set<Long> existingBranchIds;
-    private final Set<Long> providedBranchIds;
+    private final Map<Long, Snapshot> providedSnapshotByIds;
+    private final Map<Long, Snapshot> existingSnapshotByIds;
+    private final Set<Long> metadataSnapshotIds;
+    private final Set<Long> existingBranchRefIds;
+    private final Set<Long> providedBranchRefIds;
 
     // Categorized snapshots
     private final List<Snapshot> wapSnapshots;
@@ -114,36 +117,48 @@ public class SnapshotDiffApplier {
         List<Snapshot> providedSnapshots,
         Map<String, SnapshotRef> providedRefs,
         List<Snapshot> existingSnapshots,
-        Map<String, SnapshotRef> existingRefs) {
+        Map<String, SnapshotRef> existingRefs,
+        TableMetadata metadata) {
       this.providedSnapshots = providedSnapshots;
       this.providedRefs = providedRefs;
       this.existingSnapshots = existingSnapshots;
       this.existingRefs = existingRefs;
+      this.metadata = metadata;
 
       // Compute all maps once
-      this.providedById =
+      this.providedSnapshotByIds =
           providedSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
-      this.existingById =
+      this.existingSnapshotByIds =
           existingSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
-      this.existingBranchIds =
+      this.metadataSnapshotIds =
+          metadata.snapshots().stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+      this.existingBranchRefIds =
           existingRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
-      this.providedBranchIds =
+      this.providedBranchRefIds =
           providedRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
 
-      // Compute categorization (order matters: cherry-picked filters WAP)
-      List<Snapshot> initialWapSnapshots = computeWapSnapshots();
+      // Compute categorization - process in dependency order
+      // 1. Cherry-picked has highest priority (includes WAP being published)
+      // 2. WAP snapshots (staged, not published)
+      // 3. Regular snapshots (everything else)
       this.cherryPickedSnapshots = computeCherryPickedSnapshots();
-      this.wapSnapshots = filterWapFromCherryPicked(initialWapSnapshots);
-      this.regularSnapshots = computeRegularSnapshots();
+      Set<Long> cherryPickedIds =
+          cherryPickedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+
+      this.wapSnapshots = computeWapSnapshots(cherryPickedIds);
+      Set<Long> wapIds =
+          wapSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+
+      this.regularSnapshots = computeRegularSnapshots(cherryPickedIds, wapIds);
 
       // Compute changes
       this.newSnapshots =
           providedSnapshots.stream()
-              .filter(s -> !existingById.containsKey(s.snapshotId()))
+              .filter(s -> !existingSnapshotByIds.containsKey(s.snapshotId()))
               .collect(Collectors.toList());
       this.deletedSnapshots =
           existingSnapshots.stream()
-              .filter(s -> !providedById.containsKey(s.snapshotId()))
+              .filter(s -> !providedSnapshotByIds.containsKey(s.snapshotId()))
               .collect(Collectors.toList());
       this.branchUpdates = computeBranchUpdates();
       this.deletedIds =
@@ -151,27 +166,31 @@ public class SnapshotDiffApplier {
       this.newRegularSnapshots =
           regularSnapshots.stream().filter(newSnapshots::contains).collect(Collectors.toList());
       this.staleRefs = Sets.difference(existingRefs.keySet(), providedRefs.keySet());
-      this.existingAfterDeletionIds = Sets.difference(existingById.keySet(), deletedIds);
+      this.existingAfterDeletionIds = Sets.difference(existingSnapshotByIds.keySet(), deletedIds);
       this.unreferencedNewSnapshots =
           providedSnapshots.stream()
               .filter(
                   s ->
                       !existingAfterDeletionIds.contains(s.snapshotId())
-                          && !providedBranchIds.contains(s.snapshotId()))
+                          && !providedBranchRefIds.contains(s.snapshotId())
+                          && !metadataSnapshotIds.contains(s.snapshotId()))
               .collect(Collectors.toList());
     }
 
-    private List<Snapshot> computeWapSnapshots() {
-      Set<Long> allBranchIds =
-          java.util.stream.Stream.concat(existingBranchIds.stream(), providedBranchIds.stream())
+    private List<Snapshot> computeWapSnapshots(Set<Long> excludeCherryPicked) {
+      // Depends on: cherry-picked IDs (to exclude WAP snapshots being published)
+      Set<Long> allBranchRefIds =
+          java.util.stream.Stream.concat(
+                  existingBranchRefIds.stream(), providedBranchRefIds.stream())
               .collect(Collectors.toSet());
 
       return providedSnapshots.stream()
+          .filter(s -> !excludeCherryPicked.contains(s.snapshotId()))
           .filter(
               s ->
                   s.summary() != null
                       && s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)
-                      && !allBranchIds.contains(s.snapshotId()))
+                      && !allBranchRefIds.contains(s.snapshotId()))
           .collect(Collectors.toList());
     }
 
@@ -185,7 +204,7 @@ public class SnapshotDiffApplier {
       return providedSnapshots.stream()
           .filter(
               provided -> {
-                Snapshot existing = existingById.get(provided.snapshotId());
+                Snapshot existing = existingSnapshotByIds.get(provided.snapshotId());
                 if (existing == null) {
                   return false;
                 }
@@ -204,30 +223,19 @@ public class SnapshotDiffApplier {
                 boolean hasWapId =
                     provided.summary() != null
                         && provided.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP);
-                boolean wasStaged = !existingBranchIds.contains(provided.snapshotId());
-                boolean isNowOnBranch = providedBranchIds.contains(provided.snapshotId());
+                boolean wasStaged = !existingBranchRefIds.contains(provided.snapshotId());
+                boolean isNowOnBranch = providedBranchRefIds.contains(provided.snapshotId());
                 return hasWapId && wasStaged && isNowOnBranch;
               })
           .collect(Collectors.toList());
     }
 
-    private List<Snapshot> filterWapFromCherryPicked(List<Snapshot> initialWapSnapshots) {
-      Set<Long> cherryPickedIds =
-          cherryPickedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-      return initialWapSnapshots.stream()
-          .filter(s -> !cherryPickedIds.contains(s.snapshotId()))
-          .collect(Collectors.toList());
-    }
-
-    private List<Snapshot> computeRegularSnapshots() {
-      Set<Long> excludedIds =
-          java.util.stream.Stream.concat(
-                  wapSnapshots.stream().map(Snapshot::snapshotId),
-                  cherryPickedSnapshots.stream().map(Snapshot::snapshotId))
-              .collect(Collectors.toSet());
-
+    private List<Snapshot> computeRegularSnapshots(
+        Set<Long> excludeCherryPicked, Set<Long> excludeWap) {
+      // Depends on: cherry-picked and WAP IDs (everything else is regular)
       return providedSnapshots.stream()
-          .filter(s -> !excludedIds.contains(s.snapshotId()))
+          .filter(s -> !excludeCherryPicked.contains(s.snapshotId()))
+          .filter(s -> !excludeWap.contains(s.snapshotId()))
           .collect(Collectors.toList());
     }
 
@@ -349,7 +357,7 @@ public class SnapshotDiffApplier {
       }
     }
 
-    TableMetadata.Builder applyTo(TableMetadata metadata) {
+    TableMetadata.Builder applyTo() {
       TableMetadata.Builder builder = TableMetadata.buildFrom(metadata);
 
       // Remove deleted snapshots
@@ -366,7 +374,7 @@ public class SnapshotDiffApplier {
       // Set branch pointers
       providedRefs.forEach(
           (branchName, ref) -> {
-            Snapshot snapshot = providedById.get(ref.snapshotId());
+            Snapshot snapshot = providedSnapshotByIds.get(ref.snapshotId());
             if (snapshot == null) {
               throw new InvalidIcebergSnapshotException(
                   String.format(
@@ -374,7 +382,12 @@ public class SnapshotDiffApplier {
                       branchName, ref.snapshotId()));
             }
 
-            if (existingAfterDeletionIds.contains(snapshot.snapshotId())) {
+            // Check if snapshot is already in metadata (after deletions)
+            boolean snapshotExistsInMetadata =
+                metadataSnapshotIds.contains(snapshot.snapshotId())
+                    && !deletedIds.contains(snapshot.snapshotId());
+
+            if (snapshotExistsInMetadata) {
               SnapshotRef existingRef = metadata.refs().get(branchName);
               if (existingRef == null || existingRef.snapshotId() != ref.snapshotId()) {
                 builder.setRef(branchName, ref);
@@ -391,7 +404,7 @@ public class SnapshotDiffApplier {
       int appendedCount =
           (int)
               regularSnapshots.stream()
-                  .filter(s -> !existingById.containsKey(s.snapshotId()))
+                  .filter(s -> !existingSnapshotByIds.containsKey(s.snapshotId()))
                   .count();
       int stagedCount = wapSnapshots.size();
       int cherryPickedCount = cherryPickedSnapshots.size();
@@ -451,16 +464,9 @@ public class SnapshotDiffApplier {
    * @return Comma-separated string of snapshot IDs, or empty string if list is empty
    */
   private String formatSnapshotIds(List<Snapshot> snapshots) {
-    if (snapshots.isEmpty()) {
-      return "";
-    }
-    StringBuilder sb = new StringBuilder();
-    for (int i = 0; i < snapshots.size(); i++) {
-      if (i > 0) {
-        sb.append(',');
-      }
-      sb.append(snapshots.get(i).snapshotId());
-    }
-    return sb.toString();
+    return snapshots.stream()
+        .map(Snapshot::snapshotId)
+        .map(String::valueOf)
+        .collect(Collectors.joining(","));
   }
 }

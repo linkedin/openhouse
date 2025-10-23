@@ -103,8 +103,9 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       List<Row> refs =
           spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
       assertEquals(2, refs.size());
-      assertEquals("feature_a", refs.get(0).getString(0));
-      assertEquals("main", refs.get(1).getString(0));
+      Set<String> refNames = refs.stream().map(row -> row.getString(0)).collect(Collectors.toSet());
+      assertTrue(refNames.contains("feature_a"));
+      assertTrue(refNames.contains("main"));
     }
   }
 
@@ -2004,7 +2005,8 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       assertEquals(3, spark.sql("SELECT * FROM " + tableName + "").collectAsList().size());
       List<Row> refs = spark.sql("SELECT name FROM " + tableName + ".refs").collectAsList();
       assertEquals(1, refs.size());
-      assertEquals("main", refs.get(0).getString(0));
+      Set<String> refNames = refs.stream().map(row -> row.getString(0)).collect(Collectors.toSet());
+      assertTrue(refNames.contains("main"));
 
       // Traditional snapshot queries should work
       assertTrue(
@@ -2279,8 +2281,9 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
       List<Row> refs =
           spark.sql("SELECT name FROM " + tableName + ".refs ORDER BY name").collectAsList();
       assertEquals(2, refs.size());
-      assertEquals("feature_a", refs.get(0).getString(0));
-      assertEquals("main", refs.get(1).getString(0));
+      Set<String> refNames = refs.stream().map(row -> row.getString(0)).collect(Collectors.toSet());
+      assertTrue(refNames.contains("feature_a"));
+      assertTrue(refNames.contains("main"));
     }
   }
 
