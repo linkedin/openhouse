@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -15,9 +16,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
@@ -274,6 +277,67 @@ public final class Operations implements AutoCloseable {
         SparkJobUtil.createDeleteStatement(fqtn, columnName, columnPattern, granularity, count);
     log.info("deleting records from table: {}", fqtn);
     spark.sql(statement);
+    // Get the latest snapshot id for which retention was run
+    String snapshotId =
+        spark
+            .sql(
+                String.format(
+                    "SELECT snapshot_id FROM %s.snapshots "
+                        + "WHERE operation IN ('delete', 'overwrite') "
+                        + "ORDER BY committed_at DESC LIMIT 1",
+                    fqtn))
+            .first()
+            .getString(0);
+    // Cache of manifests: partitionPath -> list of data file path
+    Map<String, List<String>> manifestCache =
+        spark
+            .sql(
+                String.format(
+                    "SELECT data_file.file_path FROM %s.entries WHERE snapshot_id = %s",
+                    fqtn, snapshotId))
+            .collectAsList().stream()
+            .map(r -> r.getString(0))
+            .collect(
+                Collectors.groupingBy(
+                    path -> path.substring(0, path.lastIndexOf('/')), Collectors.toList()));
+    writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
+  }
+
+  private void writeBackupDataManifests(
+      Map<String, List<String>> manifestCache, Table table, String backupDir) {
+    try {
+      final FileSystem fs = fs();
+      manifestCache.forEach(
+          (partitionPath, files) -> {
+            // Rename data files to backup dir
+            List<String> backupFiles =
+                files.stream()
+                    .map(file -> getTrashPath(table, file, backupDir).toString())
+                    .collect(Collectors.toList());
+            Map<String, Object> jsonMap = new HashMap<>();
+            jsonMap.put("file_count", backupFiles.size());
+            jsonMap.put("files", backupFiles);
+            String jsonStr = new Gson().toJson(jsonMap);
+            // Create data_manifest file
+            Path destPath = new Path(partitionPath, "data_manifest.json");
+            try (FSDataOutputStream out = fs.create(destPath, true)) {
+              out.write(jsonStr.getBytes());
+              out.flush();
+              log.info("Wrote {} with {} files", destPath, files.size());
+            } catch (IOException e) {
+              log.error("Failed to write manifest {}", destPath, e);
+            }
+            // Move manifest to backup dir
+            Path backupDestPath = getTrashPath(table, destPath.toString(), backupDir);
+            try {
+              rename(destPath, backupDestPath);
+            } catch (IOException e) {
+              log.error(String.format("Move operation failed for manifest: %s", destPath), e);
+            }
+          });
+    } catch (IOException e) {
+      log.error("Error fetching the file system", e);
+    }
   }
 
   private Path getTrashPath(String path, String filePath, String trashDir) {
