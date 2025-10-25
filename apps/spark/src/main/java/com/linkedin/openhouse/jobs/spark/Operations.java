@@ -9,6 +9,7 @@ import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -28,14 +29,19 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ExpireSnapshots;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.RuntimeIOException;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
 import org.apache.spark.sql.SparkSession;
@@ -273,34 +279,35 @@ public final class Operations implements AutoCloseable {
    */
   public void runRetention(
       String fqtn, String columnName, String columnPattern, String granularity, int count) {
+    // Cache of manifests: partitionPath -> list of data file path
+    Map<String, List<String>> manifestCache =
+        prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count);
     final String statement =
         SparkJobUtil.createDeleteStatement(fqtn, columnName, columnPattern, granularity, count);
     log.info("deleting records from table: {}", fqtn);
     spark.sql(statement);
-    // Get the latest snapshot id for which retention was run
-    String snapshotId =
-        spark
-            .sql(
-                String.format(
-                    "SELECT snapshot_id FROM %s.snapshots "
-                        + "WHERE operation IN ('delete', 'overwrite') "
-                        + "ORDER BY committed_at DESC LIMIT 1",
-                    fqtn))
-            .first()
-            .getString(0);
-    // Cache of manifests: partitionPath -> list of data file path
-    Map<String, List<String>> manifestCache =
-        spark
-            .sql(
-                String.format(
-                    "SELECT data_file.file_path FROM %s.entries WHERE snapshot_id = %s",
-                    fqtn, snapshotId))
-            .collectAsList().stream()
-            .map(r -> r.getString(0))
-            .collect(
-                Collectors.groupingBy(
-                    path -> path.substring(0, path.lastIndexOf('/')), Collectors.toList()));
     writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
+  }
+
+  private Map<String, List<String>> prepareBackupDataManifests(
+      String fqtn, String columnName, String columnPattern, String granularity, int count) {
+    Table table = getTable(fqtn);
+    Expression filter =
+        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count);
+    TableScan scan = table.newScan().filter(filter);
+    try (CloseableIterable<FileScanTask> filesIterable = scan.planFiles()) {
+      List<FileScanTask> filesList = Lists.newArrayList(filesIterable);
+      return filesList.stream()
+          .collect(
+              Collectors.groupingBy(
+                  task -> {
+                    String path = task.file().path().toString();
+                    return Paths.get(path).getParent().toString();
+                  },
+                  Collectors.mapping(task -> task.file().path().toString(), Collectors.toList())));
+    } catch (IOException e) {
+      throw new RuntimeIOException(e, "Failed to close table scan: %s", scan);
+    }
   }
 
   private void writeBackupDataManifests(
