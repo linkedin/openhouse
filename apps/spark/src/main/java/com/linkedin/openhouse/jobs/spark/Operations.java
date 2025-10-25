@@ -2,12 +2,14 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -15,9 +17,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
@@ -25,14 +29,19 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ExpireSnapshots;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.RuntimeIOException;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
 import org.apache.spark.sql.SparkSession;
@@ -270,10 +279,72 @@ public final class Operations implements AutoCloseable {
    */
   public void runRetention(
       String fqtn, String columnName, String columnPattern, String granularity, int count) {
+    // Cache of manifests: partitionPath -> list of data file path
+    Map<String, List<String>> manifestCache =
+        prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count);
     final String statement =
         SparkJobUtil.createDeleteStatement(fqtn, columnName, columnPattern, granularity, count);
     log.info("deleting records from table: {}", fqtn);
     spark.sql(statement);
+    writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
+  }
+
+  private Map<String, List<String>> prepareBackupDataManifests(
+      String fqtn, String columnName, String columnPattern, String granularity, int count) {
+    Table table = getTable(fqtn);
+    Expression filter =
+        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count);
+    TableScan scan = table.newScan().filter(filter);
+    try (CloseableIterable<FileScanTask> filesIterable = scan.planFiles()) {
+      List<FileScanTask> filesList = Lists.newArrayList(filesIterable);
+      return filesList.stream()
+          .collect(
+              Collectors.groupingBy(
+                  task -> {
+                    String path = task.file().path().toString();
+                    return Paths.get(path).getParent().toString();
+                  },
+                  Collectors.mapping(task -> task.file().path().toString(), Collectors.toList())));
+    } catch (IOException e) {
+      throw new RuntimeIOException(e, "Failed to close table scan: %s", scan);
+    }
+  }
+
+  private void writeBackupDataManifests(
+      Map<String, List<String>> manifestCache, Table table, String backupDir) {
+    try {
+      final FileSystem fs = fs();
+      manifestCache.forEach(
+          (partitionPath, files) -> {
+            // Rename data files to backup dir
+            List<String> backupFiles =
+                files.stream()
+                    .map(file -> getTrashPath(table, file, backupDir).toString())
+                    .collect(Collectors.toList());
+            Map<String, Object> jsonMap = new HashMap<>();
+            jsonMap.put("file_count", backupFiles.size());
+            jsonMap.put("files", backupFiles);
+            String jsonStr = new Gson().toJson(jsonMap);
+            // Create data_manifest file
+            Path destPath = new Path(partitionPath, "data_manifest.json");
+            try (FSDataOutputStream out = fs.create(destPath, true)) {
+              out.write(jsonStr.getBytes());
+              out.flush();
+              log.info("Wrote {} with {} files", destPath, files.size());
+            } catch (IOException e) {
+              log.error("Failed to write manifest {}", destPath, e);
+            }
+            // Move manifest to backup dir
+            Path backupDestPath = getTrashPath(table, destPath.toString(), backupDir);
+            try {
+              rename(destPath, backupDestPath);
+            } catch (IOException e) {
+              log.error(String.format("Move operation failed for manifest: %s", destPath), e);
+            }
+          });
+    } catch (IOException e) {
+      log.error("Error fetching the file system", e);
+    }
   }
 
   private Path getTrashPath(String path, String filePath, String trashDir) {

@@ -2,6 +2,8 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
@@ -11,8 +13,13 @@ import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -165,6 +172,128 @@ public class OperationsTest extends OpenHouseSparkITest {
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
+    }
+  }
+
+  @Test
+  public void testRetentionDataManifestWithStringDatePartitionedTable() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // set up
+      String tableName = "db.test_string_partition";
+      String columnName = "datepartition";
+      String columnPattern = "yyyy-MM-dd-HH";
+      String granularity = "DAY";
+      int count = 1;
+      // prepare data
+      DateTimeFormatter formatter = DateTimeFormatter.ofPattern(columnPattern);
+      String twoDayAgoHour = formatter.format(ZonedDateTime.now().minusDays(2));
+      String twoDayAgoDate =
+          formatter.format(ZonedDateTime.now().minusDays(2).truncatedTo(ChronoUnit.DAYS));
+      String threeDayAgoHour = formatter.format(ZonedDateTime.now().minusDays(3));
+      String threeDayAgoDate =
+          formatter.format(ZonedDateTime.now().minusDays(3).truncatedTo(ChronoUnit.DAYS));
+      ops.spark()
+          .sql(
+              String.format(
+                  "create table %s (data string, datepartition string, hourpartition string, late int) partitioned by (datepartition, hourpartition, late)",
+                  tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "alter table %s SET POLICY (RETENTION = 30d ON COLUMN %s WHERE PATTERN = '%s')",
+                  tableName, columnName, columnPattern));
+      ops.spark()
+          .sql(
+              String.format(
+                  "insert into %s values ('a', '%s', '%s', 0), ('a', '%s', '%s', 0)",
+                  tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
+      ops.spark()
+          .sql(
+              String.format(
+                  "insert into %s values ('b', '%s', '%s', 0), ('b', '%s', '%s', 0)",
+                  tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
+      ops.runRetention(tableName, columnName, columnPattern, granularity, count);
+      // verify data_manifest.json
+      Table table = ops.getTable(tableName);
+      Path firstManifestPath =
+          new Path(
+              String.format(
+                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
+                  table.location(), twoDayAgoDate, twoDayAgoHour));
+      Path secondManifestPath =
+          new Path(
+              String.format(
+                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
+                  table.location(), threeDayAgoDate, threeDayAgoHour));
+      Assertions.assertTrue(ops.fs().exists(firstManifestPath));
+      Assertions.assertTrue(ops.fs().exists(secondManifestPath));
+      try (InputStream in = ops.fs().open(firstManifestPath);
+          InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+        Assertions.assertEquals(2, jsonObject.get("file_count").getAsInt());
+        String oneDataFilePath = jsonObject.get("files").getAsJsonArray().get(0).getAsString();
+        Assertions.assertTrue(
+            oneDataFilePath.startsWith(firstManifestPath.getParent().toString())
+                && oneDataFilePath.endsWith(".orc"));
+      }
+      try (InputStream in = ops.fs().open(secondManifestPath);
+          InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+        Assertions.assertEquals(2, jsonObject.get("file_count").getAsInt());
+        String oneDataFilePath = jsonObject.get("files").getAsJsonArray().get(0).getAsString();
+        Assertions.assertTrue(
+            oneDataFilePath.startsWith(secondManifestPath.getParent().toString())
+                && oneDataFilePath.endsWith(".orc"));
+      }
+    }
+  }
+
+  @Test
+  public void testRetentionDataManifestWithTimestampPartitionedTable() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // set up
+      String tableName = "db.test_time_partition";
+      String columnName = "ts";
+      String columnPattern = "";
+      String granularity = "DAY";
+      int count = 1;
+      // prepare data
+      DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+      String today = formatter.format(ZonedDateTime.now());
+      String twoDayAgo = formatter.format(ZonedDateTime.now().minusDays(2));
+      ops.spark()
+          .sql(
+              String.format(
+                  "create table %s (data string, ts timestamp) partitioned by (Days(ts))",
+                  tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "insert into %s values ('a', cast('%s' as timestamp)), ('a', cast('%s' as timestamp))",
+                  tableName, today, twoDayAgo));
+      ops.spark()
+          .sql(
+              String.format(
+                  "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
+                  tableName, today, twoDayAgo));
+      ops.runRetention(tableName, columnName, columnPattern, granularity, count);
+      // verify data_manifest.json
+      Table table = ops.getTable(tableName);
+      Path manifestPath =
+          new Path(
+              String.format(
+                  "%s/.backup/data/ts_day=%s/data_manifest.json", table.location(), twoDayAgo));
+      ops.spark().sql("select * from db.test_time_partition.snapshots").show(false);
+      Assertions.assertTrue(ops.fs().exists(manifestPath));
+      try (InputStream in = ops.fs().open(manifestPath);
+          InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+        Assertions.assertEquals(2, jsonObject.get("file_count").getAsInt());
+        String oneDataFilePath = jsonObject.get("files").getAsJsonArray().get(0).getAsString();
+        Assertions.assertTrue(
+            oneDataFilePath.startsWith(manifestPath.getParent().toString())
+                && oneDataFilePath.endsWith(".orc"));
+      }
     }
   }
 

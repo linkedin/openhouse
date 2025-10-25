@@ -1,12 +1,19 @@
 package com.linkedin.openhouse.jobs.util;
 
+import static com.linkedin.openhouse.jobs.spark.Operations.convertGranularityToChrono;
+
 import java.io.IOException;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 
 /** * Utility class to provide spark apps action semantics and SQL statements. */
 @Slf4j
@@ -79,6 +86,22 @@ public final class SparkJobUtil {
                   RETENTION_CONDITION_TEMPLATE, columnName, granularity, count, granularity));
       log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
       return query;
+    }
+  }
+
+  public static Expression createDeleteFilter(
+      String columnName, String columnPattern, String granularity, int count) {
+    ChronoUnit timeUnitGranularity =
+        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
+    ZonedDateTime cutoffDate =
+        ZonedDateTime.now().minus(timeUnitGranularity.getDuration().multipliedBy(count));
+    if (!StringUtils.isBlank(columnPattern)) {
+      String formattedCutoffDate = DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate);
+      return Expressions.lessThan(columnName, formattedCutoffDate);
+    } else {
+      long formattedCutoffDate =
+          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000; // microsecond
+      return Expressions.lessThan(columnName, formattedCutoffDate);
     }
   }
 
