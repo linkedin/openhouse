@@ -127,16 +127,25 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     long startTime = System.currentTimeMillis();
     boolean needToReload = !Objects.equal(currentMetadataLocation(), metadataLoc);
     Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc);
-    if (needToReload) {
-      metricsReporter.executeWithStats(
-          r, InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY, getCatalogMetricTags());
-    } else {
-      r.run();
+    try {
+      if (needToReload) {
+        metricsReporter.executeWithStats(
+            r, InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY, getCatalogMetricTags());
+      } else {
+        r.run();
+      }
+      log.info(
+          "refreshMetadata from location {} succeeded, took {} ms",
+          metadataLoc,
+          System.currentTimeMillis() - startTime);
+    } catch (Exception e) {
+      log.error(
+          "refreshMetadata from location {} failed after {} ms",
+          metadataLoc,
+          System.currentTimeMillis() - startTime,
+          e);
+      throw e;
     }
-    log.info(
-        "refreshMetadata from location {} took {} ms",
-        metadataLoc,
-        System.currentTimeMillis() - startTime);
   }
 
   /**
@@ -284,11 +293,26 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
 
       final TableMetadata updatedMtDataRef = updatedMetadata;
-      metricsReporter.executeWithStats(
-          () ->
-              TableMetadataParser.write(updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
-          InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
-          getCatalogMetricTags());
+      long metadataUpdateStartTime = System.currentTimeMillis();
+      try {
+        metricsReporter.executeWithStats(
+            () ->
+                TableMetadataParser.write(
+                    updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
+            InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
+            getCatalogMetricTags());
+        log.info(
+            "updateMetadata to location {} succeeded, took {} ms",
+            newMetadataLocation,
+            System.currentTimeMillis() - metadataUpdateStartTime);
+      } catch (Exception e) {
+        log.error(
+            "updateMetadata to location {} failed after {} ms",
+            newMetadataLocation,
+            System.currentTimeMillis() - metadataUpdateStartTime,
+            e);
+        throw e;
+      }
 
       houseTable = houseTableMapper.toHouseTable(updatedMetadata, fileIO);
       if (base != null
