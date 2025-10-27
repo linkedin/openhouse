@@ -1,12 +1,19 @@
 package com.linkedin.openhouse.jobs.util;
 
+import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 
 /** * Utility class to provide spark apps action semantics and SQL statements. */
 @Slf4j
@@ -23,7 +30,7 @@ public final class SparkJobUtil {
   Query: datePartition < date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
   */
   private static final String RETENTION_CONDITION_TEMPLATE =
-      "%s < date_trunc('%s', current_timestamp() - INTERVAL %d %ss)";
+      "%s < date_trunc('%s', timestamp '%s' - INTERVAL %d %ss)";
 
   /*
    A mismatch between data and pattern provided results in the datasets being filtered from deletion.
@@ -47,10 +54,15 @@ public final class SparkJobUtil {
       result: records will be filtered from deletion
   */
   private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
-      "%s < cast(date_format(current_timestamp() - INTERVAL %s %ss, '%s') as string)";
+      "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, '%s') as string)";
 
   public static String createDeleteStatement(
-      String fqtn, String columnName, String columnPattern, String granularity, int count) {
+      String fqtn,
+      String columnName,
+      String columnPattern,
+      String granularity,
+      int count,
+      ZonedDateTime now) {
     if (!StringUtils.isBlank(columnPattern)) {
       String query =
           String.format(
@@ -59,6 +71,7 @@ public final class SparkJobUtil {
               String.format(
                   RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
                   columnName,
+                  now.toLocalDateTime(),
                   count,
                   granularity,
                   columnPattern));
@@ -76,9 +89,29 @@ public final class SparkJobUtil {
               "DELETE FROM %s WHERE %s",
               getQuotedFqtn(fqtn),
               String.format(
-                  RETENTION_CONDITION_TEMPLATE, columnName, granularity, count, granularity));
+                  RETENTION_CONDITION_TEMPLATE,
+                  columnName,
+                  granularity,
+                  now.toLocalDateTime(),
+                  count,
+                  granularity));
       log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
       return query;
+    }
+  }
+
+  public static Expression createDeleteFilter(
+      String columnName, String columnPattern, String granularity, int count, ZonedDateTime now) {
+    ChronoUnit timeUnitGranularity =
+        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
+    ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
+    if (!StringUtils.isBlank(columnPattern)) {
+      String formattedCutoffDate = DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate);
+      return Expressions.lessThan(columnName, formattedCutoffDate);
+    } else {
+      long formattedCutoffDate =
+          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000; // microsecond
+      return Expressions.lessThan(columnName, formattedCutoffDate);
     }
   }
 
@@ -96,5 +129,22 @@ public final class SparkJobUtil {
     for (FileStatus file : files) {
       fs.setTimes(file.getPath(), timestamp, -1);
     }
+  }
+
+  public static ChronoUnit convertGranularityToChrono(String granularity) {
+    if (Arrays.stream(TimePartitionSpec.GranularityEnum.values())
+        .anyMatch(e -> e.name().equals(granularity))) {
+      switch (TimePartitionSpec.GranularityEnum.valueOf(granularity)) {
+        case HOUR:
+          return ChronoUnit.HOURS;
+        case DAY:
+          return ChronoUnit.DAYS;
+        case MONTH:
+          return ChronoUnit.MONTHS;
+        case YEAR:
+          return ChronoUnit.YEARS;
+      }
+    }
+    return ChronoUnit.valueOf(granularity);
   }
 }

@@ -21,7 +21,7 @@ dependencies {
   implementation project(':client:secureclient')
   implementation project(':services:common')
   implementation project(':cluster:storage')
- 
+
   implementation ('org.apache.hadoop:hadoop-common:2.10.0') {
     exclude group: 'io.netty'
     exclude group: 'org.apache.curator', module: 'curator-client'
@@ -32,6 +32,7 @@ dependencies {
   implementation("org.apache.iceberg:iceberg-data")
   implementation("org.apache.iceberg:iceberg-core")
   implementation("org.apache.iceberg:iceberg-common")
+  implementation("org.apache.iceberg:iceberg-api")
 
   implementation 'commons-cli:commons-cli:1.5.0'
   implementation 'org.reflections:reflections:0.10.2'
