@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -44,7 +45,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
   }
 
   @Override
-  protected void runInner(Operations ops) {
+  protected void runInner(Operations ops) throws IOException {
     log.info(
         "Retention app start for table {}, column {}, {}, ttl={} {}s",
         fqtn,

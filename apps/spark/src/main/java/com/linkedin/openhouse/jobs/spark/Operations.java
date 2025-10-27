@@ -39,7 +39,6 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
@@ -278,19 +277,21 @@ public final class Operations implements AutoCloseable {
    * @param count granularity count representing retention timeline for @fqtn records
    */
   public void runRetention(
-      String fqtn, String columnName, String columnPattern, String granularity, int count) {
+      String fqtn, String columnName, String columnPattern, String granularity, int count)
+      throws IOException {
     // Cache of manifests: partitionPath -> list of data file path
     Map<String, List<String>> manifestCache =
         prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count);
+    writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
     final String statement =
         SparkJobUtil.createDeleteStatement(fqtn, columnName, columnPattern, granularity, count);
     log.info("deleting records from table: {}", fqtn);
     spark.sql(statement);
-    writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
   }
 
   private Map<String, List<String>> prepareBackupDataManifests(
-      String fqtn, String columnName, String columnPattern, String granularity, int count) {
+      String fqtn, String columnName, String columnPattern, String granularity, int count)
+      throws IOException {
     Table table = getTable(fqtn);
     Expression filter =
         SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count);
@@ -305,45 +306,32 @@ public final class Operations implements AutoCloseable {
                     return Paths.get(path).getParent().toString();
                   },
                   Collectors.mapping(task -> task.file().path().toString(), Collectors.toList())));
-    } catch (IOException e) {
-      throw new RuntimeIOException(e, "Failed to close table scan: %s", scan);
     }
   }
 
   private void writeBackupDataManifests(
-      Map<String, List<String>> manifestCache, Table table, String backupDir) {
-    try {
-      final FileSystem fs = fs();
-      manifestCache.forEach(
-          (partitionPath, files) -> {
-            // Rename data files to backup dir
-            List<String> backupFiles =
-                files.stream()
-                    .map(file -> getTrashPath(table, file, backupDir).toString())
-                    .collect(Collectors.toList());
-            Map<String, Object> jsonMap = new HashMap<>();
-            jsonMap.put("file_count", backupFiles.size());
-            jsonMap.put("files", backupFiles);
-            String jsonStr = new Gson().toJson(jsonMap);
-            // Create data_manifest file
-            Path destPath = new Path(partitionPath, "data_manifest.json");
-            try (FSDataOutputStream out = fs.create(destPath, true)) {
-              out.write(jsonStr.getBytes());
-              out.flush();
-              log.info("Wrote {} with {} files", destPath, files.size());
-            } catch (IOException e) {
-              log.error("Failed to write manifest {}", destPath, e);
-            }
-            // Move manifest to backup dir
-            Path backupDestPath = getTrashPath(table, destPath.toString(), backupDir);
-            try {
-              rename(destPath, backupDestPath);
-            } catch (IOException e) {
-              log.error(String.format("Move operation failed for manifest: %s", destPath), e);
-            }
-          });
-    } catch (IOException e) {
-      log.error("Error fetching the file system", e);
+      Map<String, List<String>> manifestCache, Table table, String backupDir) throws IOException {
+    final FileSystem fs = fs();
+    for (String partitionPath : manifestCache.keySet()) {
+      List<String> files = manifestCache.get(partitionPath);
+      List<String> backupFiles =
+          files.stream()
+              .map(file -> getTrashPath(table, file, backupDir).toString())
+              .collect(Collectors.toList());
+      Map<String, Object> jsonMap = new HashMap<>();
+      jsonMap.put("file_count", backupFiles.size());
+      jsonMap.put("files", backupFiles);
+      String jsonStr = new Gson().toJson(jsonMap);
+      // Create data_manifest file
+      Path destPath = getTrashPath(table, partitionPath + "/data_manifest.json", backupDir);
+      if (!fs.exists(destPath.getParent())) {
+        fs.mkdirs(destPath.getParent());
+      }
+      try (FSDataOutputStream out = fs.create(destPath, true)) {
+        out.write(jsonStr.getBytes());
+        out.flush();
+        log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
+      }
     }
   }
 

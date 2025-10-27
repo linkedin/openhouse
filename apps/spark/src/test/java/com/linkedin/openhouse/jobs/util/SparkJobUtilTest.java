@@ -35,7 +35,7 @@ public class SparkJobUtilTest {
   }
 
   @Test
-  public void testCreateDeleteFilterWithoutCoul() {
+  public void testCreateDeleteFilterWithoutColumnPattern() {
     String column = "ts";
     String columnPattern = "";
     String granularity = "DAY";
