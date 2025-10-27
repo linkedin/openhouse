@@ -10,11 +10,14 @@ import org.junit.jupiter.api.Test;
 public class SparkJobUtilTest {
   @Test
   void testCreateDeleteStatement() {
+    ZonedDateTime now = ZonedDateTime.now();
     String expected =
         String.format(
-            "DELETE FROM `db`.`table-name` WHERE timestamp < date_trunc('day', current_timestamp() - INTERVAL 2 days)");
+            "DELETE FROM `db`.`table-name` WHERE timestamp < date_trunc('day', timestamp '%s' - INTERVAL 2 days)",
+            now.toLocalDateTime());
     Assertions.assertEquals(
-        expected, SparkJobUtil.createDeleteStatement("db.table-name", "timestamp", "", "day", 2));
+        expected,
+        SparkJobUtil.createDeleteStatement("db.table-name", "timestamp", "", "day", 2, now));
   }
 
   @Test
@@ -26,22 +29,27 @@ public class SparkJobUtilTest {
 
   @Test
   void testCreateDeleteStatementWithStringColumnPartition() {
+    ZonedDateTime now = ZonedDateTime.now();
     String expected =
-        "DELETE FROM `db`.`table-name` WHERE string_partition < cast(date_format(current_timestamp() - INTERVAL 2 DAYs, 'yyyy-MM-dd-HH') as string)";
+        String.format(
+            "DELETE FROM `db`.`table-name` WHERE string_partition < cast(date_format(timestamp '%s' - INTERVAL 2 DAYs, 'yyyy-MM-dd-HH') as string)",
+            now.toLocalDateTime());
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
-            "db.table-name", "string_partition", "yyyy-MM-dd-HH", "DAY", 2));
+            "db.table-name", "string_partition", "yyyy-MM-dd-HH", "DAY", 2, now));
   }
 
   @Test
   public void testCreateDeleteFilterWithoutColumnPattern() {
+    ZonedDateTime now = ZonedDateTime.now();
     String column = "ts";
     String columnPattern = "";
     String granularity = "DAY";
     int count = 1;
 
-    Expression expr = SparkJobUtil.createDeleteFilter(column, columnPattern, granularity, count);
+    Expression expr =
+        SparkJobUtil.createDeleteFilter(column, columnPattern, granularity, count, now);
     long expectedCutoffDate =
         ZonedDateTime.now().minusDays(1).truncatedTo(ChronoUnit.DAYS).toEpochSecond() * 1000 * 1000;
 
@@ -53,12 +61,14 @@ public class SparkJobUtilTest {
 
   @Test
   public void testCreateDeleteFilterWithColumnPattern() {
+    ZonedDateTime now = ZonedDateTime.now();
     String column = "ts";
     String columnPattern = "yyyy-MM-dd-HH";
     String granularity = "HOUR";
     int count = 30;
 
-    Expression expr = SparkJobUtil.createDeleteFilter(column, columnPattern, granularity, count);
+    Expression expr =
+        SparkJobUtil.createDeleteFilter(column, columnPattern, granularity, count, now);
     String expectedCutoffDate =
         DateTimeFormatter.ofPattern(columnPattern).format(ZonedDateTime.now().minusHours(30));
 

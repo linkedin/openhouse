@@ -10,6 +10,7 @@ import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -279,22 +280,28 @@ public final class Operations implements AutoCloseable {
   public void runRetention(
       String fqtn, String columnName, String columnPattern, String granularity, int count)
       throws IOException {
+    ZonedDateTime now = ZonedDateTime.now();
     // Cache of manifests: partitionPath -> list of data file path
     Map<String, List<String>> manifestCache =
-        prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count);
+        prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
     writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
     final String statement =
-        SparkJobUtil.createDeleteStatement(fqtn, columnName, columnPattern, granularity, count);
+        SparkJobUtil.createDeleteStatement(
+            fqtn, columnName, columnPattern, granularity, count, now);
     log.info("deleting records from table: {}", fqtn);
     spark.sql(statement);
   }
 
   private Map<String, List<String>> prepareBackupDataManifests(
-      String fqtn, String columnName, String columnPattern, String granularity, int count)
-      throws IOException {
+      String fqtn,
+      String columnName,
+      String columnPattern,
+      String granularity,
+      int count,
+      ZonedDateTime now) {
     Table table = getTable(fqtn);
     Expression filter =
-        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count);
+        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count, now);
     TableScan scan = table.newScan().filter(filter);
     try (CloseableIterable<FileScanTask> filesIterable = scan.planFiles()) {
       List<FileScanTask> filesList = Lists.newArrayList(filesIterable);
@@ -306,6 +313,8 @@ public final class Operations implements AutoCloseable {
                     return Paths.get(path).getParent().toString();
                   },
                   Collectors.mapping(task -> task.file().path().toString(), Collectors.toList())));
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to plan backup files for retention", e);
     }
   }
 
@@ -327,11 +336,10 @@ public final class Operations implements AutoCloseable {
       if (!fs.exists(destPath.getParent())) {
         fs.mkdirs(destPath.getParent());
       }
-      try (FSDataOutputStream out = fs.create(destPath, true)) {
-        out.write(jsonStr.getBytes());
-        out.flush();
-        log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
-      }
+      FSDataOutputStream out = fs.create(destPath, true);
+      out.write(jsonStr.getBytes());
+      out.flush();
+      log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
     }
   }
 
