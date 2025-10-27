@@ -1,11 +1,11 @@
 package com.linkedin.openhouse.jobs.util;
 
-import static com.linkedin.openhouse.jobs.spark.Operations.convertGranularityToChrono;
-
+import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
@@ -129,5 +129,22 @@ public final class SparkJobUtil {
     for (FileStatus file : files) {
       fs.setTimes(file.getPath(), timestamp, -1);
     }
+  }
+
+  public static ChronoUnit convertGranularityToChrono(String granularity) {
+    if (Arrays.stream(TimePartitionSpec.GranularityEnum.values())
+        .anyMatch(e -> e.name().equals(granularity))) {
+      switch (TimePartitionSpec.GranularityEnum.valueOf(granularity)) {
+        case HOUR:
+          return ChronoUnit.HOURS;
+        case DAY:
+          return ChronoUnit.DAYS;
+        case MONTH:
+          return ChronoUnit.MONTHS;
+        case YEAR:
+          return ChronoUnit.YEARS;
+      }
+    }
+    return ChronoUnit.valueOf(granularity);
   }
 }

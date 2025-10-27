@@ -7,12 +7,10 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
-import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -230,7 +228,8 @@ public final class Operations implements AutoCloseable {
 
     // maxAge will always be defined
     ChronoUnit timeUnitGranularity =
-        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
+        ChronoUnit.valueOf(
+            SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
     long expireBeforeTimestampMs =
         System.currentTimeMillis()
             - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
@@ -248,23 +247,6 @@ public final class Operations implements AutoCloseable {
     }
   }
 
-  public static ChronoUnit convertGranularityToChrono(String granularity) {
-    if (Arrays.stream(TimePartitionSpec.GranularityEnum.values())
-        .anyMatch(e -> e.name().equals(granularity))) {
-      switch (TimePartitionSpec.GranularityEnum.valueOf(granularity)) {
-        case HOUR:
-          return ChronoUnit.HOURS;
-        case DAY:
-          return ChronoUnit.DAYS;
-        case MONTH:
-          return ChronoUnit.MONTHS;
-        case YEAR:
-          return ChronoUnit.YEARS;
-      }
-    }
-    return ChronoUnit.valueOf(granularity);
-  }
-
   /**
    * Run table retention operation if there are rows with partition column (@columnName) value older
    * than @count @granularity.
@@ -278,8 +260,7 @@ public final class Operations implements AutoCloseable {
    * @param count granularity count representing retention timeline for @fqtn records
    */
   public void runRetention(
-      String fqtn, String columnName, String columnPattern, String granularity, int count)
-      throws IOException {
+      String fqtn, String columnName, String columnPattern, String granularity, int count) {
     ZonedDateTime now = ZonedDateTime.now();
     // Cache of manifests: partitionPath -> list of data file path
     Map<String, List<String>> manifestCache =
@@ -319,8 +300,7 @@ public final class Operations implements AutoCloseable {
   }
 
   private void writeBackupDataManifests(
-      Map<String, List<String>> manifestCache, Table table, String backupDir) throws IOException {
-    final FileSystem fs = fs();
+      Map<String, List<String>> manifestCache, Table table, String backupDir) {
     for (String partitionPath : manifestCache.keySet()) {
       List<String> files = manifestCache.get(partitionPath);
       List<String> backupFiles =
@@ -331,15 +311,20 @@ public final class Operations implements AutoCloseable {
       jsonMap.put("file_count", backupFiles.size());
       jsonMap.put("files", backupFiles);
       String jsonStr = new Gson().toJson(jsonMap);
-      // Create data_manifest file
+      // Create data_manifest.json
       Path destPath = getTrashPath(table, partitionPath + "/data_manifest.json", backupDir);
-      if (!fs.exists(destPath.getParent())) {
-        fs.mkdirs(destPath.getParent());
+      try {
+        final FileSystem fs = fs();
+        if (!fs.exists(destPath.getParent())) {
+          fs.mkdirs(destPath.getParent());
+        }
+        try (FSDataOutputStream out = fs.create(destPath, true)) {
+          out.write(jsonStr.getBytes());
+        }
+        log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
+      } catch (IOException e) {
+        throw new RuntimeException("Failed to write data_manifest.json", e);
       }
-      FSDataOutputStream out = fs.create(destPath, true);
-      out.write(jsonStr.getBytes());
-      out.flush();
-      log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
     }
   }
 

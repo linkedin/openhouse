@@ -153,8 +153,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<String> dataFormats,
       String column,
       String pattern,
-      String granularity)
-      throws Exception {
+      String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
     ops.runRetention(tableName, column, pattern, granularity, 2);
