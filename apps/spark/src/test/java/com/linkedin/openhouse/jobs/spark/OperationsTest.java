@@ -55,7 +55,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1);
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "");
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
@@ -156,7 +156,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
-    ops.runRetention(tableName, column, pattern, granularity, 2);
+    ops.runRetention(tableName, column, pattern, granularity, 2, false, "");
   }
 
   @Test
@@ -168,7 +168,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2);
+      ops.runRetention(tableName, "ts", "", "day", 2, false, "");
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -212,7 +212,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', '%s', '%s', 0), ('b', '%s', '%s', 0)",
                   tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
-      ops.runRetention(tableName, columnName, columnPattern, granularity, count);
+      ops.runRetention(tableName, columnName, columnPattern, granularity, count, true, ".backup");
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       Path firstManifestPath =
@@ -225,8 +225,11 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
                   table.location(), threeDayAgoDate, threeDayAgoHour));
+      Path backupDirPath = new Path(table.location(), ".backup");
       Assertions.assertTrue(ops.fs().exists(firstManifestPath));
       Assertions.assertTrue(ops.fs().exists(secondManifestPath));
+      Assertions.assertEquals(
+          "-wxr-x---", ops.fs().getFileStatus(backupDirPath).getPermission().toString());
       try (InputStream in = ops.fs().open(firstManifestPath);
           InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
         JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
@@ -276,15 +279,17 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
                   tableName, today, twoDayAgo));
-      ops.runRetention(tableName, columnName, columnPattern, granularity, count);
+      ops.runRetention(tableName, columnName, columnPattern, granularity, count, true, ".backup");
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       Path manifestPath =
           new Path(
               String.format(
                   "%s/.backup/data/ts_day=%s/data_manifest.json", table.location(), twoDayAgo));
-      ops.spark().sql("select * from db.test_time_partition.snapshots").show(false);
+      Path backupDirPath = new Path(table.location(), ".backup");
       Assertions.assertTrue(ops.fs().exists(manifestPath));
+      Assertions.assertEquals(
+          "-wxr-x---", ops.fs().getFileStatus(backupDirPath).getPermission().toString());
       try (InputStream in = ops.fs().open(manifestPath);
           InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
         JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();

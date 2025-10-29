@@ -26,6 +26,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.fs.permission.FsAction;
+import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ExpireSnapshots;
 import org.apache.iceberg.FileScanTask;
@@ -258,14 +260,24 @@ public final class Operations implements AutoCloseable {
    *     to a timestamp. columnPattern should always represent a valid DateTimeFormat
    * @param granularity time granularity in Hour, Day, Month, Year
    * @param count granularity count representing retention timeline for @fqtn records
+   * @param backupEnabled flag to indicate if backup manifests need to be created for data files
+   * @param backupDir backup directory under which data manifests are created
    */
   public void runRetention(
-      String fqtn, String columnName, String columnPattern, String granularity, int count) {
+      String fqtn,
+      String columnName,
+      String columnPattern,
+      String granularity,
+      int count,
+      boolean backupEnabled,
+      String backupDir) {
     ZonedDateTime now = ZonedDateTime.now();
-    // Cache of manifests: partitionPath -> list of data file path
-    Map<String, List<String>> manifestCache =
-        prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
-    writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
+    if (backupEnabled) {
+      // Cache of manifests: partitionPath -> list of data file path
+      Map<String, List<String>> manifestCache =
+          prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
+      writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir);
+    }
     final String statement =
         SparkJobUtil.createDeleteStatement(
             fqtn, columnName, columnPattern, granularity, count, now);
@@ -301,6 +313,7 @@ public final class Operations implements AutoCloseable {
 
   private void writeBackupDataManifests(
       Map<String, List<String>> manifestCache, Table table, String backupDir) {
+    createAndSetPermissionForBackupDir(table, backupDir);
     for (String partitionPath : manifestCache.keySet()) {
       List<String> files = manifestCache.get(partitionPath);
       List<String> backupFiles =
@@ -325,6 +338,21 @@ public final class Operations implements AutoCloseable {
       } catch (IOException e) {
         throw new RuntimeException("Failed to write data_manifest.json", e);
       }
+    }
+  }
+
+  private void createAndSetPermissionForBackupDir(Table table, String backupDir) {
+    try {
+      final FileSystem fs = fs();
+      Path backupDirPath = new Path(table.location() + "/" + backupDir);
+      if (!fs.exists(backupDirPath)) {
+        // set permission of backupDir to be write-only for table owner
+        FsPermission fsPermission =
+            new FsPermission(FsAction.WRITE_EXECUTE, FsAction.READ_EXECUTE, FsAction.NONE);
+        fs.mkdirs(backupDirPath, fsPermission);
+      }
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to create backup directory with proper permissions", e);
     }
   }
 
