@@ -10,6 +10,7 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.iceberg.Table;
 
 /**
  * Class with main entry point to run as a table retention job. The table doesn't have to be time
@@ -22,6 +23,8 @@ import org.apache.commons.cli.Option;
  */
 @Slf4j
 public class RetentionSparkApp extends BaseTableSparkApp {
+  private static final String BACKUP_ENABLED_KEY = "retention.backup.enabled";
+  private static final String BACKUP_DIR_KEY = "retention.backup.dir";
   private final String columnName;
   private final String columnPattern;
   private final String granularity;
@@ -45,14 +48,20 @@ public class RetentionSparkApp extends BaseTableSparkApp {
 
   @Override
   protected void runInner(Operations ops) {
+    Table table = ops.getTable(fqtn);
+    boolean backupEnabled =
+        Boolean.parseBoolean(table.properties().getOrDefault(BACKUP_ENABLED_KEY, "false"));
+    String backupDir = table.properties().getOrDefault(BACKUP_DIR_KEY, ".backup");
     log.info(
-        "Retention app start for table {}, column {}, {}, ttl={} {}s",
+        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}",
         fqtn,
         columnName,
         columnPattern,
         count,
-        granularity);
-    ops.runRetention(fqtn, columnName, columnPattern, granularity, count);
+        granularity,
+        backupEnabled,
+        backupDir);
+    ops.runRetention(fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir);
   }
 
   public static void main(String[] args) {

@@ -258,14 +258,24 @@ public final class Operations implements AutoCloseable {
    *     to a timestamp. columnPattern should always represent a valid DateTimeFormat
    * @param granularity time granularity in Hour, Day, Month, Year
    * @param count granularity count representing retention timeline for @fqtn records
+   * @param backupEnabled flag to indicate if backup manifests need to be created for data files
+   * @param backupDir backup directory under which data manifests are created
    */
   public void runRetention(
-      String fqtn, String columnName, String columnPattern, String granularity, int count) {
+      String fqtn,
+      String columnName,
+      String columnPattern,
+      String granularity,
+      int count,
+      boolean backupEnabled,
+      String backupDir) {
     ZonedDateTime now = ZonedDateTime.now();
-    // Cache of manifests: partitionPath -> list of data file path
-    Map<String, List<String>> manifestCache =
-        prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
-    writeBackupDataManifests(manifestCache, getTable(fqtn), ".backup");
+    if (backupEnabled) {
+      // Cache of manifests: partitionPath -> list of data file path
+      Map<String, List<String>> manifestCache =
+          prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
+      writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir);
+    }
     final String statement =
         SparkJobUtil.createDeleteStatement(
             fqtn, columnName, columnPattern, granularity, count, now);
