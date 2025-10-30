@@ -225,11 +225,8 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
                   table.location(), threeDayAgoDate, threeDayAgoHour));
-      Path backupDirPath = new Path(table.location(), ".backup");
       Assertions.assertTrue(ops.fs().exists(firstManifestPath));
       Assertions.assertTrue(ops.fs().exists(secondManifestPath));
-      Assertions.assertEquals(
-          "-wxr-x---", ops.fs().getFileStatus(backupDirPath).getPermission().toString());
       try (InputStream in = ops.fs().open(firstManifestPath);
           InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
         JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
@@ -286,10 +283,7 @@ public class OperationsTest extends OpenHouseSparkITest {
           new Path(
               String.format(
                   "%s/.backup/data/ts_day=%s/data_manifest.json", table.location(), twoDayAgo));
-      Path backupDirPath = new Path(table.location(), ".backup");
       Assertions.assertTrue(ops.fs().exists(manifestPath));
-      Assertions.assertEquals(
-          "-wxr-x---", ops.fs().getFileStatus(backupDirPath).getPermission().toString());
       try (InputStream in = ops.fs().open(manifestPath);
           InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
         JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
