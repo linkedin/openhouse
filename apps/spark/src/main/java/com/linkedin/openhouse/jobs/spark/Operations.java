@@ -26,8 +26,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
-import org.apache.hadoop.fs.permission.FsAction;
-import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ExpireSnapshots;
 import org.apache.iceberg.FileScanTask;
@@ -313,7 +311,6 @@ public final class Operations implements AutoCloseable {
 
   private void writeBackupDataManifests(
       Map<String, List<String>> manifestCache, Table table, String backupDir) {
-    createAndSetPermissionForBackupDir(table, backupDir);
     for (String partitionPath : manifestCache.keySet()) {
       List<String> files = manifestCache.get(partitionPath);
       List<String> backupFiles =
@@ -338,21 +335,6 @@ public final class Operations implements AutoCloseable {
       } catch (IOException e) {
         throw new RuntimeException("Failed to write data_manifest.json", e);
       }
-    }
-  }
-
-  private void createAndSetPermissionForBackupDir(Table table, String backupDir) {
-    try {
-      final FileSystem fs = fs();
-      Path backupDirPath = new Path(table.location() + "/" + backupDir);
-      if (!fs.exists(backupDirPath)) {
-        // set permission of backupDir to be write-only for table owner
-        FsPermission fsPermission =
-            new FsPermission(FsAction.WRITE_EXECUTE, FsAction.READ_EXECUTE, FsAction.NONE);
-        fs.mkdirs(backupDirPath, fsPermission);
-      }
-    } catch (IOException e) {
-      throw new RuntimeException("Failed to create backup directory with proper permissions", e);
     }
   }
 

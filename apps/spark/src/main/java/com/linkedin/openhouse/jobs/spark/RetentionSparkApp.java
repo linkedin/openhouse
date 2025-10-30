@@ -51,18 +51,17 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     Table table = ops.getTable(fqtn);
     boolean backupEnabled =
         Boolean.parseBoolean(table.properties().getOrDefault(BACKUP_ENABLED_KEY, "false"));
-    String backupFolder = table.properties().getOrDefault(BACKUP_DIR_KEY, "");
+    String backupDir = table.properties().getOrDefault(BACKUP_DIR_KEY, ".backup");
     log.info(
-        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupFolder={}",
+        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}",
         fqtn,
         columnName,
         columnPattern,
         count,
         granularity,
         backupEnabled,
-        backupFolder);
-    ops.runRetention(
-        fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupFolder);
+        backupDir);
+    ops.runRetention(fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir);
   }
 
   public static void main(String[] args) {
