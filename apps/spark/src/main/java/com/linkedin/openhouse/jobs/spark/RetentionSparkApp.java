@@ -23,8 +23,8 @@ import org.apache.iceberg.Table;
  */
 @Slf4j
 public class RetentionSparkApp extends BaseTableSparkApp {
-  private static final String BACKUP_ENABLED_KEY = "retention.backup.enabled";
-  private static final String BACKUP_DIR_KEY = "retention.backup.dir";
+  public static final String BACKUP_ENABLED_KEY = "retention.backup.enabled";
+  public static final String BACKUP_DIR_KEY = "retention.backup.dir";
   private final String columnName;
   private final String columnPattern;
   private final String granularity;

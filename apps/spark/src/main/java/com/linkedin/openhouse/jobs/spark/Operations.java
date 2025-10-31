@@ -89,33 +89,19 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Run DeleteOrphanFiles operation on the given fully-qualified table name, moves files to the
-   * given trash directory. It moves file older than default 3 days.
-   */
-  public DeleteOrphanFiles.Result deleteOrphanFiles(String fqtn, String trashDir) {
-    return deleteOrphanFiles(getTable(fqtn), trashDir);
-  }
-
-  /**
-   * Run DeleteOrphanFiles operation on the given {@link Table}, moves files to the given trash
-   * directory. It moves file older than default 3 days.
-   */
-  public DeleteOrphanFiles.Result deleteOrphanFiles(Table table, String trashDir) {
-    return deleteOrphanFiles(table, trashDir, 0, false);
-  }
-
-  /**
-   * Run DeleteOrphanFiles operation on the given table with time filter, moves files to the given
-   * trash directory. It moves files older than the provided timestamp.
+   * Run DeleteOrphanFiles operation on the given table with time filter, moves data files to the
+   * given backup directory if backup is enabled. It moves files older than the provided timestamp.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
-      Table table, String trashDir, long olderThanTimestampMillis, boolean skipStaging) {
+      Table table, long olderThanTimestampMillis, boolean backupEnabled, String backupDir) {
 
     DeleteOrphanFiles operation = SparkActions.get(spark).deleteOrphanFiles(table);
     // if time filter is not provided it defaults to 3 days
     if (olderThanTimestampMillis > 0) {
       operation = operation.olderThan(olderThanTimestampMillis);
     }
+    Path backupDirRoot = new Path(table.location(), backupDir);
+    Path dataDirRoot = new Path(table.location(), "data");
     operation =
         operation.deleteWith(
             file -> {
@@ -125,16 +111,19 @@ public final class Operations implements AutoCloseable {
                 // orphan because of inclusion of the scheme in its file path returned by catalog.
                 // Also, we want Iceberg commits to remove the metadata.json files not the OFD job.
                 log.info("Skipped deleting metadata file {}", file);
-              } else if (!skipStaging) {
-                // files present in .trash dir should not be considered orphan
-                Path trashFolderPath = getTrashPath(table, file, trashDir);
-                if (!file.contains(trashFolderPath.toString())) {
-                  log.info("Moving orphan file {} to {}", file, trashFolderPath);
-                  try {
-                    rename(new Path(file), trashFolderPath);
-                  } catch (IOException e) {
-                    log.error(String.format("Move operation failed for file: %s", file), e);
-                  }
+              } else if (file.contains(backupDirRoot.toString())) {
+                // files present in .backup dir should not be considered orphan
+                log.info("Skipped deleting backup file {}", file);
+              } else if (file.contains(dataDirRoot.toString()) && backupEnabled) {
+                // move data files to backup dir if backup is enabled
+                Path backupFilePath = getTrashPath(table, file, backupDir);
+                log.info("Moving orphan file {} to {}", file, backupFilePath);
+                try {
+                  rename(new Path(file), backupFilePath);
+                  // update modification time to current time
+                  fs().setTimes(backupFilePath, ZonedDateTime.now().toEpochSecond() * 1000, -1);
+                } catch (IOException e) {
+                  log.error(String.format("Move operation failed for file: %s", file), e);
                 }
               } else {
                 log.info("Deleting orphan file {}", file);
@@ -322,7 +311,8 @@ public final class Operations implements AutoCloseable {
       jsonMap.put("files", backupFiles);
       String jsonStr = new Gson().toJson(jsonMap);
       // Create data_manifest.json
-      Path destPath = getTrashPath(table, partitionPath + "/data_manifest.json", backupDir);
+      Path destPath =
+          getTrashPath(table, new Path(partitionPath, "data_manifest.json").toString(), backupDir);
       try {
         final FileSystem fs = fs();
         if (!fs.exists(destPath.getParent())) {

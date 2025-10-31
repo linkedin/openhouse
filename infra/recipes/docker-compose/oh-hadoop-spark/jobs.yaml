@@ -52,7 +52,7 @@ jobs:
         << : *livy-engine
       - type: ORPHAN_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
-        args: ["--trashDir", ".trash"]
+        args: []
         <<: *apps-defaults
         spark-properties:
           <<: *spark-defaults
