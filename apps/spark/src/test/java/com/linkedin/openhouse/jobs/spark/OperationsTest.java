@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 @Slf4j
 public class OperationsTest extends OpenHouseSparkITest {
   private static final String TRASH_DIR = ".trash";
+  private static final String BACKUP_DIR = ".backup";
   private final OtelEmitter otelEmitter =
       new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
@@ -299,7 +300,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   @Test
   public void testOrphanFilesDeletionJavaAPI() throws Exception {
     final String tableName = "db.test_ofd_java";
-    final String testOrphanFileName = "test_orphan_file.orc";
+    final String testOrphanFileName = "data/test_orphan_file.orc";
     final int numInserts = 3;
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
@@ -318,14 +319,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       log.info("Created orphan file {}", testOrphanFileName);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), false);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles.size());
       for (String of : orphanFiles) {
         log.info("File {}", of);
       }
       Assertions.assertTrue(
-          fs.exists(new Path(table.location(), new Path(TRASH_DIR, testOrphanFileName))));
+          fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
       Assertions.assertTrue(
           orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
@@ -334,9 +335,9 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionIgnoresFilesInTrash() throws Exception {
+  public void testOrphanFilesDeletionIgnoresFilesInBackupDir() throws Exception {
     final String tableName = "db.test_ofd_java";
-    final String testOrphanFileName = "test_orphan_file.orc";
+    final String testOrphanFileName = "data/test_orphan_file.orc";
     final int numInserts = 3;
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
@@ -348,17 +349,17 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       log.info("Created orphan file {}", testOrphanFileName);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), false);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles.size());
       for (String of : orphanFiles) {
         log.info("File {}", of);
       }
-      Path trashFilePath = new Path(table.location(), new Path(TRASH_DIR, testOrphanFileName));
+      Path trashFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
       Assertions.assertTrue(fs.exists(trashFilePath));
       // run delete operation again and verify that files in .trash are not listed as Orphan
       DeleteOrphanFiles.Result result2 =
-          ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), false);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
       List<String> orphanFiles2 = Lists.newArrayList(result2.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles2.size());
       Assertions.assertEquals(0, orphanFiles2.size());
@@ -367,9 +368,9 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionNoStaging() throws Exception {
+  public void testOrphanFilesDeletionDeleteNonDataFiles() throws Exception {
     final String tableName = "db.test_ofd";
-    final String testOrphanFileName = "test_orphan_file.orc";
+    final String testOrphanFileName = "metadata/test_orphan_file.avro";
     final int numInserts = 3;
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
@@ -388,14 +389,51 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       log.info("Created orphan file {}", testOrphanFileName);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), true);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles.size());
       for (String of : orphanFiles) {
         log.info("File {}", of);
       }
       Assertions.assertFalse(
-          fs.exists(new Path(table.location(), new Path(TRASH_DIR, testOrphanFileName))));
+          fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
+      Assertions.assertEquals(1, orphanFiles.size());
+      Assertions.assertTrue(
+          orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
+      Assertions.assertFalse(fs.exists(orphanFilePath));
+    }
+  }
+
+  @Test
+  public void testOrphanFilesDeletionBackupDisabled() throws Exception {
+    final String tableName = "db.test_ofd";
+    final String testOrphanFileName = "data/test_orphan_file.orc";
+    final int numInserts = 3;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+      List<Row> snapshots =
+          ops.spark().sql(String.format("SELECT * from %s.history", tableName)).collectAsList();
+      Assertions.assertEquals(numInserts, snapshots.size());
+      log.info("Found {} snapshots", snapshots.size());
+      for (Row metadataFileRow : snapshots) {
+        log.info(metadataFileRow.toString());
+      }
+      Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      FileSystem fs = ops.fs();
+      fs.createNewFile(orphanFilePath);
+      log.info("Created orphan file {}", testOrphanFileName);
+      DeleteOrphanFiles.Result result =
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), false, BACKUP_DIR);
+      List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
+      log.info("Detected {} orphan files", orphanFiles.size());
+      for (String of : orphanFiles) {
+        log.info("File {}", of);
+      }
+      Assertions.assertFalse(
+          fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
       Assertions.assertTrue(
           orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
@@ -640,7 +678,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_staged_delete";
     final int numInserts = 3;
     final String testOrphanFile1 = "data/test_orphan_file1.orc";
-    final String testOrphanFile2 = "test_orphan_file2.orc";
+    final String testOrphanFile2 = "data/test_orphan_file2.orc";
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
@@ -653,7 +691,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath2);
       log.info("Created orphan file {}", testOrphanFile1);
       log.info("Created orphan file {}", testOrphanFile2);
-      ops.deleteOrphanFiles(table, TRASH_DIR, System.currentTimeMillis(), false);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR);
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile1)))));
       Assertions.assertTrue(
