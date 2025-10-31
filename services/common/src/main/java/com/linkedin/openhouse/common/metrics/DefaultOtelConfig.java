@@ -107,7 +107,7 @@ public final class DefaultOtelConfig {
             .build();
 
     OpenTelemetrySdk openTelemetrySdk =
-        OpenTelemetrySdk.builder().setMeterProvider(meterProvider).buildAndRegisterGlobal();
+        OpenTelemetrySdk.builder().setMeterProvider(meterProvider).build();
 
     Runtime.getRuntime()
         .addShutdownHook(new Thread(openTelemetrySdk.getSdkMeterProvider()::shutdown));
