@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 
 /**
@@ -26,35 +27,36 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
  */
 @Slf4j
 public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
-  private final String trashDir;
   private final long ttlSeconds;
-  private final boolean skipStaging;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
       StateManager stateManager,
       String fqtn,
-      String trashDir,
       long ttlSeconds,
-      boolean skipStaging,
       OtelEmitter otelEmitter) {
     super(jobId, stateManager, fqtn, otelEmitter);
-    this.trashDir = trashDir;
     this.ttlSeconds = ttlSeconds;
-    this.skipStaging = skipStaging;
   }
 
   @Override
   protected void runInner(Operations ops) {
     long olderThanTimestampMillis =
         System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(ttlSeconds);
+    Table table = ops.getTable(fqtn);
+    boolean backupEnabled =
+        Boolean.parseBoolean(
+            table.properties().getOrDefault(RetentionSparkApp.BACKUP_ENABLED_KEY, "false"));
+    String backupDir = table.properties().getOrDefault(RetentionSparkApp.BACKUP_DIR_KEY, ".backup");
     log.info(
-        "Orphan files deletion app start for table={} with olderThanTimestampMillis={} and skipStaging={}",
+        "Orphan files deletion app start for table={} with olderThanTimestampMillis={} backupEnabled={} and backupDir={}",
         fqtn,
         olderThanTimestampMillis,
-        skipStaging);
+        backupEnabled,
+        backupDir);
     DeleteOrphanFiles.Result result =
-        ops.deleteOrphanFiles(ops.getTable(fqtn), trashDir, olderThanTimestampMillis, skipStaging);
+        ops.deleteOrphanFiles(
+            ops.getTable(fqtn), olderThanTimestampMillis, backupEnabled, backupDir);
     List<String> orphanFileLocations = Lists.newArrayList(result.orphanFileLocations().iterator());
     log.info(
         "Detected {} orphan files older than {}ms",
@@ -92,11 +94,9 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         getJobId(cmdLine),
         createStateManager(cmdLine, otelEmitter),
         cmdLine.getOptionValue("tableName"),
-        cmdLine.getOptionValue("trashDir"),
         Math.max(
             NumberUtils.toLong(cmdLine.getOptionValue("ttl"), TimeUnit.DAYS.toSeconds(7)),
             TimeUnit.DAYS.toSeconds(1)),
-        cmdLine.hasOption("skipStaging"),
         otelEmitter);
   }
 }
