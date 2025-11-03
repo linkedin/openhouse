@@ -9,15 +9,14 @@ ext {
     log4jVersion = "2.20.0"
 
     sparkVersion = '3.5.2'
-    icebergVersion = '1.5.2'
+    icebergVersion = '1.5.2.1'
     sparkVersionSuffix = "3.5"
     openhouseSparkRuntimeModule = ":integrations:spark:spark-${sparkVersionSuffix}:openhouse-spark-3.5-runtime_2.12"
-    icebergSparkRuntimeModule = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}"
+    icebergSparkRuntimeModule = "com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}"
     tablesTestFixturesModule = ":tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12"
 }
 
 configurations.all {
-    exclude group: 'org.apache.iceberg', module: 'iceberg-data'
     exclude group: 'com.linkedin.iceberg', module: 'iceberg-data'
 }
 dependencies {
@@ -29,7 +28,6 @@ dependencies {
 
     implementation "org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}"
     implementation(project(':libs:datalayout')) {
-        exclude group: 'org.apache.iceberg', module: 'iceberg-spark-runtime-3.1_2.12'
         exclude group: 'com.linkedin.iceberg', module: 'iceberg-spark-runtime-3.1_2.12'
     }
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
