@@ -121,7 +121,7 @@ public final class Operations implements AutoCloseable {
                 try {
                   rename(new Path(file), backupFilePath);
                   // update modification time to current time
-                  fs().setTimes(backupFilePath, ZonedDateTime.now().toEpochSecond() * 1000, -1);
+                  fs().setTimes(backupFilePath, System.currentTimeMillis(), -1);
                 } catch (IOException e) {
                   log.error(String.format("Move operation failed for file: %s", file), e);
                 }
