@@ -111,8 +111,17 @@ public class IcebergCommitEventStats {
 
   /**
    * Inner class representing column statistics. Used for all column-level statistics (null count,
-   * NaN count, min/max values, size). Value is stored as String for flexibility - can be
-   * transformed before emitting event.
+   * NaN count, min/max values, size). Supports multiple value types to maintain type safety while
+   * allowing flexibility for different statistical measures.
+   *
+   * <p>Type-specific fields allow compile-time type checking and prevent runtime serialization
+   * errors. Clients should use the appropriate field based on the statistic type: - longValue: for
+   * counts (null count, NaN count) and sizes in bytes - stringValue: for min/max values of string
+   * columns or date representations - doubleValue: for floating-point statistics if needed in
+   * future
+   *
+   * <p>Only one value field should be populated per instance based on the statistic being
+   * represented.
    */
   @Data
   @Builder
@@ -122,7 +131,22 @@ public class IcebergCommitEventStats {
     /** Name of the column */
     private String columnName;
 
-    /** Statistical value as string (count, min/max value, size in bytes, etc.) */
-    private String value;
+    /**
+     * Long value for numeric statistics (counts, sizes in bytes, etc.). Use this for: - Null count
+     * - NaN count - Column size in bytes
+     */
+    private Long longValue;
+
+    /**
+     * String value for textual statistics (min/max of string columns, dates, etc.). Use this for: -
+     * Min/max values of string columns - Date representations - Any non-numeric statistics
+     */
+    private String stringValue;
+
+    /**
+     * Double value for floating-point statistics. Reserved for future use. Use this for: -
+     * Floating-point aggregates - Statistical measures requiring decimal precision
+     */
+    private Double doubleValue;
   }
 }
