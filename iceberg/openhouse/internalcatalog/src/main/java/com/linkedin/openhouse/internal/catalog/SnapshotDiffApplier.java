@@ -2,10 +2,11 @@ package com.linkedin.openhouse.internal.catalog;
 
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 
-import com.google.common.collect.Sets;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -165,8 +166,12 @@ public class SnapshotDiffApplier {
           deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
       this.newRegularSnapshots =
           regularSnapshots.stream().filter(newSnapshots::contains).collect(Collectors.toList());
-      this.staleRefs = Sets.difference(existingRefs.keySet(), providedRefs.keySet());
-      this.existingAfterDeletionIds = Sets.difference(existingSnapshotByIds.keySet(), deletedIds);
+      Set<String> staleRefsTemp = new HashSet<>(existingRefs.keySet());
+      staleRefsTemp.removeAll(providedRefs.keySet());
+      this.staleRefs = staleRefsTemp;
+      Set<Long> existingAfterDeletionTemp = new HashSet<>(existingSnapshotByIds.keySet());
+      existingAfterDeletionTemp.removeAll(deletedIds);
+      this.existingAfterDeletionIds = existingAfterDeletionTemp;
       this.unreferencedNewSnapshots =
           providedSnapshots.stream()
               .filter(
@@ -451,8 +456,9 @@ public class SnapshotDiffApplier {
       }
 
       builder.removeProperties(
-          Sets.newHashSet(
-              CatalogConstants.SNAPSHOTS_JSON_KEY, CatalogConstants.SNAPSHOTS_REFS_KEY));
+          new HashSet<>(
+              Arrays.asList(
+                  CatalogConstants.SNAPSHOTS_JSON_KEY, CatalogConstants.SNAPSHOTS_REFS_KEY)));
     }
   }
 
