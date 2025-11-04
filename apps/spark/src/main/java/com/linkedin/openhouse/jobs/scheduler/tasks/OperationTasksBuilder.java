@@ -257,7 +257,7 @@ public class OperationTasksBuilder {
         return prepareDataLayoutOperationTaskList(jobType, properties, operationMode, otelEmitter);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType, operationMode, otelEmitter);
-      case SOFT_DELETED_TABLE_CLEANUP:
+      case TABLE_DIRECTORY_CLEANUP:
         // Soft deleted table cleanup job builds tasks in parallel
         return prepareDatabaseOperationTaskList(jobType, operationMode, otelEmitter);
       default:
@@ -277,7 +277,7 @@ public class OperationTasksBuilder {
     if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
       // DLO execution job needs to fetch all table metadata before submission
       buildDataLayoutOperationTaskListInParallel(jobType, properties, operationMode, otelEmitter);
-    } else if (jobType == JobConf.JobTypeEnum.SOFT_DELETED_TABLE_CLEANUP) {
+    } else if (jobType == JobConf.JobTypeEnum.TABLE) {
       buildDatabaseLevelOperationTasksInParallel(jobType, operationMode, otelEmitter);
     } else {
       buildOperationTaskListInParallelInternal(jobType, operationMode, otelEmitter);

@@ -5,11 +5,11 @@ import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 
-public class SoftDeletedTableCleanupTask extends DatabaseOperationTask {
+public class TableDirectoryCleanupTask extends DatabaseOperationTask {
   public static final JobConf.JobTypeEnum OPERATION_TYPE =
-      JobConf.JobTypeEnum.SOFT_DELETED_TABLE_CLEANUP;
+      JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP;
 
-  public SoftDeletedTableCleanupTask(
+  public TableDirectoryCleanupTask(
       JobsClient jobsClient,
       TablesClient tablesClient,
       DatabaseMetadata metadata,
@@ -25,7 +25,6 @@ public class SoftDeletedTableCleanupTask extends DatabaseOperationTask {
   }
 
   @Override
-  // TODO: limit this to tables that have soft deleted tables enabled
   protected boolean shouldRunTask() {
     return true;
   }
