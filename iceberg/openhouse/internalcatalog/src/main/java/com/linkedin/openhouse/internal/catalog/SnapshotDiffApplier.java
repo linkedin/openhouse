@@ -88,10 +88,10 @@ public class SnapshotDiffApplier {
     private final List<Snapshot> newSnapshots;
     private final List<Snapshot> deletedSnapshots;
 
-    // Categorized snapshots (computed during applyTo)
-    private List<String> appendedSnapshots;
-    private List<String> stagedSnapshots;
-    private List<String> cherryPickedSnapshots;
+    // Categorized snapshots
+    private final List<Snapshot> stagedSnapshots;
+    private final List<Snapshot> regularSnapshots;
+    private final List<Snapshot> cherryPickedSnapshots;
 
     SnapshotDiff(
         List<Snapshot> providedSnapshots,
@@ -117,6 +117,23 @@ public class SnapshotDiffApplier {
       this.deletedSnapshots =
           existingSnapshots.stream()
               .filter(s -> !providedSnapshotByIds.containsKey(s.snapshotId()))
+              .collect(Collectors.toList());
+
+      // Categorize snapshots (simple logic for PR1 - just check summary properties)
+      this.stagedSnapshots =
+          newSnapshots.stream()
+              .filter(s -> s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
+              .collect(Collectors.toList());
+      this.cherryPickedSnapshots =
+          newSnapshots.stream()
+              .filter(s -> s.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP))
+              .collect(Collectors.toList());
+      this.regularSnapshots =
+          newSnapshots.stream()
+              .filter(
+                  s ->
+                      !s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)
+                          && !s.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP))
               .collect(Collectors.toList());
     }
 
@@ -158,9 +175,6 @@ public class SnapshotDiffApplier {
 
     TableMetadata.Builder applyTo(TableMetadata metadata) {
       TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
-      this.appendedSnapshots = new ArrayList<>();
-      this.stagedSnapshots = new ArrayList<>();
-      this.cherryPickedSnapshots = new ArrayList<>();
 
       // Validate only MAIN branch
       for (Map.Entry<String, SnapshotRef> entry : providedRefs.entrySet()) {
@@ -170,53 +184,32 @@ public class SnapshotDiffApplier {
       }
 
       /**
-       * First check if there are new snapshots to be appended to current TableMetadata. If yes,
-       * following are the cases to be handled:
+       * Apply categorized snapshots to metadata:
        *
-       * <p>[1] A regular (non-wap) snapshot is being added to the MAIN branch.
+       * <p>[1] Staged (WAP) snapshots - added without branch reference
        *
-       * <p>[2] A staged (wap) snapshot is being created on top of current snapshot as its base.
-       * Recognized by STAGED_WAP_ID_PROP.
+       * <p>[2] Cherry-picked snapshots - set as main branch snapshot
        *
-       * <p>[3] A staged (wap) snapshot is being cherry picked to the MAIN branch wherein current
-       * snapshot in the MAIN branch is not the same as the base snapshot the staged (wap) snapshot
-       * was created on. Recognized by SOURCE_SNAPSHOT_ID_PROP. This case is called non-fast forward
-       * cherry pick.
-       *
-       * <p>In case no new snapshots are to be appended to current TableMetadata, there could be a
-       * cherrypick of a staged (wap) snapshot on top of the current snapshot in the MAIN branch
-       * which is the same as the base snapshot the staged (wap) snapshot was created on. This case
-       * is called fast forward cherry pick.
+       * <p>[3] Regular snapshots - set as main branch snapshot
        */
-      if (CollectionUtils.isNotEmpty(newSnapshots)) {
-        for (Snapshot snapshot : newSnapshots) {
-          if (snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)) {
-            // a stage only snapshot using wap.id
-            metadataBuilder.addSnapshot(snapshot);
-            stagedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-          } else if (snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)) {
-            // a snapshot created on a non fast-forward cherry-pick snapshot
-            metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
-            appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-            cherryPickedSnapshots.add(
-                String.valueOf(snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)));
-          } else {
-            // a regular snapshot
-            metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
-            appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-          }
-        }
-      } else if (MapUtils.isNotEmpty(providedRefs)) {
-        // Updated ref in the main branch with no new snapshot means this is a
-        // fast-forward cherry-pick or rollback operation.
+      for (Snapshot snapshot : stagedSnapshots) {
+        metadataBuilder.addSnapshot(snapshot);
+      }
+
+      for (Snapshot snapshot : cherryPickedSnapshots) {
+        metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
+      }
+
+      for (Snapshot snapshot : regularSnapshots) {
+        metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
+      }
+
+      // Handle fast-forward cherry-pick (ref update without new snapshot)
+      if (newSnapshots.isEmpty() && MapUtils.isNotEmpty(providedRefs)) {
         long newSnapshotId = providedRefs.get(SnapshotRef.MAIN_BRANCH).snapshotId();
-        // Either the current snapshot is null or the current snapshot is not equal
-        // to the new snapshot indicates an update. The first case happens when the
-        // stage/wap snapshot being cherry-picked is the first snapshot.
         if (MapUtils.isEmpty(metadata.refs())
             || metadata.refs().get(SnapshotRef.MAIN_BRANCH).snapshotId() != newSnapshotId) {
           metadataBuilder.setBranchSnapshot(newSnapshotId, SnapshotRef.MAIN_BRANCH);
-          cherryPickedSnapshots.add(String.valueOf(newSnapshotId));
         }
       }
 
@@ -231,9 +224,11 @@ public class SnapshotDiffApplier {
     }
 
     void recordMetrics(TableMetadata.Builder builder) {
-      if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedSnapshots.size());
+      // Compute appended snapshots (regular + cherry-picked)
+      int appendedCount = regularSnapshots.size() + cherryPickedSnapshots.size();
+
+      if (appendedCount > 0) {
+        metricsReporter.count(InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedCount);
       }
       if (CollectionUtils.isNotEmpty(stagedSnapshots)) {
         metricsReporter.count(
@@ -250,23 +245,31 @@ public class SnapshotDiffApplier {
       }
 
       // Record snapshot IDs in properties
-      if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
+      if (appendedCount > 0) {
+        List<Snapshot> appendedSnapshots = new ArrayList<>(regularSnapshots);
+        appendedSnapshots.addAll(cherryPickedSnapshots);
         builder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-                String.join(",", appendedSnapshots)));
+                appendedSnapshots.stream()
+                    .map(s -> Long.toString(s.snapshotId()))
+                    .collect(Collectors.joining(","))));
       }
       if (CollectionUtils.isNotEmpty(stagedSnapshots)) {
         builder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-                String.join(",", stagedSnapshots)));
+                stagedSnapshots.stream()
+                    .map(s -> Long.toString(s.snapshotId()))
+                    .collect(Collectors.joining(","))));
       }
       if (CollectionUtils.isNotEmpty(cherryPickedSnapshots)) {
         builder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-                String.join(",", cherryPickedSnapshots)));
+                cherryPickedSnapshots.stream()
+                    .map(s -> s.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP))
+                    .collect(Collectors.joining(","))));
       }
       if (CollectionUtils.isNotEmpty(deletedSnapshots)) {
         builder.setProperties(
