@@ -53,9 +53,6 @@ public class IcebergCommitEventStats {
   /** Timestamp when the collector job processed this event */
   private Long eventTimestampInEpochMs;
 
-  /** Date partition for the event (partition key, format: yyyy-MM-dd) */
-  private String datePartition;
-
   // ==================== Partition-Level Commit Information ====================
 
   /**
