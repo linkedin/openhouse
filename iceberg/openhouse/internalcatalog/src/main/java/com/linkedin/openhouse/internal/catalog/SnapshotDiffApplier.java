@@ -5,8 +5,10 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -148,7 +150,9 @@ public class SnapshotDiffApplier {
       if (!deletedSnapshots.isEmpty()
           && deletedSnapshots.get(deletedSnapshots.size() - 1).snapshotId() == latestSnapshotId) {
         throw new InvalidIcebergSnapshotException(
-            String.format("Cannot delete the latest snapshot %s", latestSnapshotId));
+            String.format(
+                "Cannot delete the current snapshot %s without adding replacement snapshots.",
+                latestSnapshotId));
       }
     }
 
@@ -227,45 +231,64 @@ public class SnapshotDiffApplier {
     }
 
     void recordMetrics(TableMetadata.Builder builder) {
-      Map<String, String> updatedProperties = new HashMap<>(metadata.properties());
+      // First, explicitly remove temp properties from the builder
+      builder.removeProperties(
+          new HashSet<>(
+              Arrays.asList(
+                  CatalogConstants.SNAPSHOTS_JSON_KEY, CatalogConstants.SNAPSHOTS_REFS_KEY)));
 
-      // Remove temporary snapshot properties that were used for processing
-      updatedProperties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
-      updatedProperties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
-
+      // Then add result properties
       if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-            String.join(",", appendedSnapshots));
+        builder.setProperties(
+            new HashMap<String, String>() {
+              {
+                put(
+                    getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
+                    String.join(",", appendedSnapshots));
+              }
+            });
         metricsReporter.count(
             InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedSnapshots.size());
       }
       if (CollectionUtils.isNotEmpty(stagedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-            String.join(",", stagedSnapshots));
+        builder.setProperties(
+            new HashMap<String, String>() {
+              {
+                put(
+                    getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
+                    String.join(",", stagedSnapshots));
+              }
+            });
         metricsReporter.count(
             InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, stagedSnapshots.size());
       }
       if (CollectionUtils.isNotEmpty(cherryPickedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-            String.join(",", cherryPickedSnapshots));
+        builder.setProperties(
+            new HashMap<String, String>() {
+              {
+                put(
+                    getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
+                    String.join(",", cherryPickedSnapshots));
+              }
+            });
         metricsReporter.count(
             InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR,
             cherryPickedSnapshots.size());
       }
       if (CollectionUtils.isNotEmpty(deletedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
-            deletedSnapshots.stream()
-                .map(s -> Long.toString(s.snapshotId()))
-                .collect(Collectors.joining(",")));
+        builder.setProperties(
+            new HashMap<String, String>() {
+              {
+                put(
+                    getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
+                    deletedSnapshots.stream()
+                        .map(s -> Long.toString(s.snapshotId()))
+                        .collect(Collectors.joining(",")));
+              }
+            });
         metricsReporter.count(
             InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, deletedSnapshots.size());
       }
-
-      builder.setProperties(updatedProperties);
     }
   }
 }
