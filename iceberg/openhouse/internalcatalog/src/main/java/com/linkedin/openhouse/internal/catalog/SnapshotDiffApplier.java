@@ -5,8 +5,10 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -262,6 +264,12 @@ public class SnapshotDiffApplier {
       }
 
       builder.setProperties(updatedProperties);
+
+      // Remove temporary snapshot properties that were used for processing
+      builder.removeProperties(
+          new HashSet<>(
+              Arrays.asList(
+                  CatalogConstants.SNAPSHOTS_JSON_KEY, CatalogConstants.SNAPSHOTS_REFS_KEY)));
     }
   }
 }
