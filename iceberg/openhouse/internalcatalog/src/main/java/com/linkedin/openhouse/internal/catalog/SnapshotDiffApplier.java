@@ -35,8 +35,8 @@ public class SnapshotDiffApplier {
   private final MetricsReporter metricsReporter;
 
   /**
-   * Applies snapshot updates from metadata properties. Clear flow: parse input, compute diff,
-   * validate, apply, build.
+   * Applies snapshot updates from metadata properties. Simple and clear: parse input, compute diff,
+   * validate, apply, record metrics, build.
    *
    * @param base The base table metadata (may be null for table creation)
    * @param metadata The new metadata with properties containing snapshot updates
@@ -57,19 +57,21 @@ public class SnapshotDiffApplier {
 
     List<Snapshot> existingSnapshots = base != null ? base.snapshots() : Collections.emptyList();
 
-    // Compute diff (minimal maps in constructor)
+    // Compute diff (all maps created once in constructor)
     SnapshotDiff diff =
         new SnapshotDiff(providedSnapshots, existingSnapshots, metadata, providedRefs);
 
-    // Validate, apply, build
+    // Validate, apply, record metrics, build
     diff.validate(base);
     TableMetadata.Builder builder = diff.applyTo(metadata);
+    diff.recordMetrics(builder);
     return builder.build();
   }
 
   /**
-   * State object that computes minimal snapshot diff. Computes only essential maps in the
-   * constructor for the refactoring. Provides simple validation and application methods.
+   * State object that computes and caches all snapshot analysis. Computes all maps once in the
+   * constructor to avoid redundant operations. Provides clear methods for validation and
+   * application.
    */
   private class SnapshotDiff {
     // Input state
@@ -78,11 +80,16 @@ public class SnapshotDiffApplier {
     private final TableMetadata metadata;
     private final Map<String, SnapshotRef> providedRefs;
 
-    // Computed maps (minimal for original behavior)
+    // Computed maps (created once)
     private final Map<Long, Snapshot> providedSnapshotByIds;
     private final Map<Long, Snapshot> existingSnapshotByIds;
     private final List<Snapshot> newSnapshots;
     private final List<Snapshot> deletedSnapshots;
+
+    // Categorized snapshots (computed during applyTo)
+    private List<String> appendedSnapshots;
+    private List<String> stagedSnapshots;
+    private List<String> cherryPickedSnapshots;
 
     SnapshotDiff(
         List<Snapshot> providedSnapshots,
@@ -94,13 +101,13 @@ public class SnapshotDiffApplier {
       this.metadata = metadata;
       this.providedRefs = providedRefs;
 
-      // Compute basic maps
+      // Compute all maps once
       this.providedSnapshotByIds =
           providedSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
       this.existingSnapshotByIds =
           existingSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
 
-      // Compute diff (symmetric difference)
+      // Compute changes
       this.newSnapshots =
           providedSnapshots.stream()
               .filter(s -> !existingSnapshotByIds.containsKey(s.snapshotId()))
@@ -112,10 +119,25 @@ public class SnapshotDiffApplier {
     }
 
     /**
-     * Validates snapshots update - ensures we don't delete the latest snapshot without adding new
-     * ones. This is the same validation logic from SnapshotInspector.validateSnapshotsUpdate().
+     * Validates all snapshot changes before applying them to table metadata.
+     *
+     * @param base The base table metadata to validate against (may be null for table creation)
+     * @throws InvalidIcebergSnapshotException if any validation check fails
      */
     void validate(TableMetadata base) {
+      validateCurrentSnapshotNotDeleted(base);
+    }
+
+    /**
+     * Validates that the current snapshot is not deleted without providing replacement snapshots.
+     * This is the same validation logic from SnapshotInspector.validateSnapshotsUpdate().
+     *
+     * @param base The base table metadata containing the current snapshot (may be null for table
+     *     creation)
+     * @throws InvalidIcebergSnapshotException if the current snapshot is being deleted without
+     *     replacements
+     */
+    private void validateCurrentSnapshotNotDeleted(TableMetadata base) {
       if (base == null || base.currentSnapshot() == null) {
         return;
       }
@@ -132,9 +154,9 @@ public class SnapshotDiffApplier {
 
     TableMetadata.Builder applyTo(TableMetadata metadata) {
       TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
-      List<String> appendedSnapshots = new ArrayList<>();
-      List<String> stagedSnapshots = new ArrayList<>();
-      List<String> cherryPickedSnapshots = new ArrayList<>();
+      this.appendedSnapshots = new ArrayList<>();
+      this.stagedSnapshots = new ArrayList<>();
+      this.cherryPickedSnapshots = new ArrayList<>();
 
       // Validate only MAIN branch
       for (Map.Entry<String, SnapshotRef> entry : providedRefs.entrySet()) {
@@ -201,17 +223,10 @@ public class SnapshotDiffApplier {
         metadataBuilder.removeSnapshots(snapshotIds);
       }
 
-      // Record metrics and properties
-      recordMetrics(metadataBuilder, appendedSnapshots, stagedSnapshots, cherryPickedSnapshots);
-
       return metadataBuilder;
     }
 
-    private void recordMetrics(
-        TableMetadata.Builder builder,
-        List<String> appendedSnapshots,
-        List<String> stagedSnapshots,
-        List<String> cherryPickedSnapshots) {
+    void recordMetrics(TableMetadata.Builder builder) {
       Map<String, String> updatedProperties = new HashMap<>(metadata.properties());
 
       if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
