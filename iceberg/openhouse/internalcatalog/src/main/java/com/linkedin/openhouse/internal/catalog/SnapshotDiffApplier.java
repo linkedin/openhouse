@@ -114,13 +114,9 @@ public class SnapshotDiffApplier {
       this.existingSnapshotByIds =
           existingSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
       this.existingBranchRefIds =
-          existingRefs.values().stream()
-              .map(SnapshotRef::snapshotId)
-              .collect(Collectors.toSet());
+          existingRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
       this.providedBranchRefIds =
-          providedRefs.values().stream()
-              .map(SnapshotRef::snapshotId)
-              .collect(Collectors.toSet());
+          providedRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
 
       // Compute changes
       this.newSnapshots =
@@ -260,7 +256,9 @@ public class SnapshotDiffApplier {
       // Compute appended snapshots (regular + NEW cherry-picked only)
       // Existing cherry-picked snapshots (fast-forward) are not appended
       List<Snapshot> newCherryPicked =
-          cherryPickedSnapshots.stream().filter(newSnapshots::contains).collect(Collectors.toList());
+          cherryPickedSnapshots.stream()
+              .filter(newSnapshots::contains)
+              .collect(Collectors.toList());
       int appendedCount = regularSnapshots.size() + newCherryPicked.size();
 
       if (appendedCount > 0) {
