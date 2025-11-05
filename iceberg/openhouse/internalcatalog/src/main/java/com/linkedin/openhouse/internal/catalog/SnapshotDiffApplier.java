@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -133,32 +132,47 @@ public class SnapshotDiffApplier {
           newSnapshots.stream()
               .filter(s -> s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
               .collect(Collectors.toList());
+
+      // Compute source IDs for cherry-pick operations (from ForReference.java)
+      Set<Long> cherryPickSourceIds =
+          providedSnapshots.stream()
+              .filter(
+                  s ->
+                      s.summary() != null
+                          && s.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP))
+              .map(s -> Long.parseLong(s.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)))
+              .collect(Collectors.toSet());
+
       this.cherryPickedSnapshots =
           providedSnapshots.stream()
               .filter(
-                  s -> {
-                    // New snapshot with SOURCE_SNAPSHOT_ID_PROP (actual cherry-pick)
-                    if (!existingSnapshotByIds.containsKey(s.snapshotId())
-                        && s.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)) {
+                  provided -> {
+                    // Only consider EXISTING snapshots as cherry-picked (from ForReference.java)
+                    Snapshot existing = existingSnapshotByIds.get(provided.snapshotId());
+                    if (existing == null) {
+                      return false;
+                    }
+
+                    // Is source of cherry-pick (from ForReference.java)
+                    if (cherryPickSourceIds.contains(provided.snapshotId())) {
                       return true;
                     }
+
                     // WAP snapshot being published (staged → branch transition)
-                    // For new snapshots: WAP created and immediately published
-                    // For existing snapshots: existing WAP being published (fast-forward)
                     boolean hasWapId =
-                        s.summary() != null
-                            && s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP);
-                    boolean wasStaged = !existingBranchRefIds.contains(s.snapshotId());
-                    boolean isNowOnBranch = providedBranchRefIds.contains(s.snapshotId());
+                        provided.summary() != null
+                            && provided.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP);
+                    boolean wasStaged = !existingBranchRefIds.contains(provided.snapshotId());
+                    boolean isNowOnBranch = providedBranchRefIds.contains(provided.snapshotId());
                     return hasWapId && wasStaged && isNowOnBranch;
                   })
               .collect(Collectors.toList());
+      // Regular snapshots = all new snapshots that are not staged WAP
+      // (From ForReference.java: everything that's not cherry-picked and not WAP)
+      // Note: NEW snapshots with SOURCE_SNAPSHOT_ID_PROP are regular (new commits being appended)
       this.regularSnapshots =
           newSnapshots.stream()
-              .filter(
-                  s ->
-                      !s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)
-                          && !s.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP))
+              .filter(s -> !s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
               .collect(Collectors.toList());
     }
 
@@ -221,13 +235,8 @@ public class SnapshotDiffApplier {
         metadataBuilder.addSnapshot(snapshot);
       }
 
-      // Only apply NEW cherry-picked snapshots
-      // Existing cherry-picked snapshots are handled by fast-forward block below
-      for (Snapshot snapshot : cherryPickedSnapshots) {
-        if (newSnapshots.contains(snapshot)) {
-          metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
-        }
-      }
+      // Cherry-picked snapshots are all existing, handled by fast-forward block below
+      // (No need to apply them here)
 
       for (Snapshot snapshot : regularSnapshots) {
         metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
@@ -253,13 +262,9 @@ public class SnapshotDiffApplier {
     }
 
     void recordMetrics(TableMetadata.Builder builder) {
-      // Compute appended snapshots (regular + NEW cherry-picked only)
-      // Existing cherry-picked snapshots (fast-forward) are not appended
-      List<Snapshot> newCherryPicked =
-          cherryPickedSnapshots.stream()
-              .filter(newSnapshots::contains)
-              .collect(Collectors.toList());
-      int appendedCount = regularSnapshots.size() + newCherryPicked.size();
+      // Compute appended snapshots (only regular snapshots)
+      // Cherry-picked snapshots are all existing, not appended
+      int appendedCount = regularSnapshots.size();
 
       if (appendedCount > 0) {
         metricsReporter.count(InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedCount);
@@ -280,12 +285,10 @@ public class SnapshotDiffApplier {
 
       // Record snapshot IDs in properties
       if (appendedCount > 0) {
-        List<Snapshot> appendedSnapshots = new ArrayList<>(regularSnapshots);
-        appendedSnapshots.addAll(newCherryPicked);
         builder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-                appendedSnapshots.stream()
+                regularSnapshots.stream()
                     .map(s -> Long.toString(s.snapshotId()))
                     .collect(Collectors.joining(","))));
       }
