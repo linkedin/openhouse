@@ -23,9 +23,8 @@ import org.apache.iceberg.TableMetadata;
 /**
  * Service responsible for applying snapshot changes to Iceberg table metadata.
  *
- * <p>This class extracts snapshot logic from OpenHouseInternalTableOperations while maintaining the
- * same behavior. The main entry point applySnapshots() has a clear flow: parse input → compute diff
- * → validate → apply.
+ * <p>The main entry point applySnapshots() has a clear flow: parse input → compute diff → validate
+ * → apply.
  */
 @AllArgsConstructor
 @Slf4j
@@ -37,36 +36,44 @@ public class SnapshotDiffApplier {
    * Applies snapshot updates from metadata properties. Simple and clear: parse input, compute diff,
    * validate, apply, record metrics, build.
    *
-   * @param base The base table metadata (may be null for table creation)
-   * @param metadata The new metadata with properties containing snapshot updates
+   * @param existingMetadata The existing table metadata (may be null for table creation)
+   * @param providedMetadata The new metadata with properties containing snapshot updates
    * @return Updated metadata with snapshots applied
    */
-  public TableMetadata applySnapshots(TableMetadata base, TableMetadata metadata) {
-    String snapshotsJson = metadata.properties().get(CatalogConstants.SNAPSHOTS_JSON_KEY);
+  public TableMetadata applySnapshots(
+      TableMetadata existingMetadata, TableMetadata providedMetadata) {
+    String snapshotsJson = providedMetadata.properties().get(CatalogConstants.SNAPSHOTS_JSON_KEY);
     if (snapshotsJson == null) {
-      return metadata;
+      return providedMetadata;
     }
 
     // Parse input
     List<Snapshot> providedSnapshots = SnapshotsUtil.parseSnapshots(null, snapshotsJson);
     Map<String, SnapshotRef> providedRefs =
-        Optional.ofNullable(metadata.properties().get(CatalogConstants.SNAPSHOTS_REFS_KEY))
+        Optional.ofNullable(providedMetadata.properties().get(CatalogConstants.SNAPSHOTS_REFS_KEY))
             .map(SnapshotsUtil::parseSnapshotRefs)
             .orElse(new HashMap<>());
 
-    List<Snapshot> existingSnapshots = base != null ? base.snapshots() : Collections.emptyList();
-    Map<String, SnapshotRef> existingRefs = base != null ? base.refs() : Collections.emptyMap();
+    List<Snapshot> existingSnapshots =
+        existingMetadata != null ? existingMetadata.snapshots() : Collections.emptyList();
+    Map<String, SnapshotRef> existingRefs =
+        existingMetadata != null ? existingMetadata.refs() : Collections.emptyMap();
 
-    // Compute diff (all maps created once in constructor)
+    // Compute diff (all maps created once in factory method)
     SnapshotDiff diff =
-        new SnapshotDiff(
-            providedSnapshots, existingSnapshots, metadata, providedRefs, existingRefs);
+        SnapshotDiff.create(
+            metricsReporter,
+            existingMetadata,
+            providedSnapshots,
+            existingSnapshots,
+            providedMetadata,
+            providedRefs,
+            existingRefs);
 
-    // Validate, apply, record metrics, build
-    diff.validate(base);
-    TableMetadata.Builder builder = diff.applyTo(metadata);
-    diff.recordMetrics(builder);
-    return builder.build();
+    // Validate, apply, record metrics
+    diff.validate();
+    diff.recordMetrics();
+    return diff.applyTo();
   }
 
   /**
@@ -74,11 +81,15 @@ public class SnapshotDiffApplier {
    * constructor to avoid redundant operations. Provides clear methods for validation and
    * application.
    */
-  private class SnapshotDiff {
+  private static class SnapshotDiff {
+    // Injected dependency
+    private final MetricsReporter metricsReporter;
+
     // Input state
+    private final TableMetadata existingMetadata;
     private final List<Snapshot> providedSnapshots;
     private final List<Snapshot> existingSnapshots;
-    private final TableMetadata metadata;
+    private final TableMetadata providedMetadata;
     private final Map<String, SnapshotRef> providedRefs;
     private final Map<String, SnapshotRef> existingRefs;
 
@@ -94,46 +105,56 @@ public class SnapshotDiffApplier {
     private final List<Snapshot> stagedSnapshots;
     private final List<Snapshot> regularSnapshots;
     private final List<Snapshot> cherryPickedSnapshots;
+    private final int appendedCount;
 
-    SnapshotDiff(
+    /**
+     * Creates a SnapshotDiff by computing all snapshot analysis from the provided inputs.
+     *
+     * @param metricsReporter Metrics reporter for recording snapshot operations
+     * @param existingMetadata The existing table metadata (may be null for table creation)
+     * @param providedSnapshots Snapshots provided in the update
+     * @param existingSnapshots Snapshots currently in the table
+     * @param providedMetadata The new metadata with properties containing snapshot updates
+     * @param providedRefs Snapshot refs provided in the update
+     * @param existingRefs Snapshot refs currently in the table
+     * @return A new SnapshotDiff with all analysis computed
+     */
+    static SnapshotDiff create(
+        MetricsReporter metricsReporter,
+        TableMetadata existingMetadata,
         List<Snapshot> providedSnapshots,
         List<Snapshot> existingSnapshots,
-        TableMetadata metadata,
+        TableMetadata providedMetadata,
         Map<String, SnapshotRef> providedRefs,
         Map<String, SnapshotRef> existingRefs) {
-      this.providedSnapshots = providedSnapshots;
-      this.existingSnapshots = existingSnapshots;
-      this.metadata = metadata;
-      this.providedRefs = providedRefs;
-      this.existingRefs = existingRefs;
 
-      // Compute all maps once
-      this.providedSnapshotByIds =
+      // Compute all index maps once
+      Map<Long, Snapshot> providedSnapshotByIds =
           providedSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
-      this.existingSnapshotByIds =
+      Map<Long, Snapshot> existingSnapshotByIds =
           existingSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
-      this.existingBranchRefIds =
+      Set<Long> existingBranchRefIds =
           existingRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
-      this.providedBranchRefIds =
+      Set<Long> providedBranchRefIds =
           providedRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
 
       // Compute changes
-      this.newSnapshots =
+      List<Snapshot> newSnapshots =
           providedSnapshots.stream()
               .filter(s -> !existingSnapshotByIds.containsKey(s.snapshotId()))
               .collect(Collectors.toList());
-      this.deletedSnapshots =
+      List<Snapshot> deletedSnapshots =
           existingSnapshots.stream()
               .filter(s -> !providedSnapshotByIds.containsKey(s.snapshotId()))
               .collect(Collectors.toList());
 
-      // Categorize snapshots (simple logic for PR1 - just check summary properties)
-      this.stagedSnapshots =
+      // Categorize snapshots
+      List<Snapshot> stagedSnapshots =
           newSnapshots.stream()
               .filter(s -> s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
               .collect(Collectors.toList());
 
-      // Compute source IDs for cherry-pick operations (from ForReference.java)
+      // Compute source IDs for cherry-pick operations
       Set<Long> cherryPickSourceIds =
           providedSnapshots.stream()
               .filter(
@@ -143,17 +164,17 @@ public class SnapshotDiffApplier {
               .map(s -> Long.parseLong(s.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)))
               .collect(Collectors.toSet());
 
-      this.cherryPickedSnapshots =
+      List<Snapshot> cherryPickedSnapshots =
           providedSnapshots.stream()
               .filter(
                   provided -> {
-                    // Only consider EXISTING snapshots as cherry-picked (from ForReference.java)
+                    // Only consider EXISTING snapshots as cherry-picked
                     Snapshot existing = existingSnapshotByIds.get(provided.snapshotId());
                     if (existing == null) {
                       return false;
                     }
 
-                    // Is source of cherry-pick (from ForReference.java)
+                    // Is source of cherry-pick
                     if (cherryPickSourceIds.contains(provided.snapshotId())) {
                       return true;
                     }
@@ -167,42 +188,97 @@ public class SnapshotDiffApplier {
                     return hasWapId && wasStaged && isNowOnBranch;
                   })
               .collect(Collectors.toList());
+
       // Regular snapshots = all new snapshots that are not staged WAP
-      // (From ForReference.java: everything that's not cherry-picked and not WAP)
-      // Note: NEW snapshots with SOURCE_SNAPSHOT_ID_PROP are regular (new commits being appended)
-      this.regularSnapshots =
+      List<Snapshot> regularSnapshots =
           newSnapshots.stream()
               .filter(s -> !s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
               .collect(Collectors.toList());
+
+      // Compute appended count (only regular snapshots, not cherry-picked)
+      int appendedCount = regularSnapshots.size();
+
+      return new SnapshotDiff(
+          metricsReporter,
+          existingMetadata,
+          providedSnapshots,
+          existingSnapshots,
+          providedMetadata,
+          providedRefs,
+          existingRefs,
+          providedSnapshotByIds,
+          existingSnapshotByIds,
+          existingBranchRefIds,
+          providedBranchRefIds,
+          newSnapshots,
+          deletedSnapshots,
+          stagedSnapshots,
+          regularSnapshots,
+          cherryPickedSnapshots,
+          appendedCount);
+    }
+
+    /** Private constructor that accepts all pre-computed values. Use {@link #create} instead. */
+    private SnapshotDiff(
+        MetricsReporter metricsReporter,
+        TableMetadata existingMetadata,
+        List<Snapshot> providedSnapshots,
+        List<Snapshot> existingSnapshots,
+        TableMetadata providedMetadata,
+        Map<String, SnapshotRef> providedRefs,
+        Map<String, SnapshotRef> existingRefs,
+        Map<Long, Snapshot> providedSnapshotByIds,
+        Map<Long, Snapshot> existingSnapshotByIds,
+        Set<Long> existingBranchRefIds,
+        Set<Long> providedBranchRefIds,
+        List<Snapshot> newSnapshots,
+        List<Snapshot> deletedSnapshots,
+        List<Snapshot> stagedSnapshots,
+        List<Snapshot> regularSnapshots,
+        List<Snapshot> cherryPickedSnapshots,
+        int appendedCount) {
+      this.metricsReporter = metricsReporter;
+      this.existingMetadata = existingMetadata;
+      this.providedSnapshots = providedSnapshots;
+      this.existingSnapshots = existingSnapshots;
+      this.providedMetadata = providedMetadata;
+      this.providedRefs = providedRefs;
+      this.existingRefs = existingRefs;
+      this.providedSnapshotByIds = providedSnapshotByIds;
+      this.existingSnapshotByIds = existingSnapshotByIds;
+      this.existingBranchRefIds = existingBranchRefIds;
+      this.providedBranchRefIds = providedBranchRefIds;
+      this.newSnapshots = newSnapshots;
+      this.deletedSnapshots = deletedSnapshots;
+      this.stagedSnapshots = stagedSnapshots;
+      this.regularSnapshots = regularSnapshots;
+      this.cherryPickedSnapshots = cherryPickedSnapshots;
+      this.appendedCount = appendedCount;
     }
 
     /**
      * Validates all snapshot changes before applying them to table metadata.
      *
-     * @param base The base table metadata to validate against (may be null for table creation)
      * @throws InvalidIcebergSnapshotException if any validation check fails
      */
-    void validate(TableMetadata base) {
-      validateCurrentSnapshotNotDeleted(base);
+    void validate() {
+      validateCurrentSnapshotNotDeleted();
     }
 
     /**
      * Validates that the current snapshot is not deleted without providing replacement snapshots.
-     * This is the same validation logic from SnapshotInspector.validateSnapshotsUpdate().
      *
-     * @param base The base table metadata containing the current snapshot (may be null for table
-     *     creation)
      * @throws InvalidIcebergSnapshotException if the current snapshot is being deleted without
      *     replacements
      */
-    private void validateCurrentSnapshotNotDeleted(TableMetadata base) {
-      if (base == null || base.currentSnapshot() == null) {
+    private void validateCurrentSnapshotNotDeleted() {
+      if (this.existingMetadata == null || this.existingMetadata.currentSnapshot() == null) {
         return;
       }
       if (!newSnapshots.isEmpty()) {
         return;
       }
-      long latestSnapshotId = base.currentSnapshot().snapshotId();
+      long latestSnapshotId = this.existingMetadata.currentSnapshot().snapshotId();
       if (!deletedSnapshots.isEmpty()
           && deletedSnapshots.get(deletedSnapshots.size() - 1).snapshotId() == latestSnapshotId) {
         throw new InvalidIcebergSnapshotException(
@@ -212,8 +288,8 @@ public class SnapshotDiffApplier {
       }
     }
 
-    TableMetadata.Builder applyTo(TableMetadata metadata) {
-      TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
+    TableMetadata applyTo() {
+      TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(this.providedMetadata);
 
       // Validate only MAIN branch
       for (Map.Entry<String, SnapshotRef> entry : providedRefs.entrySet()) {
@@ -245,8 +321,9 @@ public class SnapshotDiffApplier {
       // Handle fast-forward cherry-pick (ref update without new snapshot)
       if (newSnapshots.isEmpty() && !providedRefs.isEmpty()) {
         long newSnapshotId = providedRefs.get(SnapshotRef.MAIN_BRANCH).snapshotId();
-        if (metadata.refs().isEmpty()
-            || metadata.refs().get(SnapshotRef.MAIN_BRANCH).snapshotId() != newSnapshotId) {
+        if (this.providedMetadata.refs().isEmpty()
+            || this.providedMetadata.refs().get(SnapshotRef.MAIN_BRANCH).snapshotId()
+                != newSnapshotId) {
           metadataBuilder.setBranchSnapshot(newSnapshotId, SnapshotRef.MAIN_BRANCH);
         }
       }
@@ -258,34 +335,9 @@ public class SnapshotDiffApplier {
         metadataBuilder.removeSnapshots(snapshotIds);
       }
 
-      return metadataBuilder;
-    }
-
-    void recordMetrics(TableMetadata.Builder builder) {
-      // Compute appended snapshots (only regular snapshots)
-      // Cherry-picked snapshots are all existing, not appended
-      int appendedCount = regularSnapshots.size();
-
-      if (appendedCount > 0) {
-        metricsReporter.count(InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedCount);
-      }
-      if (!stagedSnapshots.isEmpty()) {
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, stagedSnapshots.size());
-      }
-      if (!cherryPickedSnapshots.isEmpty()) {
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR,
-            cherryPickedSnapshots.size());
-      }
-      if (!deletedSnapshots.isEmpty()) {
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, deletedSnapshots.size());
-      }
-
-      // Record snapshot IDs in properties
-      if (appendedCount > 0) {
-        builder.setProperties(
+      // Record snapshot IDs in properties and cleanup input properties
+      if (this.appendedCount > 0) {
+        metadataBuilder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
                 regularSnapshots.stream()
@@ -293,7 +345,7 @@ public class SnapshotDiffApplier {
                     .collect(Collectors.joining(","))));
       }
       if (!stagedSnapshots.isEmpty()) {
-        builder.setProperties(
+        metadataBuilder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
                 stagedSnapshots.stream()
@@ -301,7 +353,7 @@ public class SnapshotDiffApplier {
                     .collect(Collectors.joining(","))));
       }
       if (!cherryPickedSnapshots.isEmpty()) {
-        builder.setProperties(
+        metadataBuilder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
                 cherryPickedSnapshots.stream()
@@ -309,18 +361,41 @@ public class SnapshotDiffApplier {
                     .collect(Collectors.joining(","))));
       }
       if (!deletedSnapshots.isEmpty()) {
-        builder.setProperties(
+        metadataBuilder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
                 deletedSnapshots.stream()
                     .map(s -> Long.toString(s.snapshotId()))
                     .collect(Collectors.joining(","))));
       }
-
-      builder.removeProperties(
+      metadataBuilder.removeProperties(
           new HashSet<>(
               Arrays.asList(
                   CatalogConstants.SNAPSHOTS_JSON_KEY, CatalogConstants.SNAPSHOTS_REFS_KEY)));
+
+      return metadataBuilder.build();
+    }
+
+    void recordMetrics() {
+      // Record metrics for appended snapshots (only regular snapshots)
+      // Cherry-picked snapshots are all existing, not appended
+      if (this.appendedCount > 0) {
+        this.metricsReporter.count(
+            InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, this.appendedCount);
+      }
+      if (!this.stagedSnapshots.isEmpty()) {
+        this.metricsReporter.count(
+            InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, this.stagedSnapshots.size());
+      }
+      if (!this.cherryPickedSnapshots.isEmpty()) {
+        this.metricsReporter.count(
+            InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR,
+            this.cherryPickedSnapshots.size());
+      }
+      if (!this.deletedSnapshots.isEmpty()) {
+        this.metricsReporter.count(
+            InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, this.deletedSnapshots.size());
+      }
     }
   }
 }
