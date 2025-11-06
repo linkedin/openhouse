@@ -13,11 +13,10 @@ import lombok.NonNull;
  * <p>Stores partition-level information for each commit. Maps commit events to specific partitions
  * affected by that commit. One commit can correspond to multiple partition records.
  *
- * <p><b>Cardinality</b>: N partition events linked to 1 commit event via commitId foreign key.
- * Table metadata is obtained by joining with {@link DatasetCommitEvent}.
+ * <p><b>Naming</b>: Represents "partitions of a commit event". This aligns with the conceptual
+ * model where CommitEvent has a "partitions" field that's been normalized into a separate table.
  *
- * <p>This is a standalone model (no inheritance) as it only needs event timestamp and commit
- * reference, without table metadata.
+ * <p><b>Cardinality</b>: N partition records linked to 1 commit event via commitId foreign key.
  *
  * @see DatasetCommitEvent
  */
@@ -25,16 +24,13 @@ import lombok.NonNull;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DatasetPartitionCommitEvent {
+public class DatasetCommitEventPartitions {
 
   /**
-   * Unique identifier for each commit event.
+   * Foreign Key to {@link DatasetCommitEvent}.
    *
-   * <p><b>Foreign Key</b>: References {@link DatasetCommitEvent#commitId}. This establishes a
-   * parent-child relationship where one commit event can have multiple partition commit events.
-   *
-   * <p>This FK relationship enables joining partition-level commit details with the parent commit
-   * metadata (table identification, commit timestamp, operation type, etc.).
+   * <p>Establishes the parent-child relationship where one commit event can have multiple partition
+   * records.
    */
   @NonNull private String commitId;
 
