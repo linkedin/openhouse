@@ -28,11 +28,11 @@ dependencies {
     exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
 
-  implementation("org.apache.iceberg:iceberg-bundled-guava")
-  implementation("org.apache.iceberg:iceberg-data")
-  implementation("org.apache.iceberg:iceberg-core")
-  implementation("org.apache.iceberg:iceberg-common")
-  implementation("org.apache.iceberg:iceberg-api")
+  implementation("com.linkedin.iceberg:iceberg-bundled-guava")
+  implementation("com.linkedin.iceberg:iceberg-data")
+  implementation("com.linkedin.iceberg:iceberg-core")
+  implementation("com.linkedin.iceberg:iceberg-common")
+  implementation("com.linkedin.iceberg:iceberg-api")
 
   implementation 'commons-cli:commons-cli:1.5.0'
   implementation 'org.reflections:reflections:0.10.2'
