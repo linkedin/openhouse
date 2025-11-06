@@ -42,5 +42,5 @@ public class DatasetPartitionCommitEvent {
    * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
    * the corresponding commit event.
    */
-  private Long eventTimestampEpochInMs;
+  private Long eventTimestampEpochMs;
 }
