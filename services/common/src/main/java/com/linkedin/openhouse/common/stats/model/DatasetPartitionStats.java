@@ -14,27 +14,30 @@ import lombok.experimental.SuperBuilder;
  * Data model for openhouseDatasetPartitionsStats table.
  *
  * <p>Stores partition-level metadata and statistics such as null count, NaN count, row count, and
- * min/max values for the table. Can represent both partition-level and table-level statistics.
+ * min/max values. Can represent both partition-level and table-level statistics.
  *
- * <p><b>Foreign Key</b>: The inherited {@code commitId} field (from {@link
- * BaseEventModels.BaseDatasetCommitEvent}) is a foreign key that references {@link
- * DatasetCommitEvent#commitId}. This links partition statistics to the commit that generated them.
+ * <p><b>Cardinality</b>: Each partition stats record references the latest commit that modified the
+ * partition via commitMetadata.commitId (Foreign Key to {@link DatasetCommitEvent}).
  *
- * <p><b>Cardinality</b>: N partition stats records → 1 commit event (via commitId FK). Each
- * partition can have statistics associated with multiple commits over time.
- *
- * <p>Extends {@link BaseEventModels.BaseDatasetCommitEvent} to inherit table identification and
- * commit metadata fields (including the commitId foreign key).
+ * <p>Stats are updated/replaced when new commits modify the partition.
  *
  * @see DatasetCommitEvent
- * @see DatasetPartitionCommitEvent
+ * @see DatasetCommitEventPartitions
+ * @see CommitMetadata
  */
 @Data
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
-public class DatasetPartitionStats extends BaseEventModels.BaseDatasetCommitEvent {
+public class DatasetPartitionStats extends BaseEventModels.BaseDataset {
+
+  /**
+   * Commit metadata for the latest commit that modified this partition.
+   *
+   * <p>The commitId within this metadata serves as a Foreign Key to {@link DatasetCommitEvent}.
+   */
+  private CommitMetadata commitMetadata;
 
   /**
    * Key-value mapping of partition columns and their corresponding values associated with the
@@ -51,7 +54,7 @@ public class DatasetPartitionStats extends BaseEventModels.BaseDatasetCommitEven
    * Total number of rows corresponding to the given partition specification if partition_spec is
    * not null; otherwise, the row count for the entire table.
    */
-  @NonNull private Long rowCount;
+  private Long rowCount;
 
   /**
    * Total number of columns corresponding to the given partition specification if partition_spec is
@@ -100,10 +103,7 @@ public class DatasetPartitionStats extends BaseEventModels.BaseDatasetCommitEven
   /**
    * Column-level statistic with type-specific value fields.
    *
-   * <p>Used for all column-level statistics (null count, NaN count, min/max values, size).
-   * Type-specific fields provide compile-time type safety and prevent runtime serialization errors.
-   *
-   * <p><b>Usage</b>:
+   * <p>Type-specific fields provide compile-time type safety:
    *
    * <ul>
    *   <li><b>longValue</b> - For counts (null, NaN) and sizes in bytes
@@ -111,7 +111,7 @@ public class DatasetPartitionStats extends BaseEventModels.BaseDatasetCommitEven
    *   <li><b>doubleValue</b> - For floating-point statistics (future use)
    * </ul>
    *
-   * <p><b>Note</b>: Only populate one value field per instance.
+   * <p>Only populate one value field per instance.
    */
   @Data
   @Builder
