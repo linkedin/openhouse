@@ -5,32 +5,36 @@ import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.NonNull;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Data model for openhouseDatasetPartitionsStats table.
  *
  * <p>Stores partition-level metadata and statistics such as null count, NaN count, row count, and
  * min/max values for the table. Can represent both partition-level and table-level statistics.
+ *
+ * <p><b>Foreign Key</b>: The inherited {@code commitId} field (from {@link
+ * BaseEventModels.BaseDatasetCommitEvent}) is a foreign key that references {@link
+ * DatasetCommitEvent#commitId}. This links partition statistics to the commit that generated them.
+ *
+ * <p><b>Cardinality</b>: N partition stats records → 1 commit event (via commitId FK). Each
+ * partition can have statistics associated with multiple commits over time.
+ *
+ * <p>Extends {@link BaseEventModels.BaseDatasetCommitEvent} to inherit table identification and
+ * commit metadata fields (including the commitId foreign key).
+ *
+ * @see DatasetCommitEvent
+ * @see DatasetPartitionCommitEvent
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DatasetPartitionStats {
-
-  // ==================== Basic Table Identification ====================
-
-  /** Name of the database for the dataset */
-  private String databaseName;
-
-  /** Name of the table for the dataset */
-  private String tableName;
-
-  /** Name of the cluster (e.g., holdem/war) */
-  private String clusterName;
-
-  // ==================== Partition Information ====================
+@EqualsAndHashCode(callSuper = true)
+public class DatasetPartitionStats extends BaseEventModels.BaseDatasetCommitEvent {
 
   /**
    * Key-value mapping of partition columns and their corresponding values associated with the
@@ -41,38 +45,13 @@ public class DatasetPartitionStats {
    *
    * <p>Example for non-null partition: { "datepartition": "2025-01-25", "hourpartition": "12" }
    */
-  private Map<String, String> partitionSpec;
-
-  // ==================== Commit Information ====================
-
-  /** Latest commit that changed this partition */
-  private String commitId;
-
-  /** Timestamp of the latest commit event captured in epoch milliseconds */
-  private Long commitTimestampInEpochMs;
-
-  /**
-   * Unique application identifier (e.g., Spark Application ID) associated with the process or job
-   * that performed the commit
-   */
-  private String commitAppId;
-
-  /**
-   * Descriptive name of the application or job that executed the commit. Helps in identifying the
-   * pipeline or workflow responsible for the data change.
-   */
-  private String commitAppName;
-
-  /** Type of operation performed during the commit (e.g., APPEND, OVERWRITE, DELETE) */
-  private String commitOperation;
-
-  // ==================== Partition-Level Statistics ====================
+  @NonNull private Map<String, String> partitionSpec;
 
   /**
    * Total number of rows corresponding to the given partition specification if partition_spec is
    * not null; otherwise, the row count for the entire table.
    */
-  private Long rowCount;
+  @NonNull private Long rowCount;
 
   /**
    * Total number of columns corresponding to the given partition specification if partition_spec is
@@ -83,9 +62,6 @@ public class DatasetPartitionStats {
   /**
    * Stores null count statistics for each column in the dataset. Each element represents a column
    * name and its corresponding number of null values.
-   *
-   * <p>Example: [ { "columnName": "user_id", "longValue": 0 }, { "columnName": "email",
-   * "longValue": 12 }, { "columnName": "age", "longValue": 3 } ]
    */
   private List<ColumnStatistic> nullCount;
 
@@ -115,32 +91,27 @@ public class DatasetPartitionStats {
    */
   private List<ColumnStatistic> columnSizeInBytes;
 
-  // ==================== Event Processing Metadata ====================
-
   /**
    * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
-   * the corresponding commit event.
+   * the corresponding event.
    */
-  private Long eventTimestampInEpochMs;
-
-  // ==================== Inner Class for Statistics ====================
+  @NonNull private Long eventTimestampInEpochMs;
 
   /**
-   * Inner class representing column statistics. Used for all column-level statistics (null count,
-   * NaN count, min/max values, size). Supports multiple value types to maintain type safety while
-   * allowing flexibility for different statistical measures.
+   * Column-level statistic with type-specific value fields.
    *
-   * <p>Type-specific fields allow compile-time type checking and prevent runtime serialization
-   * errors. Clients should use the appropriate field based on the statistic type:
+   * <p>Used for all column-level statistics (null count, NaN count, min/max values, size).
+   * Type-specific fields provide compile-time type safety and prevent runtime serialization errors.
+   *
+   * <p><b>Usage</b>:
    *
    * <ul>
-   *   <li>longValue: for counts (null count, NaN count) and sizes in bytes
-   *   <li>stringValue: for min/max values of string columns or date representations
-   *   <li>doubleValue: for floating-point statistics if needed in future
+   *   <li><b>longValue</b> - For counts (null, NaN) and sizes in bytes
+   *   <li><b>stringValue</b> - For min/max of strings, dates, timestamps
+   *   <li><b>doubleValue</b> - For floating-point statistics (future use)
    * </ul>
    *
-   * <p>Only one value field should be populated per instance based on the statistic being
-   * represented.
+   * <p><b>Note</b>: Only populate one value field per instance.
    */
   @Data
   @Builder
@@ -148,38 +119,15 @@ public class DatasetPartitionStats {
   @AllArgsConstructor
   public static class ColumnStatistic {
     /** Name of the column */
-    private String columnName;
+    @NonNull private String columnName;
 
-    /**
-     * Long value for numeric statistics (counts, sizes in bytes, etc.). Use this for:
-     *
-     * <ul>
-     *   <li>Null count
-     *   <li>NaN count
-     *   <li>Column size in bytes
-     * </ul>
-     */
+    /** Long value for counts (null, NaN) and sizes in bytes */
     private Long longValue;
 
-    /**
-     * String value for textual statistics (min/max of string columns, dates, etc.). Use this for:
-     *
-     * <ul>
-     *   <li>Min/max values of string columns
-     *   <li>Date representations
-     *   <li>Any non-numeric statistics
-     * </ul>
-     */
+    /** String value for min/max of strings, dates, and timestamps */
     private String stringValue;
 
-    /**
-     * Double value for floating-point statistics. Reserved for future use. Use this for:
-     *
-     * <ul>
-     *   <li>Floating-point aggregates
-     *   <li>Statistical measures requiring decimal precision
-     * </ul>
-     */
+    /** Double value for floating-point statistics (reserved for future use) */
     private Double doubleValue;
   }
 }

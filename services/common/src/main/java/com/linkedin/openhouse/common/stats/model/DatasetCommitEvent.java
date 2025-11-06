@@ -1,67 +1,44 @@
 package com.linkedin.openhouse.common.stats.model;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.NonNull;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Data model for openhouseDatasetCommitEvents table.
  *
- * <p>Stores metadata for each commit event in a table. Represents commit-level information without
- * partition or statistics details.
+ * <p>Stores commit-level metadata for dataset changes. Each record represents a single commit event
+ * and can be linked to multiple partition events via commitId.
+ *
+ * <p><b>Cardinality</b>: One commit event can have N partition events. See {@link
+ * DatasetPartitionCommitEvent} for partition-level details.
+ *
+ * <p>Extends {@link BaseEventModels.BaseDatasetCommitEvent} to inherit table identification and
+ * commit metadata fields.
+ *
+ * @see DatasetPartitionCommitEvent
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DatasetCommitEvent {
-
-  // ==================== Basic Table Identification ====================
-
-  /** Name of the database for the dataset */
-  private String databaseName;
-
-  /** Name of the table for the dataset */
-  private String tableName;
-
-  /** Name of the cluster (e.g., holdem/war) */
-  private String clusterName;
-
-  // ==================== Commit Event Metadata ====================
-
-  /** Type of dataset (PARTITIONED or NON_PARTITIONED) */
-  private String datasetType;
-
-  /** Unique identifier for each commit event (Primary Key) */
-  private String commitId;
+@EqualsAndHashCode(callSuper = true)
+public class DatasetCommitEvent extends BaseEventModels.BaseDatasetCommitEvent {
 
   /**
-   * Timestamp of the commit event, captured in epoch milliseconds. Represents when the actual
-   * commit occurred.
+   * Type of dataset: PARTITIONED or NON_PARTITIONED.
+   *
+   * <p>Used to distinguish between partitioned tables (with partition-level stats) and
+   * non-partitioned tables (with table-level stats only).
    */
-  private Long commitTimestampInEpochMs;
-
-  /**
-   * Unique application identifier (e.g., Spark Application ID) associated with the process or job
-   * that performed the commit
-   */
-  private String commitAppId;
-
-  /**
-   * Descriptive name of the application or job that executed the commit. Helps in identifying the
-   * pipeline or workflow responsible for the data change.
-   */
-  private String commitAppName;
-
-  /** Type of operation performed during the commit (e.g., APPEND, OVERWRITE, DELETE, REPLACE). */
-  private String commitOperation;
-
-  // ==================== Event Processing Metadata ====================
+  @NonNull private DatasetType datasetType;
 
   /**
    * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
-   * the corresponding commit event.
+   * the corresponding event.
    */
-  private Long eventTimestampInEpochMs;
+  @NonNull private Long eventTimestampInEpochMs;
 }
