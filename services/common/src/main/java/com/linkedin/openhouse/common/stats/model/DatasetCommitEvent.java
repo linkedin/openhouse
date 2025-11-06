@@ -40,7 +40,7 @@ public class DatasetCommitEvent {
    * Timestamp of the commit event, captured in epoch milliseconds. Represents when the actual
    * commit occurred.
    */
-  private Long commitTimestampEpochMs;
+  private Long commitTimestampInEpochMs;
 
   /**
    * Unique application identifier (e.g., Spark Application ID) associated with the process or job
