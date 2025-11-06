@@ -17,12 +17,12 @@ import lombok.experimental.SuperBuilder;
  * min/max values. Can represent both partition-level and table-level statistics.
  *
  * <p><b>Cardinality</b>: Each partition stats record references the latest commit that modified the
- * partition via commitMetadata.commitId (Foreign Key to {@link DatasetCommitEvent}).
+ * partition via commitMetadata.commitId (Foreign Key to {@link CommitEvent}).
  *
  * <p>Stats are updated/replaced when new commits modify the partition.
  *
- * @see DatasetCommitEvent
- * @see DatasetCommitEventPartitions
+ * @see CommitEvent
+ * @see CommitEventPartitions
  * @see CommitMetadata
  */
 @Data
@@ -30,14 +30,14 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
-public class DatasetPartitionStats extends BaseEventModels.BaseDataset {
+public class PartitionStats extends BaseEventModels.BaseDataset {
 
   /**
    * Commit metadata for the latest commit that modified this partition.
    *
-   * <p>The commitId within this metadata serves as a Foreign Key to {@link DatasetCommitEvent}.
+   * <p>The commitId within this metadata serves as a Foreign Key to {@link CommitEvent}.
    */
-  private CommitMetadata commitMetadata;
+  @NonNull private CommitMetadata commitMetadata;
 
   /**
    * Key-value mapping of partition columns and their corresponding values associated with the
