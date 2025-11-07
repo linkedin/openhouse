@@ -48,7 +48,7 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
    *
    * <p>Example for non-null partition: { "datepartition": "2025-01-25", "hourpartition": "12" }
    */
-  @NonNull private Map<String, String> partitionSpec;
+  @NonNull private Map<String, String> partitionData;
 
   /**
    * Total number of rows corresponding to the given partition specification if partition_spec is
