@@ -43,7 +43,7 @@ public final class BaseEventModels {
     @NonNull private String commitId;
 
     /** Timestamp of the commit event captured in epoch milliseconds */
-    @NonNull private Long commitTimestampInEpochMs;
+    @NonNull private Long commitTimestampMs;
 
     /**
      * Unique application identifier (e.g., Spark Application ID) associated with the process or job
