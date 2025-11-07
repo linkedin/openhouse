@@ -277,7 +277,7 @@ public class OperationTasksBuilder {
     if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
       // DLO execution job needs to fetch all table metadata before submission
       buildDataLayoutOperationTaskListInParallel(jobType, properties, operationMode, otelEmitter);
-    } else if (jobType == JobConf.JobTypeEnum.TABLE) {
+    } else if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP) {
       buildDatabaseLevelOperationTasksInParallel(jobType, operationMode, otelEmitter);
     } else {
       buildOperationTaskListInParallelInternal(jobType, operationMode, otelEmitter);
