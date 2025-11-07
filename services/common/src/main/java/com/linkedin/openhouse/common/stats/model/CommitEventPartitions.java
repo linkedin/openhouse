@@ -46,5 +46,5 @@ public class CommitEventPartitions {
    * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
    * the corresponding event.
    */
-  @NonNull private Long eventTimestampInEpochMs;
+  @NonNull private Long eventTimestampMs;
 }
