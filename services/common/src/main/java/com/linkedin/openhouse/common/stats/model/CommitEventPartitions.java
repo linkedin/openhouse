@@ -40,7 +40,7 @@ public class CommitEventPartitions {
    *
    * <p>Example: { "datepartition": "2025-01-25", "hourpartition": "12" }
    */
-  @NonNull private Map<String, String> partitionSpec;
+  @NonNull private Map<String, String> partitionData;
 
   /**
    * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
