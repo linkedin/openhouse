@@ -972,21 +972,21 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   @Test
-  void testRefreshMetadataIncludesDatabaseTag() {
-    testMetricIncludesDatabaseTag(
+  void testRefreshMetadataExcludesDatabaseTag() {
+    testMetricExcludesDatabaseTag(
         InternalCatalogMetricsConstant.METADATA_RETRIEVAL_LATENCY,
         this::setupRefreshMetadataTest,
         this::executeRefreshMetadata,
-        "Timer should not have table tag (removed because the table tag has super high cardinality and overloads metric emission max size)");
+        "Timer should not have database or table tags (both removed to reduce cardinality)");
   }
 
   @Test
-  void testCommitMetadataUpdateIncludesDatabaseTag() {
-    testMetricIncludesDatabaseTag(
+  void testCommitMetadataUpdateExcludesDatabaseTag() {
+    testMetricExcludesDatabaseTag(
         InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
         this::setupCommitMetadataTest,
         this::executeCommitMetadata,
-        "Timer should not have table tag (only database dimension should be included)");
+        "Timer should not have database or table tags (both removed to reduce cardinality)");
   }
 
   @Test
@@ -1006,18 +1006,18 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Common test method for verifying metrics include database tag but not table tag.
+   * Common test method for verifying metrics exclude both database and table tags.
    *
    * @param expectedMetricSuffix The metric name suffix (without catalog prefix)
    * @param setupFunction Function to set up test-specific mocks
    * @param executeFunction Function to execute the operation that should record metrics
-   * @param noTableTagMessage Custom message for table tag assertion
+   * @param noTagsMessage Custom message for tag assertions
    */
-  private void testMetricIncludesDatabaseTag(
+  private void testMetricExcludesDatabaseTag(
       String expectedMetricSuffix,
       Consumer<OpenHouseInternalTableOperations> setupFunction,
       Consumer<OpenHouseInternalTableOperations> executeFunction,
-      String noTableTagMessage) {
+      String noTagsMessage) {
 
     // Create a real SimpleMeterRegistry to capture metrics
     SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -1041,8 +1041,8 @@ public class OpenHouseInternalTableOperationsTest {
     // Execute the operation that should record the metric
     executeFunction.accept(operationsWithRealMetrics);
 
-    // Verify the metric was recorded with correct tags
-    verifyMetricTags(meterRegistry, expectedMetricSuffix, noTableTagMessage);
+    // Verify the metric was recorded without database or table tags
+    verifyMetricTagsExcluded(meterRegistry, expectedMetricSuffix, noTagsMessage);
   }
 
   /**
@@ -1156,36 +1156,32 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Verifies that a metric was recorded with the correct tags (database tag present, table tag
-   * absent).
+   * Verifies that a metric was recorded without database or table tags.
    *
    * @param meterRegistry The meter registry to search for metrics
    * @param expectedMetricSuffix The expected metric name suffix
-   * @param noTableTagMessage Custom message for table tag assertion
+   * @param noTagsMessage Custom message for tag assertions
    */
-  private void verifyMetricTags(
-      SimpleMeterRegistry meterRegistry, String expectedMetricSuffix, String noTableTagMessage) {
+  private void verifyMetricTagsExcluded(
+      SimpleMeterRegistry meterRegistry, String expectedMetricSuffix, String noTagsMessage) {
     String expectedMetricName = "TEST_CATALOG_" + expectedMetricSuffix;
 
     // Find the timer in the registry
     io.micrometer.core.instrument.Timer timer = meterRegistry.find(expectedMetricName).timer();
     Assertions.assertNotNull(timer, "Timer should be created");
 
-    // Verify the database tag is present
+    // Verify the database tag is NOT present
     boolean hasDatabaseTag =
         timer.getId().getTags().stream()
-            .anyMatch(
-                tag ->
-                    tag.getKey().equals(InternalCatalogMetricsConstant.DATABASE_TAG)
-                        && tag.getValue().equals("test_db"));
+            .anyMatch(tag -> tag.getKey().equals(InternalCatalogMetricsConstant.DATABASE_TAG));
 
     // Verify the table tag is NOT present
     boolean hasTableTag =
         timer.getId().getTags().stream()
             .anyMatch(tag -> tag.getKey().equals(InternalCatalogMetricsConstant.TABLE_TAG));
 
-    Assertions.assertTrue(hasDatabaseTag, "Timer should have database tag with value 'test_db'");
-    Assertions.assertFalse(hasTableTag, noTableTagMessage);
+    Assertions.assertFalse(hasDatabaseTag, "Timer should not have database tag");
+    Assertions.assertFalse(hasTableTag, noTagsMessage);
 
     // Verify the timer was actually used (count > 0)
     Assertions.assertTrue(timer.count() > 0, "Timer should have been used at least once");
