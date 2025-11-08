@@ -42,6 +42,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
@@ -487,6 +488,102 @@ public class OpenHouseInternalTableOperationsTest {
             .hiddenImpl(BaseMetastoreTableOperations.class, "shouldRefresh")
             .<Boolean>build(openHouseInternalTableOperations)
             .get());
+  }
+
+  /**
+   * Tests staged table creation with no snapshots (initial version). Verifies that the table
+   * metadata is set locally but no persistence occurs to the repository.
+   */
+  @Test
+  void testStagedTableCreationWithoutSnapshots() throws IOException {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.IS_STAGE_CREATE_KEY, "true");
+
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      openHouseInternalTableOperations.doCommit(null, metadata);
+
+      // Verify TableMetadata is set locally
+      Assertions.assertNotNull(openHouseInternalTableOperations.currentMetadataLocation());
+      Assertions.assertNotNull(openHouseInternalTableOperations.current());
+
+      // Verify no snapshots were added
+      Assertions.assertEquals(0, openHouseInternalTableOperations.current().snapshots().size());
+
+      // Verify no persistence to repository
+      verify(mockHouseTableRepository, times(0)).save(any());
+
+      // Verify no snapshot properties were set
+      Map<String, String> resultProperties =
+          openHouseInternalTableOperations.current().properties();
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("deleted_snapshots")));
+    }
+  }
+
+  /**
+   * Tests staged table creation with staged (WAP) snapshots. Verifies that staged snapshots are
+   * added to the table but no persistence occurs to the repository.
+   */
+  @Test
+  void testStagedTableCreationWithStagedSnapshots() throws IOException {
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 2);
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.IS_STAGE_CREATE_KEY, "true");
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testWapSnapshots));
+
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      openHouseInternalTableOperations.doCommit(null, metadata);
+
+      // Verify TableMetadata is set locally
+      Assertions.assertNotNull(openHouseInternalTableOperations.currentMetadataLocation());
+      Assertions.assertNotNull(openHouseInternalTableOperations.current());
+
+      // Verify staged snapshots were added
+      TableMetadata currentMetadata = openHouseInternalTableOperations.current();
+      Assertions.assertEquals(
+          testWapSnapshots.size(),
+          currentMetadata.snapshots().size(),
+          "Staged snapshots should be added");
+
+      // Verify all snapshots are staged (have WAP ID)
+      for (Snapshot snapshot : currentMetadata.snapshots()) {
+        Assertions.assertTrue(
+            snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP),
+            "All snapshots should be staged with WAP ID");
+      }
+
+      // Verify no branch references exist (staged snapshots should not be on main)
+      Assertions.assertTrue(
+          currentMetadata.refs().isEmpty()
+              || !currentMetadata.refs().containsKey(SnapshotRef.MAIN_BRANCH),
+          "Staged snapshots should not have main branch reference");
+
+      // Verify no persistence to repository
+      verify(mockHouseTableRepository, times(0)).save(any());
+
+      // Verify snapshot properties tracking
+      Map<String, String> resultProperties = currentMetadata.properties();
+      Assertions.assertEquals(
+          testWapSnapshots.stream()
+              .map(s -> Long.toString(s.snapshotId()))
+              .collect(Collectors.joining(",")),
+          resultProperties.get(getCanonicalFieldName("staged_snapshots")),
+          "Staged snapshots should be tracked in properties");
+      Assertions.assertNull(
+          resultProperties.get(getCanonicalFieldName("appended_snapshots")),
+          "No snapshots should be appended to main");
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("deleted_snapshots")));
+    }
   }
 
   /**
