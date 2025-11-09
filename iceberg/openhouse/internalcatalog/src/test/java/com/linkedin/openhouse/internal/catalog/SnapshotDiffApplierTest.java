@@ -594,4 +594,253 @@ public class SnapshotDiffApplierTest {
 
     assertTrue(exception.getMessage().contains("Cannot delete the current snapshot"));
   }
+
+  /**
+   * Verifies transition from table with unreferenced snapshots to having a MAIN branch. Tests
+   * ref-only update without snapshot changes.
+   */
+  @Test
+  void testApplySnapshots_baseWithUnreferencedSnapshotsOnly_addFirstMainBranch()
+      throws IOException {
+    List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
+
+    // Create base with snapshots but no refs (all unreferenced)
+    TableMetadata base = baseMetadata;
+    for (Snapshot snapshot : snapshots) {
+      base = TableMetadata.buildFrom(base).addSnapshot(snapshot).build();
+    }
+    // Verify no refs in base
+    assertTrue(base.refs().isEmpty() || !base.refs().containsKey(SnapshotRef.MAIN_BRANCH));
+
+    // Provided: same snapshots + MAIN ref to one of them
+    Snapshot mainSnapshot = snapshots.get(2);
+    Map<String, String> refs = IcebergTestUtil.obtainSnapshotRefsFromSnapshot(mainSnapshot);
+    TableMetadata newMetadata = createMetadataWithSnapshots(base, snapshots, refs);
+
+    TableMetadata result = snapshotDiffApplier.applySnapshots(base, newMetadata);
+
+    // Verify MAIN ref is set
+    assertNotNull(result.currentSnapshot());
+    assertEquals(mainSnapshot.snapshotId(), result.currentSnapshot().snapshotId());
+
+    // Verify no add/delete operations (ref-only update)
+    assertEquals(snapshots.size(), result.snapshots().size());
+    Map<String, String> resultProps = result.properties();
+    assertNull(resultProps.get(getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS)));
+    assertNull(resultProps.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS)));
+  }
+
+  /**
+   * Verifies table creation with no snapshots (empty state). Tests that an empty table can be
+   * created successfully.
+   */
+  @Test
+  void testApplySnapshots_nullBaseEmptySnapshotsEmptyRefs_createsEmptyTable() {
+    // Provided: empty snapshots list, empty refs
+    TableMetadata newMetadata =
+        createMetadataWithSnapshots(baseMetadata, Collections.emptyList(), new HashMap<>());
+
+    TableMetadata result = snapshotDiffApplier.applySnapshots(null, newMetadata);
+
+    // Verify empty table created
+    assertNotNull(result);
+    assertEquals(0, result.snapshots().size());
+    assertNull(result.currentSnapshot());
+    assertTrue(result.refs().isEmpty() || !result.refs().containsKey(SnapshotRef.MAIN_BRANCH));
+
+    // Verify no snapshot operations tracked
+    Map<String, String> resultProps = result.properties();
+    assertNull(resultProps.get(getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS)));
+    assertNull(resultProps.get(getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS)));
+    assertNull(resultProps.get(getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS)));
+  }
+
+  /**
+   * Verifies adding both regular and staged snapshots in a single commit. Tests that snapshot
+   * categorization correctly handles mixed types.
+   */
+  @Test
+  void testApplySnapshots_addRegularAndStagedSimultaneously() throws IOException {
+    // Start from empty base (no existing snapshots)
+    // Simulate a commit that adds both regular and staged snapshots simultaneously
+
+    List<Snapshot> extraSnapshots = IcebergTestUtil.getExtraSnapshots();
+
+    // Create a custom WAP snapshot without hardcoded sequence number to avoid conflicts
+    // Build snapshot JSON manually and wrap it in a Gson array
+    String wapSnapshotJson =
+        String.format(
+            "{\"snapshot-id\":%d,\"timestamp-ms\":%d,\"summary\":%s,\"manifest-list\":\"%s\",\"schema-id\":%d}",
+            999940701710231339L,
+            1669126937912L,
+            new Gson()
+                .toJson(
+                    Map.of(
+                        "operation", "append",
+                        "wap.id", "test-wap",
+                        "spark.app.id", "local-1669126906634",
+                        "added-data-files", "1",
+                        "added-records", "1")),
+            "/data/test.avro",
+            0);
+    String wapSnapshotArrayJson = new Gson().toJson(List.of(wapSnapshotJson));
+    List<Snapshot> customWapSnapshots = SnapshotsUtil.parseSnapshots(null, wapSnapshotArrayJson);
+
+    List<Snapshot> allSnapshots = new ArrayList<>();
+    allSnapshots.add(extraSnapshots.get(0)); // New regular snapshot
+    allSnapshots.add(customWapSnapshots.get(0)); // New staged snapshot
+
+    // MAIN ref points to the new regular snapshot
+    Map<String, String> refs =
+        IcebergTestUtil.obtainSnapshotRefsFromSnapshot(extraSnapshots.get(0));
+    TableMetadata newMetadata = createMetadataWithSnapshots(baseMetadata, allSnapshots, refs);
+
+    TableMetadata result = snapshotDiffApplier.applySnapshots(null, newMetadata);
+
+    // Verify both snapshots added
+    assertEquals(2, result.snapshots().size());
+
+    // Verify regular snapshot is on MAIN
+    assertNotNull(result.currentSnapshot());
+    assertEquals(extraSnapshots.get(0).snapshotId(), result.currentSnapshot().snapshotId());
+
+    // Verify tracking: regular appended, staged tracked separately
+    Map<String, String> resultProps = result.properties();
+    String appendedSnapshotsStr =
+        resultProps.get(getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS));
+    String stagedSnapshotsStr =
+        resultProps.get(getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS));
+
+    assertNotNull(appendedSnapshotsStr);
+    assertTrue(appendedSnapshotsStr.contains(Long.toString(extraSnapshots.get(0).snapshotId())));
+
+    assertNotNull(stagedSnapshotsStr);
+    assertTrue(stagedSnapshotsStr.contains(Long.toString(customWapSnapshots.get(0).snapshotId())));
+  }
+
+  /**
+   * Verifies cherry-picking a staged snapshot while adding a new snapshot in the same commit. Tests
+   * compound operation tracking.
+   */
+  @Test
+  void testApplySnapshots_cherryPickAndAddNewSimultaneously() throws IOException {
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots();
+
+    // Base: MAIN snapshot + staged snapshot
+    TableMetadata base =
+        TableMetadata.buildFrom(baseMetadata)
+            .setBranchSnapshot(testWapSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+            .addSnapshot(testWapSnapshots.get(1)) // Staged snapshot
+            .build();
+
+    // Provided: existing + new snapshot becomes MAIN, staged is cherry-picked
+    List<Snapshot> allSnapshots = new ArrayList<>();
+    allSnapshots.add(testWapSnapshots.get(0));
+    allSnapshots.add(testWapSnapshots.get(1)); // Was staged, now cherry-picked
+    allSnapshots.add(testWapSnapshots.get(2)); // New snapshot
+
+    // MAIN ref points to new snapshot
+    Map<String, String> refs =
+        IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testWapSnapshots.get(2));
+    TableMetadata newMetadata = createMetadataWithSnapshots(base, allSnapshots, refs);
+
+    TableMetadata result = snapshotDiffApplier.applySnapshots(base, newMetadata);
+
+    // Verify new snapshot is on MAIN
+    assertNotNull(result.currentSnapshot());
+    assertEquals(testWapSnapshots.get(2).snapshotId(), result.currentSnapshot().snapshotId());
+
+    // Verify both operations tracked
+    Map<String, String> resultProps = result.properties();
+    String appendedSnapshotsStr =
+        resultProps.get(getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS));
+    String cherryPickedSnapshotsStr =
+        resultProps.get(getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS));
+
+    // New snapshot should be appended
+    assertNotNull(appendedSnapshotsStr);
+    assertTrue(appendedSnapshotsStr.contains(Long.toString(testWapSnapshots.get(2).snapshotId())));
+
+    // Staged snapshot should be cherry-picked
+    assertNotNull(cherryPickedSnapshotsStr);
+    assertTrue(
+        cherryPickedSnapshotsStr.contains(Long.toString(testWapSnapshots.get(1).snapshotId())));
+  }
+
+  /**
+   * Verifies that attempting to delete the current snapshot while unreferenced snapshots exist
+   * throws an exception. Tests current snapshot protection.
+   */
+  @Test
+  void testApplySnapshots_attemptDeleteCurrentWithUnreferencedPresent_throwsException()
+      throws IOException {
+    List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
+
+    // Base: MAIN snapshot + 2 unreferenced snapshots
+    TableMetadata base =
+        TableMetadata.buildFrom(baseMetadata)
+            .addSnapshot(snapshots.get(0)) // Unreferenced
+            .addSnapshot(snapshots.get(1)) // Unreferenced
+            .setBranchSnapshot(snapshots.get(2), SnapshotRef.MAIN_BRANCH) // Current snapshot
+            .build();
+
+    // Provided: only the 2 unreferenced (delete MAIN), no new snapshots
+    List<Snapshot> remainingSnapshots = snapshots.subList(0, 2);
+    TableMetadata newMetadata =
+        createMetadataWithSnapshots(base, remainingSnapshots, new HashMap<>());
+
+    // Should throw exception because current snapshot is being deleted without replacement
+    InvalidIcebergSnapshotException exception =
+        assertThrows(
+            InvalidIcebergSnapshotException.class,
+            () -> snapshotDiffApplier.applySnapshots(base, newMetadata));
+
+    assertTrue(exception.getMessage().contains("Cannot delete the current snapshot"));
+    assertTrue(exception.getMessage().contains(Long.toString(snapshots.get(2).snapshotId())));
+  }
+
+  /**
+   * Verifies adding regular (non-WAP) snapshots with empty refs. historically, such snapshots were
+   * automatically added to MAIN branch and tracked as APPENDED_SNAPSHOTS. This test validates
+   * backward compatibility with that behavior. NOTE: The semantics here are questionable -
+   * snapshots with no refs should arguably not be "appended" to MAIN, but this preserves the
+   * original behavior.
+   */
+  @Test
+  void testApplySnapshots_regularSnapshotsWithEmptyRefs_autoAppendedToMain() throws IOException {
+    List<Snapshot> baseSnapshots = IcebergTestUtil.getSnapshots();
+    TableMetadata baseWithSnapshots = addSnapshotsToMetadata(baseMetadata, baseSnapshots);
+
+    // Provided: existing + new snapshots, but empty refs map (no MAIN branch)
+    List<Snapshot> extraSnapshots = IcebergTestUtil.getExtraSnapshots();
+    List<Snapshot> allSnapshots = new ArrayList<>(baseSnapshots);
+    allSnapshots.addAll(extraSnapshots);
+
+    // Empty refs - no MAIN branch
+    TableMetadata newMetadata =
+        createMetadataWithSnapshots(baseWithSnapshots, allSnapshots, new HashMap<>());
+
+    TableMetadata result = snapshotDiffApplier.applySnapshots(baseWithSnapshots, newMetadata);
+
+    // Verify new snapshots added
+    assertEquals(allSnapshots.size(), result.snapshots().size());
+
+    // Verify MAIN branch points to the latest snapshot (auto-appended to main)
+    assertNotNull(result.ref(SnapshotRef.MAIN_BRANCH));
+    assertEquals(
+        allSnapshots.get(allSnapshots.size() - 1).snapshotId(),
+        result.ref(SnapshotRef.MAIN_BRANCH).snapshotId());
+
+    // Verify new snapshots tracked as appended (even though unreferenced, they're not staged WAP)
+    Map<String, String> resultProps = result.properties();
+    String appendedSnapshotsStr =
+        resultProps.get(getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS));
+
+    assertNotNull(appendedSnapshotsStr);
+    for (Snapshot extraSnapshot : extraSnapshots) {
+      assertTrue(
+          appendedSnapshotsStr.contains(Long.toString(extraSnapshot.snapshotId())),
+          "Snapshot " + extraSnapshot.snapshotId() + " should be tracked as appended");
+    }
+  }
 }

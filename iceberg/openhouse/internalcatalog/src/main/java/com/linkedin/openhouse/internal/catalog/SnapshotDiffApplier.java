@@ -85,7 +85,7 @@ public class SnapshotDiffApplier {
 
     // Validate, apply, record metrics (in correct order)
     diff.validate();
-    TableMetadata result = diff.applyTo();
+    TableMetadata result = diff.apply();
     diff.recordMetrics();
     return result;
   }
@@ -365,7 +365,7 @@ public class SnapshotDiffApplier {
       }
     }
 
-    TableMetadata applyTo() {
+    TableMetadata apply() {
       TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(this.providedMetadata);
 
       /**
@@ -378,22 +378,28 @@ public class SnapshotDiffApplier {
        *
        * <p>[3] Cherry-picked snapshots - existing snapshots, branch pointer set below
        */
-      // Add staged snapshots in timestamp order (explicit ordering for consistency)
+      // Add staged snapshots in sequence number order (ensures correct commit ordering)
       this.newStagedSnapshots.stream()
-          .sorted(java.util.Comparator.comparingLong(Snapshot::timestampMillis))
+          .sorted(java.util.Comparator.comparingLong(Snapshot::sequenceNumber))
           .forEach(metadataBuilder::addSnapshot);
 
-      // Add new main branch snapshots in timestamp order (explicit ordering)
-      // Note: While the branch pointer (not list order) determines currentSnapshot(),
-      // other code assumes snapshots are time-ordered (e.g., validation at line 308)
-      this.newMainBranchSnapshots.stream()
-          .sorted(java.util.Comparator.comparingLong(Snapshot::timestampMillis))
-          .forEach(metadataBuilder::addSnapshot);
+      // Add new main branch snapshots in sequence number order (ensures correct commit ordering)
+      List<Snapshot> sortedMainBranchSnapshots =
+          this.newMainBranchSnapshots.stream()
+              .sorted(java.util.Comparator.comparingLong(Snapshot::sequenceNumber))
+              .collect(Collectors.toList());
+      sortedMainBranchSnapshots.forEach(metadataBuilder::addSnapshot);
 
       // Set branch pointer once using providedRefs (covers both new snapshots and cherry-pick)
       if (!this.providedRefs.isEmpty()) {
         long newSnapshotId = this.providedRefs.get(SnapshotRef.MAIN_BRANCH).snapshotId();
         metadataBuilder.setBranchSnapshot(newSnapshotId, SnapshotRef.MAIN_BRANCH);
+      } else if (!sortedMainBranchSnapshots.isEmpty()) {
+        // Auto-append to main: if no refs provided but there are new main branch snapshots,
+        // set MAIN to the last snapshot (latest by sequence number due to sort above)
+        Snapshot latestSnapshot =
+            sortedMainBranchSnapshots.get(sortedMainBranchSnapshots.size() - 1);
+        metadataBuilder.setBranchSnapshot(latestSnapshot.snapshotId(), SnapshotRef.MAIN_BRANCH);
       }
 
       // Delete snapshots
