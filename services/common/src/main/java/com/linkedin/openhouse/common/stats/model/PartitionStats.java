@@ -101,33 +101,87 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
   @NonNull private Long eventTimestampInEpochMs;
 
   /**
-   * Column-level statistic with type-specific value fields.
+   * Column-level statistic interface for type-safe statistics.
    *
-   * <p>Type-specific fields provide compile-time type safety:
+   * <p>Provides a type-safe way to represent column statistics with different value types. Each
+   * implementation encapsulates a specific value type, ensuring compile-time type safety.
+   *
+   * <p>Implementations:
    *
    * <ul>
-   *   <li><b>longValue</b> - For counts (null, NaN) and sizes in bytes
-   *   <li><b>stringValue</b> - For min/max of strings, dates, timestamps
-   *   <li><b>doubleValue</b> - For floating-point statistics (future use)
+   *   <li>{@link LongColumnStatistic} - For counts (null, NaN) and sizes in bytes
+   *   <li>{@link StringColumnStatistic} - For min/max of strings, dates, timestamps
+   *   <li>{@link DoubleColumnStatistic} - For floating-point statistics
    * </ul>
    *
-   * <p>Only populate one value field per instance.
+   * <p>This design pattern is inspired by Apache ORC's type-safe column statistics approach.
    */
+  public interface ColumnStatistic {
+    /**
+     * Returns the column name this statistic applies to.
+     *
+     * @return the column name
+     */
+    String getColumnName();
+
+    /**
+     * Returns the statistic value as an object for generic handling.
+     *
+     * <p>The actual type depends on the implementation:
+     *
+     * <ul>
+     *   <li>{@link LongColumnStatistic} returns {@link Long}
+     *   <li>{@link StringColumnStatistic} returns {@link String}
+     *   <li>{@link DoubleColumnStatistic} returns {@link Double}
+     * </ul>
+     *
+     * @return the statistic value
+     */
+    Object getValue();
+  }
+
+  /** Long-valued column statistic for counts and sizes in bytes. */
   @Data
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class ColumnStatistic {
+  public static class LongColumnStatistic implements ColumnStatistic {
     /** Name of the column */
     @NonNull private String columnName;
 
     /** Long value for counts (null, NaN) and sizes in bytes */
-    private Long longValue;
+    @NonNull private Long value;
+
+    // Lombok generates: Long getValue() which satisfies Object getValue() from interface
+  }
+
+  /** String-valued column statistic for min/max of strings, dates, and timestamps. */
+  @Data
+  @Builder
+  @NoArgsConstructor
+  @AllArgsConstructor
+  public static class StringColumnStatistic implements ColumnStatistic {
+    /** Name of the column */
+    @NonNull private String columnName;
 
     /** String value for min/max of strings, dates, and timestamps */
-    private String stringValue;
+    @NonNull private String value;
 
-    /** Double value for floating-point statistics (reserved for future use) */
-    private Double doubleValue;
+    // Lombok generates: String getValue() which satisfies Object getValue() from interface
+  }
+
+  /** Double-valued column statistic for floating-point min/max values. */
+  @Data
+  @Builder
+  @NoArgsConstructor
+  @AllArgsConstructor
+  public static class DoubleColumnStatistic implements ColumnStatistic {
+    /** Name of the column */
+    @NonNull private String columnName;
+
+    /** Double value for floating-point statistics */
+    @NonNull private Double value;
+
+    // Lombok generates: Double getValue() which satisfies Object getValue() from interface
   }
 }
