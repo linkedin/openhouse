@@ -66,7 +66,7 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
    * Stores null count statistics for each column in the dataset. Each element represents a column
    * name and its corresponding number of null values.
    */
-  private List<ColumnStatistic> nullCount;
+  private List<ColumnStatistics> nullCount;
 
   /**
    * Stores NaN count statistics for each column in the dataset. Each element represents a column
@@ -74,25 +74,25 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
    *
    * <p>Applicable only to numeric data types such as float, double, or decimal.
    */
-  private List<ColumnStatistic> nanCount;
+  private List<ColumnStatistics> nanCount;
 
   /**
    * Stores minimum value statistics for each column in the dataset. Each element represents a
    * column name and its corresponding minimum value.
    */
-  private List<ColumnStatistic> minValue;
+  private List<ColumnStatistics> minValue;
 
   /**
    * Stores maximum value statistics for each column in the dataset. Each element represents a
    * column name and its corresponding maximum value.
    */
-  private List<ColumnStatistic> maxValue;
+  private List<ColumnStatistics> maxValue;
 
   /**
    * Stores column size in bytes statistics for each column in the dataset. Each element represents
    * a column name and its corresponding size in bytes.
    */
-  private List<ColumnStatistic> columnSizeInBytes;
+  private List<ColumnStatistics> columnSizeInBytes;
 
   /**
    * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
@@ -109,14 +109,14 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
    * <p>Implementations:
    *
    * <ul>
-   *   <li>{@link LongColumnStatistic} - For counts (null, NaN) and sizes in bytes
-   *   <li>{@link StringColumnStatistic} - For min/max of strings, dates, timestamps
-   *   <li>{@link DoubleColumnStatistic} - For floating-point statistics
+   *   <li>{@link LongColumnStatistics} - For counts (null, NaN) and sizes in bytes
+   *   <li>{@link StringColumnStatistics} - For min/max of strings, dates, timestamps
+   *   <li>{@link DoubleColumnStatistics} - For floating-point statistics
    * </ul>
    *
    * <p>This design pattern is inspired by Apache ORC's type-safe column statistics approach.
    */
-  public interface ColumnStatistic {
+  public interface ColumnStatistics {
     /**
      * Returns the column name this statistic applies to.
      *
@@ -130,9 +130,9 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
      * <p>The actual type depends on the implementation:
      *
      * <ul>
-     *   <li>{@link LongColumnStatistic} returns {@link Long}
-     *   <li>{@link StringColumnStatistic} returns {@link String}
-     *   <li>{@link DoubleColumnStatistic} returns {@link Double}
+     *   <li>{@link LongColumnStatistics} returns {@link Long}
+     *   <li>{@link StringColumnStatistics} returns {@link String}
+     *   <li>{@link DoubleColumnStatistics} returns {@link Double}
      * </ul>
      *
      * @return the statistic value
@@ -145,7 +145,7 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class LongColumnStatistic implements ColumnStatistic {
+  public static class LongColumnStatistics implements ColumnStatistics {
     /** Name of the column */
     @NonNull private String columnName;
 
@@ -160,7 +160,7 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class StringColumnStatistic implements ColumnStatistic {
+  public static class StringColumnStatistics implements ColumnStatistics {
     /** Name of the column */
     @NonNull private String columnName;
 
@@ -175,7 +175,7 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class DoubleColumnStatistic implements ColumnStatistic {
+  public static class DoubleColumnStatistics implements ColumnStatistics {
     /** Name of the column */
     @NonNull private String columnName;
 
