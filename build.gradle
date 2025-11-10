@@ -30,7 +30,6 @@ ext {
   spark_version = "3.1.1"
   ok_http3_version = "4.11.0"
   junit_version = "5.11.0"
-  li_iceberg_version = "1.2.0.4"
 }
 
 group = 'com.linkedin.openhouse'
