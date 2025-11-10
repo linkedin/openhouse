@@ -9,7 +9,7 @@ ext {
     log4jVersion = "2.20.0"
 
     sparkVersion = '3.5.2'
-    icebergVersion = '1.5.2.1'
+    icebergVersion = rootProject.ext.iceberg_1_5_version
     sparkVersionSuffix = "3.5"
     openhouseSparkRuntimeModule = ":integrations:spark:spark-${sparkVersionSuffix}:openhouse-spark-3.5-runtime_2.12"
     icebergSparkRuntimeModule = "com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}"

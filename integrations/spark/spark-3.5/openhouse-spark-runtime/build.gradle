@@ -6,7 +6,7 @@ plugins {
 }
 
 ext {
-  icebergVersion = '1.5.2.1'
+  icebergVersion = rootProject.ext.iceberg_1_5_version
   sparkVersion = '3.5.2'
 }
 

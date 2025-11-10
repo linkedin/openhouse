@@ -4,7 +4,7 @@ plugins {
 }
 
 ext {
-  icebergVersion = '1.2.0.4'
+  icebergVersion = rootProject.ext.iceberg_1_2_version
 }
 
 dependencies {
