@@ -96,7 +96,7 @@ public class SnapshotDiffApplierTest {
   private TableMetadata createMetadataWithSnapshotsAndMainRef(
       TableMetadata base, List<Snapshot> snapshots) {
     Map<String, String> refs =
-        IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1));
+        IcebergTestUtil.createMainBranchRefPointingTo(snapshots.get(snapshots.size() - 1));
     return createMetadataWithSnapshots(base, snapshots, refs);
   }
 
@@ -184,7 +184,7 @@ public class SnapshotDiffApplierTest {
     TableMetadata baseWithSnapshots = addSnapshotsToMetadata(baseMetadata, snapshots);
 
     Snapshot newBranchTarget = snapshots.get(1);
-    Map<String, String> refs = IcebergTestUtil.obtainSnapshotRefsFromSnapshot(newBranchTarget);
+    Map<String, String> refs = IcebergTestUtil.createMainBranchRefPointingTo(newBranchTarget);
     TableMetadata newMetadata = createMetadataWithSnapshots(baseWithSnapshots, snapshots, refs);
 
     TableMetadata result = snapshotDiffApplier.applySnapshots(baseWithSnapshots, newMetadata);
@@ -288,7 +288,7 @@ public class SnapshotDiffApplierTest {
     allSnapshots.addAll(wapSnapshots);
 
     Map<String, String> refs =
-        IcebergTestUtil.obtainSnapshotRefsFromSnapshot(baseSnapshots.get(baseSnapshots.size() - 1));
+        IcebergTestUtil.createMainBranchRefPointingTo(baseSnapshots.get(baseSnapshots.size() - 1));
     TableMetadata newMetadata = createMetadataWithSnapshots(baseWithSnapshots, allSnapshots, refs);
 
     TableMetadata result = snapshotDiffApplier.applySnapshots(baseWithSnapshots, newMetadata);
@@ -614,7 +614,7 @@ public class SnapshotDiffApplierTest {
 
     // Provided: same snapshots + MAIN ref to one of them
     Snapshot mainSnapshot = snapshots.get(2);
-    Map<String, String> refs = IcebergTestUtil.obtainSnapshotRefsFromSnapshot(mainSnapshot);
+    Map<String, String> refs = IcebergTestUtil.createMainBranchRefPointingTo(mainSnapshot);
     TableMetadata newMetadata = createMetadataWithSnapshots(base, snapshots, refs);
 
     TableMetadata result = snapshotDiffApplier.applySnapshots(base, newMetadata);
@@ -691,8 +691,7 @@ public class SnapshotDiffApplierTest {
     allSnapshots.add(customWapSnapshots.get(0)); // New staged snapshot
 
     // MAIN ref points to the new regular snapshot
-    Map<String, String> refs =
-        IcebergTestUtil.obtainSnapshotRefsFromSnapshot(extraSnapshots.get(0));
+    Map<String, String> refs = IcebergTestUtil.createMainBranchRefPointingTo(extraSnapshots.get(0));
     TableMetadata newMetadata = createMetadataWithSnapshots(baseMetadata, allSnapshots, refs);
 
     TableMetadata result = snapshotDiffApplier.applySnapshots(null, newMetadata);
@@ -741,7 +740,7 @@ public class SnapshotDiffApplierTest {
 
     // MAIN ref points to new snapshot
     Map<String, String> refs =
-        IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testWapSnapshots.get(2));
+        IcebergTestUtil.createMainBranchRefPointingTo(testWapSnapshots.get(2));
     TableMetadata newMetadata = createMetadataWithSnapshots(base, allSnapshots, refs);
 
     TableMetadata result = snapshotDiffApplier.applySnapshots(base, newMetadata);
@@ -842,5 +841,94 @@ public class SnapshotDiffApplierTest {
           appendedSnapshotsStr.contains(Long.toString(extraSnapshot.snapshotId())),
           "Snapshot " + extraSnapshot.snapshotId() + " should be tracked as appended");
     }
+  }
+
+  /**
+   * Verifies cherry-picking multiple staged snapshots in sequence, testing both fast-forward and
+   * rebase scenarios. wap1 and wap2 both have the same parent. Cherry-picking wap1 first is a
+   * fast-forward (no new snapshot). Cherry-picking wap2 after main has moved requires a rebase (new
+   * snapshot created).
+   */
+  @Test
+  void testApplySnapshots_cherryPickMultipleStagedSnapshotsOutOfOrder() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots();
+
+    // Setup: MAIN snapshot + 2 staged WAP snapshots (wap1, wap2)
+    TableMetadata base =
+        TableMetadata.buildFrom(baseMetadata)
+            .setBranchSnapshot(testSnapshots.get(0), SnapshotRef.MAIN_BRANCH)
+            .addSnapshot(testWapSnapshots.get(0)) // wap1 (wap.id="wap1")
+            .addSnapshot(testWapSnapshots.get(1)) // wap2 (wap.id="wap2")
+            .build();
+
+    // Step 1: Fast-forward cherry-pick wap1
+    // wap1's parent == current main, so it's promoted directly (no new snapshot)
+    List<Snapshot> allSnapshots1 = new ArrayList<>();
+    allSnapshots1.add(testSnapshots.get(0));
+    allSnapshots1.add(testWapSnapshots.get(0)); // wap1 now on main
+    allSnapshots1.add(testWapSnapshots.get(1)); // wap2 still staged
+
+    // Set MAIN branch to point to wap1
+    Map<String, String> refs1 =
+        IcebergTestUtil.createMainBranchRefPointingTo(testWapSnapshots.get(0));
+    TableMetadata newMetadata1 = createMetadataWithSnapshots(base, allSnapshots1, refs1);
+
+    TableMetadata result1 = snapshotDiffApplier.applySnapshots(base, newMetadata1);
+
+    // Verify fast-forward: only cherry_picked tracked, no new snapshot appended
+    assertNotNull(result1.currentSnapshot());
+    assertEquals(testWapSnapshots.get(0).snapshotId(), result1.currentSnapshot().snapshotId());
+
+    Map<String, String> resultProps1 = result1.properties();
+    String cherryPickedSnapshots1 =
+        resultProps1.get(getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS));
+    assertNotNull(cherryPickedSnapshots1);
+    assertTrue(
+        cherryPickedSnapshots1.contains(Long.toString(testWapSnapshots.get(0).snapshotId())),
+        "wap1 should be tracked as cherry-picked");
+    assertNull(
+        resultProps1.get(getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS)),
+        "No new snapshot for fast-forward");
+
+    // Step 2: Rebase cherry-pick wap2
+    // wap2's parent != current main (which is now wap1), so a new snapshot is created
+    // New snapshot has: parent=wap1, source-snapshot-id=wap2, published.wap.id="wap2"
+    List<Snapshot> allSnapshots2 = new ArrayList<>();
+    allSnapshots2.add(testSnapshots.get(0));
+    allSnapshots2.add(testWapSnapshots.get(0)); // wap1
+    allSnapshots2.add(testWapSnapshots.get(1)); // wap2 (source)
+    allSnapshots2.add(testWapSnapshots.get(2)); // New rebased snapshot
+
+    Map<String, String> refs2 =
+        IcebergTestUtil.createMainBranchRefPointingTo(testWapSnapshots.get(2));
+    TableMetadata newMetadata2 = createMetadataWithSnapshots(result1, allSnapshots2, refs2);
+
+    TableMetadata result2 = snapshotDiffApplier.applySnapshots(result1, newMetadata2);
+
+    // Verify rebase: both cherry_picked (source) and appended (new snapshot) tracked
+    assertNotNull(result2.currentSnapshot());
+    assertEquals(testWapSnapshots.get(2).snapshotId(), result2.currentSnapshot().snapshotId());
+
+    Map<String, String> resultProps2 = result2.properties();
+
+    String cherryPickedSnapshots2 =
+        resultProps2.get(getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS));
+    assertNotNull(cherryPickedSnapshots2);
+    assertTrue(
+        cherryPickedSnapshots2.contains(Long.toString(testWapSnapshots.get(1).snapshotId())),
+        "wap2 should be tracked as cherry-picked (source)");
+
+    String appendedSnapshots2 =
+        resultProps2.get(getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS));
+    assertNotNull(appendedSnapshots2);
+    assertTrue(
+        appendedSnapshots2.contains(Long.toString(testWapSnapshots.get(2).snapshotId())),
+        "New rebased snapshot should be tracked as appended");
+
+    // Verify all 4 snapshots present
+    assertEquals(4, result2.snapshots().size());
+    verify(mockMetricsReporter, atLeastOnce())
+        .count(eq(InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR), anyDouble());
   }
 }

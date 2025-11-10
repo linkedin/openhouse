@@ -172,7 +172,10 @@ public class SnapshotDiffApplier {
       // Categorize snapshots
       List<Snapshot> newStagedSnapshots =
           newSnapshots.stream()
-              .filter(s -> s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
+              .filter(
+                  s ->
+                      s.summary() != null
+                          && s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
               .collect(Collectors.toList());
 
       // Compute source IDs for cherry-pick operations
@@ -220,7 +223,10 @@ public class SnapshotDiffApplier {
       // (includes both regular commits and cherry-pick result snapshots)
       List<Snapshot> newMainBranchSnapshots =
           newSnapshots.stream()
-              .filter(s -> !s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
+              .filter(
+                  s ->
+                      s.summary() == null
+                          || !s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
               .collect(Collectors.toList());
 
       // Compute appended count
@@ -373,33 +379,33 @@ public class SnapshotDiffApplier {
        *
        * <p>[1] Staged (WAP) snapshots - added without branch reference
        *
-       * <p>[2] New main branch snapshots - added without branch reference (branch pointer set
-       * below)
+       * <p>[2] New main branch snapshots - added and moved to MAIN branch incrementally
        *
-       * <p>[3] Cherry-picked snapshots - existing snapshots, branch pointer set below
+       * <p>[3] Cherry-picked snapshots - existing snapshots, final branch pointer set below
+       *
+       * <p>We trust the client-provided order rather than sorting. Sequence numbers are
+       * monotonically increasing along a branch's lineage (following parent pointers) for both
+       * cherry-pick result snapshots and fast-forward snapshots. Iceberg's setBranchSnapshot()
+       * validates sequence numbers, so we can rely on its built-in validation.
        */
-      // Add staged snapshots in sequence number order (ensures correct commit ordering)
-      this.newStagedSnapshots.stream()
-          .sorted(java.util.Comparator.comparingLong(Snapshot::sequenceNumber))
-          .forEach(metadataBuilder::addSnapshot);
+      // Add staged snapshots in client-provided order
+      this.newStagedSnapshots.forEach(metadataBuilder::addSnapshot);
 
-      // Add new main branch snapshots in sequence number order (ensures correct commit ordering)
-      List<Snapshot> sortedMainBranchSnapshots =
-          this.newMainBranchSnapshots.stream()
-              .sorted(java.util.Comparator.comparingLong(Snapshot::sequenceNumber))
-              .collect(Collectors.toList());
-      sortedMainBranchSnapshots.forEach(metadataBuilder::addSnapshot);
+      // Add new main branch snapshots and move MAIN pointer incrementally
+      // This works for both:
+      // - Regular commits: newly created snapshots
+      // - Cherry-pick results: newly created snapshots with SOURCE_SNAPSHOT_ID_PROP
+      for (Snapshot snapshot : this.newMainBranchSnapshots) {
+        metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
+      }
 
-      // Set branch pointer once using providedRefs (covers both new snapshots and cherry-pick)
-      if (!this.providedRefs.isEmpty()) {
-        long newSnapshotId = this.providedRefs.get(SnapshotRef.MAIN_BRANCH).snapshotId();
+      // Set final branch pointer using providedRefs if present
+      // This handles fast-forward for cherry-pick/WAP publish where we're moving the branch
+      // to an existing snapshot
+      SnapshotRef mainBranchRef = this.providedRefs.get(SnapshotRef.MAIN_BRANCH);
+      if (mainBranchRef != null) {
+        long newSnapshotId = mainBranchRef.snapshotId();
         metadataBuilder.setBranchSnapshot(newSnapshotId, SnapshotRef.MAIN_BRANCH);
-      } else if (!sortedMainBranchSnapshots.isEmpty()) {
-        // Auto-append to main: if no refs provided but there are new main branch snapshots,
-        // set MAIN to the last snapshot (latest by sequence number due to sort above)
-        Snapshot latestSnapshot =
-            sortedMainBranchSnapshots.get(sortedMainBranchSnapshots.size() - 1);
-        metadataBuilder.setBranchSnapshot(latestSnapshot.snapshotId(), SnapshotRef.MAIN_BRANCH);
       }
 
       // Delete snapshots

@@ -44,15 +44,14 @@ public final class IcebergTestUtil {
     return SnapshotsUtil.parseSnapshots(null, data);
   }
 
-  public static Map<String, String> obtainSnapshotRefsFromSnapshot(Snapshot snapshot) {
+  public static Map<String, String> createMainBranchRefPointingTo(Snapshot snapshot) {
     Map<String, String> snapshotRefs = new HashMap<>();
     SnapshotRef snapshotRef = SnapshotRef.branchBuilder(snapshot.snapshotId()).build();
     snapshotRefs.put(SnapshotRef.MAIN_BRANCH, SnapshotRefParser.toJson(snapshotRef));
     return snapshotRefs;
   }
 
-  public static Map<String, String> obtainSnapshotRefsFromSnapshot(
-      Snapshot snapshot, String branch) {
+  public static Map<String, String> createBranchRefPointingTo(Snapshot snapshot, String branch) {
     Map<String, String> snapshotRefs = new HashMap<>();
     SnapshotRef snapshotRef = SnapshotRef.branchBuilder(snapshot.snapshotId()).build();
     snapshotRefs.put(branch, SnapshotRefParser.toJson(snapshotRef));
