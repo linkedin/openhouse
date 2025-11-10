@@ -6,7 +6,7 @@ plugins {
 }
 
 ext {
-  icebergVersion = '1.2.0'
+  icebergVersion = '1.2.0.4'
   sparkVersion = '3.1.1'
 }
 
@@ -38,7 +38,7 @@ dependencies {
     exclude group: 'org.apache.hadoop', module: 'hadoop-client'
   }
 
-  testImplementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion) {
+  testImplementation("com.linkedin.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion) {
     exclude group: "io.netty"
   }
   testImplementation(project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
@@ -52,7 +52,7 @@ dependencies {
   fatJarPackagedDependencies(project(path: ':integrations:java:iceberg-1.2:openhouse-java-runtime', configuration: 'shadow')) {
     transitive = false
   }
-  implementation("org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
+  implementation("com.linkedin.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
 }
 
 // Define antlr directories for source generation
