@@ -112,7 +112,7 @@ public class SnapshotDiffApplier {
     private final Set<Long> deletedIds;
 
     // Categorized snapshots
-    private final List<Snapshot> wapSnapshots;
+    private final List<Snapshot> newStagedSnapshots;
     private final List<Snapshot> cherryPickedSnapshots;
     private final List<Snapshot> regularSnapshots;
 
@@ -173,7 +173,7 @@ public class SnapshotDiffApplier {
       Set<Long> deletedIds =
           deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
-      // Compute categorization - process in dependency order
+      // Categorize snapshots - process in dependency order
       // 1. Cherry-picked has highest priority (includes WAP being published)
       // 2. WAP snapshots (staged, not published)
       // 3. Regular snapshots (everything else)
@@ -183,16 +183,16 @@ public class SnapshotDiffApplier {
       Set<Long> cherryPickedIds =
           cherryPickedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
-      List<Snapshot> wapSnapshots =
+      List<Snapshot> newStagedSnapshots =
           computeWapSnapshots(
               providedSnapshots, cherryPickedIds, existingBranchRefIds, providedBranchRefIds);
       Set<Long> wapIds =
-          wapSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+          newStagedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
       List<Snapshot> regularSnapshots =
           computeRegularSnapshots(providedSnapshots, cherryPickedIds, wapIds);
 
-      // Compute branch updates
+      // Compute branch updates (refs that have changed)
       Map<String, SnapshotRef> branchUpdates =
           providedRefs.entrySet().stream()
               .filter(
@@ -203,7 +203,7 @@ public class SnapshotDiffApplier {
                   })
               .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
-      // Compute other changes
+      // Compute derived changes for multi-branch support
       List<Snapshot> newRegularSnapshots =
           regularSnapshots.stream().filter(newSnapshots::contains).collect(Collectors.toList());
       Set<String> staleRefs = new HashSet<>(existingRefs.keySet());
@@ -240,7 +240,7 @@ public class SnapshotDiffApplier {
           newSnapshots,
           deletedSnapshots,
           deletedIds,
-          wapSnapshots,
+          newStagedSnapshots,
           cherryPickedSnapshots,
           regularSnapshots,
           branchUpdates,
@@ -268,7 +268,7 @@ public class SnapshotDiffApplier {
         List<Snapshot> newSnapshots,
         List<Snapshot> deletedSnapshots,
         Set<Long> deletedIds,
-        List<Snapshot> wapSnapshots,
+        List<Snapshot> newStagedSnapshots,
         List<Snapshot> cherryPickedSnapshots,
         List<Snapshot> regularSnapshots,
         Map<String, SnapshotRef> branchUpdates,
@@ -292,7 +292,7 @@ public class SnapshotDiffApplier {
       this.newSnapshots = newSnapshots;
       this.deletedSnapshots = deletedSnapshots;
       this.deletedIds = deletedIds;
-      this.wapSnapshots = wapSnapshots;
+      this.newStagedSnapshots = newStagedSnapshots;
       this.cherryPickedSnapshots = cherryPickedSnapshots;
       this.regularSnapshots = regularSnapshots;
       this.branchUpdates = branchUpdates;
@@ -302,12 +302,22 @@ public class SnapshotDiffApplier {
       this.unreferencedNewSnapshots = unreferencedNewSnapshots;
     }
 
+    /**
+     * Computes staged WAP snapshots that are not yet published to any branch.
+     *
+     * <p>Depends on: cherry-picked IDs (to exclude WAP snapshots being published)
+     *
+     * @param providedSnapshots All snapshots provided in the update
+     * @param excludeCherryPicked Set of cherry-picked snapshot IDs to exclude
+     * @param existingBranchRefIds Set of snapshot IDs referenced by existing branches
+     * @param providedBranchRefIds Set of snapshot IDs referenced by provided branches
+     * @return List of staged WAP snapshots
+     */
     private static List<Snapshot> computeWapSnapshots(
         List<Snapshot> providedSnapshots,
         Set<Long> excludeCherryPicked,
         Set<Long> existingBranchRefIds,
         Set<Long> providedBranchRefIds) {
-      // Depends on: cherry-picked IDs (to exclude WAP snapshots being published)
       Set<Long> allBranchRefIds =
           java.util.stream.Stream.concat(
                   existingBranchRefIds.stream(), providedBranchRefIds.stream())
@@ -367,9 +377,18 @@ public class SnapshotDiffApplier {
           .collect(Collectors.toList());
     }
 
+    /**
+     * Computes regular snapshots that are neither cherry-picked nor staged WAP.
+     *
+     * <p>Depends on: cherry-picked and WAP IDs (everything else is regular)
+     *
+     * @param providedSnapshots All snapshots provided in the update
+     * @param excludeCherryPicked Set of cherry-picked snapshot IDs to exclude
+     * @param excludeWap Set of WAP snapshot IDs to exclude
+     * @return List of regular snapshots
+     */
     private static List<Snapshot> computeRegularSnapshots(
         List<Snapshot> providedSnapshots, Set<Long> excludeCherryPicked, Set<Long> excludeWap) {
-      // Depends on: cherry-picked and WAP IDs (everything else is regular)
       return providedSnapshots.stream()
           .filter(s -> !excludeCherryPicked.contains(s.snapshotId()))
           .filter(s -> !excludeWap.contains(s.snapshotId()))
@@ -474,6 +493,22 @@ public class SnapshotDiffApplier {
       }
     }
 
+    /**
+     * Applies snapshot changes to the table metadata.
+     *
+     * <p>Application strategy:
+     *
+     * <p>[1] Remove deleted snapshots to clean up old data
+     *
+     * <p>[2] Remove stale branch references that are no longer needed
+     *
+     * <p>[3] Add unreferenced new snapshots (staged WAP snapshots without branch pointers)
+     *
+     * <p>[4] Set branch pointers for all provided refs, using setBranchSnapshot for new snapshots
+     * and setRef for existing snapshots to ensure proper validation
+     *
+     * <p>This order ensures referential integrity is maintained throughout the operation.
+     */
     TableMetadata apply() {
       TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(this.providedMetadata);
 
@@ -521,11 +556,11 @@ public class SnapshotDiffApplier {
                 getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
                 formatSnapshotIds(this.newRegularSnapshots)));
       }
-      if (!this.wapSnapshots.isEmpty()) {
+      if (!this.newStagedSnapshots.isEmpty()) {
         metadataBuilder.setProperties(
             Collections.singletonMap(
                 getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-                formatSnapshotIds(this.wapSnapshots)));
+                formatSnapshotIds(this.newStagedSnapshots)));
       }
       if (!this.cherryPickedSnapshots.isEmpty()) {
         metadataBuilder.setProperties(
@@ -547,7 +582,14 @@ public class SnapshotDiffApplier {
       return metadataBuilder.build();
     }
 
+    /**
+     * Records metrics for snapshot operations.
+     *
+     * <p>Tracks counts of: - Regular snapshots added (new commits and cherry-pick results) - Staged
+     * snapshots (WAP) - Cherry-picked source snapshots - Deleted snapshots
+     */
     void recordMetrics() {
+      // Count regular snapshots that are new (includes regular commits and cherry-pick results)
       int appendedCount =
           (int)
               this.regularSnapshots.stream()
@@ -556,7 +598,7 @@ public class SnapshotDiffApplier {
       recordMetricWithDatabaseTag(
           InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedCount);
       recordMetricWithDatabaseTag(
-          InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, this.wapSnapshots.size());
+          InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, this.newStagedSnapshots.size());
       recordMetricWithDatabaseTag(
           InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR,
           this.cherryPickedSnapshots.size());
