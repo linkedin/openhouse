@@ -4,7 +4,7 @@ plugins {
 }
 
 ext {
-  icebergVersion = '1.5.2'
+  icebergVersion = rootProject.ext.iceberg_1_5_version
 }
 
 sourceSets {
@@ -20,5 +20,5 @@ dependencies {
 
   testImplementation "com.squareup.okhttp3:okhttp:4.9.3"
   testImplementation "com.squareup.okhttp3:mockwebserver:4.9.3"
-  testImplementation "org.apache.iceberg:iceberg-bundled-guava:" + icebergVersion
+  testImplementation "com.linkedin.iceberg:iceberg-bundled-guava:" + icebergVersion
 }
