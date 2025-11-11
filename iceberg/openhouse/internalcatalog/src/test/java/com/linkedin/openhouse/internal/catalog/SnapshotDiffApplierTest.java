@@ -26,6 +26,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+/**
+ * Unit tests for {@link SnapshotDiffApplier}. Tests the refactored snapshot logic with multi-branch
+ * support that extends the base implementation.
+ */
 public class SnapshotDiffApplierTest {
 
   private SnapshotDiffApplier snapshotDiffApplier;
@@ -57,6 +61,9 @@ public class SnapshotDiffApplierTest {
             new HashMap<>());
   }
 
+  // ========== Basic Functionality Tests ==========
+
+  /** Verifies that when no snapshot JSON is provided, metadata is returned unmodified. */
   @Test
   void testApplySnapshots_noSnapshotsJson_returnsUnmodified() {
     TableMetadata result = snapshotDiffApplier.applySnapshots(null, baseMetadata);
@@ -65,6 +72,7 @@ public class SnapshotDiffApplierTest {
     verifyNoInteractions(mockMetricsReporter);
   }
 
+  /** Verifies that table creation (null base) with branch references is handled correctly. */
   @Test
   void testApplySnapshots_nullBase_handlesTableCreation() throws IOException {
     List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
@@ -83,6 +91,7 @@ public class SnapshotDiffApplierTest {
     assertEquals(snapshots.size(), result.snapshots().size());
   }
 
+  /** Verifies that new snapshots are added correctly to branches. */
   @Test
   void testApplySnapshots_addNewSnapshots_success() throws IOException {
     List<Snapshot> initialSnapshots = IcebergTestUtil.getSnapshots();
@@ -109,6 +118,9 @@ public class SnapshotDiffApplierTest {
     verify(mockMetricsReporter, atLeastOnce()).count(anyString(), anyDouble());
   }
 
+  // ========== Validation Tests ==========
+
+  /** Verifies that deleting the current snapshot without replacements throws an exception. */
   @Test
   void testValidateCurrentSnapshotNotDeleted_whenCurrentDeleted_throwsException()
       throws IOException {
@@ -132,6 +144,10 @@ public class SnapshotDiffApplierTest {
     assertTrue(exception.getMessage().contains("Cannot delete the current snapshot"));
   }
 
+  /**
+   * Verifies that attempting to reference the same snapshot from multiple branches in a single
+   * commit throws an exception. This is a PR2-specific validation for multi-branch support.
+   */
   @Test
   void testValidateNoAmbiguousCommits_whenSnapshotReferencedByMultipleBranches_throwsException()
       throws IOException {
@@ -161,6 +177,10 @@ public class SnapshotDiffApplierTest {
     assertTrue(exception.getMessage().contains("referenced by multiple branches"));
   }
 
+  /**
+   * Verifies that attempting to delete a snapshot that is still referenced by a branch or tag
+   * throws an exception.
+   */
   @Test
   void
       testValidateDeletedSnapshotsNotReferenced_whenDeletedSnapshotStillReferenced_throwsException()
@@ -191,6 +211,9 @@ public class SnapshotDiffApplierTest {
     assertTrue(exception.getMessage().contains("still referenced"));
   }
 
+  // ========== Metrics Tests ==========
+
+  /** Verifies that staged (WAP) snapshots trigger the correct metrics. */
   @Test
   void testApplySnapshots_withWapSnapshots_recordsCorrectMetrics() throws IOException {
     List<Snapshot> baseSnapshots = IcebergTestUtil.getSnapshots();
@@ -218,6 +241,7 @@ public class SnapshotDiffApplierTest {
         .count(eq(InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR), anyDouble());
   }
 
+  /** Verifies that deleting snapshots triggers the correct metrics. */
   @Test
   void testApplySnapshots_deleteSnapshots_recordsCorrectMetrics() throws IOException {
     List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
@@ -244,6 +268,9 @@ public class SnapshotDiffApplierTest {
         .count(eq(InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR), eq(1.0));
   }
 
+  // ========== Property Management Tests ==========
+
+  /** Verifies that appended snapshot IDs are recorded in properties. */
   @Test
   void testApplySnapshots_recordsSnapshotIdsInProperties() throws IOException {
     List<Snapshot> baseSnapshots = IcebergTestUtil.getSnapshots();
@@ -274,6 +301,7 @@ public class SnapshotDiffApplierTest {
     assertTrue(appendedSnapshots.contains(",") || !appendedSnapshots.isEmpty());
   }
 
+  /** Verifies that temporary snapshot processing keys are removed from final properties. */
   @Test
   void testApplySnapshots_removesSnapshotKeysFromProperties() throws IOException {
     List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
@@ -299,6 +327,9 @@ public class SnapshotDiffApplierTest {
         "Snapshots refs key should be removed from final properties");
   }
 
+  // ========== Branch Update Tests ==========
+
+  /** Verifies that updating branch references works correctly. */
   @Test
   void testApplySnapshots_branchUpdates_appliesCorrectly() throws IOException {
     List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
@@ -321,6 +352,10 @@ public class SnapshotDiffApplierTest {
     assertEquals(newBranchTarget.snapshotId(), result.currentSnapshot().snapshotId());
   }
 
+  /**
+   * Verifies that multiple branch updates can be applied simultaneously. This is a PR2-specific
+   * test for multi-branch support.
+   */
   @Test
   void testApplySnapshots_multipleBranchUpdates_success() throws IOException {
     List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
@@ -344,6 +379,15 @@ public class SnapshotDiffApplierTest {
     assertEquals(2, result.refs().size());
   }
 
+  // ========== Helper Methods ==========
+
+  /**
+   * Adds snapshots to metadata and sets main branch to the last snapshot.
+   *
+   * @param metadata Base metadata
+   * @param snapshots Snapshots to add
+   * @return Updated metadata
+   */
   private TableMetadata addSnapshotsToMetadata(TableMetadata metadata, List<Snapshot> snapshots) {
     TableMetadata.Builder builder = TableMetadata.buildFrom(metadata);
     for (Snapshot snapshot : snapshots) {
