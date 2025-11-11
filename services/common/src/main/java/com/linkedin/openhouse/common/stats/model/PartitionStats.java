@@ -98,7 +98,7 @@ public class PartitionStats extends BaseEventModels.BaseDataset {
    * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
    * the corresponding event.
    */
-  @NonNull private Long eventTimestampInEpochMs;
+  @NonNull private Long eventTimestampMs;
 
   /**
    * Column-level statistic interface for type-safe statistics.
