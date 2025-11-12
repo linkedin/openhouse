@@ -11,8 +11,9 @@ import lombok.NonNull;
  * Data model for openhouseTableCommitEventPartitions table.
  *
  * <p>Stores partition-level information for each commit. Maps commit events to specific partitions
- * affected by that commit. One commit can correspond to multiple partition records. A commit event represents a single commit-partition pair, capturing what changed
- * for that specific partition in that specific commit
+ * affected by that commit. One commit can correspond to multiple partition records. A commit event
+ * represents a single commit-partition pair, capturing what changed for that specific partition in
+ * that specific commit
  *
  * <p><b>Naming</b>: Represents "partitions of a commit event". This aligns with the conceptual
  * model where CommitEvent has a "partitions" field that's been normalized into a separate table.
@@ -33,7 +34,7 @@ public class CommitEventTablePartitions {
    * <p>Establishes the parent-child relationship where one commit event can have multiple partition
    * records.
    */
-  @NonNull private String commitId;
+  @NonNull private Long commitId;
 
   /**
    * Key-value mapping of partition columns and their corresponding values associated with the

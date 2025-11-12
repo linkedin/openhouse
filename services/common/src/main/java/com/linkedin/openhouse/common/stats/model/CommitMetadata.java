@@ -14,7 +14,7 @@ import lombok.NonNull;
 public class CommitMetadata {
 
   /** Unique identifier for the commit event */
-  @NonNull private String commitId;
+  @NonNull private Long commitId;
 
   /** Timestamp of the commit event captured in epoch milliseconds */
   @NonNull private Long commitTimestampMs;
