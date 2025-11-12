@@ -14,16 +14,16 @@ import lombok.experimental.SuperBuilder;
  * and can be linked to multiple partition events via commitId.
  *
  * <p><b>Cardinality</b>: One commit event can have N partition events. See {@link
- * CommitEventPartitions} for partition-level details.
+ * CommitEventTablePartitions} for partition-level details.
  *
- * @see CommitEventPartitions
+ * @see CommitEventTablePartitions
  */
 @Data
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
-public class CommitEvent extends BaseEventModels.BaseCommitEvent {
+public class CommitEventTable extends BaseEventModels.BaseCommitEvent {
 
   /**
    * Type of dataset: PARTITIONED or NON_PARTITIONED.
@@ -32,10 +32,4 @@ public class CommitEvent extends BaseEventModels.BaseCommitEvent {
    * non-partitioned tables (with table-level stats only).
    */
   @NonNull private DatasetType datasetType;
-
-  /**
-   * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
-   * the corresponding event.
-   */
-  @NonNull private Long eventTimestampMs;
 }

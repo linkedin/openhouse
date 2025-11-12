@@ -5,10 +5,8 @@ import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
-import lombok.experimental.SuperBuilder;
 
 /**
  * Data model for openhouseTablePartitionsStats table.
@@ -17,25 +15,27 @@ import lombok.experimental.SuperBuilder;
  * min/max values. Can represent both partition-level and table-level statistics.
  *
  * <p><b>Cardinality</b>: Each partition stats record references the latest commit that modified the
- * partition via commitMetadata.commitId (Foreign Key to {@link CommitEvent}).
+ * partition via commitMetadata.commitId (Foreign Key to {@link CommitEventTable}).
  *
  * <p>Stats are updated/replaced when new commits modify the partition.
  *
- * @see CommitEvent
- * @see CommitEventPartitions
+ * @see CommitEventTable
+ * @see CommitEventTablePartitions
  * @see CommitMetadata
  */
 @Data
-@SuperBuilder
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true)
-public class PartitionStats extends BaseEventModels.BaseTableIdentifier {
+public class PartitionStats {
+
+  /** Dataset information for this commit event */
+  @NonNull private BaseEventModels.BaseTableIdentifier dataset;
 
   /**
    * Commit metadata for the latest commit that modified this partition.
    *
-   * <p>The commitId within this metadata serves as a Foreign Key to {@link CommitEvent}.
+   * <p>The commitId within this metadata serves as a Foreign Key to {@link CommitEventTable}.
    */
   @NonNull private CommitMetadata commitMetadata;
 

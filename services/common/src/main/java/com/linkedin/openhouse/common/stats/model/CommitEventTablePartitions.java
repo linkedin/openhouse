@@ -18,16 +18,16 @@ import lombok.NonNull;
  *
  * <p><b>Cardinality</b>: N partition records linked to 1 commit event via commitId foreign key.
  *
- * @see CommitEvent
+ * @see CommitEventTable
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CommitEventPartitions {
+public class CommitEventTablePartitions {
 
   /**
-   * Foreign Key to {@link CommitEvent}.
+   * Foreign Key to {@link CommitEventTable}.
    *
    * <p>Establishes the parent-child relationship where one commit event can have multiple partition
    * records.

@@ -28,6 +28,12 @@ public final class BaseEventModels {
 
     /** Name of the cluster (e.g., holdem/war) */
     @NonNull private String clusterName;
+
+    /**
+     * Fully qualified path to the root table metadata JSON. Useful to distinguish uniqueness in
+     * case the table is dropped and recreated with the same name.
+     */
+    @NonNull String tableMetadataLocation;
   }
 
   /** Base class for commit events that contains dataset information. */
@@ -42,5 +48,11 @@ public final class BaseEventModels {
 
     /** commit Metadata for this commit */
     @NonNull private CommitMetadata commitMetadata;
+
+    /**
+     * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
+     * the corresponding event.
+     */
+    @NonNull private Long eventTimestampMs;
   }
 }

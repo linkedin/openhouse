@@ -32,5 +32,5 @@ public class CommitMetadata {
   private String commitAppName;
 
   /** Type of operation performed during the commit (e.g., APPEND, OVERWRITE, DELETE, REPLACE) */
-  @NonNull private CommitOperation commitOperation;
+  private CommitOperation commitOperation;
 }
