@@ -403,7 +403,7 @@ public class OperationTasksBuilder {
                   operationTaskManager.addData(optionalOperationTask.get());
                 }
               } catch (InterruptedException e) {
-                log.warn("Interrupted while processing database for soft deleted cleanup", e);
+                log.warn("Interrupted while processing database for table directory cleanup", e);
               }
             })
         .sequential()

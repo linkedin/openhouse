@@ -24,12 +24,8 @@ public class DatabaseMetadata extends Metadata {
         || Boolean.parseBoolean(jobExecutionProperties.get(String.format("%s.disabled", jobType)));
   }
 
-  public String fqtn() {
-    return dbName;
-  }
-
   @Override
   public String getEntityName() {
-    return fqtn();
+    return dbName;
   }
 }
