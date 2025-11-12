@@ -10,7 +10,7 @@ import lombok.experimental.SuperBuilder;
 /**
  * Data model for openhouseTableCommitEvents table.
  *
- * <p>Stores commit-level metadata for dataset changes. Each record represents a single commit event
+ * <p>Stores commit-level metadata for dataset changes. Each record represents a commit on table
  * and can be linked to multiple partition events via commitId.
  *
  * <p><b>Cardinality</b>: One commit event can have N partition events. See {@link
