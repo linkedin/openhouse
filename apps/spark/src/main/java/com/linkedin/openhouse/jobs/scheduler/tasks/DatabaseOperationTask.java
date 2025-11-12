@@ -6,6 +6,10 @@ import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * A callable class to apply an operation to a full database by running a job. Takes care of the job
+ * lifecycle using /jobs API.
+ */
 public abstract class DatabaseOperationTask extends OperationTask<DatabaseMetadata> {
 
   public DatabaseOperationTask(

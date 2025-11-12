@@ -314,6 +314,10 @@ public class TablesClient {
     return tableNames;
   }
 
+  /**
+   * Scans all databases in the Tables Service, converts to {@link DatabaseMetadata}, and applies
+   * filters
+   */
   public List<DatabaseMetadata> getDatabaseMetadataList() {
     return getDatabases().stream()
         .filter(databaseTableFilter::applyDatabaseName)

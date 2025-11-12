@@ -67,7 +67,7 @@ public class OperationTasksBuilderTest {
           put(
               JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
               TableDataLayoutStrategyExecutionTask.class);
-          put(JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP, TableDirectoryCleanupTask.class);
+          put(JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION, TableDirectoryDeletionTask.class);
         }
       };
 
@@ -166,7 +166,7 @@ public class OperationTasksBuilderTest {
             JobConf.JobTypeEnum.TABLE_STATS_COLLECTION,
             JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION,
             JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
-            JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP);
+            JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION);
     for (JobConf.JobTypeEnum jobType : jobList) {
       prepareMockitoForParallelFetch();
       OperationTasksBuilder operationTasksBuilder = createOperationTasksBuilder(jobType);
@@ -176,7 +176,7 @@ public class OperationTasksBuilderTest {
       OperationTaskManager operationTaskManager = operationTasksBuilder.getOperationTaskManager();
       do {} while (!operationTaskManager.isDataGenerationCompleted());
       Assertions.assertFalse(operationTaskManager.isEmpty());
-      if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP) {
+      if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
         Assertions.assertEquals(4, operationTaskManager.getCurrentDataCount());
         Assertions.assertEquals(4, operationTaskManager.getTotalDataCount());
       } else {
@@ -202,12 +202,12 @@ public class OperationTasksBuilderTest {
             JobConf.JobTypeEnum.TABLE_STATS_COLLECTION,
             JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION,
             JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
-            JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP);
+            JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION);
     for (JobConf.JobTypeEnum jobType : jobList) {
       if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
         Mockito.when(tablesClient.getTableDataLayoutMetadataList())
             .thenReturn(tableDataLayoutMetadataList);
-      } else if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP) {
+      } else if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
         Mockito.when(tablesClient.getDatabaseMetadataList()).thenReturn(databaseMetadataList);
       } else {
         Mockito.when(tablesClient.getTableMetadataList()).thenReturn(tableMetadataList);
@@ -217,7 +217,7 @@ public class OperationTasksBuilderTest {
           operationTasksBuilder.buildOperationTaskList(
               jobType, properties, otelEmitter, OperationMode.SINGLE);
       Assertions.assertNotNull(operationTasks);
-      if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_CLEANUP) {
+      if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
         Assertions.assertEquals(4, operationTasks.size());
         for (int i = 0; i < 4; i++) {
           Assertions.assertNotNull(operationTasks.get(i));
