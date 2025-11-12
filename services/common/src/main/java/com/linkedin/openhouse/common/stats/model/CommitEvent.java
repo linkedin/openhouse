@@ -8,7 +8,7 @@ import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 
 /**
- * Data model for openhouseDatasetCommitEvents table.
+ * Data model for openhousetableCommitEvents table.
  *
  * <p>Stores commit-level metadata for dataset changes. Each record represents a single commit event
  * and can be linked to multiple partition events via commitId.
