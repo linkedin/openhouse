@@ -1,10 +1,8 @@
 package com.linkedin.openhouse.common.stats.model;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 
 /**
@@ -21,15 +19,8 @@ import lombok.experimental.SuperBuilder;
 @Data
 @SuperBuilder
 @NoArgsConstructor
-@AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
 public class CommitEventTable extends BaseEventModels.BaseCommitEvent {
-
-  /**
-   * Type of dataset: PARTITIONED or NON_PARTITIONED.
-   *
-   * <p>Used to distinguish between partitioned tables (with partition-level stats) and
-   * non-partitioned tables (with table-level stats only).
-   */
-  @NonNull private DatasetType datasetType;
+  // All fields inherited from BaseCommitEvent and BaseTableIdentifier
+  // datasetType is available via dataset.datasetType
 }

@@ -2,10 +2,11 @@ package com.linkedin.openhouse.common.stats.model;
 
 import java.util.Map;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Data model for openhouseTableCommitEventPartitions table.
@@ -23,18 +24,11 @@ import lombok.NonNull;
  * @see CommitEventTable
  */
 @Data
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CommitEventTablePartitions {
-
-  /**
-   * Foreign Key to {@link CommitEventTable}.
-   *
-   * <p>Establishes the parent-child relationship where one commit event can have multiple partition
-   * records.
-   */
-  @NonNull private Long commitId;
+@EqualsAndHashCode(callSuper = true)
+public class CommitEventTablePartitions extends BaseEventModels.BaseCommitEvent {
 
   /**
    * Key-value mapping of partition columns and their corresponding values associated with the
@@ -43,10 +37,4 @@ public class CommitEventTablePartitions {
    * <p>Example: { "datepartition": "2025-01-25", "hourpartition": "12" }
    */
   @NonNull private Map<String, String> partitionData;
-
-  /**
-   * Timestamp (in epoch milliseconds) representing when the collector job processed and ingested
-   * the corresponding event.
-   */
-  @NonNull private Long eventTimestampMs;
 }

@@ -33,7 +33,16 @@ public final class BaseEventModels {
      * Fully qualified path to the root table metadata JSON. Useful to distinguish uniqueness in
      * case the table is dropped and recreated with the same name.
      */
-    @NonNull String tableMetadataLocation;
+    @NonNull private String tableMetadataLocation;
+
+    /**
+     * String representation of the Iceberg PartitionSpec for the dataset.
+     *
+     * <p>Use the string from PartitionSpec.toString() to describe partitioning. For non-partitioned
+     * tables, use PartitionSpec.UNPARTITIONED_SPEC.toString(). See:
+     * https://github.com/apache/iceberg/blob/main/api/src/main/java/org/apache/iceberg/PartitionSpec.java
+     */
+    @NonNull private String partitionSpec;
   }
 
   /** Base class for commit events that contains dataset information. */
