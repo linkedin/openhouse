@@ -149,7 +149,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+              IcebergTestUtil.createMainBranchRefPointingTo(
                   testSnapshots.get(testSnapshots.size() - 1))));
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
@@ -194,7 +194,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+              IcebergTestUtil.createMainBranchRefPointingTo(
                   testSnapshots.get(testSnapshots.size() - 1))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
@@ -249,7 +249,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+              IcebergTestUtil.createMainBranchRefPointingTo(
                   newSnapshots.get(newSnapshots.size() - 1))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
@@ -265,9 +265,12 @@ public class OpenHouseInternalTableOperationsTest {
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
-      // verify only 4 snapshots are added
+      // verify only snapshots in MAIN's lineage are tracked as appended
+      // extraTestSnapshots has 4 snapshots, but only the last 2 (snapshots 7,8) are in MAIN's
+      // lineage
+      // snapshots 5,6 form a separate branch not connected to MAIN (their parent was deleted)
       Assertions.assertEquals(
-          extraTestSnapshots.stream()
+          extraTestSnapshots.subList(2, 4).stream()
               .map(s -> Long.toString(s.snapshotId()))
               .collect(Collectors.joining(",")),
           updatedProperties.get(getCanonicalFieldName("appended_snapshots")));
@@ -439,7 +442,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+              IcebergTestUtil.createMainBranchRefPointingTo(
                   testSnapshots.get(testSnapshots.size() - 1))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
@@ -489,6 +492,102 @@ public class OpenHouseInternalTableOperationsTest {
             .hiddenImpl(BaseMetastoreTableOperations.class, "shouldRefresh")
             .<Boolean>build(openHouseInternalTableOperations)
             .get());
+  }
+
+  /**
+   * Tests staged table creation with no snapshots (initial version). Verifies that the table
+   * metadata is set locally but no persistence occurs to the repository.
+   */
+  @Test
+  void testStagedTableCreationWithoutSnapshots() throws IOException {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.IS_STAGE_CREATE_KEY, "true");
+
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      openHouseInternalTableOperations.doCommit(null, metadata);
+
+      // Verify TableMetadata is set locally
+      Assertions.assertNotNull(openHouseInternalTableOperations.currentMetadataLocation());
+      Assertions.assertNotNull(openHouseInternalTableOperations.current());
+
+      // Verify no snapshots were added
+      Assertions.assertEquals(0, openHouseInternalTableOperations.current().snapshots().size());
+
+      // Verify no persistence to repository
+      verify(mockHouseTableRepository, times(0)).save(any());
+
+      // Verify no snapshot properties were set
+      Map<String, String> resultProperties =
+          openHouseInternalTableOperations.current().properties();
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("appended_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("staged_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("deleted_snapshots")));
+    }
+  }
+
+  /**
+   * Tests staged table creation with staged (WAP) snapshots. Verifies that staged snapshots are
+   * added to the table but no persistence occurs to the repository.
+   */
+  @Test
+  void testStagedTableCreationWithStagedSnapshots() throws IOException {
+    List<Snapshot> testWapSnapshots = IcebergTestUtil.getWapSnapshots().subList(0, 2);
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.IS_STAGE_CREATE_KEY, "true");
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testWapSnapshots));
+
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      openHouseInternalTableOperations.doCommit(null, metadata);
+
+      // Verify TableMetadata is set locally
+      Assertions.assertNotNull(openHouseInternalTableOperations.currentMetadataLocation());
+      Assertions.assertNotNull(openHouseInternalTableOperations.current());
+
+      // Verify staged snapshots were added
+      TableMetadata currentMetadata = openHouseInternalTableOperations.current();
+      Assertions.assertEquals(
+          testWapSnapshots.size(),
+          currentMetadata.snapshots().size(),
+          "Staged snapshots should be added");
+
+      // Verify all snapshots are staged (have WAP ID)
+      for (Snapshot snapshot : currentMetadata.snapshots()) {
+        Assertions.assertTrue(
+            snapshot.summary().containsKey(org.apache.iceberg.SnapshotSummary.STAGED_WAP_ID_PROP),
+            "All snapshots should be staged with WAP ID");
+      }
+
+      // Verify no branch references exist (staged snapshots should not be on main)
+      Assertions.assertTrue(
+          currentMetadata.refs().isEmpty()
+              || !currentMetadata.refs().containsKey(SnapshotRef.MAIN_BRANCH),
+          "Staged snapshots should not have main branch reference");
+
+      // Verify no persistence to repository
+      verify(mockHouseTableRepository, times(0)).save(any());
+
+      // Verify snapshot properties tracking
+      Map<String, String> resultProperties = currentMetadata.properties();
+      Assertions.assertEquals(
+          testWapSnapshots.stream()
+              .map(s -> Long.toString(s.snapshotId()))
+              .collect(Collectors.joining(",")),
+          resultProperties.get(getCanonicalFieldName("staged_snapshots")),
+          "Staged snapshots should be tracked in properties");
+      Assertions.assertNull(
+          resultProperties.get(getCanonicalFieldName("appended_snapshots")),
+          "No snapshots should be appended to main");
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
+      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("deleted_snapshots")));
+    }
   }
 
   /**
@@ -545,7 +644,7 @@ public class OpenHouseInternalTableOperationsTest {
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
         SnapshotsUtil.serializeMap(
-            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+            IcebergTestUtil.createMainBranchRefPointingTo(
                 testSnapshots.get(1)))); // But main refs snapshot 1
     properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
     metadata = metadata.replaceProperties(properties);
@@ -632,7 +731,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(newSnapshots.get(0))));
+              IcebergTestUtil.createMainBranchRefPointingTo(newSnapshots.get(0))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
       TableMetadata metadata = base.replaceProperties(properties);
@@ -676,7 +775,7 @@ public class OpenHouseInternalTableOperationsTest {
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
         SnapshotsUtil.serializeMap(
-            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1))));
+            IcebergTestUtil.createMainBranchRefPointingTo(snapshots.get(snapshots.size() - 1))));
 
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
@@ -695,7 +794,7 @@ public class OpenHouseInternalTableOperationsTest {
     propertiesWithFuture.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
         SnapshotsUtil.serializeMap(
-            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1))));
+            IcebergTestUtil.createMainBranchRefPointingTo(snapshots.get(snapshots.size() - 1))));
 
     TableMetadata newMetadataWithFuture = baseMetadata.replaceProperties(propertiesWithFuture);
     openHouseInternalTableOperations.snapshotDiffApplier.applySnapshots(
@@ -728,7 +827,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testWapSnapshots.get(0))));
+              IcebergTestUtil.createMainBranchRefPointingTo(testWapSnapshots.get(0))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
       TableMetadata metadata = base.replaceProperties(properties);
@@ -769,7 +868,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+              IcebergTestUtil.createMainBranchRefPointingTo(
                   testWapSnapshots.get(2)))); // new snapshot
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
@@ -810,7 +909,7 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testWapSnapshots.get(0))));
+              IcebergTestUtil.createMainBranchRefPointingTo(testWapSnapshots.get(0))));
       properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
       TableMetadata metadata = base.replaceProperties(properties);
@@ -1383,7 +1482,7 @@ public class OpenHouseInternalTableOperationsTest {
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
         SnapshotsUtil.serializeMap(
-            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(
+            IcebergTestUtil.createMainBranchRefPointingTo(
                 referencedSnapshot))); // Still references snapshot 3
 
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
@@ -1436,7 +1535,7 @@ public class OpenHouseInternalTableOperationsTest {
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
         SnapshotsUtil.serializeMap(
-            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(referencedSnapshot)));
+            IcebergTestUtil.createMainBranchRefPointingTo(referencedSnapshot)));
 
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
@@ -1545,21 +1644,21 @@ public class OpenHouseInternalTableOperationsTest {
   void testDeleteSnapshotWithBranchReference() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
 
-    // Create base metadata with snapshots - add the tagged snapshot first
+    // Create base metadata with snapshots - build up MAIN branch lineage first
     Snapshot taggedSnapshot = testSnapshots.get(0);
-    TableMetadata baseMetadata =
-        TableMetadata.buildFrom(BASE_TABLE_METADATA)
-            .addSnapshot(taggedSnapshot) // Add the snapshot first so it exists
-            .setBranchSnapshot(testSnapshots.get(testSnapshots.size() - 1), SnapshotRef.MAIN_BRANCH)
-            .setRef(
-                "feature_branch",
-                SnapshotRef.tagBuilder(taggedSnapshot.snapshotId()).build()) // Now create the tag
-            .build();
-    // Add remaining snapshots
-    for (int i = 1; i < testSnapshots.size() - 1; i++) {
+    TableMetadata baseMetadata = BASE_TABLE_METADATA;
+    // Add all snapshots to MAIN branch in order to avoid sequence number conflicts
+    for (Snapshot snapshot : testSnapshots) {
       baseMetadata =
-          TableMetadata.buildFrom(baseMetadata).addSnapshot(testSnapshots.get(i)).build();
+          TableMetadata.buildFrom(baseMetadata)
+              .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
+              .build();
     }
+    // Now add the tag reference to the first snapshot
+    baseMetadata =
+        TableMetadata.buildFrom(baseMetadata)
+            .setRef("feature_branch", SnapshotRef.tagBuilder(taggedSnapshot.snapshotId()).build())
+            .build();
 
     // Make baseMetadata effectively final for lambda usage
     final TableMetadata finalBaseMetadata = baseMetadata;
@@ -1630,7 +1729,7 @@ public class OpenHouseInternalTableOperationsTest {
         SnapshotsUtil.serializedSnapshots(baseMetadata.snapshots()));
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
-        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
+        SnapshotsUtil.serializeMap(IcebergTestUtil.createMainBranchRefPointingTo(lastSnapshot)));
 
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
@@ -1676,7 +1775,7 @@ public class OpenHouseInternalTableOperationsTest {
         SnapshotsUtil.serializedSnapshots(baseMetadata.snapshots()));
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
-        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
+        SnapshotsUtil.serializeMap(IcebergTestUtil.createMainBranchRefPointingTo(lastSnapshot)));
 
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
@@ -1726,7 +1825,7 @@ public class OpenHouseInternalTableOperationsTest {
         SnapshotsUtil.serializedSnapshots(baseMetadata.snapshots()));
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
-        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
+        SnapshotsUtil.serializeMap(IcebergTestUtil.createMainBranchRefPointingTo(lastSnapshot)));
 
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
@@ -1814,7 +1913,7 @@ public class OpenHouseInternalTableOperationsTest {
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
         SnapshotsUtil.serializeMap(
-            IcebergTestUtil.obtainSnapshotRefsFromSnapshot(referencedSnapshot)));
+            IcebergTestUtil.createMainBranchRefPointingTo(referencedSnapshot)));
 
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
@@ -1861,7 +1960,7 @@ public class OpenHouseInternalTableOperationsTest {
         SnapshotsUtil.serializedSnapshots(finalBaseMetadata.snapshots()));
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
-        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(lastSnapshot)));
+        SnapshotsUtil.serializeMap(IcebergTestUtil.createMainBranchRefPointingTo(lastSnapshot)));
 
     TableMetadata newMetadata = finalBaseMetadata.replaceProperties(properties);
 
@@ -1915,7 +2014,7 @@ public class OpenHouseInternalTableOperationsTest {
         CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(List.of()));
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
-        SnapshotsUtil.serializeMap(IcebergTestUtil.obtainSnapshotRefsFromSnapshot(mainSnapshot)));
+        SnapshotsUtil.serializeMap(IcebergTestUtil.createMainBranchRefPointingTo(mainSnapshot)));
     TableMetadata newMetadata = baseMetadata.replaceProperties(properties);
 
     // This MUST throw InvalidIcebergSnapshotException for snapshots referenced by multiple branches
@@ -2130,7 +2229,7 @@ public class OpenHouseInternalTableOperationsTest {
       divergentProperties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(snapshots4.get(3))));
+              IcebergTestUtil.createMainBranchRefPointingTo(snapshots4.get(3))));
 
       TableMetadata finalDivergentMetadata =
           metadataAtNPlus3.replaceProperties(divergentProperties);
@@ -2500,7 +2599,7 @@ public class OpenHouseInternalTableOperationsTest {
       divergentProperties.put(
           CatalogConstants.SNAPSHOTS_REFS_KEY,
           SnapshotsUtil.serializeMap(
-              IcebergTestUtil.obtainSnapshotRefsFromSnapshot(testSnapshots.get(1))));
+              IcebergTestUtil.createMainBranchRefPointingTo(testSnapshots.get(1))));
       divergentProperties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
 
       TableMetadata finalDivergentMetadata =

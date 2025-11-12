@@ -4,7 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -96,32 +96,27 @@ public class SnapshotDiffApplier {
     private final TableMetadata existingMetadata;
     private final TableMetadata providedMetadata;
     private final String databaseId;
-    private final List<Snapshot> existingSnapshots;
-    private final List<Snapshot> providedSnapshots;
-    private final Map<String, SnapshotRef> existingRefs;
     private final Map<String, SnapshotRef> providedRefs;
 
     // Computed maps (created once)
     private final Map<Long, Snapshot> providedSnapshotByIds;
-    private final Map<Long, Snapshot> existingSnapshotByIds;
-    private final Set<Long> metadataSnapshotIds;
-    private final Set<Long> existingBranchRefIds;
-    private final Set<Long> providedBranchRefIds;
     private final List<Snapshot> newSnapshots;
     private final List<Snapshot> deletedSnapshots;
-    private final Set<Long> deletedIds;
 
     // Categorized snapshots
     private final List<Snapshot> newStagedSnapshots;
     private final List<Snapshot> cherryPickedSnapshots;
-    private final List<Snapshot> regularSnapshots;
 
     // Changes
     private final Map<String, SnapshotRef> branchUpdates;
-    private final List<Snapshot> newRegularSnapshots;
+    private final Map<String, List<Snapshot>> newSnapshotsByBranch;
     private final Set<String> staleRefs;
-    private final Set<Long> existingAfterDeletionIds;
     private final List<Snapshot> unreferencedNewSnapshots;
+
+    // Application state (pre-computed in create)
+    private final List<Snapshot> autoAppendedToMainSnapshots;
+    private final List<Snapshot> mainBranchSnapshotsForMetrics;
+    private final Set<Long> snapshotIdsToAdd;
 
     /**
      * Creates a SnapshotDiff by computing all snapshot analysis from the provided inputs.
@@ -152,14 +147,6 @@ public class SnapshotDiffApplier {
           providedSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
       Map<Long, Snapshot> existingSnapshotByIds =
           existingSnapshots.stream().collect(Collectors.toMap(Snapshot::snapshotId, s -> s));
-      Set<Long> metadataSnapshotIds =
-          providedMetadata.snapshots().stream()
-              .map(Snapshot::snapshotId)
-              .collect(Collectors.toSet());
-      Set<Long> existingBranchRefIds =
-          existingRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
-      Set<Long> providedBranchRefIds =
-          providedRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
 
       // Compute changes
       List<Snapshot> newSnapshots =
@@ -170,13 +157,16 @@ public class SnapshotDiffApplier {
           existingSnapshots.stream()
               .filter(s -> !providedSnapshotByIds.containsKey(s.snapshotId()))
               .collect(Collectors.toList());
-      Set<Long> deletedIds =
-          deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
       // Categorize snapshots - process in dependency order
       // 1. Cherry-picked has highest priority (includes WAP being published)
       // 2. WAP snapshots (staged, not published)
       // 3. Regular snapshots (everything else)
+      Set<Long> existingBranchRefIds =
+          existingRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
+      Set<Long> providedBranchRefIds =
+          providedRefs.values().stream().map(SnapshotRef::snapshotId).collect(Collectors.toSet());
+
       List<Snapshot> cherryPickedSnapshots =
           computeCherryPickedSnapshots(
               providedSnapshots, existingSnapshotByIds, existingBranchRefIds, providedBranchRefIds);
@@ -203,21 +193,73 @@ public class SnapshotDiffApplier {
                   })
               .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
+      // Compute new snapshots by branch (only regular snapshots)
+      Set<Long> regularSnapshotIds =
+          regularSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+      Map<String, List<Snapshot>> newSnapshotsByBranch =
+          computeNewSnapshotsByBranch(
+              branchUpdates, providedSnapshotByIds, existingSnapshotByIds, regularSnapshotIds);
+
       // Compute derived changes for multi-branch support
-      List<Snapshot> newRegularSnapshots =
-          regularSnapshots.stream().filter(newSnapshots::contains).collect(Collectors.toList());
       Set<String> staleRefs = new HashSet<>(existingRefs.keySet());
       staleRefs.removeAll(providedRefs.keySet());
+
+      // Collect all snapshot IDs that are in branch lineages (will be added via setBranchSnapshot)
+      Set<Long> snapshotsInBranchLineages =
+          newSnapshotsByBranch.values().stream()
+              .flatMap(List::stream)
+              .map(Snapshot::snapshotId)
+              .collect(Collectors.toSet());
+
+      // Compute existing snapshot IDs after deletion
+      Set<Long> deletedIds =
+          deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
       Set<Long> existingAfterDeletionIds = new HashSet<>(existingSnapshotByIds.keySet());
       existingAfterDeletionIds.removeAll(deletedIds);
+
+      // Compute metadata snapshot IDs
+      Set<Long> metadataSnapshotIds =
+          providedMetadata.snapshots().stream()
+              .map(Snapshot::snapshotId)
+              .collect(Collectors.toSet());
+
       List<Snapshot> unreferencedNewSnapshots =
           providedSnapshots.stream()
               .filter(
                   s ->
                       !existingAfterDeletionIds.contains(s.snapshotId())
                           && !providedBranchRefIds.contains(s.snapshotId())
-                          && !metadataSnapshotIds.contains(s.snapshotId()))
+                          && !metadataSnapshotIds.contains(s.snapshotId())
+                          && !snapshotsInBranchLineages.contains(s.snapshotId()))
               .collect(Collectors.toList());
+
+      // Compute auto-appended snapshots for MAIN branch (backward compatibility)
+      final List<Snapshot> autoAppendedToMainSnapshots;
+      if (!providedRefs.containsKey(SnapshotRef.MAIN_BRANCH)
+          && !unreferencedNewSnapshots.isEmpty()) {
+        autoAppendedToMainSnapshots =
+            unreferencedNewSnapshots.stream()
+                .filter(s -> !wapIds.contains(s.snapshotId()))
+                .collect(Collectors.toList());
+      } else {
+        autoAppendedToMainSnapshots = Collections.emptyList();
+      }
+
+      // Main branch snapshots for metrics (includes auto-appended)
+      List<Snapshot> mainForMetrics =
+          new ArrayList<>(
+              newSnapshotsByBranch.getOrDefault(SnapshotRef.MAIN_BRANCH, Collections.emptyList()));
+      mainForMetrics.addAll(autoAppendedToMainSnapshots);
+
+      // Global set of snapshot IDs to add (deduplicated upfront)
+      Set<Long> snapshotIdsToAdd = new HashSet<>();
+      autoAppendedToMainSnapshots.stream().map(Snapshot::snapshotId).forEach(snapshotIdsToAdd::add);
+      newSnapshotsByBranch.values().stream()
+          .flatMap(List::stream)
+          .map(Snapshot::snapshotId)
+          .forEach(snapshotIdsToAdd::add);
+      // Remove any that already exist and aren't deleted
+      snapshotIdsToAdd.removeIf(id -> metadataSnapshotIds.contains(id) && !deletedIds.contains(id));
 
       // Extract database ID from metadata properties
       String databaseId =
@@ -228,26 +270,19 @@ public class SnapshotDiffApplier {
           existingMetadata,
           providedMetadata,
           databaseId,
-          existingSnapshots,
-          providedSnapshots,
-          existingRefs,
           providedRefs,
           providedSnapshotByIds,
-          existingSnapshotByIds,
-          metadataSnapshotIds,
-          existingBranchRefIds,
-          providedBranchRefIds,
           newSnapshots,
           deletedSnapshots,
-          deletedIds,
           newStagedSnapshots,
           cherryPickedSnapshots,
-          regularSnapshots,
           branchUpdates,
-          newRegularSnapshots,
+          newSnapshotsByBranch,
           staleRefs,
-          existingAfterDeletionIds,
-          unreferencedNewSnapshots);
+          unreferencedNewSnapshots,
+          autoAppendedToMainSnapshots,
+          mainForMetrics,
+          snapshotIdsToAdd);
     }
 
     /** Private constructor that accepts all pre-computed values. Use {@link #create} instead. */
@@ -256,50 +291,36 @@ public class SnapshotDiffApplier {
         TableMetadata existingMetadata,
         TableMetadata providedMetadata,
         String databaseId,
-        List<Snapshot> existingSnapshots,
-        List<Snapshot> providedSnapshots,
-        Map<String, SnapshotRef> existingRefs,
         Map<String, SnapshotRef> providedRefs,
         Map<Long, Snapshot> providedSnapshotByIds,
-        Map<Long, Snapshot> existingSnapshotByIds,
-        Set<Long> metadataSnapshotIds,
-        Set<Long> existingBranchRefIds,
-        Set<Long> providedBranchRefIds,
         List<Snapshot> newSnapshots,
         List<Snapshot> deletedSnapshots,
-        Set<Long> deletedIds,
         List<Snapshot> newStagedSnapshots,
         List<Snapshot> cherryPickedSnapshots,
-        List<Snapshot> regularSnapshots,
         Map<String, SnapshotRef> branchUpdates,
-        List<Snapshot> newRegularSnapshots,
+        Map<String, List<Snapshot>> newSnapshotsByBranch,
         Set<String> staleRefs,
-        Set<Long> existingAfterDeletionIds,
-        List<Snapshot> unreferencedNewSnapshots) {
+        List<Snapshot> unreferencedNewSnapshots,
+        List<Snapshot> autoAppendedToMainSnapshots,
+        List<Snapshot> mainBranchSnapshotsForMetrics,
+        Set<Long> snapshotIdsToAdd) {
       this.metricsReporter = metricsReporter;
       this.existingMetadata = existingMetadata;
       this.providedMetadata = providedMetadata;
       this.databaseId = databaseId;
-      this.existingSnapshots = existingSnapshots;
-      this.providedSnapshots = providedSnapshots;
-      this.existingRefs = existingRefs;
       this.providedRefs = providedRefs;
       this.providedSnapshotByIds = providedSnapshotByIds;
-      this.existingSnapshotByIds = existingSnapshotByIds;
-      this.metadataSnapshotIds = metadataSnapshotIds;
-      this.existingBranchRefIds = existingBranchRefIds;
-      this.providedBranchRefIds = providedBranchRefIds;
       this.newSnapshots = newSnapshots;
       this.deletedSnapshots = deletedSnapshots;
-      this.deletedIds = deletedIds;
       this.newStagedSnapshots = newStagedSnapshots;
       this.cherryPickedSnapshots = cherryPickedSnapshots;
-      this.regularSnapshots = regularSnapshots;
       this.branchUpdates = branchUpdates;
-      this.newRegularSnapshots = newRegularSnapshots;
+      this.newSnapshotsByBranch = newSnapshotsByBranch;
       this.staleRefs = staleRefs;
-      this.existingAfterDeletionIds = existingAfterDeletionIds;
       this.unreferencedNewSnapshots = unreferencedNewSnapshots;
+      this.autoAppendedToMainSnapshots = autoAppendedToMainSnapshots;
+      this.mainBranchSnapshotsForMetrics = mainBranchSnapshotsForMetrics;
+      this.snapshotIdsToAdd = snapshotIdsToAdd;
     }
 
     /**
@@ -396,13 +417,66 @@ public class SnapshotDiffApplier {
     }
 
     /**
+     * Computes new regular snapshots grouped by branch.
+     *
+     * <p>For each branch that has been updated, walks backward from the new branch head following
+     * parent pointers until reaching an existing snapshot (merge base). Collects only new regular
+     * snapshots along the way.
+     *
+     * @param branchUpdates Map of branch names to their new refs (only branches that changed)
+     * @param providedSnapshotByIds Index of all provided snapshots by ID
+     * @param existingSnapshotByIds Index of all existing snapshots by ID
+     * @param regularSnapshotIds Set of IDs for regular (non-WAP, non-cherry-picked) snapshots
+     * @return Map of branch names to lists of new regular snapshots added to each branch
+     */
+    private static Map<String, List<Snapshot>> computeNewSnapshotsByBranch(
+        Map<String, SnapshotRef> branchUpdates,
+        Map<Long, Snapshot> providedSnapshotByIds,
+        Map<Long, Snapshot> existingSnapshotByIds,
+        Set<Long> regularSnapshotIds) {
+
+      Map<String, List<Snapshot>> result = new HashMap<>();
+
+      branchUpdates.forEach(
+          (branchName, newRef) -> {
+            java.util.Deque<Snapshot> branchNewSnapshots = new java.util.ArrayDeque<>();
+            long currentId = newRef.snapshotId();
+
+            // Walk backwards from new branch head until we hit an existing snapshot (merge base)
+            while (currentId != -1) {
+              Snapshot snapshot = providedSnapshotByIds.get(currentId);
+              if (snapshot == null) {
+                break;
+              }
+
+              // Stop at existing snapshot (merge base or old branch head)
+              if (existingSnapshotByIds.containsKey(currentId)) {
+                break;
+              }
+
+              // Collect new regular snapshots in chronological order (add to front)
+              if (regularSnapshotIds.contains(currentId)) {
+                branchNewSnapshots.addFirst(snapshot);
+              }
+
+              currentId = snapshot.parentId() != null ? snapshot.parentId() : -1;
+            }
+
+            if (!branchNewSnapshots.isEmpty()) {
+              result.put(branchName, new ArrayList<>(branchNewSnapshots));
+            }
+          });
+
+      return result;
+    }
+
+    /**
      * Validates all snapshot changes before applying them to table metadata.
      *
      * @throws InvalidIcebergSnapshotException if any validation check fails
      */
     void validate() {
       validateCurrentSnapshotNotDeleted();
-      validateNoAmbiguousCommits();
       validateDeletedSnapshotsNotReferenced();
     }
 
@@ -432,34 +506,6 @@ public class SnapshotDiffApplier {
     }
 
     /**
-     * Validates that no single snapshot is referenced by multiple branches in the same commit. This
-     * prevents ambiguous commits where it's unclear which branch should be the primary reference
-     * for a snapshot. Each snapshot can only be associated with one branch per commit to maintain
-     * clear lineage and avoid conflicts.
-     *
-     * @throws InvalidIcebergSnapshotException if a snapshot is referenced by multiple branches
-     */
-    private void validateNoAmbiguousCommits() {
-      Map<Long, List<String>> snapshotToBranches =
-          branchUpdates.entrySet().stream()
-              .collect(
-                  Collectors.groupingBy(
-                      e -> e.getValue().snapshotId(),
-                      Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
-
-      snapshotToBranches.forEach(
-          (snapshotId, branches) -> {
-            if (branches.size() > 1) {
-              throw new InvalidIcebergSnapshotException(
-                  String.format(
-                      "Ambiguous commit: snapshot %s is referenced by multiple branches [%s] in a single commit. "
-                          + "Each snapshot can only be referenced by one branch per commit.",
-                      snapshotId, String.join(", ", branches)));
-            }
-          });
-    }
-
-    /**
      * Validates that snapshots being deleted are not still referenced by any branches or tags. This
      * prevents data loss and maintains referential integrity by ensuring that all branch and tag
      * pointers reference valid snapshots that will continue to exist after the commit.
@@ -474,6 +520,9 @@ public class SnapshotDiffApplier {
                   Collectors.groupingBy(
                       e -> e.getValue().snapshotId(),
                       Collectors.mapping(Map.Entry::getKey, Collectors.toList())));
+
+      Set<Long> deletedIds =
+          deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
       List<String> invalidDeleteDetails =
           deletedIds.stream()
@@ -502,84 +551,123 @@ public class SnapshotDiffApplier {
      *
      * <p>[2] Remove stale branch references that are no longer needed
      *
-     * <p>[3] Add unreferenced new snapshots (staged WAP snapshots without branch pointers)
+     * <p>[3] Add unreferenced snapshots (auto-append to MAIN for backward compat, then staged WAP)
      *
-     * <p>[4] Set branch pointers for all provided refs, using setBranchSnapshot for new snapshots
-     * and setRef for existing snapshots to ensure proper validation
+     * <p>[4] Set branch pointers for all provided refs. Uses pre-computed deduplication set to
+     * determine whether to call setBranchSnapshot (for new snapshots) or setRef (for existing
+     * snapshots being fast-forwarded or cherry-picked).
+     *
+     * <p>[5] Set properties using pre-computed snapshot lists for tracking
      *
      * <p>This order ensures referential integrity is maintained throughout the operation.
      */
     TableMetadata apply() {
-      TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(this.providedMetadata);
+      TableMetadata.Builder builder = TableMetadata.buildFrom(this.providedMetadata);
 
-      // Remove deleted snapshots
+      // [1] Remove deletions
       if (!this.deletedSnapshots.isEmpty()) {
-        metadataBuilder.removeSnapshots(this.deletedIds);
+        Set<Long> deletedIds =
+            this.deletedSnapshots.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+        builder.removeSnapshots(deletedIds);
       }
+      this.staleRefs.forEach(builder::removeRef);
 
-      // Remove stale branch references
-      this.staleRefs.forEach(metadataBuilder::removeRef);
+      // [2] Add unreferenced snapshots (auto-append to MAIN for backward compat, then WAP)
+      this.autoAppendedToMainSnapshots.forEach(
+          s -> builder.setBranchSnapshot(s, SnapshotRef.MAIN_BRANCH));
+      this.unreferencedNewSnapshots.stream()
+          .filter(
+              s ->
+                  s.summary() != null
+                      && s.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP))
+          .forEach(builder::addSnapshot);
 
-      // Add unreferenced new snapshots
-      this.unreferencedNewSnapshots.forEach(metadataBuilder::addSnapshot);
-
-      // Set branch pointers
-      this.providedRefs.forEach(
-          (branchName, ref) -> {
-            Snapshot snapshot = this.providedSnapshotByIds.get(ref.snapshotId());
-            if (snapshot == null) {
-              throw new InvalidIcebergSnapshotException(
-                  String.format(
-                      "Branch %s references non-existent snapshot %s",
-                      branchName, ref.snapshotId()));
-            }
-
-            // Check if snapshot is already in metadata (after deletions)
-            boolean snapshotExistsInMetadata =
-                this.metadataSnapshotIds.contains(snapshot.snapshotId())
-                    && !this.deletedIds.contains(snapshot.snapshotId());
-
-            if (snapshotExistsInMetadata) {
-              SnapshotRef existingRef = this.providedMetadata.refs().get(branchName);
-              if (existingRef == null || existingRef.snapshotId() != ref.snapshotId()) {
-                metadataBuilder.setRef(branchName, ref);
+      // [3] Apply branch operations (using pre-computed deduplication set)
+      // First, apply new snapshots for branches that have them
+      this.newSnapshotsByBranch.forEach(
+          (branchName, branchSnapshots) -> {
+            // Add each new snapshot in lineage order
+            for (Snapshot snapshot : branchSnapshots) {
+              if (this.snapshotIdsToAdd.contains(snapshot.snapshotId())) {
+                builder.setBranchSnapshot(snapshot, branchName);
               }
-            } else {
-              metadataBuilder.setBranchSnapshot(snapshot, branchName);
             }
           });
 
-      // Record snapshot IDs in properties and cleanup input properties
-      if (!this.newRegularSnapshots.isEmpty()) {
-        metadataBuilder.setProperties(
-            Collections.singletonMap(
-                getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-                formatSnapshotIds(this.newRegularSnapshots)));
-      }
-      if (!this.newStagedSnapshots.isEmpty()) {
-        metadataBuilder.setProperties(
-            Collections.singletonMap(
-                getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-                formatSnapshotIds(this.newStagedSnapshots)));
-      }
-      if (!this.cherryPickedSnapshots.isEmpty()) {
-        metadataBuilder.setProperties(
-            Collections.singletonMap(
-                getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-                formatSnapshotIds(this.cherryPickedSnapshots)));
-      }
-      if (!this.deletedSnapshots.isEmpty()) {
-        metadataBuilder.setProperties(
-            Collections.singletonMap(
-                getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
-                formatSnapshotIds(this.deletedSnapshots)));
-      }
-      metadataBuilder.removeProperties(
+      // Then, set refs for all provided refs (branches without new snapshots, and tags)
+      this.providedRefs.forEach(
+          (refName, ref) -> {
+            // Skip if we already added snapshots for this branch
+            if (this.newSnapshotsByBranch.containsKey(refName)
+                && !this.newSnapshotsByBranch.get(refName).isEmpty()) {
+              return;
+            }
+
+            // For refs without new snapshots (fast-forward, cherry-pick, or tags)
+            Snapshot refSnapshot = this.providedSnapshotByIds.get(ref.snapshotId());
+            if (refSnapshot == null) {
+              throw new InvalidIcebergSnapshotException(
+                  String.format(
+                      "Ref %s references non-existent snapshot %s", refName, ref.snapshotId()));
+            }
+            builder.setRef(refName, ref);
+          });
+
+      // [4] Set properties
+      setSnapshotProperties(builder);
+
+      return builder.build();
+    }
+
+    /**
+     * Sets snapshot-related properties on the metadata builder.
+     *
+     * <p>Records snapshot IDs in table properties for tracking and cleanup of temporary input
+     * properties used for snapshot transfer.
+     *
+     * @param builder The metadata builder to set properties on
+     */
+    private void setSnapshotProperties(TableMetadata.Builder builder) {
+      // First, remove the temporary transfer properties
+      builder.removeProperties(
           new HashSet<>(
-              Arrays.asList(
+              java.util.Arrays.asList(
                   CatalogConstants.SNAPSHOTS_JSON_KEY, CatalogConstants.SNAPSHOTS_REFS_KEY)));
 
-      return metadataBuilder.build();
+      // Then set the tracking properties
+      String appendedKey = getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS);
+      if (!this.mainBranchSnapshotsForMetrics.isEmpty()) {
+        builder.setProperties(
+            Collections.singletonMap(
+                appendedKey, formatSnapshotIds(this.mainBranchSnapshotsForMetrics)));
+      } else {
+        builder.removeProperties(Collections.singleton(appendedKey));
+      }
+
+      String stagedKey = getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS);
+      if (!this.newStagedSnapshots.isEmpty()) {
+        builder.setProperties(
+            Collections.singletonMap(stagedKey, formatSnapshotIds(this.newStagedSnapshots)));
+      } else {
+        builder.removeProperties(Collections.singleton(stagedKey));
+      }
+
+      String cherryPickedKey = getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS);
+      if (!this.cherryPickedSnapshots.isEmpty()) {
+        builder.setProperties(
+            Collections.singletonMap(
+                cherryPickedKey, formatSnapshotIds(this.cherryPickedSnapshots)));
+      } else {
+        builder.removeProperties(Collections.singleton(cherryPickedKey));
+      }
+
+      String deletedKey = getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS);
+      if (!this.deletedSnapshots.isEmpty()) {
+        builder.setProperties(
+            Collections.singletonMap(deletedKey, formatSnapshotIds(this.deletedSnapshots)));
+      } else {
+        builder.removeProperties(Collections.singleton(deletedKey));
+      }
     }
 
     /**
@@ -589,12 +677,11 @@ public class SnapshotDiffApplier {
      * snapshots (WAP) - Cherry-picked source snapshots - Deleted snapshots
      */
     void recordMetrics() {
-      // Count regular snapshots that are new (includes regular commits and cherry-pick results)
+      // Count only MAIN branch snapshots for backward compatibility
       int appendedCount =
-          (int)
-              this.regularSnapshots.stream()
-                  .filter(s -> !this.existingSnapshotByIds.containsKey(s.snapshotId()))
-                  .count();
+          this.newSnapshotsByBranch
+              .getOrDefault(SnapshotRef.MAIN_BRANCH, Collections.emptyList())
+              .size();
       recordMetricWithDatabaseTag(
           InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedCount);
       recordMetricWithDatabaseTag(
