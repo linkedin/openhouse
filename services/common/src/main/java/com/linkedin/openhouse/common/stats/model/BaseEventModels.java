@@ -38,7 +38,7 @@ public final class BaseEventModels {
   public abstract static class BaseCommitEvent {
 
     /** Dataset information for this commit event */
-    @NonNull private BaseDataset dataset;
+    @NonNull private BaseTableIdentifier dataset;
 
     /** commit Metadata for this commit */
     @NonNull private CommitMetadata commitMetadata;

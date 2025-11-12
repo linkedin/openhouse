@@ -11,7 +11,7 @@ import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 
 /**
- * Data model for openhouseDatasetPartitionsStats table.
+ * Data model for openhouseTablePartitionsStats table.
  *
  * <p>Stores partition-level metadata and statistics such as null count, NaN count, row count, and
  * min/max values. Can represent both partition-level and table-level statistics.
@@ -30,7 +30,7 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
-public class PartitionStats extends BaseEventModels.BaseDataset {
+public class PartitionStats extends BaseEventModels.BaseTableIdentifier {
 
   /**
    * Commit metadata for the latest commit that modified this partition.

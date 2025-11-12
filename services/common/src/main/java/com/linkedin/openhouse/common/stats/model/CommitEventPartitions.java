@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.NonNull;
 
 /**
- * Data model for openhousedatasetcommiteventpartitions table.
+ * Data model for openhouseTableCommitEventPartitions table.
  *
  * <p>Stores partition-level information for each commit. Maps commit events to specific partitions
  * affected by that commit. One commit can correspond to multiple partition records.
