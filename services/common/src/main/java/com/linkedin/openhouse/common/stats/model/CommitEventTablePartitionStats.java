@@ -59,7 +59,7 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
    * Stores null count statistics for each column in the dataset. Each element represents a column
    * name and its corresponding number of null values.
    */
-  private List<ColumnStatistics> nullCount;
+  private List<ColumnData> nullCount;
 
   /**
    * Stores NaN count statistics for each column in the dataset. Each element represents a column
@@ -67,28 +67,28 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
    *
    * <p>Applicable only to numeric data types such as float, double, or decimal.
    */
-  private List<ColumnStatistics> nanCount;
+  private List<ColumnData> nanCount;
 
   /**
    * Stores minimum value statistics for each column in the dataset. Each element represents a
    * column name and its corresponding minimum value.
    */
-  private List<ColumnStatistics> minValue;
+  private List<ColumnData> minValue;
 
   /**
    * Stores maximum value statistics for each column in the dataset. Each element represents a
    * column name and its corresponding maximum value.
    */
-  private List<ColumnStatistics> maxValue;
+  private List<ColumnData> maxValue;
 
   /**
    * Stores column size in bytes statistics for each column in the dataset. Each element represents
    * a column name and its corresponding size in bytes.
    */
-  private List<ColumnStatistics> columnSizeInBytes;
+  private List<ColumnData> columnSizeInBytes;
 
   /**
-   * Column-level statistic interface for type-safe statistics.
+   * Column-level data interface for type-safe statistics.
    *
    * <p>Provides a type-safe way to represent column statistics with different value types. Each
    * implementation encapsulates a specific value type, ensuring compile-time type safety.
@@ -96,14 +96,14 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
    * <p>Implementations:
    *
    * <ul>
-   *   <li>{@link LongColumnStatistics} - For counts (null, NaN) and sizes in bytes
-   *   <li>{@link StringColumnStatistics} - For min/max of strings, dates, timestamps
-   *   <li>{@link DoubleColumnStatistics} - For floating-point statistics
+   *   <li>{@link LongColumnData} - For counts (null, NaN) and sizes in bytes
+   *   <li>{@link StringColumnData} - For min/max of strings, dates, timestamps
+   *   <li>{@link DoubleColumnData} - For floating-point statistics
    * </ul>
    *
    * <p>This design pattern is inspired by Apache ORC's type-safe column statistics approach.
    */
-  public interface ColumnStatistics {
+  public interface ColumnData {
     /**
      * Returns the column name this statistic applies to.
      *
@@ -117,9 +117,9 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
      * <p>The actual type depends on the implementation:
      *
      * <ul>
-     *   <li>{@link LongColumnStatistics} returns {@link Long}
-     *   <li>{@link StringColumnStatistics} returns {@link String}
-     *   <li>{@link DoubleColumnStatistics} returns {@link Double}
+     *   <li>{@link LongColumnData} returns {@link Long}
+     *   <li>{@link StringColumnData} returns {@link String}
+     *   <li>{@link DoubleColumnData} returns {@link Double}
      * </ul>
      *
      * @return the statistic value
@@ -127,12 +127,12 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
     Object getValue();
   }
 
-  /** Long-valued column statistic for counts and sizes in bytes. */
+  /** Long-valued column data for counts and sizes in bytes. */
   @Data
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class LongColumnStatistics implements ColumnStatistics {
+  public static class LongColumnData implements ColumnData {
     /** Name of the column */
     @NonNull private String columnName;
 
@@ -142,12 +142,12 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
     // Lombok generates: Long getValue() which satisfies Object getValue() from interface
   }
 
-  /** String-valued column statistic for min/max of strings, dates, and timestamps. */
+  /** String-valued column data for min/max of strings, dates, and timestamps. */
   @Data
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class StringColumnStatistics implements ColumnStatistics {
+  public static class StringColumnData implements ColumnData {
     /** Name of the column */
     @NonNull private String columnName;
 
@@ -157,12 +157,12 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
     // Lombok generates: String getValue() which satisfies Object getValue() from interface
   }
 
-  /** Double-valued column statistic for floating-point min/max values. */
+  /** Double-valued column data for floating-point min/max values. */
   @Data
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class DoubleColumnStatistics implements ColumnStatistics {
+  public static class DoubleColumnData implements ColumnData {
     /** Name of the column */
     @NonNull private String columnName;
 
