@@ -18,7 +18,7 @@ public final class BaseEventModels {
   @SuperBuilder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class BaseDataset {
+  public static class BaseTableIdentifier {
 
     /** Name of the database for the dataset */
     @NonNull private String databaseName;
