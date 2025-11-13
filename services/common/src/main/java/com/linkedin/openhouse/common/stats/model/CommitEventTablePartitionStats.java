@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.common.stats.model;
 
 import java.util.List;
-import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,24 +32,27 @@ import lombok.experimental.SuperBuilder;
 public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEvent {
 
   /**
-   * Key-value mapping of partition columns and their corresponding values associated with the
-   * statistics.
+   * List of per-partition column values associated with the statistics.
+   *
+   * <p>Each element carries the partition column name and its typed value using {@link ColumnData}
+   * implementations. The list order should align with the partition spec order for determinism.
    *
    * <p>Can be null if the statistics is on a table level (non-partitioned table or table-level
    * aggregates).
    *
-   * <p>Example for non-null partition: { "datepartition": "2025-01-25", "hourpartition": "12" }
+   * <p>Example for non-null partition: [ new StringColumnData("datepartition", "2025-01-25"), new
+   * StringColumnData("hourpartition", "12") ]
    */
-  @NonNull private Map<String, String> partitionData;
+  private List<ColumnData> partitionData;
 
   /**
-   * Total number of rows corresponding to the given partition specification if partition_spec is
-   * not null; otherwise, the row count for the entire table.
+   * Total number of rows corresponding to the given partition specification if partitionData is not
+   * null; otherwise, the row count for the entire table.
    */
   private Long rowCount;
 
   /**
-   * Total number of columns corresponding to the given partition specification if partition_spec is
+   * Total number of columns corresponding to the given partition specification if partitionData is
    * not null; otherwise, the column count for the entire table.
    */
   private Long columnCount;
