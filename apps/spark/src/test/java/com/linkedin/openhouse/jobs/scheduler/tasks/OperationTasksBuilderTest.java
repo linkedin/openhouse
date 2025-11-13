@@ -7,6 +7,7 @@ import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
@@ -52,6 +53,7 @@ public class OperationTasksBuilderTest {
   private int tableCount = 4;
   List<TableMetadata> tableMetadataList = new ArrayList<>();
   List<TableDataLayoutMetadata> tableDataLayoutMetadataList = new ArrayList<>();
+  List<DatabaseMetadata> databaseMetadataList = new ArrayList<>();
   Map<JobConf.JobTypeEnum, Class<? extends OperationTask<?>>> jobTypeToClassMap =
       new HashMap() {
         {
@@ -65,6 +67,7 @@ public class OperationTasksBuilderTest {
           put(
               JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
               TableDataLayoutStrategyExecutionTask.class);
+          put(JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION, TableDirectoryDeletionTask.class);
         }
       };
 
@@ -162,7 +165,8 @@ public class OperationTasksBuilderTest {
             JobConf.JobTypeEnum.ORPHAN_FILES_DELETION,
             JobConf.JobTypeEnum.TABLE_STATS_COLLECTION,
             JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION,
-            JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION);
+            JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
+            JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION);
     for (JobConf.JobTypeEnum jobType : jobList) {
       prepareMockitoForParallelFetch();
       OperationTasksBuilder operationTasksBuilder = createOperationTasksBuilder(jobType);
@@ -172,8 +176,13 @@ public class OperationTasksBuilderTest {
       OperationTaskManager operationTaskManager = operationTasksBuilder.getOperationTaskManager();
       do {} while (!operationTaskManager.isDataGenerationCompleted());
       Assertions.assertFalse(operationTaskManager.isEmpty());
-      Assertions.assertEquals(16, operationTaskManager.getCurrentDataCount());
-      Assertions.assertEquals(16, operationTaskManager.getTotalDataCount());
+      if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
+        Assertions.assertEquals(4, operationTaskManager.getCurrentDataCount());
+        Assertions.assertEquals(4, operationTaskManager.getTotalDataCount());
+      } else {
+        Assertions.assertEquals(16, operationTaskManager.getCurrentDataCount());
+        Assertions.assertEquals(16, operationTaskManager.getTotalDataCount());
+      }
       OperationTask<?> task = operationTaskManager.getData();
       Assertions.assertNotNull(task);
       Class<? extends OperationTask<?>> taskClass = jobTypeToClassMap.get(jobType);
@@ -192,11 +201,14 @@ public class OperationTasksBuilderTest {
             JobConf.JobTypeEnum.ORPHAN_FILES_DELETION,
             JobConf.JobTypeEnum.TABLE_STATS_COLLECTION,
             JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_GENERATION,
-            JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION);
+            JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
+            JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION);
     for (JobConf.JobTypeEnum jobType : jobList) {
       if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
         Mockito.when(tablesClient.getTableDataLayoutMetadataList())
             .thenReturn(tableDataLayoutMetadataList);
+      } else if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
+        Mockito.when(tablesClient.getDatabaseMetadataList()).thenReturn(databaseMetadataList);
       } else {
         Mockito.when(tablesClient.getTableMetadataList()).thenReturn(tableMetadataList);
       }
@@ -205,13 +217,24 @@ public class OperationTasksBuilderTest {
           operationTasksBuilder.buildOperationTaskList(
               jobType, properties, otelEmitter, OperationMode.SINGLE);
       Assertions.assertNotNull(operationTasks);
-      // Make sure operation task build is completed
-      Assertions.assertEquals(16, operationTasks.size());
-      for (int i = 0; i < 16; i++) {
-        Assertions.assertNotNull(operationTasks.get(i));
-        Class<? extends OperationTask<?>> taskClass = jobTypeToClassMap.get(jobType);
-        Assertions.assertTrue(taskClass.isInstance(operationTasks.get(i)));
-        Assertions.assertEquals(OperationMode.SINGLE, operationTasks.get(i).operationMode);
+      if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
+        Assertions.assertEquals(4, operationTasks.size());
+        for (int i = 0; i < 4; i++) {
+          Assertions.assertNotNull(operationTasks.get(i));
+          Class<? extends OperationTask<?>> taskClass = jobTypeToClassMap.get(jobType);
+          Assertions.assertTrue(taskClass.isInstance(operationTasks.get(i)));
+          Assertions.assertEquals(OperationMode.SINGLE, operationTasks.get(i).operationMode);
+        }
+        continue;
+      } else {
+        // Make sure operation task build is completed
+        Assertions.assertEquals(16, operationTasks.size());
+        for (int i = 0; i < 16; i++) {
+          Assertions.assertNotNull(operationTasks.get(i));
+          Class<? extends OperationTask<?>> taskClass = jobTypeToClassMap.get(jobType);
+          Assertions.assertTrue(taskClass.isInstance(operationTasks.get(i)));
+          Assertions.assertEquals(OperationMode.SINGLE, operationTasks.get(i).operationMode);
+        }
       }
     }
   }
@@ -263,12 +286,17 @@ public class OperationTasksBuilderTest {
             .build());
   }
 
+  private Optional<DatabaseMetadata> getDatabaseMetadata(int dbIndex) {
+    return Optional.of(DatabaseMetadata.builder().dbName("db" + dbIndex).build());
+  }
+
   private void prepareMetadata() {
     for (int i = 0; i < dbCount; i++) {
       for (int j = 0; j < tableCount; j++) {
         tableMetadataList.add(getTableMetadata(i, j).get());
         tableDataLayoutMetadataList.addAll(getTableDataLayoutMetadata(i, j));
       }
+      databaseMetadataList.add(getDatabaseMetadata(i).get());
     }
   }
 
@@ -291,6 +319,7 @@ public class OperationTasksBuilderTest {
             .thenReturn(tableDataLayoutMetadataList);
       }
     }
+    Mockito.when(tablesClient.getDatabaseMetadataList()).thenReturn(databaseMetadataList);
     Mockito.when(tablesClient.applyDatabaseFilter(Mockito.anyString())).thenReturn(true);
     Mockito.when(tablesClient.applyTableMetadataFilter(Mockito.any(TableMetadata.class)))
         .thenReturn(true);
