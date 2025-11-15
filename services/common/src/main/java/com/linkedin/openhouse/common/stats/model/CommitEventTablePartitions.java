@@ -1,11 +1,10 @@
 package com.linkedin.openhouse.common.stats.model;
 
-import java.util.Map;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 
 /**
@@ -31,10 +30,13 @@ import lombok.experimental.SuperBuilder;
 public class CommitEventTablePartitions extends BaseEventModels.BaseCommitEvent {
 
   /**
-   * Key-value mapping of partition columns and their corresponding values associated with the
-   * commit.
+   * List of per-partition column values associated with the commit.
    *
-   * <p>Example: { "datepartition": "2025-01-25", "hourpartition": "12" }
+   * <p>Each element carries the partition column name and its typed value using {@link ColumnData}
+   * implementations. The list order should align with the partition spec order for determinism.
+   *
+   * <p>Example: [ new ColumnData.StringColumnData("datepartition", "2025-01-25"), new
+   * ColumnData.StringColumnData("hourpartition", "12") ]
    */
-  @NonNull private Map<String, String> partitionData;
+  private List<ColumnData> partitionData;
 }

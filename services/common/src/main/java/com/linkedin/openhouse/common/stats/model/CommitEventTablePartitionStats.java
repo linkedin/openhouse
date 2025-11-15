@@ -2,11 +2,9 @@ package com.linkedin.openhouse.common.stats.model;
 
 import java.util.List;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 
 /**
@@ -40,8 +38,8 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
    * <p>Can be null if the statistics is on a table level (non-partitioned table or table-level
    * aggregates).
    *
-   * <p>Example for non-null partition: [ new StringColumnData("datepartition", "2025-01-25"), new
-   * StringColumnData("hourpartition", "12") ]
+   * <p>Example for non-null partition: [ new ColumnData.StringColumnData("datepartition",
+   * "2025-01-25"), new ColumnData.StringColumnData("hourpartition", "12") ]
    */
   private List<ColumnData> partitionData;
 
@@ -88,89 +86,4 @@ public class CommitEventTablePartitionStats extends BaseEventModels.BaseCommitEv
    * a column name and its corresponding size in bytes.
    */
   private List<ColumnData> columnSizeInBytes;
-
-  /**
-   * Column-level data interface for type-safe statistics.
-   *
-   * <p>Provides a type-safe way to represent column statistics with different value types. Each
-   * implementation encapsulates a specific value type, ensuring compile-time type safety.
-   *
-   * <p>Implementations:
-   *
-   * <ul>
-   *   <li>{@link LongColumnData} - For counts (null, NaN) and sizes in bytes
-   *   <li>{@link StringColumnData} - For min/max of strings, dates, timestamps
-   *   <li>{@link DoubleColumnData} - For floating-point statistics
-   * </ul>
-   *
-   * <p>This design pattern is inspired by Apache ORC's type-safe column statistics approach.
-   */
-  public interface ColumnData {
-    /**
-     * Returns the column name this statistic applies to.
-     *
-     * @return the column name
-     */
-    String getColumnName();
-
-    /**
-     * Returns the statistic value as an object for generic handling.
-     *
-     * <p>The actual type depends on the implementation:
-     *
-     * <ul>
-     *   <li>{@link LongColumnData} returns {@link Long}
-     *   <li>{@link StringColumnData} returns {@link String}
-     *   <li>{@link DoubleColumnData} returns {@link Double}
-     * </ul>
-     *
-     * @return the statistic value
-     */
-    Object getValue();
-  }
-
-  /** Long-valued column data for counts and sizes in bytes. */
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  public static class LongColumnData implements ColumnData {
-    /** Name of the column */
-    @NonNull private String columnName;
-
-    /** Long value for counts (null, NaN) and sizes in bytes */
-    @NonNull private Long value;
-
-    // Lombok generates: Long getValue() which satisfies Object getValue() from interface
-  }
-
-  /** String-valued column data for min/max of strings, dates, and timestamps. */
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  public static class StringColumnData implements ColumnData {
-    /** Name of the column */
-    @NonNull private String columnName;
-
-    /** String value for min/max of strings, dates, and timestamps */
-    @NonNull private String value;
-
-    // Lombok generates: String getValue() which satisfies Object getValue() from interface
-  }
-
-  /** Double-valued column data for floating-point min/max values. */
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  public static class DoubleColumnData implements ColumnData {
-    /** Name of the column */
-    @NonNull private String columnName;
-
-    /** Double value for floating-point statistics */
-    @NonNull private Double value;
-
-    // Lombok generates: Double getValue() which satisfies Object getValue() from interface
-  }
 }
