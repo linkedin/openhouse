@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 
 /**
@@ -38,5 +39,5 @@ public class CommitEventTablePartitions extends BaseEventModels.BaseCommitEvent 
    * <p>Example: [ new ColumnData.StringColumnData("datepartition", "2025-01-25"), new
    * ColumnData.StringColumnData("hourpartition", "12") ]
    */
-  private List<ColumnData> partitionData;
+  @NonNull private List<ColumnData> partitionData;
 }
