@@ -3,24 +3,41 @@
 ## Overview
 This bug bash tests the complex multi-branch Git-like behavior in `SnapshotDiffApplier.java`. The goal is to stress-test edge cases involving branches, WAP (Write-Audit-Publish), cherry-picks, fast-forwards, and snapshot management.
 
-## Quick Start
+## Quick Start for Team Members
 
-### 1. View Your Assignment
-Check `assignments.md` to see which tests you're assigned to.
+### Step 1: Clone and Checkout (One-time setup)
+```bash
+# Clone the LinkedIn OpenHouse repository
+git clone https://github.com/linkedin/openhouse.git
+cd openhouse
 
-### 2. Read Test Details
-Review your test prompts in `test-details.md` for the full description.
+# Checkout the bug bash branch
+git fetch origin
+git checkout bug-bash-wap-2024-11
 
-### 3. Execute Your Tests
-Navigate to your assigned test file in `results/` and follow the template.
+# Navigate to bug bash folder
+cd bug-bash-wap
+```
+
+### Step 2: View Your Assignment
+```bash
+# Check which tests you're assigned
+cat assignments.md
+# You have 2 tests: 1 Spark SQL + 1 Java API
+```
+
+### Step 3: Read Test Details
+Review your test prompts in `test-details.md` for full descriptions and expected behavior.
+
+### Step 4: Execute Your Tests
 
 **For Spark SQL tests:**
 ```bash
 # Start spark-shell with OpenHouse catalog
 spark-shell --conf spark.sql.catalog.openhouse=...
 
-# Execute your test steps
-# Fill in the markdown template as you go
+# Execute test steps and copy commands to your result file
+# Update status from 🔲 to 🔄 while working
 ```
 
 **For Java tests:**
@@ -32,12 +49,69 @@ spark-shell --conf spark.sql.catalog.openhouse=...
 ./gradlew test --tests "BugBashTest.testXXX"
 ```
 
-### 4. Submit Your Results
+### Step 5: Fill in Results Template
+Open your assigned file (e.g., `results/sql-01-abhishek.md`) and:
+- Update **Status:** from 🔲 to ✅ (PASS) or ❌ (FAIL)
+- Paste your actual commands in "Steps Executed"
+- Document verification queries and results
+- Mark issues found (if any)
+
+### Step 6: Commit and Push Your Results
 ```bash
-git add results/[your-test-file].md
-git commit -m "Results: [Test Name] - [PASS/FAIL]"
+# Before starting: Always pull latest
+git pull origin bug-bash-wap-2024-11
+
+# After completing a test
+git add bug-bash-wap/results/[your-test].md
+git commit -m "Results: [Test Name] - PASS"
+# OR: git commit -m "Results: [Test Name] - FAIL (found bug in parent rewriting)"
 git push origin bug-bash-wap-2024-11
 ```
+
+### Step 7: Repeat for Your Second Test
+Each person has 2 tests assigned - repeat steps 4-6 for your second test.
+
+---
+
+## Collaboration Workflow
+
+### Status Emoji Guide
+Update the `**Status:**` line in your result file:
+- 🔲 `NOT STARTED` - Haven't begun yet
+- 🔄 `IN PROGRESS` - Currently working on it
+- ✅ `PASS` - Test passed all assertions
+- ❌ `FAIL` - Test failed or found bugs (this is good!)
+- ⚠️ `PARTIAL` - Some assertions passed, some failed
+
+### Git Workflow
+```bash
+# BEFORE starting work
+git pull origin bug-bash-wap-2024-11  # Get latest updates
+
+# DURING work
+# Update your result file as you go
+
+# AFTER completing a test
+git add bug-bash-wap/results/[your-test].md
+git commit -m "Results: SQL-01 Diamond Branch Merge - PASS"
+git push origin bug-bash-wap-2024-11
+```
+
+### Check Overall Progress
+```bash
+cd bug-bash-wap
+./collect-results.sh  # Shows completion status and bugs found
+```
+
+### Tips for Smooth Collaboration
+1. **Commit frequently** - Push after each test completion
+2. **Pull before starting** - Always `git pull` to get latest
+3. **Use descriptive commit messages** - Include test name and result
+4. **Clean up test tables** - Drop tables after testing
+5. **Document bugs clearly** - Include steps to reproduce
+6. **Ask questions early** - Don't get blocked!
+
+---
 
 ## File Structure
 
@@ -200,6 +274,49 @@ Before marking your test as complete:
 - [ ] Spark configuration reset
 - [ ] Markdown file committed and pushed
 - [ ] Status updated in `assignments.md` (optional)
+
+## For Organizers: Monitoring Progress
+
+### Pull Latest Results
+```bash
+cd openhouse
+git checkout bug-bash-wap-2024-11
+git pull origin bug-bash-wap-2024-11
+```
+
+### Check Overall Status
+```bash
+cd bug-bash-wap
+./collect-results.sh
+```
+
+**Example output:**
+```
+Completion Status:
+  Total Tests:    20
+  Completed:      5
+  In Progress:    3
+  Not Started:    12
+
+Test Results:
+  ✅ Passed:      4
+  ❌ Failed:      1
+  
+Issues Found:
+🐛 [sql-01-abhishek] by abhishek
+   Cherry-pick doesn't update parent correctly
+```
+
+### Review Individual Results
+```bash
+# View specific test results
+cat results/sql-01-abhishek.md
+
+# Check git log for recent submissions
+git log --oneline --graph
+```
+
+---
 
 ## Getting Help
 
