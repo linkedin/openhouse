@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bug Bash Quick Start Script for LinkedIn OpenHouse Testing
-# This script helps you quickly set up your testing environment
+# Generates all commands you need with proper paths
 
 set -e
 
@@ -8,79 +8,72 @@ set -e
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}=========================================${NC}"
-echo -e "${BLUE}Bug Bash: Quick Start Testing Setup${NC}"
+echo -e "${BLUE}Bug Bash: Quick Start Setup${NC}"
 echo -e "${BLUE}=========================================${NC}"
 echo ""
 
 # Get assignee name
-echo -e "${YELLOW}Enter your name (e.g., abhishek):${NC}"
+echo -e "${YELLOW}Enter your name (e.g., abhishek):${NC} "
 read -r ASSIGNEE
 
-# Create personalized log directory
-LOG_DIR="logs/${ASSIGNEE}"
+if [ -z "$ASSIGNEE" ]; then
+  echo -e "${RED}Error: Name cannot be empty${NC}"
+  exit 1
+fi
+
+# Get absolute path to bug-bash-wap directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="${SCRIPT_DIR}/logs/${ASSIGNEE}"
 mkdir -p "$LOG_DIR"
 
-# Generate timestamp for this session
+# Generate timestamp
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="${LOG_DIR}/session_${TIMESTAMP}.log"
 
 echo ""
-echo -e "${GREEN}✓ Created log directory: ${LOG_DIR}${NC}"
-echo -e "${GREEN}✓ Session logs will be saved to: ${LOG_FILE}${NC}"
+echo -e "${GREEN}✓ Setup complete for: ${ASSIGNEE}${NC}"
+echo -e "${GREEN}✓ Log directory: ${LOG_DIR}${NC}"
 echo ""
 
-# Display connection instructions
-echo -e "${BLUE}=========================================${NC}"
-echo -e "${BLUE}Step 1: SSH to LinkedIn Gateway${NC}"
-echo -e "${BLUE}=========================================${NC}"
-echo ""
-echo -e "Run this command in your terminal:"
-echo -e "${YELLOW}ssh ltx1-holdemgw03.grid.linkedin.com${NC}"
-echo ""
-echo -e "Press Enter when connected..."
-read -r
-
-# Display ksudo instructions
-echo ""
-echo -e "${BLUE}=========================================${NC}"
-echo -e "${BLUE}Step 2: Authenticate with ksudo${NC}"
-echo -e "${BLUE}=========================================${NC}"
-echo ""
-echo -e "Run this command on the gateway:"
-echo -e "${YELLOW}ksudo -e openhouse${NC}"
-echo ""
-echo -e "Press Enter when authenticated..."
-read -r
-
-# Generate spark-shell command
-echo ""
-echo -e "${BLUE}=========================================${NC}"
-echo -e "${BLUE}Step 3: Start Spark Shell${NC}"
-echo -e "${BLUE}=========================================${NC}"
-echo ""
-echo -e "Copy and run this command:"
-echo ""
-echo -e "${GREEN}spark-shell \\"
-echo -e "  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \\"
-echo -e "  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse \\"
-echo -e "  2>/dev/null | tee ${LOG_FILE}${NC}"
-echo ""
-
-# Save command to a file for easy copy-paste
-COMMAND_FILE="${LOG_DIR}/spark-shell-command.sh"
-cat > "$COMMAND_FILE" << 'EOF'
+# Create the gateway script
+GATEWAY_SCRIPT="${LOG_DIR}/run-on-gateway.sh"
+cat > "$GATEWAY_SCRIPT" << EOF
 #!/bin/bash
-# Spark Shell Command for OpenHouse Bug Bash
-spark-shell \
-  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
-  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse \
-  2>/dev/null
-EOF
+# Run this script on the gateway after: ksudo -e openhouse
 
-echo -e "${GREEN}✓ Command saved to: ${COMMAND_FILE}${NC}"
+cd ${SCRIPT_DIR}
+
+echo "Starting Spark Shell for ${ASSIGNEE}..."
+echo "Logs will be saved to: ${LOG_FILE}"
+echo ""
+
+spark-shell \\
+  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \\
+  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse \\
+  2>/dev/null | tee "${LOG_FILE}"
+EOF
+chmod +x "$GATEWAY_SCRIPT"
+
+echo -e "${BLUE}=========================================${NC}"
+echo -e "${BOLD}Copy and Run These Commands:${NC}"
+echo -e "${BLUE}=========================================${NC}"
+echo ""
+echo -e "${YELLOW}# Step 1: SSH to gateway${NC}"
+echo "ssh ltx1-holdemgw03.grid.linkedin.com"
+echo ""
+echo -e "${YELLOW}# Step 2: Authenticate${NC}"
+echo "ksudo -e openhouse"
+echo ""
+echo -e "${YELLOW}# Step 3: Run the spark shell${NC}"
+echo "cd ${SCRIPT_DIR}"
+echo "./logs/${ASSIGNEE}/run-on-gateway.sh"
+echo ""
+echo -e "${GREEN}✓ Complete script saved to: ${GATEWAY_SCRIPT}${NC}"
 echo ""
 
 # Display test information
