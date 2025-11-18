@@ -40,8 +40,12 @@ for file in results/*.md; do
   status=$(grep "^\*\*Status:\*\*" "$file" | sed 's/.*Status:\*\* //')
   assignee=$(grep "^\*\*Assignee:\*\*" "$file" | sed 's/.*Assignee:\*\* //')
   
-  # Check for issues
-  has_bugs=$(grep -q "Bug found:" "$file" && echo "🐛" || echo "")
+  # Check for issues (check if Bug found checkbox is marked)
+  if grep -q "\- \[x\] Bug found:" "$file" 2>/dev/null || grep -q "Bug found:.*\[x\]" "$file" 2>/dev/null; then
+    has_bugs="🐛"
+  else
+    has_bugs=""
+  fi
   
   echo "[$test_name] $assignee - $status $has_bugs"
 done
@@ -55,14 +59,18 @@ echo ""
 # Find all bug reports
 bug_count=0
 for file in results/*.md; do
-  if grep -q "\[x\].*Bug found:" "$file" || grep -q "- \[x\] Bug found:" "$file"; then
+  # Check if bug checkbox is actually marked [x]
+  if grep "\- \[x\] Bug found:" "$file" >/dev/null 2>&1; then
     test_name=$(basename "$file" .md)
     assignee=$(grep "^\*\*Assignee:\*\*" "$file" | sed 's/.*Assignee:\*\* //')
-    bug_desc=$(grep -A 1 "Bug found:" "$file" | tail -1)
-    echo "🐛 [$test_name] by $assignee"
-    echo "   $bug_desc"
-    echo ""
-    bug_count=$((bug_count + 1))
+    # Get the bug description (line after "Bug found:")
+    bug_desc=$(grep -A 1 "\- \[x\] Bug found:" "$file" | tail -1 | sed 's/^[[:space:]]*//')
+    if [ -n "$bug_desc" ]; then
+      echo "🐛 [$test_name] by $assignee"
+      echo "   $bug_desc"
+      echo ""
+      bug_count=$((bug_count + 1))
+    fi
   fi
 done
 
