@@ -2,39 +2,48 @@
 
 ## 🚀 Fast Setup
 
-### Option 1: Automated Setup Script (Recommended)
+### Option 1: Two-Step Setup (Recommended)
 
-**One command to start everything:**
+**Step 1: Run setup to see assignments and tips**
 
 ```bash
 cd bug-bash-wap
 ./start-testing.sh
+# Enter your name when prompted
 ```
 
-**What happens:**
-1. Enter your name when prompted
-2. Script shows your test assignments
-3. Automatically SSHs to gateway (you may need to authenticate with 2FA)
-4. Runs `ksudo -e openhouse` (follow prompts if needed)
-5. Starts spark-shell with correct configuration
-6. You're ready to test!
+**This shows you:**
+- ✅ Your test assignments (SQL + Java)
+- ✅ Quick reference commands table
+- ✅ Testing tips (table names, status updates, etc.)
+- ✅ The command to run next
 
-**The script does:**
-- ✅ Shows your test assignments (SQL + Java)
-- ✅ Handles SSH connection automatically
-- ✅ Runs ksudo authentication
-- ✅ Launches spark-shell with proper config
-- ✅ All in one command - no manual steps!
+**Step 2: Connect and start testing**
+
+```bash
+# Run the generated connect script
+logs/[your-name]/connect.sh
+
+# Or copy-paste the full command shown at the end of step 1
+```
+
+**The connect script:**
+- ✅ SSHs to gateway (handles 2FA if needed)
+- ✅ Runs `ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse`
+- ✅ Starts spark-shell with correct OpenHouse configuration
+- ✅ All in one command!
 
 **Example flow:**
 ```
+$ ./start-testing.sh
 ════════════════════════════════════════
-Bug Bash: Quick Start
+Bug Bash: Quick Start Setup
 ════════════════════════════════════════
 
 Enter your name (e.g., abhishek): abhishek
 
 ✓ Setup complete for: abhishek
+✓ Log directory: logs/abhishek
 
 ════════════════════════════════════════
 Your Test Assignments
@@ -44,13 +53,25 @@ Your Test Assignments
   ✓ results/java-1-abhishek.md
 
 ════════════════════════════════════════
-Starting SSH Connection...
+Quick Reference Commands
+════════════════════════════════════════
+[... command table ...]
+
+════════════════════════════════════════
+Testing Tips
+════════════════════════════════════════
+[... tips ...]
+
+════════════════════════════════════════
+Ready to Start Testing!
 ════════════════════════════════════════
 
-Connecting to: ltx1-holdemgw03.grid.linkedin.com
-[SSH authenticates...]
-[ksudo authenticates...]
-[spark-shell starts...]
+Run this command to connect and start spark-shell:
+
+  logs/abhishek/connect.sh
+
+$ logs/abhishek/connect.sh
+[Connects to gateway, authenticates, starts spark-shell...]
 ```
 
 ### Option 2: Manual Setup (Direct Commands)

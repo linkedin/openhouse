@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bug Bash Quick Start Script for LinkedIn OpenHouse Testing
-# Run this locally - it will SSH to gateway and start spark-shell
+# Run this locally to set up and get instructions
 
 set -e
 
@@ -13,7 +13,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}════════════════════════════════════════${NC}"
-echo -e "${BOLD}Bug Bash: Quick Start${NC}"
+echo -e "${BOLD}Bug Bash: Quick Start Setup${NC}"
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo ""
 
@@ -35,6 +35,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo ""
 echo -e "${GREEN}✓ Setup complete for: ${ASSIGNEE}${NC}"
+echo -e "${GREEN}✓ Log directory: ${LOG_DIR}${NC}"
 echo ""
 
 # Show their assignments
@@ -53,38 +54,78 @@ if [ -n "$JAVA_FILE" ]; then
 fi
 echo ""
 
-# Show what's about to happen
+# Quick reference
 echo -e "${BLUE}════════════════════════════════════════${NC}"
-echo -e "${BOLD}Starting SSH Connection...${NC}"
+echo -e "${BOLD}Quick Reference Commands${NC}"
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo ""
-echo -e "${YELLOW}Connecting to: ltx1-holdemgw03.grid.linkedin.com${NC}"
-echo -e "${YELLOW}You may be prompted for 2FA/authentication${NC}"
+echo -e "${BOLD}Operation              Spark SQL                                    Java API${NC}"
+echo -e "─────────────────────────────────────────────────────────────────────────────────────────────"
+echo -e "Write data            INSERT INTO table VALUES (...)               table.newAppend().appendFile(...).commit()"
+echo -e "Create branch         ALTER TABLE table CREATE BRANCH name         builder.setRef(name, ref)"
+echo -e "Cherry-pick           CALL openhouse.system.cherrypick_snapshot()  Manual copy + setBranchSnapshot()"
+echo -e "Fast-forward          CALL openhouse.system.fast_forward()         builder.setRef(name, targetRef)"
+echo -e "Expire snapshots      CALL openhouse.system.expire_snapshots()     builder.removeSnapshots(ids)"
+echo -e "Stage WAP             spark.conf().set(\"spark.wap.id\", \"...\")     .set(\"wap.id\", \"...\").stageOnly()"
+echo -e "Target branch         spark.conf().set(\"spark.wap.branch\", \"...\") Direct branch in append"
 echo ""
-sleep 2
-
-# SSH to gateway, authenticate, and start spark-shell
-# Using -t to allocate a pseudo-terminal for interactive commands
-ssh -t ltx1-holdemgw03.grid.linkedin.com "
-  echo '════════════════════════════════════════'
-  echo 'Authenticating with ksudo...'
-  echo '════════════════════════════════════════'
-  echo ''
-  ksudo -e openhouse
-  echo ''
-  echo '════════════════════════════════════════'
-  echo 'Starting Spark Shell for OpenHouse'
-  echo '════════════════════════════════════════'
-  echo ''
-  echo 'Press Ctrl+D or type :quit to exit'
-  echo ''
-  sleep 1
-  spark-shell \
-    --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
-    --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
-"
-
+echo -e "${YELLOW}Enable WAP:${NC}"
+echo -e "  ALTER TABLE openhouse.d1.test_xxx SET TBLPROPERTIES ('write.wap.enabled'='true');"
 echo ""
-echo -e "${GREEN}════════════════════════════════════════${NC}"
-echo -e "${GREEN}Session ended. Good luck with testing!${NC}"
-echo -e "${GREEN}════════════════════════════════════════${NC}"
+echo -e "${YELLOW}View metadata:${NC}"
+echo -e "  SELECT * FROM openhouse.d1.test_xxx.snapshots;"
+echo -e "  SELECT * FROM openhouse.d1.test_xxx.refs;"
+echo ""
+echo -e "${YELLOW}Query specific branch:${NC}"
+echo -e "  SELECT * FROM openhouse.d1.test_xxx.branch_myBranch;"
+echo ""
+
+# Tips
+echo -e "${BLUE}════════════════════════════════════════${NC}"
+echo -e "${BOLD}Testing Tips${NC}"
+echo -e "${BLUE}════════════════════════════════════════${NC}"
+echo ""
+echo -e "1. ${BOLD}Use unique table names:${NC} ${YELLOW}test_${ASSIGNEE}_${TIMESTAMP}${NC}"
+echo ""
+echo -e "2. ${BOLD}Copy commands as you go:${NC} Paste each command into your result file"
+echo -e "   under \"Steps Executed\" section"
+echo ""
+echo -e "3. ${BOLD}Update your status:${NC} Edit the ${YELLOW}**Status:**${NC} line in your result file:"
+echo -e "   - Start:        ${YELLOW}**Status:** 🔲 NOT STARTED${NC}"
+echo -e "   - Working:      ${YELLOW}**Status:** 🔄 IN PROGRESS${NC}"
+echo -e "   - Test passed:  ${YELLOW}**Status:** ✅ PASS${NC}"
+echo -e "   - Found bug:    ${YELLOW}**Status:** ❌ FAIL${NC}"
+echo ""
+echo -e "4. ${BOLD}Document results:${NC} Fill in verification queries and their output"
+echo ""
+echo -e "5. ${BOLD}Clean up:${NC} ${YELLOW}DROP TABLE openhouse.d1.test_xxx${NC}"
+echo ""
+
+# Create the connect script
+CONNECT_SCRIPT="${LOG_DIR}/connect.sh"
+cat > "$CONNECT_SCRIPT" << 'EOF'
+#!/bin/bash
+# Auto-generated connection script
+# This will SSH to gateway, authenticate, and start spark-shell
+
+ssh -t ltx1-holdemgw03.grid.linkedin.com \
+  "ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse -- bash -c 'spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse'"
+EOF
+chmod +x "$CONNECT_SCRIPT"
+
+# Show how to start testing
+echo -e "${BLUE}════════════════════════════════════════${NC}"
+echo -e "${BOLD}Ready to Start Testing!${NC}"
+echo -e "${BLUE}════════════════════════════════════════${NC}"
+echo ""
+echo -e "${YELLOW}Run this command to connect and start spark-shell:${NC}"
+echo ""
+echo -e "${GREEN}${BOLD}  ${CONNECT_SCRIPT}${NC}"
+echo ""
+echo -e "${YELLOW}Or copy-paste this:${NC}"
+echo ""
+echo -e "  ssh -t ltx1-holdemgw03.grid.linkedin.com \\"
+echo -e "    \"ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse -- bash -c 'spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse'\""
+echo ""
+echo -e "${GREEN}💡 Tip: Use Ctrl+D or type :quit to exit spark-shell${NC}"
+echo ""
