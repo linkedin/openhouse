@@ -1,51 +1,52 @@
 # Quick Start Guide for Bug Bash Testing
 
-## 🚀 Fast Setup (3 Steps)
+## 🚀 Fast Setup (4 Commands)
 
 ### Option 1: Interactive Setup Script (Recommended)
 
+**⚠️ IMPORTANT: Run these commands ON THE GATEWAY, not on your local machine!**
+
 ```bash
+# 1. SSH to the gateway
+ssh ltx1-holdemgw03.grid.linkedin.com
+
+# 2. Clone/navigate to the bug bash branch (one-time setup)
+git clone https://github.com/linkedin/openhouse.git
+cd openhouse
+git checkout bug-bash-wap-2024-11
 cd bug-bash-wap
+
+# 3. Authenticate
+ksudo -e openhouse
+
+# 4. Run the interactive script
 ./start-testing.sh
 ```
 
-This script will:
-- ✅ Create a personalized `run-on-gateway.sh` script for you
-- ✅ Generate a dedicated log directory
-- ✅ Show you exactly what to run (3 simple commands)
-- ✅ Display your test assignments
-- ✅ Provide quick reference commands
-
-**The script uses `exec` to properly launch spark-shell in interactive mode.**
+**What this script does:**
+- ✅ Checks if you're on the gateway (shows helpful error if not)
+- ✅ Creates a personalized log directory for your session
+- ✅ Automatically launches spark-shell with the correct configuration
+- ✅ Saves all output to a timestamped log file
 
 ### Option 2: Manual Setup (For Experienced Users)
 
-**Step 1: SSH to Gateway**
+If you prefer to run commands manually:
+
 ```bash
+# 1. SSH to Gateway
 ssh ltx1-holdemgw03.grid.linkedin.com
-```
 
-**Step 2: Authenticate**
-```bash
+# 2. Navigate to bug bash directory
+cd openhouse/bug-bash-wap
+
+# 3. Authenticate
 ksudo -e openhouse
-```
 
-**Step 3: Start Spark Shell**
-```bash
-# Copy this entire command
+# 4. Start Spark Shell
 spark-shell \
   --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
-  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse \
-  2>/dev/null | tee logs/session_$(date +%Y%m%d_%H%M%S).log
-```
-
-### Option 3: One-Liner Script on Gateway
-
-After SSH and ksudo, run:
-```bash
-cd /path/to/bug-bash-wap
-./spark-shell-command.sh your-name
-# Example: ./spark-shell-command.sh abhishek
+  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
 ```
 
 ---

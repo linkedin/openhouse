@@ -22,15 +22,28 @@ cd bug-bash-wap
 ```
 
 ### Step 1.5: Quick Setup (LinkedIn Internal)
-```bash
-# Interactive setup script (recommended for first-time)
-./start-testing.sh
 
-# OR manual steps:
-# 1. ssh ltx1-holdemgw03.grid.linkedin.com
-# 2. ksudo -e openhouse
-# 3. Run: ./spark-shell-command.sh your-name
+**🎯 Simplest way to start testing:**
+
+```bash
+# 1. SSH to the gateway
+ssh ltx1-holdemgw03.grid.linkedin.com
+
+# 2. Clone the repo (if not already done)
+git clone https://github.com/linkedin/openhouse.git
+cd openhouse
+git checkout bug-bash-wap-2024-11
+cd bug-bash-wap
+
+# 3. Authenticate
+ksudo -e openhouse
+
+# 4. Run the interactive start script
+./start-testing.sh
+# This will automatically launch spark-shell with the correct configuration
 ```
+
+See [QUICKSTART.md](QUICKSTART.md) for alternative methods and detailed commands.
 
 ### Step 2: View Your Assignment
 ```bash
