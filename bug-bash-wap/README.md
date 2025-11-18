@@ -5,6 +5,8 @@ This bug bash tests the complex multi-branch Git-like behavior in `SnapshotDiffA
 
 ## Quick Start for Team Members
 
+**🚀 New:** See [QUICKSTART.md](QUICKSTART.md) for fast setup with helper scripts!
+
 ### Step 1: Clone and Checkout (One-time setup)
 ```bash
 # Clone the LinkedIn OpenHouse repository
@@ -17,6 +19,17 @@ git checkout bug-bash-wap-2024-11
 
 # Navigate to bug bash folder
 cd bug-bash-wap
+```
+
+### Step 1.5: Quick Setup (LinkedIn Internal)
+```bash
+# Interactive setup script (recommended for first-time)
+./start-testing.sh
+
+# OR manual steps:
+# 1. ssh ltx1-holdemgw03.grid.linkedin.com
+# 2. ksudo -e openhouse
+# 3. Run: ./spark-shell-command.sh your-name
 ```
 
 ### Step 2: View Your Assignment
@@ -117,19 +130,28 @@ cd bug-bash-wap
 
 ```
 bug-bash-wap/
-├── README.md                    # This file
+├── README.md                    # Main documentation
+├── QUICKSTART.md                # Fast setup guide ⭐
 ├── assignments.md               # Test assignments by person
 ├── test-details.md             # All test prompts with full details
 ├── TEMPLATE.md                 # Blank template for reference
+├── start-testing.sh            # Interactive setup script ⭐
+├── spark-shell-command.sh      # Quick spark-shell launcher ⭐
+├── collect-results.sh          # Results collection script
 ├── results/                    # Individual test result files
 │   ├── sql-01-abhishek.md
 │   ├── sql-02-daniel.md
 │   ├── ...
 │   ├── java-01-abhishek.md
 │   └── java-10-shanthoosh.md
-└── logs/                       # Optional: detailed execution logs
-    └── [test-id]-[name].txt
+└── logs/                       # Session logs (auto-generated)
+    ├── abhishek/
+    │   └── session_20241118_123456.log
+    └── daniel/
+        └── session_20241118_234567.log
 ```
+
+⭐ = New helper scripts for fast setup!
 
 ## Test Execution Guidelines
 
