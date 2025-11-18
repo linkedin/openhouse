@@ -23,19 +23,20 @@ cd bug-bash-wap
 
 ### Step 1.5: Quick Setup (LinkedIn Internal)
 
-**🎯 Simplest way to start testing:**
+**🎯 One command to start testing:**
 
 ```bash
-# Run this locally to get your personalized setup:
 cd bug-bash-wap
 ./start-testing.sh
-# Enter your name, then copy-paste the 3 commands it shows you
+# Enter your name, authenticate when prompted, and you're in!
 ```
 
 The script will:
 - ✅ Show you your test assignments
-- ✅ Generate the exact commands you need to run on the gateway
-- ✅ No need to clone the repo on the gateway
+- ✅ SSH to the gateway automatically
+- ✅ Run ksudo authentication
+- ✅ Start spark-shell with the correct configuration
+- ✅ No manual steps needed!
 
 See [QUICKSTART.md](QUICKSTART.md) for alternative methods and detailed commands.
 

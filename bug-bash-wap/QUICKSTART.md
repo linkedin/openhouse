@@ -2,23 +2,40 @@
 
 ## 🚀 Fast Setup
 
-### Option 1: Interactive Setup Script (Recommended)
+### Option 1: Automated Setup Script (Recommended)
 
-**Run locally to get your personalized commands:**
+**One command to start everything:**
 
 ```bash
 cd bug-bash-wap
 ./start-testing.sh
-# Enter your name when prompted
 ```
 
-**The script will show you:**
-- ✅ Your test assignments (SQL + Java)
-- ✅ Exactly 3 commands to copy-paste
-- ✅ No cloning needed on the gateway - work from your local repo!
+**What happens:**
+1. Enter your name when prompted
+2. Script shows your test assignments
+3. Automatically SSHs to gateway (you may need to authenticate with 2FA)
+4. Runs `ksudo -e openhouse` (follow prompts if needed)
+5. Starts spark-shell with correct configuration
+6. You're ready to test!
 
-**Example output:**
+**The script does:**
+- ✅ Shows your test assignments (SQL + Java)
+- ✅ Handles SSH connection automatically
+- ✅ Runs ksudo authentication
+- ✅ Launches spark-shell with proper config
+- ✅ All in one command - no manual steps!
+
+**Example flow:**
 ```
+════════════════════════════════════════
+Bug Bash: Quick Start
+════════════════════════════════════════
+
+Enter your name (e.g., abhishek): abhishek
+
+✓ Setup complete for: abhishek
+
 ════════════════════════════════════════
 Your Test Assignments
 ════════════════════════════════════════
@@ -27,19 +44,13 @@ Your Test Assignments
   ✓ results/java-1-abhishek.md
 
 ════════════════════════════════════════
-Copy and Run These Commands:
+Starting SSH Connection...
 ════════════════════════════════════════
 
-# Step 1: SSH to the gateway
-ssh ltx1-holdemgw03.grid.linkedin.com
-
-# Step 2: Authenticate
-ksudo -e openhouse
-
-# Step 3: Start spark-shell
-spark-shell \
-  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
-  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
+Connecting to: ltx1-holdemgw03.grid.linkedin.com
+[SSH authenticates...]
+[ksudo authenticates...]
+[spark-shell starts...]
 ```
 
 ### Option 2: Manual Setup (Direct Commands)

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bug Bash Quick Start Script for LinkedIn OpenHouse Testing
-# Run this locally to get the commands you need
+# Run this locally - it will SSH to gateway and start spark-shell
 
 set -e
 
@@ -53,21 +53,38 @@ if [ -n "$JAVA_FILE" ]; then
 fi
 echo ""
 
-# Show the commands to run
+# Show what's about to happen
 echo -e "${BLUE}════════════════════════════════════════${NC}"
-echo -e "${BOLD}Copy and Run These Commands:${NC}"
+echo -e "${BOLD}Starting SSH Connection...${NC}"
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo ""
-echo -e "${YELLOW}# Step 1: SSH to the gateway${NC}"
-echo "ssh ltx1-holdemgw03.grid.linkedin.com"
+echo -e "${YELLOW}Connecting to: ltx1-holdemgw03.grid.linkedin.com${NC}"
+echo -e "${YELLOW}You may be prompted for 2FA/authentication${NC}"
 echo ""
-echo -e "${YELLOW}# Step 2: Authenticate${NC}"
-echo "ksudo -e openhouse"
+sleep 2
+
+# SSH to gateway, authenticate, and start spark-shell
+# Using -t to allocate a pseudo-terminal for interactive commands
+ssh -t ltx1-holdemgw03.grid.linkedin.com "
+  echo '════════════════════════════════════════'
+  echo 'Authenticating with ksudo...'
+  echo '════════════════════════════════════════'
+  echo ''
+  ksudo -e openhouse
+  echo ''
+  echo '════════════════════════════════════════'
+  echo 'Starting Spark Shell for OpenHouse'
+  echo '════════════════════════════════════════'
+  echo ''
+  echo 'Press Ctrl+D or type :quit to exit'
+  echo ''
+  sleep 1
+  spark-shell \
+    --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
+    --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
+"
+
 echo ""
-echo -e "${YELLOW}# Step 3: Start spark-shell${NC}"
-echo "spark-shell \\"
-echo "  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \\"
-echo "  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse"
-echo ""
-echo -e "${GREEN}💡 Tip: Use Ctrl+D or type :quit to exit spark-shell${NC}"
-echo ""
+echo -e "${GREEN}════════════════════════════════════════${NC}"
+echo -e "${GREEN}Session ended. Good luck with testing!${NC}"
+echo -e "${GREEN}════════════════════════════════════════${NC}"
