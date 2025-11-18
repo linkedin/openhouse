@@ -135,8 +135,10 @@ cat > "$CONNECT_SCRIPT" << 'EOF'
 # Auto-generated connection script
 # This will SSH to gateway, authenticate, and start spark-shell
 
-ssh -t ltx1-holdemgw03.grid.linkedin.com \
-  "ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse -- spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse"
+ssh -t ltx1-holdemgw03.grid.linkedin.com "
+  ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse
+  exec spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
+"
 EOF
 chmod +x "$CONNECT_SCRIPT"
 
@@ -151,8 +153,10 @@ echo -e "${GREEN}${BOLD}  ${CONNECT_SCRIPT}${NC}"
 echo ""
 echo -e "${YELLOW}Or copy-paste this:${NC}"
 echo ""
-echo -e "  ssh -t ltx1-holdemgw03.grid.linkedin.com \\"
-echo -e "    \"ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse -- spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse\""
+echo -e "  ssh -t ltx1-holdemgw03.grid.linkedin.com \""
+echo -e "    ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse"
+echo -e "    exec spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse"
+echo -e "  \""
 echo ""
 echo -e "${GREEN}💡 Tip: Use Ctrl+D or type :quit to exit spark-shell${NC}"
 echo ""
