@@ -1,49 +1,59 @@
 # Quick Start Guide for Bug Bash Testing
 
-## 🚀 Fast Setup (4 Commands)
+## 🚀 Fast Setup
 
 ### Option 1: Interactive Setup Script (Recommended)
 
-**⚠️ IMPORTANT: Run these commands ON THE GATEWAY, not on your local machine!**
+**Run locally to get your personalized commands:**
 
 ```bash
-# 1. SSH to the gateway
-ssh ltx1-holdemgw03.grid.linkedin.com
-
-# 2. Clone/navigate to the bug bash branch (one-time setup)
-git clone https://github.com/linkedin/openhouse.git
-cd openhouse
-git checkout bug-bash-wap-2024-11
 cd bug-bash-wap
-
-# 3. Authenticate
-ksudo -e openhouse
-
-# 4. Run the interactive script
 ./start-testing.sh
+# Enter your name when prompted
 ```
 
-**What this script does:**
-- ✅ Checks if you're on the gateway (shows helpful error if not)
-- ✅ Creates a personalized log directory for your session
-- ✅ Automatically launches spark-shell with the correct configuration
-- ✅ Saves all output to a timestamped log file
+**The script will show you:**
+- ✅ Your test assignments (SQL + Java)
+- ✅ Exactly 3 commands to copy-paste
+- ✅ No cloning needed on the gateway - work from your local repo!
 
-### Option 2: Manual Setup (For Experienced Users)
+**Example output:**
+```
+════════════════════════════════════════
+Your Test Assignments
+════════════════════════════════════════
 
-If you prefer to run commands manually:
+  ✓ results/sql-1-abhishek.md
+  ✓ results/java-1-abhishek.md
+
+════════════════════════════════════════
+Copy and Run These Commands:
+════════════════════════════════════════
+
+# Step 1: SSH to the gateway
+ssh ltx1-holdemgw03.grid.linkedin.com
+
+# Step 2: Authenticate
+ksudo -e openhouse
+
+# Step 3: Start spark-shell
+spark-shell \
+  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
+  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
+```
+
+### Option 2: Manual Setup (Direct Commands)
+
+If you already know what you need:
 
 ```bash
 # 1. SSH to Gateway
 ssh ltx1-holdemgw03.grid.linkedin.com
 
-# 2. Navigate to bug bash directory
-cd openhouse/bug-bash-wap
-
-# 3. Authenticate
+# 2. Authenticate
 ksudo -e openhouse
 
-# 4. Start Spark Shell
+# 3. Start Spark Shell
 spark-shell \
   --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
   --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse

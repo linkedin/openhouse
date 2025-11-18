@@ -26,22 +26,16 @@ cd bug-bash-wap
 **🎯 Simplest way to start testing:**
 
 ```bash
-# 1. SSH to the gateway
-ssh ltx1-holdemgw03.grid.linkedin.com
-
-# 2. Clone the repo (if not already done)
-git clone https://github.com/linkedin/openhouse.git
-cd openhouse
-git checkout bug-bash-wap-2024-11
+# Run this locally to get your personalized setup:
 cd bug-bash-wap
-
-# 3. Authenticate
-ksudo -e openhouse
-
-# 4. Run the interactive start script
 ./start-testing.sh
-# This will automatically launch spark-shell with the correct configuration
+# Enter your name, then copy-paste the 3 commands it shows you
 ```
+
+The script will:
+- ✅ Show you your test assignments
+- ✅ Generate the exact commands you need to run on the gateway
+- ✅ No need to clone the repo on the gateway
 
 See [QUICKSTART.md](QUICKSTART.md) for alternative methods and detailed commands.
 
