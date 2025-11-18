@@ -1,0 +1,77 @@
+#!/bin/bash
+# Bug Bash Results Collection Script
+
+echo "========================================="
+echo "Bug Bash Results Summary"
+echo "========================================="
+echo ""
+
+# Count completion
+total_tests=20
+completed=$(grep -l "✅ PASS\|❌ FAIL\|⚠️ PARTIAL" results/*.md | wc -l | tr -d ' ')
+in_progress=$(grep -l "🔄 IN PROGRESS" results/*.md | wc -l | tr -d ' ')
+not_started=$(grep -l "🔲 NOT STARTED" results/*.md | wc -l | tr -d ' ')
+
+echo "Completion Status:"
+echo "  Total Tests:    $total_tests"
+echo "  Completed:      $completed"
+echo "  In Progress:    $in_progress"
+echo "  Not Started:    $not_started"
+echo ""
+
+# Results breakdown
+passed=$(grep -l "✅ PASS" results/*.md | wc -l | tr -d ' ')
+failed=$(grep -l "❌ FAIL" results/*.md | wc -l | tr -d ' ')
+partial=$(grep -l "⚠️ PARTIAL" results/*.md | wc -l | tr -d ' ')
+
+echo "Test Results:"
+echo "  ✅ Passed:      $passed"
+echo "  ❌ Failed:      $failed"
+echo "  ⚠️  Partial:     $partial"
+echo ""
+
+echo "========================================="
+echo "Detailed Results by Test"
+echo "========================================="
+echo ""
+
+for file in results/*.md; do
+  test_name=$(basename "$file" .md)
+  status=$(grep "^\*\*Status:\*\*" "$file" | sed 's/.*Status:\*\* //')
+  assignee=$(grep "^\*\*Assignee:\*\*" "$file" | sed 's/.*Assignee:\*\* //')
+  
+  # Check for issues
+  has_bugs=$(grep -q "Bug found:" "$file" && echo "🐛" || echo "")
+  
+  echo "[$test_name] $assignee - $status $has_bugs"
+done
+
+echo ""
+echo "========================================="
+echo "Issues Found"
+echo "========================================="
+echo ""
+
+# Find all bug reports
+bug_count=0
+for file in results/*.md; do
+  if grep -q "\[x\].*Bug found:" "$file" || grep -q "- \[x\] Bug found:" "$file"; then
+    test_name=$(basename "$file" .md)
+    assignee=$(grep "^\*\*Assignee:\*\*" "$file" | sed 's/.*Assignee:\*\* //')
+    bug_desc=$(grep -A 1 "Bug found:" "$file" | tail -1)
+    echo "🐛 [$test_name] by $assignee"
+    echo "   $bug_desc"
+    echo ""
+    bug_count=$((bug_count + 1))
+  fi
+done
+
+if [ $bug_count -eq 0 ]; then
+  echo "No bugs reported yet."
+fi
+
+echo ""
+echo "========================================="
+echo "Collection complete!"
+echo "========================================="
+
