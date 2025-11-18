@@ -2,7 +2,7 @@
 
 ## 🚀 Fast Setup (3 Steps)
 
-### Option 1: Interactive Setup Script (Recommended for First-Time)
+### Option 1: Interactive Setup Script (Recommended)
 
 ```bash
 cd bug-bash-wap
@@ -10,11 +10,13 @@ cd bug-bash-wap
 ```
 
 This script will:
-- ✅ Guide you through SSH and ksudo steps
-- ✅ Generate personalized log directory
-- ✅ Show you the correct spark-shell command
+- ✅ Create a personalized `run-on-gateway.sh` script for you
+- ✅ Generate a dedicated log directory
+- ✅ Show you exactly what to run (3 simple commands)
 - ✅ Display your test assignments
 - ✅ Provide quick reference commands
+
+**The script uses `exec` to properly launch spark-shell in interactive mode.**
 
 ### Option 2: Manual Setup (For Experienced Users)
 

@@ -47,17 +47,16 @@ cat > "$GATEWAY_SCRIPT" << 'SCRIPT_EOF'
 # Run this script on the gateway after: ksudo -e openhouse
 
 echo "========================================="
-echo "Starting Spark Shell"
+echo "Starting Spark Shell for OpenHouse"
 echo "========================================="
 echo ""
+echo "Connecting to: ltx1-holdem-openhouse"
+echo ""
 
-# Start spark-shell (don't suppress stderr so you can see errors)
-spark-shell \
+# Use exec to replace this shell with spark-shell so it gets proper terminal access
+exec spark-shell \
   --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
   --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
-
-echo ""
-echo "Spark shell exited."
 SCRIPT_EOF
 chmod +x "$GATEWAY_SCRIPT"
 
