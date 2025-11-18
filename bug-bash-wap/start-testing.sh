@@ -42,21 +42,23 @@ echo ""
 
 # Create the gateway script
 GATEWAY_SCRIPT="${LOG_DIR}/run-on-gateway.sh"
-cat > "$GATEWAY_SCRIPT" << EOF
+cat > "$GATEWAY_SCRIPT" << 'SCRIPT_EOF'
 #!/bin/bash
 # Run this script on the gateway after: ksudo -e openhouse
 
-cd ${SCRIPT_DIR}
-
-echo "Starting Spark Shell for ${ASSIGNEE}..."
-echo "Logs will be saved to: ${LOG_FILE}"
+echo "========================================="
+echo "Starting Spark Shell"
+echo "========================================="
 echo ""
 
-spark-shell \\
-  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \\
-  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse \\
-  2>/dev/null | tee "${LOG_FILE}"
-EOF
+# Start spark-shell (don't suppress stderr so you can see errors)
+spark-shell \
+  --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
+  --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
+
+echo ""
+echo "Spark shell exited."
+SCRIPT_EOF
 chmod +x "$GATEWAY_SCRIPT"
 
 echo -e "${BLUE}=========================================${NC}"
@@ -69,12 +71,13 @@ echo ""
 echo -e "${YELLOW}2. Authenticate:${NC}"
 echo "   ksudo -e openhouse"
 echo ""
-echo -e "${YELLOW}3. Navigate and run:${NC}"
-echo "   cd ${SCRIPT_DIR}"
-echo "   ./logs/${ASSIGNEE}/run-on-gateway.sh"
+echo -e "${YELLOW}3. Run the script:${NC}"
+echo "   ${SCRIPT_DIR}/logs/${ASSIGNEE}/run-on-gateway.sh"
 echo ""
 echo -e "${GREEN}Your personalized script: ${GATEWAY_SCRIPT}${NC}"
-echo -e "${GREEN}It includes spark-shell with correct configs and logging.${NC}"
+echo ""
+echo -e "${YELLOW}Optional - Capture logs:${NC}"
+echo "   ${SCRIPT_DIR}/logs/${ASSIGNEE}/run-on-gateway.sh | tee ${LOG_DIR}/session_${TIMESTAMP}.log"
 echo ""
 
 # Display test information
