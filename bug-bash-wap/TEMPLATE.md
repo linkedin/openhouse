@@ -33,10 +33,10 @@ Or for Java tests:
 ## Verification Queries & Results
 ```sql
 -- Key validation queries you ran
-SELECT * FROM openhouse.d1.test_xxx.snapshots;
+SELECT * FROM openhouse.u_openhouse.test_xxx.snapshots;
 -- Result: [paste output or describe]
 
-SELECT * FROM openhouse.d1.test_xxx.refs;
+SELECT * FROM openhouse.u_openhouse.test_xxx.refs;
 -- Result: [paste output or describe]
 ```
 

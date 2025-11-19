@@ -61,7 +61,7 @@ echo -e "${BLUE}═════════════════════�
 echo ""
 
 echo -e "${YELLOW}1. Create Table (Spark SQL):${NC}"
-echo -e "  CREATE TABLE openhouse.d1.test_${ASSIGNEE}_${TIMESTAMP} (id INT, name STRING)"
+echo -e "  CREATE TABLE openhouse.u_openhouse.test_${ASSIGNEE}_${TIMESTAMP} (id INT, name STRING)"
 echo -e "  USING iceberg PARTITIONED BY (id);"
 echo ""
 
@@ -76,7 +76,7 @@ echo ""
 echo -e "${YELLOW}3. Common Types & Accessors:${NC}"
 echo -e "  val catalog = spark.sessionState.catalogManager.catalog(\"openhouse\")"
 echo -e "    .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]"
-echo -e "  val table: Table = catalog.loadTable(Identifier.of(\"d1\", \"table_name\"))"
+echo -e "  val table: Table = catalog.loadTable(Identifier.of(\"u_openhouse\", \"table_name\"))"
 echo -e "  val snapshot: Snapshot = table.currentSnapshot()"
 echo -e "  val metadata: TableMetadata = table.ops().current()"
 echo ""
@@ -93,13 +93,13 @@ echo -e "Target branch         spark.conf().set(\"spark.wap.branch\", \"b1\")  D
 echo ""
 
 echo -e "${YELLOW}Enable WAP:${NC}"
-echo -e "  ALTER TABLE openhouse.d1.test_xxx SET TBLPROPERTIES ('write.wap.enabled'='true');"
+echo -e "  ALTER TABLE openhouse.u_openhouse.test_xxx SET TBLPROPERTIES ('write.wap.enabled'='true');"
 echo ""
 
 echo -e "${YELLOW}View metadata:${NC}"
-echo -e "  SELECT * FROM openhouse.d1.test_xxx.snapshots;"
-echo -e "  SELECT * FROM openhouse.d1.test_xxx.refs;"
-echo -e "  SELECT * FROM openhouse.d1.test_xxx.branch_myBranch;"
+echo -e "  SELECT * FROM openhouse.u_openhouse.test_xxx.snapshots;"
+echo -e "  SELECT * FROM openhouse.u_openhouse.test_xxx.refs;"
+echo -e "  SELECT * FROM openhouse.u_openhouse.test_xxx.branch_myBranch;"
 echo ""
 
 echo -e "${YELLOW}Query current snapshot ID:${NC}"
@@ -132,7 +132,7 @@ echo -e "   - Found bug:    ${YELLOW}**Status:** ❌ FAIL${NC}"
 echo ""
 echo -e "4. ${BOLD}Document results:${NC} Fill in verification queries and their output"
 echo ""
-echo -e "5. ${BOLD}Clean up:${NC} ${YELLOW}DROP TABLE openhouse.d1.test_xxx${NC}"
+echo -e "5. ${BOLD}Clean up:${NC} ${YELLOW}DROP TABLE openhouse.u_openhouse.test_xxx${NC}"
 echo ""
 
 # Create a spark-shell command file
