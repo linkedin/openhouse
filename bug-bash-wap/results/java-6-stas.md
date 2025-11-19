@@ -6,6 +6,42 @@
 ## Test Prompt
 Create empty table (no commits), create branch empty via setRef() with SnapshotRef pointing to null snapshot (Iceberg initial state), append FILE_A to create S1, update main to point to S1, attempt fast-forward empty branch to main S1, verify empty branch now has data, call refs() to verify branch references updated correctly.
 
+## Quick Reference
+```scala
+// Java API imports
+import liopenhouse.relocated.org.apache.iceberg._
+import liopenhouse.relocated.org.apache.iceberg.catalog._
+import liopenhouse.relocated.org.apache.iceberg.types.Types._
+
+// Get catalog and table
+val catalog = spark.sessionState.catalogManager.catalog("openhouse")
+  .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
+val table: Table = catalog.loadTable(Identifier.of("u_openhouse", "table_name"))
+
+// Get current snapshot
+val snapshot: Snapshot = table.currentSnapshot()
+val snapshotId = snapshot.snapshotId()
+val parentId = snapshot.parentId()
+
+// Append data
+table.newAppend().appendFile(dataFile).commit()
+
+// Set branch reference
+val builder = table.manageSnapshots()
+builder.setRef("branchName", SnapshotRef.branchBuilder(snapshotId).build()).commit()
+
+// Set branch snapshot
+builder.setBranchSnapshot("branchName", snapshotId).commit()
+
+// Remove snapshots
+builder.removeSnapshots(snapshotId).commit()
+
+// View table operations
+table.snapshots()  // All snapshots
+table.refs()       // All references
+table.currentSnapshot()  // Current snapshot
+```
+
 ## Steps Executed
 ```java
 // Paste your actual Java test code here

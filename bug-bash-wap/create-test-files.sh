@@ -42,6 +42,40 @@ for key in "${!sql_tests[@]}"; do
 ## Test Prompt
 ${prompt}
 
+## Quick Reference
+\`\`\`scala
+// Create table
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_xxx (id INT, data STRING)")
+
+// Enable WAP
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_xxx SET TBLPROPERTIES ('write.wap.enabled'='true')")
+
+// Insert data
+spark.sql(s"INSERT INTO openhouse.u_openhouse.test_xxx VALUES (1, 'data')")
+
+// Create branch
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_xxx CREATE BRANCH myBranch")
+
+// Set WAP config
+spark.conf.set("spark.wap.id", "wap1")
+spark.conf.set("spark.wap.branch", "myBranch")
+
+// Cherry-pick: CALL openhouse.system.cherrypick_snapshot('openhouse.u_openhouse.test_xxx', 'main', snapshotId)
+// Fast-forward: CALL openhouse.system.fast_forward('openhouse.u_openhouse.test_xxx', 'branch1', 'branch2')
+
+// View snapshots
+spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_xxx.snapshots").show(false)
+
+// View refs
+spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_xxx.refs").show(false)
+
+// Query branch data
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_xxx.branch_myBranch").show()
+
+// Drop table
+spark.sql(s"DROP TABLE openhouse.u_openhouse.test_xxx")
+\`\`\`
+
 ## Steps Executed
 \`\`\`scala
 // Paste your actual Spark SQL commands here
@@ -108,6 +142,42 @@ for key in "${!java_tests[@]}"; do
 
 ## Test Prompt
 ${prompt}
+
+## Quick Reference
+\`\`\`scala
+// Java API imports
+import liopenhouse.relocated.org.apache.iceberg._
+import liopenhouse.relocated.org.apache.iceberg.catalog._
+import liopenhouse.relocated.org.apache.iceberg.types.Types._
+
+// Get catalog and table
+val catalog = spark.sessionState.catalogManager.catalog("openhouse")
+  .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
+val table: Table = catalog.loadTable(Identifier.of("u_openhouse", "table_name"))
+
+// Get current snapshot
+val snapshot: Snapshot = table.currentSnapshot()
+val snapshotId = snapshot.snapshotId()
+val parentId = snapshot.parentId()
+
+// Append data
+table.newAppend().appendFile(dataFile).commit()
+
+// Set branch reference
+val builder = table.manageSnapshots()
+builder.setRef("branchName", SnapshotRef.branchBuilder(snapshotId).build()).commit()
+
+// Set branch snapshot
+builder.setBranchSnapshot("branchName", snapshotId).commit()
+
+// Remove snapshots
+builder.removeSnapshots(snapshotId).commit()
+
+// View table operations
+table.snapshots()  // All snapshots
+table.refs()       // All references
+table.currentSnapshot()  // Current snapshot
+\`\`\`
 
 ## Steps Executed
 \`\`\`java

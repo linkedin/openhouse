@@ -6,6 +6,42 @@
 ## Test Prompt
 Create table, set table property write.wap.enabled=true, append FILE_A to main and commit, append FILE_B with wap.id=test-wap using stageOnly(), manually create new snapshot via newAppend() that copies FILE_B data but with main as parent (simulating cherry-pick), call replaceSnapshots() to swap, verify main has FILE_A and FILE_B data, original WAP snapshot still exists with wap.id property.
 
+## Quick Reference
+```scala
+// Java API imports
+import liopenhouse.relocated.org.apache.iceberg._
+import liopenhouse.relocated.org.apache.iceberg.catalog._
+import liopenhouse.relocated.org.apache.iceberg.types.Types._
+
+// Get catalog and table
+val catalog = spark.sessionState.catalogManager.catalog("openhouse")
+  .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
+val table: Table = catalog.loadTable(Identifier.of("u_openhouse", "table_name"))
+
+// Get current snapshot
+val snapshot: Snapshot = table.currentSnapshot()
+val snapshotId = snapshot.snapshotId()
+val parentId = snapshot.parentId()
+
+// Append data
+table.newAppend().appendFile(dataFile).commit()
+
+// Set branch reference
+val builder = table.manageSnapshots()
+builder.setRef("branchName", SnapshotRef.branchBuilder(snapshotId).build()).commit()
+
+// Set branch snapshot
+builder.setBranchSnapshot("branchName", snapshotId).commit()
+
+// Remove snapshots
+builder.removeSnapshots(snapshotId).commit()
+
+// View table operations
+table.snapshots()  // All snapshots
+table.refs()       // All references
+table.currentSnapshot()  // Current snapshot
+```
+
 ## Steps Executed
 ```java
 // Paste your actual Java test code here
