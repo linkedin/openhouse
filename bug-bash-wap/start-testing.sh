@@ -71,7 +71,6 @@ echo -e "  import liopenhouse.relocated.org.apache.iceberg.catalog._"
 echo -e "  import liopenhouse.relocated.org.apache.iceberg.types.Types._"
 echo -e "  import liopenhouse.relocated.org.apache.iceberg.data._"
 echo -e "  import liopenhouse.relocated.org.apache.iceberg.spark._"
-echo -e "  import com.linkedin.openhouse.spark.OpenHouseSparkUtils"
 echo ""
 
 echo -e "${YELLOW}3. Common Types & Accessors:${NC}"
