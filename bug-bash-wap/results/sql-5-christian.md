@@ -12,6 +12,7 @@ Create table, enable WAP (write.wap.enabled=true), insert base data, create bran
 -- Use comments to organize your steps
 
 -- Step 1: Setup
+val timestamp = System.currentTimeMillis()
 CREATE TABLE openhouse.u_openhouse.test_sql5_${timestamp} (name string);
 ALTER TABLE openhouse.u_openhouse.test_sql5_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
 
