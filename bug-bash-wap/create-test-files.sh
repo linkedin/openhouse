@@ -43,18 +43,18 @@ for key in "${!sql_tests[@]}"; do
 ${prompt}
 
 ## Steps Executed
-\`\`\`sql
--- Paste your actual Spark SQL commands here
--- Use comments to organize your steps
+\`\`\`scala
+// Paste your actual Spark SQL commands here
+// Use comments to organize your steps
 
--- Step 1: Setup
+// Step 1: Setup
 val timestamp = System.currentTimeMillis()
-CREATE TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} (name string);
-ALTER TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} (name string) USING iceberg")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
--- Step 2: Execute test scenario
+// Step 2: Execute test scenario
 
--- Step 3: Verification
+// Step 3: Verification
 \`\`\`
 
 ## Expected vs Actual Results
@@ -64,18 +64,18 @@ ALTER TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} SET TBLPROPERTIES
 | 2. ... | ... | | |
 
 ## Verification Queries & Results
-\`\`\`sql
--- Snapshots query
-SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql${key}_xxx.snapshots;
--- Result: [paste output]
+\`\`\`scala
+// Snapshots query
+spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql${key}_\${timestamp}.snapshots").show(false)
+// Result: [paste output]
 
--- Refs query
-SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql${key}_xxx.refs;
--- Result: [paste output]
+// Refs query
+spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql${key}_\${timestamp}.refs").show(false)
+// Result: [paste output]
 
--- Data verification
-SELECT * FROM openhouse.u_openhouse.test_sql${key}_xxx;
--- Result: [paste output]
+// Data verification
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_sql${key}_\${timestamp}").show(false)
+// Result: [paste output]
 \`\`\`
 
 ## Issues Found

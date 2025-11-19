@@ -7,18 +7,18 @@
 Create table, insert on main, create branch A from main, insert on branch A, create branch B from branch A, insert on branch B, attempt fast-forward A to B (should succeed), attempt fast-forward B to A (should fail - would be backwards), verify branch B is ahead of A and operation preserves data integrity.
 
 ## Steps Executed
-```sql
--- Paste your actual Spark SQL commands here
--- Use comments to organize your steps
+```scala
+// Paste your actual Spark SQL commands here
+// Use comments to organize your steps
 
--- Step 1: Setup
+// Step 1: Setup
 val timestamp = System.currentTimeMillis()
-CREATE TABLE openhouse.u_openhouse.test_sql4_${timestamp} (name string);
-ALTER TABLE openhouse.u_openhouse.test_sql4_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql4_${timestamp} (name string) USING iceberg")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_sql4_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
--- Step 2: Execute test scenario
+// Step 2: Execute test scenario
 
--- Step 3: Verification
+// Step 3: Verification
 ```
 
 ## Expected vs Actual Results
@@ -28,18 +28,18 @@ ALTER TABLE openhouse.u_openhouse.test_sql4_${timestamp} SET TBLPROPERTIES ('wri
 | 2. ... | ... | | |
 
 ## Verification Queries & Results
-```sql
--- Snapshots query
-SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql4_xxx.snapshots;
--- Result: [paste output]
+```scala
+// Snapshots query
+spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql4_${timestamp}.snapshots").show(false)
+// Result: [paste output]
 
--- Refs query
-SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql4_xxx.refs;
--- Result: [paste output]
+// Refs query
+spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql4_${timestamp}.refs").show(false)
+// Result: [paste output]
 
--- Data verification
-SELECT * FROM openhouse.u_openhouse.test_sql4_xxx;
--- Result: [paste output]
+// Data verification
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_sql4_${timestamp}").show(false)
+// Result: [paste output]
 ```
 
 ## Issues Found

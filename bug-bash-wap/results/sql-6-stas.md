@@ -7,18 +7,18 @@
 Create table, enable WAP (write.wap.enabled=true), insert on main, create branches A B C all from main, insert on each branch separately, get all snapshot IDs from branches, expire snapshot from branch A (non-head), verify expiration succeeded, verify branches B and C still reference their snapshots correctly, attempt to expire branch B HEAD snapshot (should fail - still referenced).
 
 ## Steps Executed
-```sql
--- Paste your actual Spark SQL commands here
--- Use comments to organize your steps
+```scala
+// Paste your actual Spark SQL commands here
+// Use comments to organize your steps
 
--- Step 1: Setup
+// Step 1: Setup
 val timestamp = System.currentTimeMillis()
-CREATE TABLE openhouse.u_openhouse.test_sql6_${timestamp} (name string);
-ALTER TABLE openhouse.u_openhouse.test_sql6_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql6_${timestamp} (name string) USING iceberg")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_sql6_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
--- Step 2: Execute test scenario
+// Step 2: Execute test scenario
 
--- Step 3: Verification
+// Step 3: Verification
 ```
 
 ## Expected vs Actual Results
@@ -28,18 +28,18 @@ ALTER TABLE openhouse.u_openhouse.test_sql6_${timestamp} SET TBLPROPERTIES ('wri
 | 2. ... | ... | | |
 
 ## Verification Queries & Results
-```sql
--- Snapshots query
-SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql6_xxx.snapshots;
--- Result: [paste output]
+```scala
+// Snapshots query
+spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql6_${timestamp}.snapshots").show(false)
+// Result: [paste output]
 
--- Refs query
-SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql6_xxx.refs;
--- Result: [paste output]
+// Refs query
+spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql6_${timestamp}.refs").show(false)
+// Result: [paste output]
 
--- Data verification
-SELECT * FROM openhouse.u_openhouse.test_sql6_xxx;
--- Result: [paste output]
+// Data verification
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_sql6_${timestamp}").show(false)
+// Result: [paste output]
 ```
 
 ## Issues Found
