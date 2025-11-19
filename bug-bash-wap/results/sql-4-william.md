@@ -12,8 +12,8 @@ Create table, insert on main, create branch A from main, insert on branch A, cre
 -- Use comments to organize your steps
 
 -- Step 1: Setup
-CREATE TABLE openhouse.d1.test_sql4_${timestamp} (name string);
-ALTER TABLE openhouse.d1.test_sql4_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
+CREATE TABLE openhouse.u_openhouse.test_sql4_${timestamp} (name string);
+ALTER TABLE openhouse.u_openhouse.test_sql4_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
 
 -- Step 2: Execute test scenario
 
@@ -29,15 +29,15 @@ ALTER TABLE openhouse.d1.test_sql4_${timestamp} SET TBLPROPERTIES ('write.wap.en
 ## Verification Queries & Results
 ```sql
 -- Snapshots query
-SELECT snapshot_id, operation, summary FROM openhouse.d1.test_sql4_xxx.snapshots;
+SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql4_xxx.snapshots;
 -- Result: [paste output]
 
 -- Refs query
-SELECT name, snapshot_id FROM openhouse.d1.test_sql4_xxx.refs;
+SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql4_xxx.refs;
 -- Result: [paste output]
 
 -- Data verification
-SELECT * FROM openhouse.d1.test_sql4_xxx;
+SELECT * FROM openhouse.u_openhouse.test_sql4_xxx;
 -- Result: [paste output]
 ```
 

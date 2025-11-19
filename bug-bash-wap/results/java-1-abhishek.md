@@ -13,13 +13,13 @@ Create table via Java, append FILE_A to create snapshot S1, create branch dev po
 @Test
 void testAppendChainwithManualSnapshotRefManagement() throws Exception {
   try (SparkSession spark = getSparkSession()) {
-    spark.sql("CREATE TABLE openhouse.d1.test_java1 (id int, data string)");
+    spark.sql("CREATE TABLE openhouse.u_openhouse.test_java1 (id int, data string)");
     Operations operations = Operations.withCatalog(spark, null);
-    Table table = operations.getTable("d1.test_java1");
+    Table table = operations.getTable("u_openhouse.test_java1");
     
     // Your test implementation here
     
-    spark.sql("DROP TABLE openhouse.d1.test_java1");
+    spark.sql("DROP TABLE openhouse.u_openhouse.test_java1");
   }
 }
 ```

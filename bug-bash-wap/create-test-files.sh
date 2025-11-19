@@ -48,8 +48,8 @@ ${prompt}
 -- Use comments to organize your steps
 
 -- Step 1: Setup
-CREATE TABLE openhouse.d1.test_sql${key}_\${timestamp} (name string);
-ALTER TABLE openhouse.d1.test_sql${key}_\${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
+CREATE TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} (name string);
+ALTER TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true');
 
 -- Step 2: Execute test scenario
 
@@ -65,15 +65,15 @@ ALTER TABLE openhouse.d1.test_sql${key}_\${timestamp} SET TBLPROPERTIES ('write.
 ## Verification Queries & Results
 \`\`\`sql
 -- Snapshots query
-SELECT snapshot_id, operation, summary FROM openhouse.d1.test_sql${key}_xxx.snapshots;
+SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql${key}_xxx.snapshots;
 -- Result: [paste output]
 
 -- Refs query
-SELECT name, snapshot_id FROM openhouse.d1.test_sql${key}_xxx.refs;
+SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql${key}_xxx.refs;
 -- Result: [paste output]
 
 -- Data verification
-SELECT * FROM openhouse.d1.test_sql${key}_xxx;
+SELECT * FROM openhouse.u_openhouse.test_sql${key}_xxx;
 -- Result: [paste output]
 \`\`\`
 
@@ -115,13 +115,13 @@ ${prompt}
 @Test
 void test${name//[^a-zA-Z0-9]/}() throws Exception {
   try (SparkSession spark = getSparkSession()) {
-    spark.sql("CREATE TABLE openhouse.d1.test_java${key} (id int, data string)");
+    spark.sql("CREATE TABLE openhouse.u_openhouse.test_java${key} (id int, data string)");
     Operations operations = Operations.withCatalog(spark, null);
-    Table table = operations.getTable("d1.test_java${key}");
+    Table table = operations.getTable("u_openhouse.test_java${key}");
     
     // Your test implementation here
     
-    spark.sql("DROP TABLE openhouse.d1.test_java${key}");
+    spark.sql("DROP TABLE openhouse.u_openhouse.test_java${key}");
   }
 }
 \`\`\`

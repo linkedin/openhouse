@@ -13,13 +13,13 @@ Create table, set table property write.wap.enabled=true, commit S1 to main, appe
 @Test
 void testWAPSnapshotExpirationwithLineagePreservation() throws Exception {
   try (SparkSession spark = getSparkSession()) {
-    spark.sql("CREATE TABLE openhouse.d1.test_java7 (id int, data string)");
+    spark.sql("CREATE TABLE openhouse.u_openhouse.test_java7 (id int, data string)");
     Operations operations = Operations.withCatalog(spark, null);
-    Table table = operations.getTable("d1.test_java7");
+    Table table = operations.getTable("u_openhouse.test_java7");
     
     // Your test implementation here
     
-    spark.sql("DROP TABLE openhouse.d1.test_java7");
+    spark.sql("DROP TABLE openhouse.u_openhouse.test_java7");
   }
 }
 ```

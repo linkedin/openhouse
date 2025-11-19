@@ -13,13 +13,13 @@ Create empty table (no commits), create branch empty via setRef() with SnapshotR
 @Test
 void testEmptySnapshotFastForwardChain() throws Exception {
   try (SparkSession spark = getSparkSession()) {
-    spark.sql("CREATE TABLE openhouse.d1.test_java6 (id int, data string)");
+    spark.sql("CREATE TABLE openhouse.u_openhouse.test_java6 (id int, data string)");
     Operations operations = Operations.withCatalog(spark, null);
-    Table table = operations.getTable("d1.test_java6");
+    Table table = operations.getTable("u_openhouse.test_java6");
     
     // Your test implementation here
     
-    spark.sql("DROP TABLE openhouse.d1.test_java6");
+    spark.sql("DROP TABLE openhouse.u_openhouse.test_java6");
   }
 }
 ```
