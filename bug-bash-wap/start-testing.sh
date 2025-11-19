@@ -128,35 +128,30 @@ echo ""
 echo -e "5. ${BOLD}Clean up:${NC} ${YELLOW}DROP TABLE openhouse.d1.test_xxx${NC}"
 echo ""
 
-# Create the connect script
-CONNECT_SCRIPT="${LOG_DIR}/connect.sh"
-cat > "$CONNECT_SCRIPT" << 'EOF'
-#!/bin/bash
-# Auto-generated connection script
-# This will SSH to gateway, authenticate, and start spark-shell
-
-ssh -t ltx1-holdemgw03.grid.linkedin.com "
-  ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse
-  exec spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
-"
+# Create a spark-shell command file
+SPARK_CMD="${LOG_DIR}/spark-shell-cmd.txt"
+cat > "$SPARK_CMD" << 'EOF'
+spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
 EOF
-chmod +x "$CONNECT_SCRIPT"
 
 # Show how to start testing
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo -e "${BOLD}Ready to Start Testing!${NC}"
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo ""
-echo -e "${YELLOW}Run this command to connect and start spark-shell:${NC}"
+echo -e "${YELLOW}Step 1: SSH to gateway and authenticate${NC}"
 echo ""
-echo -e "${GREEN}${BOLD}  ${CONNECT_SCRIPT}${NC}"
+echo -e "  ssh ltx1-holdemgw03.grid.linkedin.com"
 echo ""
-echo -e "${YELLOW}Or copy-paste this:${NC}"
+echo -e "${YELLOW}Step 2: Run ksudo (creates authenticated subshell)${NC}"
 echo ""
-echo -e "  ssh -t ltx1-holdemgw03.grid.linkedin.com \""
-echo -e "    ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse"
-echo -e "    exec spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse"
-echo -e "  \""
+echo -e "  ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse"
 echo ""
-echo -e "${GREEN}💡 Tip: Use Ctrl+D or type :quit to exit spark-shell${NC}"
+echo -e "${YELLOW}Step 3: In the ksudo subshell, start spark-shell${NC}"
+echo ""
+echo -e "  ${GREEN}spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse${NC}"
+echo ""
+echo -e "${BLUE}💾 The spark-shell command is saved to: ${SPARK_CMD}${NC}"
+echo ""
+echo -e "${GREEN}💡 Tip: Use Ctrl+D or type :quit to exit spark-shell, then Ctrl+D again to exit ksudo${NC}"
 echo ""
