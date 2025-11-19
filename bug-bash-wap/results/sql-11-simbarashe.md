@@ -1,10 +1,10 @@
-# Test: SQL-5 - WAP Branch Switch Mid-Transaction Simulation
-**Assignee:** christian  
+# Test: SQL-11 - Interleaved WAP and Direct Commits on Same Branch
+**Assignee:** simbarashe  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create table, enable WAP (write.wap.enabled=true), insert base data, create branch staging and branch review, set wap.branch to staging, insert data, verify data visible on staging, change wap.branch to review mid-session, insert different data, unset wap.branch, verify staging has first insert, review has second insert, main has only base data, all isolated correctly.
+Create table, enable WAP (write.wap.enabled=true), insert base on main, stage wap1 with dataA, insert dataB directly to main (non-WAP), stage wap2 with dataC, insert dataD directly to main, cherry-pick wap1 to main, verify main has base+dataB+dataD+dataA in correct snapshot lineage, verify wap2 remains unpublished, verify all parent pointers form valid chain.
 
 ## Quick Reference
 ```scala
@@ -49,7 +49,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_sql5_${timestamp}"
+val tableName = s"test_sql11_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
 spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
@@ -66,4 +66,5 @@ spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('w
 ## Issues Found
 - [ ] No issues - test passed completely
 - [ ] Bug found: [describe the bug, error messages, unexpected behavior]
+
 

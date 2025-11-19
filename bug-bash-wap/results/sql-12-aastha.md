@@ -1,10 +1,10 @@
-# Test: SQL-5 - WAP Branch Switch Mid-Transaction Simulation
-**Assignee:** christian  
+# Test: SQL-12 - Branch from WAP Snapshot Before Cherry-Pick
+**Assignee:** aastha  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create table, enable WAP (write.wap.enabled=true), insert base data, create branch staging and branch review, set wap.branch to staging, insert data, verify data visible on staging, change wap.branch to review mid-session, insert different data, unset wap.branch, verify staging has first insert, review has second insert, main has only base data, all isolated correctly.
+Create table, enable WAP (write.wap.enabled=true), insert base on main, stage wap1 with data, create branch experimental from wap1 snapshot (staged but not published), insert more data on experimental, cherry-pick wap1 to main, verify main and experimental both have wap1 data, verify experimental has additional data, verify both branches share wap1 snapshot in ancestry.
 
 ## Quick Reference
 ```scala
@@ -49,7 +49,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_sql5_${timestamp}"
+val tableName = s"test_sql12_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
 spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 

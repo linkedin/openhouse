@@ -1,10 +1,10 @@
-# Test: SQL-5 - WAP Branch Switch Mid-Transaction Simulation
-**Assignee:** christian  
+# Test: SQL-15 - Snapshot Expiration with Cross-Branch Dependencies
+**Assignee:** kevin  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create table, enable WAP (write.wap.enabled=true), insert base data, create branch staging and branch review, set wap.branch to staging, insert data, verify data visible on staging, change wap.branch to review mid-session, insert different data, unset wap.branch, verify staging has first insert, review has second insert, main has only base data, all isolated correctly.
+Create table, insert S1 on main, create branches A B C from S1, insert S2 on A, insert S3 on B (parent S1), insert S4 on C (parent S1), cherry-pick S2 to C (S5 created), attempt expire S1 (should fail - referenced by B and original A/B/C ancestry), expire S3 (should succeed - only B head), verify all branches functional, S1 S2 S4 S5 remain.
 
 ## Quick Reference
 ```scala
@@ -49,7 +49,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_sql5_${timestamp}"
+val tableName = s"test_sql15_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
 spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 

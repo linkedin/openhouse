@@ -1,10 +1,10 @@
-# Test: Java-6 - Empty Snapshot Fast-Forward Chain
-**Assignee:** stas  
+# Test: Java-16 - Bulk Branch Creation and Snapshot Reuse
+**Assignee:** junhao  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create empty table (no commits), create branch empty via setRef() with SnapshotRef pointing to null snapshot (Iceberg initial state), append FILE_A to create S1, update main to point to S1, attempt fast-forward empty branch to main S1, verify empty branch now has data, call refs() to verify branch references updated correctly.
+Create table, commit S1 to main, in single manageSnapshots() transaction create 10 branches (b1 through b10) all pointing to S1, commit transaction, verify all 10 branches exist in refs(), verify all point to same snapshot S1, append FILE_A to b5 creating S2, verify other 9 branches still at S1, verify b5 at S2.
 
 ## Quick Reference
 ```scala
@@ -15,7 +15,7 @@ import liopenhouse.relocated.org.apache.iceberg.types.Types._
 
 // Setup
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java16_${timestamp}"
 
 // Create table via Spark SQL
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
@@ -57,7 +57,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java16_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
 
 val catalog = spark.sessionState.catalogManager.catalog("openhouse")

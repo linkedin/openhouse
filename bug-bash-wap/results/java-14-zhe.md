@@ -1,10 +1,10 @@
-# Test: Java-6 - Empty Snapshot Fast-Forward Chain
-**Assignee:** stas  
+# Test: Java-14 - Snapshot Ref with Custom Metadata Properties
+**Assignee:** zhe  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create empty table (no commits), create branch empty via setRef() with SnapshotRef pointing to null snapshot (Iceberg initial state), append FILE_A to create S1, update main to point to S1, attempt fast-forward empty branch to main S1, verify empty branch now has data, call refs() to verify branch references updated correctly.
+Create table, commit S1 to main, create branch custom from S1 using SnapshotRef.branchBuilder with custom properties (minSnapshotsToKeep=10, maxRefAgeMs=3600000), append FILE_A to custom, verify branch works correctly, query table.refs() and verify custom ref properties are persisted, verify retention policy respects custom properties.
 
 ## Quick Reference
 ```scala
@@ -15,7 +15,7 @@ import liopenhouse.relocated.org.apache.iceberg.types.Types._
 
 // Setup
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java14_${timestamp}"
 
 // Create table via Spark SQL
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
@@ -57,7 +57,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java14_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
 
 val catalog = spark.sessionState.catalogManager.catalog("openhouse")

@@ -1,10 +1,10 @@
-# Test: SQL-5 - WAP Branch Switch Mid-Transaction Simulation
-**Assignee:** christian  
+# Test: SQL-13 - Concurrent Branch Commits During Fast-Forward Window
+**Assignee:** jiefan  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create table, enable WAP (write.wap.enabled=true), insert base data, create branch staging and branch review, set wap.branch to staging, insert data, verify data visible on staging, change wap.branch to review mid-session, insert different data, unset wap.branch, verify staging has first insert, review has second insert, main has only base data, all isolated correctly.
+Create table, insert on main, create branch A and B from main, insert data1 on branch A, capture A snapshot ID, insert data2 on branch B, fast-forward B to A using captured snapshot ID, insert data3 on branch A (after fast-forward initiated), verify B has data1 only, verify A has data1 and data3, verify fast-forward was point-in-time.
 
 ## Quick Reference
 ```scala
@@ -49,7 +49,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_sql5_${timestamp}"
+val tableName = s"test_sql13_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
 spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 

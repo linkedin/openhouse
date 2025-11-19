@@ -8,10 +8,11 @@ Create table, enable WAP (write.wap.enabled=true), insert base data on main, cre
 
 ## Quick Reference
 ```scala
-// Create table
+// Setup
 val timestamp = System.currentTimeMillis()
 val tableName = s"test_xxx_${timestamp}"
 
+// Create table
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id INT, data STRING)")
 
 // Enable WAP
@@ -64,17 +65,5 @@ spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('w
 
 ## Issues Found
 - [ ] No issues - test passed completely
-- [ ] Bug found: [describe]
-- [ ] Enhancement needed: [describe]
+- [ ] Bug found: [describe the bug, error messages, unexpected behavior]
 
-## Additional Notes
-[Any observations or challenges]
-
-## Cleanup
-- [ ] Test tables dropped
-- [ ] spark.wap.id unset
-- [ ] spark.wap.branch unset
-
-## Sign-off
-- [ ] All assertions verified
-- [ ] Results reproducible

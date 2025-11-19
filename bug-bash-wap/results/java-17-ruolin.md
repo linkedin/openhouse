@@ -1,10 +1,10 @@
-# Test: Java-6 - Empty Snapshot Fast-Forward Chain
-**Assignee:** stas  
+# Test: Java-17 - Snapshot Replace with WAP Metadata Preservation
+**Assignee:** ruolin  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create empty table (no commits), create branch empty via setRef() with SnapshotRef pointing to null snapshot (Iceberg initial state), append FILE_A to create S1, update main to point to S1, attempt fast-forward empty branch to main S1, verify empty branch now has data, call refs() to verify branch references updated correctly.
+Create table, enable WAP, commit S1 to main, append FILE_A with wap.id=wap1 stageOnly() creating S2, manually call replaceSnapshots() to swap S2 metadata (preserving wap.id property), verify S2 still marked as WAP snapshot, attempt cherry-pick wap1 after replace, verify wap.id metadata survived replacement operation.
 
 ## Quick Reference
 ```scala
@@ -15,7 +15,7 @@ import liopenhouse.relocated.org.apache.iceberg.types.Types._
 
 // Setup
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java17_${timestamp}"
 
 // Create table via Spark SQL
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
@@ -57,7 +57,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java17_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
 
 val catalog = spark.sessionState.catalogManager.catalog("openhouse")

@@ -3,7 +3,7 @@
 **Branch:** `bug-bash-wap-2024-11`  
 **Goal:** Test complex multi-branch scenarios in SnapshotDiffApplier  
 **Duration:** [Set your deadline]  
-**Total Tests:** 20 (10 Spark SQL + 10 Java API)
+**Total Tests:** 34 (17 Spark SQL + 17 Java API)
 
 ## Instructions
 
@@ -37,8 +37,20 @@
 | 18 | Java | Multi-Branch Append with Shared Parent Snapshot | rohit | 🔲 | `results/java-08-rohit.md` |
 | 19 | Java | Snapshot Ref Retention Policy Enforcement | selena | 🔲 | `results/java-09-selena.md` |
 | 20 | Java | Branch Snapshot Override with Concurrent Main Advancement | shanthoosh | 🔲 | `results/java-10-shanthoosh.md` |
-
-**Backup/Reviewer:** sumedh
+| 21 | SQL | Interleaved WAP and Direct Commits on Same Branch | simbarashe | 🔲 | `results/sql-11-simbarashe.md` |
+| 22 | SQL | Branch from WAP Snapshot Before Cherry-Pick | aastha | 🔲 | `results/sql-12-aastha.md` |
+| 23 | SQL | Concurrent Branch Commits During Fast-Forward Window | jiefan | 🔲 | `results/sql-13-jiefan.md` |
+| 24 | SQL | WAP Branch Target with Non-Existent Branch | zhe | 🔲 | `results/sql-14-zhe.md` |
+| 25 | SQL | Snapshot Expiration with Cross-Branch Dependencies | kevin | 🔲 | `results/sql-15-kevin.md` |
+| 26 | SQL | Rename Branch via Ref Management | junhao | 🔲 | `results/sql-16-junhao.md` |
+| 27 | SQL | WAP ID Collision and Override | ruolin | 🔲 | `results/sql-17-ruolin.md` |
+| 28 | Java | Transactional Multi-Branch Update with Rollback | simbarashe | 🔲 | `results/java-11-simbarashe.md` |
+| 29 | Java | Branch Creation from Detached Snapshot | aastha | 🔲 | `results/java-12-aastha.md` |
+| 30 | Java | Parallel Branch Append with Metadata Conflicts | jiefan | 🔲 | `results/java-13-jiefan.md` |
+| 31 | Java | Snapshot Ref with Custom Metadata Properties | zhe | 🔲 | `results/java-14-zhe.md` |
+| 32 | Java | Cross-Table Snapshot Reference Attempt | kevin | 🔲 | `results/java-15-kevin.md` |
+| 33 | Java | Bulk Branch Creation and Snapshot Reuse | junhao | 🔲 | `results/java-16-junhao.md` |
+| 34 | Java | Snapshot Replace with WAP Metadata Preservation | ruolin | 🔲 | `results/java-17-ruolin.md` |
 
 ## Status Legend
 - 🔲 Not Started
@@ -55,6 +67,6 @@
 ## Cleanup Reminder
 Please drop your test tables after completion:
 ```sql
-DROP TABLE IF EXISTS openhouse.d1.[your_test_table];
+DROP TABLE IF EXISTS openhouse.u_openhouse.[your_test_table];
 ```
 

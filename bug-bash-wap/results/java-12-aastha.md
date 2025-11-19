@@ -1,10 +1,10 @@
-# Test: Java-6 - Empty Snapshot Fast-Forward Chain
-**Assignee:** stas  
+# Test: Java-12 - Branch Creation from Detached Snapshot
+**Assignee:** aastha  
 **Date:** [YYYY-MM-DD]  
 **Status:** 🔲 NOT STARTED
 
 ## Test Prompt
-Create empty table (no commits), create branch empty via setRef() with SnapshotRef pointing to null snapshot (Iceberg initial state), append FILE_A to create S1, update main to point to S1, attempt fast-forward empty branch to main S1, verify empty branch now has data, call refs() to verify branch references updated correctly.
+Create table, commit S1 S2 S3 to main, call removeSnapshots to detach S2 from main lineage (but keep metadata), create branch orphan pointing to detached S2 snapshot ID, attempt append to orphan branch, verify behavior (should work with detached parent or fail), verify snapshot ancestry handling.
 
 ## Quick Reference
 ```scala
@@ -15,7 +15,7 @@ import liopenhouse.relocated.org.apache.iceberg.types.Types._
 
 // Setup
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java12_${timestamp}"
 
 // Create table via Spark SQL
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
@@ -57,7 +57,7 @@ spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 // Copy-paste all commands you ran here
 
 val timestamp = System.currentTimeMillis()
-val tableName = s"test_java6_${timestamp}"
+val tableName = s"test_java12_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
 
 val catalog = spark.sessionState.catalogManager.catalog("openhouse")

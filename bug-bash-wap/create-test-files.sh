@@ -13,6 +13,13 @@ sql_tests=(
   ["08"]="rohit:Branch Creation Race on Empty Table:Create empty table (no snapshots), create branch A (should create empty snapshot), create branch B from branch A, verify both branches exist and point to same empty snapshot, set wap.branch to A, insert data, verify branch A advanced, branch B still at empty snapshot, create branch C from empty table root, verify C also points to original empty snapshot."
   ["09"]="selena:Multi-Branch Fast-Forward with Stale Refs Cleanup:Create table, insert on main, create branches A B C D from main, insert on branch D, fast-forward C to D, fast-forward B to C, fast-forward A to B, verify all branches A-D now point to same snapshot as D, expire intermediate snapshots that became unreferenced, verify only current snapshot remains, all four branches still work."
   ["10"]="shanthoosh:WAP ID Publishing to Non-Main with Branch Deletion:Create table, enable WAP (write.wap.enabled=true), insert on main, create branches feature and temp, stage wap1 with data, cherry-pick wap1 to feature branch, verify feature has WAP data, drop temp branch via Iceberg API, stage wap2 with different data, cherry-pick wap2 to main, verify main has wap2 data, feature unchanged, temp branch refs properly cleaned up."
+  ["11"]="simbarashe:Interleaved WAP and Direct Commits on Same Branch:Create table, enable WAP (write.wap.enabled=true), insert base on main, stage wap1 with dataA, insert dataB directly to main (non-WAP), stage wap2 with dataC, insert dataD directly to main, cherry-pick wap1 to main, verify main has base+dataB+dataD+dataA in correct snapshot lineage, verify wap2 remains unpublished, verify all parent pointers form valid chain."
+  ["12"]="aastha:Branch from WAP Snapshot Before Cherry-Pick:Create table, enable WAP (write.wap.enabled=true), insert base on main, stage wap1 with data, create branch experimental from wap1 snapshot (staged but not published), insert more data on experimental, cherry-pick wap1 to main, verify main and experimental both have wap1 data, verify experimental has additional data, verify both branches share wap1 snapshot in ancestry."
+  ["13"]="jiefan:Concurrent Branch Commits During Fast-Forward Window:Create table, insert on main, create branch A and B from main, insert data1 on branch A, capture A snapshot ID, insert data2 on branch B, fast-forward B to A using captured snapshot ID, insert data3 on branch A (after fast-forward initiated), verify B has data1 only, verify A has data1 and data3, verify fast-forward was point-in-time."
+  ["14"]="zhe:WAP Branch Target with Non-Existent Branch:Create table, enable WAP (write.wap.enabled=true), insert base on main, set wap.branch to nonExistentBranch, attempt insert (should fail or auto-create branch per behavior), if branch created verify it exists in refs, if failed verify main unchanged, unset wap.branch, verify system state is consistent."
+  ["15"]="kevin:Snapshot Expiration with Cross-Branch Dependencies:Create table, insert S1 on main, create branches A B C from S1, insert S2 on A, insert S3 on B (parent S1), insert S4 on C (parent S1), cherry-pick S2 to C (S5 created), attempt expire S1 (should fail - referenced by B and original A/B/C ancestry), expire S3 (should succeed - only B head), verify all branches functional, S1 S2 S4 S5 remain."
+  ["16"]="junhao:Rename Branch via Ref Management:Create table, insert on main, create branch oldName, insert data on oldName, capture oldName snapshot ID, create new branch newName pointing to same snapshot ID, verify both branches show same data, drop oldName branch, verify newName still works with all data, verify refs table shows only newName and main."
+  ["17"]="ruolin:WAP ID Collision and Override:Create table, enable WAP (write.wap.enabled=true), insert base on main, stage wap1 with dataA, stage another commit with same wap.id=wap1 but different dataB (override/collision), cherry-pick wap1 to main, verify which data landed on main (latest wap1 or error), verify snapshot metadata and wap.id properties, verify no orphaned snapshots."
 )
 
 # Java Test assignments
@@ -28,6 +35,13 @@ java_tests=(
   ["08"]="rohit:Multi-Branch Append with Shared Parent Snapshot:Create table, commit S1 to main with FILE_A, create branches b1 b2 b3 all pointing to S1, append FILE_B to b1 creating S2 with parent=S1, append FILE_C to b2 creating S3 with parent=S1, append FILE_D to b3 creating S4 with parent=S1, verify all three snapshots have same parent but different data files, refs table shows correct snapshot IDs for each branch."
   ["09"]="selena:Snapshot Ref Retention Policy Enforcement:Create table, commit 5 snapshots S1-S5 sequentially to main, create branch old pointing to S2, create branch mid pointing to S4, attempt removeSnapshots() with retention policy to expire S1 S3 (neither referenced by branches), verify S2 S4 S5 remain (referenced or current), verify old and mid branches still functional and point to correct snapshots."
   ["10"]="shanthoosh:Branch Snapshot Override with Concurrent Main Advancement:Create table, commit S1 to main, create branch feature pointing to S1, append FILE_A to feature creating S2, append FILE_B to main creating S3, call setBranchSnapshot() for feature with new snapshot S4 (child of S3) containing FILE_C, verify feature branch jumped from S1->S2 lineage to S3->S4 lineage, S2 becomes orphaned but not deleted (may be referenced elsewhere), main unaffected at S3."
+  ["11"]="simbarashe:Transactional Multi-Branch Update with Rollback:Create table, commit S1 to main, create branches A and B from S1, begin manageSnapshots() transaction, setRef A to new snapshot S2, setRef B to new snapshot S3, before commit create branch C from S1, commit transaction, verify A->S2 B->S3 C->S1, attempt rollback simulation by re-setting A and B to S1, verify transaction atomicity."
+  ["12"]="aastha:Branch Creation from Detached Snapshot:Create table, commit S1 S2 S3 to main, call removeSnapshots to detach S2 from main lineage (but keep metadata), create branch orphan pointing to detached S2 snapshot ID, attempt append to orphan branch, verify behavior (should work with detached parent or fail), verify snapshot ancestry handling."
+  ["13"]="jiefan:Parallel Branch Append with Metadata Conflicts:Create table, commit S1 to main, create branch A from S1, obtain two separate Table instances for same table, on instance1 append FILE_A to branch A, on instance2 append FILE_B to branch A, commit both (conflict scenario), verify conflict resolution, verify final branch A state, verify no data loss."
+  ["14"]="zhe:Snapshot Ref with Custom Metadata Properties:Create table, commit S1 to main, create branch custom from S1 using SnapshotRef.branchBuilder with custom properties (minSnapshotsToKeep=10, maxRefAgeMs=3600000), append FILE_A to custom, verify branch works correctly, query table.refs() and verify custom ref properties are persisted, verify retention policy respects custom properties."
+  ["15"]="kevin:Cross-Table Snapshot Reference Attempt:Create two tables tableA and tableB, commit S1 to tableA main, commit S2 to tableB main, attempt to create branch in tableA pointing to tableB's S2 snapshot ID (cross-table reference), verify operation fails with appropriate error, verify tableA metadata unchanged, verify isolation between tables."
+  ["16"]="junhao:Bulk Branch Creation and Snapshot Reuse:Create table, commit S1 to main, in single manageSnapshots() transaction create 10 branches (b1 through b10) all pointing to S1, commit transaction, verify all 10 branches exist in refs(), verify all point to same snapshot S1, append FILE_A to b5 creating S2, verify other 9 branches still at S1, verify b5 at S2."
+  ["17"]="ruolin:Snapshot Replace with WAP Metadata Preservation:Create table, enable WAP, commit S1 to main, append FILE_A with wap.id=wap1 stageOnly() creating S2, manually call replaceSnapshots() to swap S2 metadata (preserving wap.id property), verify S2 still marked as WAP snapshot, attempt cherry-pick wap1 after replace, verify wap.id metadata survived replacement operation."
 )
 
 # Create SQL test files
@@ -44,90 +58,65 @@ ${prompt}
 
 ## Quick Reference
 \`\`\`scala
+// Setup
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_xxx_\${timestamp}"
+
 // Create table
-spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_xxx (id INT, data STRING)")
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.\${tableName} (id INT, data STRING)")
 
 // Enable WAP
-spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_xxx SET TBLPROPERTIES ('write.wap.enabled'='true')")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.\${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
 // Insert data
-spark.sql(s"INSERT INTO openhouse.u_openhouse.test_xxx VALUES (1, 'data')")
+spark.sql(s"INSERT INTO openhouse.u_openhouse.\${tableName} VALUES (1, 'data')")
 
 // Create branch
-spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_xxx CREATE BRANCH myBranch")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.\${tableName} CREATE BRANCH myBranch")
 
 // Set WAP config
 spark.conf.set("spark.wap.id", "wap1")
 spark.conf.set("spark.wap.branch", "myBranch")
 
-// Cherry-pick: CALL openhouse.system.cherrypick_snapshot('openhouse.u_openhouse.test_xxx', 'main', snapshotId)
-// Fast-forward: CALL openhouse.system.fast_forward('openhouse.u_openhouse.test_xxx', 'branch1', 'branch2')
+// Cherry-pick: CALL openhouse.system.cherrypick_snapshot('openhouse.u_openhouse.\${tableName}', 'main', snapshotId)
+// Fast-forward: CALL openhouse.system.fast_forward('openhouse.u_openhouse.\${tableName}', 'branch1', 'branch2')
 
 // View snapshots
-spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_xxx.snapshots").show(false)
+spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.\${tableName}.snapshots").show(false)
 
 // View refs
-spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_xxx.refs").show(false)
+spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.\${tableName}.refs").show(false)
 
 // Query branch data
-spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_xxx.branch_myBranch").show()
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.\${tableName}.branch_myBranch").show()
 
 // Drop table
-spark.sql(s"DROP TABLE openhouse.u_openhouse.test_xxx")
+spark.sql(s"DROP TABLE openhouse.u_openhouse.\${tableName}")
 \`\`\`
 
-## Steps Executed
+## Input
 \`\`\`scala
-// Paste your actual Spark SQL commands here
-// Use comments to organize your steps
+// Copy-paste all commands you ran here
 
-// Step 1: Setup
 val timestamp = System.currentTimeMillis()
-spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} (name string)")
-spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_sql${key}_\${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true')")
+val tableName = s"test_sql${key}_\${timestamp}"
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.\${tableName} (name string)")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.\${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
-// Step 2: Execute test scenario
+// ... your test commands ...
 
-// Step 3: Verification
 \`\`\`
 
-## Expected vs Actual Results
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| 1. Create table | Table created | | |
-| 2. ... | ... | | |
+## Output
+\`\`\`
+[Copy-paste all output here - terminal output, query results, errors, etc.]
 
-## Verification Queries & Results
-\`\`\`scala
-// Snapshots query
-spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql${key}_\${timestamp}.snapshots").show(false)
-// Result: [paste output]
-
-// Refs query
-spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql${key}_\${timestamp}.refs").show(false)
-// Result: [paste output]
-
-// Data verification
-spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_sql${key}_\${timestamp}").show(false)
-// Result: [paste output]
 \`\`\`
 
 ## Issues Found
 - [ ] No issues - test passed completely
-- [ ] Bug found: [describe]
-- [ ] Enhancement needed: [describe]
+- [ ] Bug found: [describe the bug, error messages, unexpected behavior]
 
-## Additional Notes
-[Any observations or challenges]
-
-## Cleanup
-- [ ] Test tables dropped
-- [ ] spark.wap.id unset
-- [ ] spark.wap.branch unset
-
-## Sign-off
-- [ ] All assertions verified
-- [ ] Results reproducible
 TESTEOF
 done
 
@@ -150,10 +139,17 @@ import liopenhouse.relocated.org.apache.iceberg._
 import liopenhouse.relocated.org.apache.iceberg.catalog._
 import liopenhouse.relocated.org.apache.iceberg.types.Types._
 
+// Setup
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_java${key}_\${timestamp}"
+
+// Create table via Spark SQL
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.\${tableName} (id int, data string)")
+
 // Get catalog and table
 val catalog = spark.sessionState.catalogManager.catalog("openhouse")
   .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
-val table: Table = catalog.loadTable(Identifier.of("u_openhouse", "table_name"))
+val table: Table = catalog.loadTable(Identifier.of("u_openhouse", tableName))
 
 // Get current snapshot
 val snapshot: Snapshot = table.currentSnapshot()
@@ -177,62 +173,38 @@ builder.removeSnapshots(snapshotId).commit()
 table.snapshots()  // All snapshots
 table.refs()       // All references
 table.currentSnapshot()  // Current snapshot
+
+// Cleanup
+spark.sql(s"DROP TABLE openhouse.u_openhouse.\${tableName}")
 \`\`\`
 
-## Steps Executed
-\`\`\`java
-// Paste your actual Java test code here
+## Input
+\`\`\`scala
+// Copy-paste all commands you ran here
 
-@Test
-void test${name//[^a-zA-Z0-9]/}() throws Exception {
-  try (SparkSession spark = getSparkSession()) {
-    spark.sql("CREATE TABLE openhouse.u_openhouse.test_java${key} (id int, data string)");
-    Operations operations = Operations.withCatalog(spark, null);
-    Table table = operations.getTable("u_openhouse.test_java${key}");
-    
-    // Your test implementation here
-    
-    spark.sql("DROP TABLE openhouse.u_openhouse.test_java${key}");
-  }
-}
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_java${key}_\${timestamp}"
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.\${tableName} (id int, data string)")
+
+val catalog = spark.sessionState.catalogManager.catalog("openhouse")
+  .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
+val table: Table = catalog.loadTable(Identifier.of("u_openhouse", tableName))
+
+// ... your test implementation ...
+
 \`\`\`
 
-## Expected vs Actual Results
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| 1. Create table | Table created | | |
-| 2. ... | ... | | |
+## Output
+\`\`\`
+[Copy-paste all output here - terminal output, query results, errors, etc.]
 
-## Verification Queries & Results
-\`\`\`java
-// Snapshot verification
-System.out.println("Snapshots: " + table.snapshots());
-// Result: [paste output]
-
-// Refs verification
-System.out.println("Refs: " + table.refs());
-// Result: [paste output]
-
-// Current snapshot
-System.out.println("Current: " + table.currentSnapshot().snapshotId());
-// Result: [paste output]
 \`\`\`
 
 ## Issues Found
 - [ ] No issues - test passed completely
-- [ ] Bug found: [describe]
-- [ ] Enhancement needed: [describe]
+- [ ] Bug found: [describe the bug, error messages, unexpected behavior]
 
-## Additional Notes
-[Any observations or challenges]
-
-## Cleanup
-- [ ] Test tables dropped
-
-## Sign-off
-- [ ] All assertions verified
-- [ ] Results reproducible
 TESTEOF
 done
 
-echo "Created 20 test result files!"
+echo "Created 34 test result files!"

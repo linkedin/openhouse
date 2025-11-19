@@ -2,12 +2,28 @@
 
 ## 🚀 Fast Setup
 
+### Step 0: Clone and Checkout Branch
+
+First, get the code and checkout the bug bash branch:
+
+```bash
+# Clone the repository (if you haven't already)
+git clone https://github.com/linkedin/openhouse.git
+cd openhouse
+
+# Checkout the bug bash branch
+git checkout bug-bash-wap-2024-11
+
+# Navigate to the bug bash directory
+cd bug-bash-wap
+```
+
 ### Option 1: Two-Step Setup (Recommended)
 
 **Step 1: Run setup to see assignments and tips**
 
 ```bash
-cd bug-bash-wap
+# You should already be in bug-bash-wap/ from Step 0
 ./start-testing.sh
 # Enter your name when prompted
 ```
