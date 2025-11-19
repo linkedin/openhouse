@@ -9,71 +9,57 @@ Create table, enable WAP (write.wap.enabled=true), insert base on main, create b
 ## Quick Reference
 ```scala
 // Create table
-spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_xxx (id INT, data STRING)")
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_xxx_${timestamp}"
+
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id INT, data STRING)")
 
 // Enable WAP
-spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_xxx SET TBLPROPERTIES ('write.wap.enabled'='true')")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
 // Insert data
-spark.sql(s"INSERT INTO openhouse.u_openhouse.test_xxx VALUES (1, 'data')")
+spark.sql(s"INSERT INTO openhouse.u_openhouse.${tableName} VALUES (1, 'data')")
 
 // Create branch
-spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_xxx CREATE BRANCH myBranch")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} CREATE BRANCH myBranch")
 
 // Set WAP config
 spark.conf.set("spark.wap.id", "wap1")
 spark.conf.set("spark.wap.branch", "myBranch")
 
-// Cherry-pick: CALL openhouse.system.cherrypick_snapshot('openhouse.u_openhouse.test_xxx', 'main', snapshotId)
-// Fast-forward: CALL openhouse.system.fast_forward('openhouse.u_openhouse.test_xxx', 'branch1', 'branch2')
+// Cherry-pick: CALL openhouse.system.cherrypick_snapshot('openhouse.u_openhouse.${tableName}', 'main', snapshotId)
+// Fast-forward: CALL openhouse.system.fast_forward('openhouse.u_openhouse.${tableName}', 'branch1', 'branch2')
 
 // View snapshots
-spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_xxx.snapshots").show(false)
+spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.${tableName}.snapshots").show(false)
 
 // View refs
-spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_xxx.refs").show(false)
+spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.${tableName}.refs").show(false)
 
 // Query branch data
-spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_xxx.branch_myBranch").show()
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.${tableName}.branch_myBranch").show()
 
 // Drop table
-spark.sql(s"DROP TABLE openhouse.u_openhouse.test_xxx")
+spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 ```
 
-## Steps Executed
+## Input
 ```scala
-// Paste your actual Spark SQL commands here
-// Use comments to organize your steps
+// Copy-paste all commands you ran here
 
-// Step 1: Setup
 val timestamp = System.currentTimeMillis()
-spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql3_${timestamp} (name string)")
-spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_sql3_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true')")
+val tableName = s"test_sql3_${timestamp}"
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
-// Step 2: Execute test scenario
+// ... your test commands ...
 
-// Step 3: Verification
 ```
 
-## Expected vs Actual Results
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| 1. Create table | Table created | | |
-| 2. ... | ... | | |
+## Output
+```
+[Copy-paste all output here - terminal output, query results, errors, etc.]
 
-## Verification Queries & Results
-```scala
-// Snapshots query
-spark.sql(s"SELECT snapshot_id, operation, summary FROM openhouse.u_openhouse.test_sql3_${timestamp}.snapshots").show(false)
-// Result: [paste output]
-
-// Refs query
-spark.sql(s"SELECT name, snapshot_id FROM openhouse.u_openhouse.test_sql3_${timestamp}.refs").show(false)
-// Result: [paste output]
-
-// Data verification
-spark.sql(s"SELECT * FROM openhouse.u_openhouse.test_sql3_${timestamp}").show(false)
-// Result: [paste output]
 ```
 
 ## Issues Found

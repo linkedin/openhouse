@@ -87,6 +87,7 @@ ksudo -e openhouse
 
 # 3. Start Spark Shell
 spark-shell \
+  --spark-version 3.5.2 \
   --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse \
   --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
 ```
@@ -97,12 +98,14 @@ spark-shell \
 
 ### 1. Create Your Test Table
 ```scala
-spark.sql("CREATE TABLE openhouse.d1.test_sql01_12345 (name string)")
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_sql01_${timestamp}"
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
 ```
 
 ### 2. Enable WAP (if needed)
 ```scala
-spark.sql("ALTER TABLE openhouse.d1.test_sql01_12345 SET TBLPROPERTIES ('write.wap.enabled'='true')")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 ```
 
 ### 3. Execute Your Test
@@ -121,7 +124,7 @@ Fill in:
 
 ### 6. Clean Up
 ```scala
-spark.sql("DROP TABLE openhouse.d1.test_sql01_12345")
+spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 spark.conf().unset("spark.wap.id")
 spark.conf().unset("spark.wap.branch")
 ```
@@ -130,40 +133,56 @@ spark.conf().unset("spark.wap.branch")
 
 ## 🔍 Common Commands Reference
 
+```scala
+// Setup (run once per test)
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_xxx_${timestamp}"
+```
+
 ### Table Operations
-```sql
-CREATE TABLE openhouse.d1.test_xxx (name string);
-DROP TABLE openhouse.d1.test_xxx;
-ALTER TABLE openhouse.d1.test_xxx SET TBLPROPERTIES ('write.wap.enabled'='true');
+```scala
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
+spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 ```
 
 ### Branch Operations
-```sql
-ALTER TABLE openhouse.d1.test_xxx CREATE BRANCH myBranch;
-INSERT INTO openhouse.d1.test_xxx.branch_myBranch VALUES ('data');
-SELECT * FROM openhouse.d1.test_xxx VERSION AS OF 'myBranch';
+```scala
+spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} CREATE BRANCH myBranch")
+spark.sql(s"INSERT INTO openhouse.u_openhouse.${tableName}.branch_myBranch VALUES ('data')")
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.${tableName} VERSION AS OF 'myBranch'").show()
 ```
 
 ### WAP Operations
 ```scala
-// In Spark shell (Scala)
-spark.conf().set("spark.wap.id", "wap1")
-spark.sql("INSERT INTO openhouse.d1.test_xxx VALUES ('wap_data')")
-spark.conf().unset("spark.wap.id")
+// WAP staging
+spark.conf.set("spark.wap.id", "wap1")
+spark.sql(s"INSERT INTO openhouse.u_openhouse.${tableName} VALUES ('wap_data')")
+spark.conf.unset("spark.wap.id")
+
+// WAP branch
+spark.conf.set("spark.wap.branch", "myBranch")
+spark.sql(s"INSERT INTO openhouse.u_openhouse.${tableName} VALUES ('data')")
+spark.conf.unset("spark.wap.branch")
 ```
 
 ### Metadata Queries
-```sql
-SELECT * FROM openhouse.d1.test_xxx.snapshots;
-SELECT * FROM openhouse.d1.test_xxx.refs;
-SELECT * FROM openhouse.d1.test_xxx.history;
+```scala
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.${tableName}.snapshots").show(false)
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.${tableName}.refs").show(false)
+spark.sql(s"SELECT * FROM openhouse.u_openhouse.${tableName}.history").show(false)
 ```
 
 ### System Procedures
-```sql
-CALL openhouse.system.fast_forward('openhouse.d1.test_xxx', 'target', 'source');
-CALL openhouse.system.cherrypick_snapshot('d1.test_xxx', snapshot_id);
-CALL openhouse.system.expire_snapshots(table => 'd1.test_xxx', snapshot_ids => Array(id1));
+```scala
+// Fast-forward
+spark.sql(s"CALL openhouse.system.fast_forward('openhouse.u_openhouse.${tableName}', 'target', 'source')")
+
+// Cherry-pick (note: no 'openhouse.' prefix in table identifier)
+spark.sql(s"CALL openhouse.system.cherrypick_snapshot('u_openhouse.${tableName}', snapshotId)")
+
+// Expire snapshots
+spark.sql(s"CALL openhouse.system.expire_snapshots(table => 'u_openhouse.${tableName}', snapshot_ids => Array(id1, id2))")
 ```
 
 ---

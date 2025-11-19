@@ -137,7 +137,7 @@ echo ""
 # Create a spark-shell command file
 SPARK_CMD="${LOG_DIR}/spark-shell-cmd.txt"
 cat > "$SPARK_CMD" << 'EOF'
-spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
+spark-shell --spark-version 3.5.2 --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse
 EOF
 
 # Show how to start testing
@@ -155,7 +155,7 @@ echo -e "  ksudo -s OPENHOUSE,HDFS,WEBHDFS,SWEBHDFS,HCAT,RM -e openhouse"
 echo ""
 echo -e "${YELLOW}Step 3: In the ksudo subshell, start spark-shell${NC}"
 echo ""
-echo -e "  ${GREEN}spark-shell --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse${NC}"
+echo -e "  ${GREEN}spark-shell --spark-version 3.5.2 --conf spark.sql.catalog.openhouse.cluster=ltx1-holdem-openhouse --conf spark.sql.catalog.openhouse.uri=https://openhouse.grid1-k8s-0.grid.linkedin.com:31189/clusters/openhouse${NC}"
 echo ""
 echo -e "${BLUE}💾 The spark-shell command is saved to: ${SPARK_CMD}${NC}"
 echo ""
