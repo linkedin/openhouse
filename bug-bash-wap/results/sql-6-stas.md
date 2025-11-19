@@ -13,7 +13,7 @@ Create table, enable WAP (write.wap.enabled=true), insert on main, create branch
 
 // Step 1: Setup
 val timestamp = System.currentTimeMillis()
-spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql6_${timestamp} (name string) USING iceberg")
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql6_${timestamp} (name string)")
 spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_sql6_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
 // Step 2: Execute test scenario

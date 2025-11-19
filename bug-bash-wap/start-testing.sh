@@ -61,8 +61,7 @@ echo -e "${BLUE}═════════════════════�
 echo ""
 
 echo -e "${YELLOW}1. Create Table (Spark SQL):${NC}"
-echo -e "  CREATE TABLE openhouse.u_openhouse.test_${ASSIGNEE}_${TIMESTAMP} (id INT, name STRING)"
-echo -e "  USING iceberg PARTITIONED BY (id);"
+echo -e "  spark.sql(s\"CREATE TABLE openhouse.u_openhouse.test_${ASSIGNEE}_${TIMESTAMP} (id INT, name STRING)\")"
 echo ""
 
 echo -e "${YELLOW}2. Java API Imports (copy into spark-shell):${NC}"

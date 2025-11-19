@@ -13,7 +13,7 @@ Create table, insert on main, create branches A B C D from main, insert on branc
 
 // Step 1: Setup
 val timestamp = System.currentTimeMillis()
-spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql09_${timestamp} (name string) USING iceberg")
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.test_sql09_${timestamp} (name string)")
 spark.sql(s"ALTER TABLE openhouse.u_openhouse.test_sql09_${timestamp} SET TBLPROPERTIES ('write.wap.enabled'='true')")
 
 // Step 2: Execute test scenario
