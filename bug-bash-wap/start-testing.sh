@@ -107,6 +107,13 @@ echo -e "  val snapshotId = table.currentSnapshot().snapshotId()"
 echo -e "  val parentId = table.currentSnapshot().parentId()"
 echo ""
 
+echo -e "${YELLOW}Reference Test Examples:${NC}"
+echo -e "  Spark SQL: integrations/spark/spark-3.5/openhouse-spark-itest/src/test/java/"
+echo -e "             com/linkedin/openhouse/spark/catalogtest/BranchTestSpark3_5.java"
+echo -e "  Java API:  apps/spark/src/test/java/com/linkedin/openhouse/catalog/e2e/"
+echo -e "             WapIdJavaTest.java"
+echo ""
+
 # Tips
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo -e "${BOLD}Testing Tips${NC}"
