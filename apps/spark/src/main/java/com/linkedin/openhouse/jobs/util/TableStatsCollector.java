@@ -35,4 +35,17 @@ public class TableStatsCollector {
 
     return tableStats;
   }
+
+  /**
+   * Collect commit events for the table.
+   *
+   * <p>Note: Returns List (loads into memory). This is acceptable because Iceberg retention limits
+   * active snapshots to a manageable number (typically <10k per table).
+   *
+   * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
+   */
+  public java.util.List<com.linkedin.openhouse.common.stats.model.CommitEventTable>
+      collectCommitEventTable() {
+    return TableStatsCollectorUtil.populateCommitEventTable(fqtn, table, spark);
+  }
 }

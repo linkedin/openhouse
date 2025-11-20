@@ -4,10 +4,10 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
-import com.linkedin.openhouse.jobs.util.TableStatsCollectorUtil;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
@@ -547,12 +547,19 @@ public final class Operations implements AutoCloseable {
    * Collect commit events for a given fully-qualified table name.
    *
    * @param fqtn fully-qualified table name
-   * @param eventTimestampInEpochMs timestamp for when the job started processing
-   * @return Dataset containing commit events
+   * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
    */
-  public org.apache.spark.sql.Dataset<org.apache.spark.sql.Row> collectCommitEvents(
-      String fqtn, long eventTimestampInEpochMs) {
+  public List<CommitEventTable> collectCommitEvents(String fqtn) {
     Table table = getTable(fqtn);
-    return TableStatsCollectorUtil.collectCommitEvents(fqtn, table, spark, eventTimestampInEpochMs);
+
+    TableStatsCollector tableStatsCollector;
+    try {
+      tableStatsCollector = new TableStatsCollector(fs(), spark, fqtn, table);
+    } catch (IOException e) {
+      log.error("Unable to initialize file system for commit events collection", e);
+      return new java.util.ArrayList<>();
+    }
+
+    return tableStatsCollector.collectCommitEventTable();
   }
 }

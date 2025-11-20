@@ -6,12 +6,17 @@ import static org.apache.spark.sql.functions.*;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
+import com.linkedin.openhouse.common.stats.model.BaseEventModels;
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitMetadata;
+import com.linkedin.openhouse.common.stats.model.CommitOperation;
 import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -375,7 +380,7 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Collect commit events from snapshots metadata table.
+   * Populate commit event table data from snapshots metadata table.
    *
    * <p><b>Stateless Implementation:</b> Queries ALL non-expired snapshots from the Iceberg
    * snapshots metadata table on every job run, resulting in duplicates across runs. Downstream
@@ -407,19 +412,16 @@ public final class TableStatsCollectorUtil {
    * @param fqtn fully-qualified table name (format: "database.table")
    * @param table Iceberg table instance
    * @param spark SparkSession
-   * @param eventTimestampInEpochMs timestamp when job started (used for event_timestamp_ms column)
-   * @return Dataset containing commit events with schema: [database_name, table_name, cluster_name,
-   *     table_metadata_location, partition_spec, commit_id, commit_timestamp_ms, commit_app_id,
-   *     commit_app_name, commit_operation, event_timestamp_ms]
+   * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
    */
-  public static Dataset<Row> collectCommitEvents(
-      String fqtn, Table table, SparkSession spark, long eventTimestampInEpochMs) {
+  public static List<CommitEventTable> populateCommitEventTable(
+      String fqtn, Table table, SparkSession spark) {
     log.info("Collecting commit events for table: {} (all non-expired snapshots)", fqtn);
 
     String[] fqtnParts = fqtn.split("\\.", 2);
     if (fqtnParts.length != 2) {
       log.error("Invalid FQTN format: {}", fqtn);
-      return spark.emptyDataFrame();
+      return new ArrayList<>();
     }
     String dbName = fqtnParts[0];
     String tableName = fqtnParts[1];
@@ -437,7 +439,7 @@ public final class TableStatsCollectorUtil {
 
     if (snapshotsDF.isEmpty()) {
       log.info("No snapshots found for table: {}", fqtn);
-      return spark.emptyDataFrame();
+      return new ArrayList<>();
     }
 
     long totalSnapshots = snapshotsDF.count();
@@ -463,7 +465,6 @@ public final class TableStatsCollectorUtil {
             .withColumn("commit_app_id", functions.col("summary").getItem("spark.app.id"))
             .withColumn("commit_app_name", functions.col("summary").getItem("spark.app.name"))
             .withColumn("commit_operation", functions.col("operation"))
-            .withColumn("event_timestamp_ms", functions.lit(eventTimestampInEpochMs))
             .select(
                 "database_name",
                 "table_name",
@@ -474,13 +475,13 @@ public final class TableStatsCollectorUtil {
                 "commit_timestamp_ms",
                 "commit_app_id",
                 "commit_app_name",
-                "commit_operation",
-                "event_timestamp_ms")
+                "commit_operation")
             .orderBy("commit_timestamp_ms");
 
     log.info("Collected {} commit events for table: {}", totalSnapshots, fqtn);
 
-    return commitEventsDF;
+    // Convert DataFrame to List<CommitEventTable>
+    return convertToCommitEventTableList(commitEventsDF);
   }
 
   /**
@@ -499,6 +500,75 @@ public final class TableStatsCollectorUtil {
     } catch (Exception e) {
       log.warn("Failed to get cluster name from Spark configuration", e);
       return "default";
+    }
+  }
+
+  /**
+   * Convert Dataset<Row> to List<CommitEventTable>.
+   *
+   * <p>Note: Loads data into memory. This is acceptable because Iceberg retention limits active
+   * snapshots to a manageable number (typically <10k per table).
+   *
+   * @param commitEventsDF DataFrame with commit events (without event_timestamp_ms)
+   * @return List of CommitEventTable objects
+   */
+  private static List<CommitEventTable> convertToCommitEventTableList(Dataset<Row> commitEventsDF) {
+    if (commitEventsDF == null || commitEventsDF.isEmpty()) {
+      return new ArrayList<>();
+    }
+
+    return commitEventsDF.collectAsList().stream()
+        .map(TableStatsCollectorUtil::rowToCommitEventTable)
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Convert a single Row to CommitEventTable.
+   *
+   * @param row DataFrame row containing commit event data
+   * @return CommitEventTable object
+   */
+  private static CommitEventTable rowToCommitEventTable(Row row) {
+    BaseEventModels.BaseTableIdentifier dataset =
+        BaseEventModels.BaseTableIdentifier.builder()
+            .databaseName(row.getAs("database_name"))
+            .tableName(row.getAs("table_name"))
+            .clusterName(row.getAs("cluster_name"))
+            .tableMetadataLocation(row.getAs("table_metadata_location"))
+            .partitionSpec(row.getAs("partition_spec"))
+            .build();
+
+    CommitMetadata commitMetadata =
+        CommitMetadata.builder()
+            .commitId(Long.parseLong(row.getAs("commit_id")))
+            .commitTimestampMs(row.getAs("commit_timestamp_ms"))
+            .commitAppId(row.getAs("commit_app_id"))
+            .commitAppName(row.getAs("commit_app_name"))
+            .commitOperation(parseCommitOperation(row.getAs("commit_operation")))
+            .build();
+
+    return CommitEventTable.builder()
+        .dataset(dataset)
+        .commitMetadata(commitMetadata)
+        .eventTimestampMs(0L) // Placeholder - will be set at publish time
+        .build();
+  }
+
+  /**
+   * Parse commit operation string to CommitOperation enum.
+   *
+   * @param operation Operation string from Iceberg (e.g., "append", "overwrite")
+   * @return CommitOperation enum value, or null if parsing fails
+   */
+  private static CommitOperation parseCommitOperation(String operation) {
+    if (operation == null) {
+      return null;
+    }
+    try {
+      return CommitOperation.valueOf(operation.toUpperCase());
+    } catch (IllegalArgumentException e) {
+      log.warn("Unknown commit operation: {}", operation);
+      return null;
     }
   }
 }

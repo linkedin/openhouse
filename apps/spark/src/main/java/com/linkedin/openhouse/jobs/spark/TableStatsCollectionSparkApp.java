@@ -3,6 +3,7 @@ package com.linkedin.openhouse.jobs.spark;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
@@ -12,8 +13,6 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
 
 /**
  * Class with main entry point to collect Iceberg stats for a table.
@@ -33,21 +32,17 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   protected void runInner(Operations ops) {
     log.info("Running TableStatsCollectorApp for table {}", fqtn);
 
-    // Initialize event timestamp once for the entire job run to ensure consistency
-    long eventTimestampInEpochMs = System.currentTimeMillis();
-    log.info("Job event timestamp: {}", eventTimestampInEpochMs);
-
     IcebergTableStats icebergTableStats = ops.collectTableStats(fqtn);
     publishStats(icebergTableStats);
 
     // Collect and publish commit events
-    try {
-      Dataset<Row> commitEventsDF = ops.collectCommitEvents(fqtn, eventTimestampInEpochMs);
-      publishCommitEvents(commitEventsDF);
-    } catch (Exception e) {
-      log.error("Failed to process commit events for table: {}", fqtn, e);
-      // Don't fail the entire job if commit events processing fails
-    }
+    List<CommitEventTable> commitEvents = ops.collectCommitEvents(fqtn);
+
+    // Set event timestamp right before publishing (represents when event is published)
+    long eventTimestampInEpochMs = System.currentTimeMillis();
+    commitEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
+
+    publishCommitEvents(commitEvents);
   }
 
   /**
@@ -63,17 +58,11 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   /**
    * Publish commit events. Override this method in li-openhouse to send to Kafka.
    *
-   * @param commitEventsDF Dataset containing commit events
+   * @param commitEvents List of commit events to publish
    */
-  protected void publishCommitEvents(Dataset<Row> commitEventsDF) {
-    if (commitEventsDF == null || commitEventsDF.isEmpty()) {
-      log.info("No commit events to publish for table: {}", fqtn);
-      return;
-    }
-
+  protected void publishCommitEvents(List<CommitEventTable> commitEvents) {
     log.info("Publishing commit events for table: {}", fqtn);
-    String commitEventsJson = commitEventsDF.toJSON().collectAsList().toString();
-    log.info("Commit Events: {}", commitEventsJson);
+    log.info(new Gson().toJson(commitEvents));
   }
 
   public static void main(String[] args) {

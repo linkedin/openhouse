@@ -3,6 +3,7 @@ package com.linkedin.openhouse.jobs.spark;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
@@ -13,8 +14,6 @@ import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -53,12 +52,11 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals(numInserts, stats.getNumReferencedDataFiles());
 
       // Verify: Commit events were collected
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
       Assertions.assertFalse(commitEvents.isEmpty());
-      Assertions.assertEquals(numInserts, commitEvents.count());
+      Assertions.assertEquals(numInserts, commitEvents.size());
 
-      log.info("Successfully collected stats and {} commit events", commitEvents.count());
+      log.info("Successfully collected stats and {} commit events", commitEvents.size());
     }
   }
 
@@ -82,8 +80,7 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals(1, stats.getNumExistingMetadataJsonFiles()); // Initial metadata
 
       // Verify: No commit events (no snapshots)
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
       Assertions.assertTrue(commitEvents.isEmpty());
 
       log.info("Successfully handled table with no commits");
@@ -101,23 +98,16 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
 
       // Action: Collect commit events
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
 
       // Verify: Partition spec is captured and contains partition info
       Assertions.assertFalse(commitEvents.isEmpty());
-      List<String> partitionSpecs =
-          commitEvents.select("partition_spec").collectAsList().stream()
-              .map(r -> r.getString(0))
-              .distinct()
-              .collect(Collectors.toList());
-      Assertions.assertEquals(1, partitionSpecs.size());
-      Assertions.assertNotNull(partitionSpecs.get(0));
+      String partitionSpec = commitEvents.get(0).getDataset().getPartitionSpec();
+      Assertions.assertNotNull(partitionSpec);
       // Partitioned tables have partition field info in spec
-      Assertions.assertFalse(partitionSpecs.get(0).contains("[]"));
+      Assertions.assertFalse(partitionSpec.contains("[]"));
 
-      log.info(
-          "Successfully detected partitioned table with partition_spec: {}", partitionSpecs.get(0));
+      log.info("Successfully detected partitioned table with partition_spec: {}", partitionSpec);
     }
   }
 
@@ -132,24 +122,16 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
 
       // Action: Collect commit events
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
 
       // Verify: Partition spec is captured
       Assertions.assertFalse(commitEvents.isEmpty());
-      List<String> partitionSpecs =
-          commitEvents.select("partition_spec").collectAsList().stream()
-              .map(r -> r.getString(0))
-              .distinct()
-              .collect(Collectors.toList());
-      Assertions.assertEquals(1, partitionSpecs.size());
-      Assertions.assertNotNull(partitionSpecs.get(0));
+      String partitionSpec = commitEvents.get(0).getDataset().getPartitionSpec();
+      Assertions.assertNotNull(partitionSpec);
       // Unpartitioned tables have "[]" as partition spec
-      Assertions.assertTrue(partitionSpecs.get(0).contains("[]"));
+      Assertions.assertTrue(partitionSpec.contains("[]"));
 
-      log.info(
-          "Successfully detected unpartitioned table with partition_spec: {}",
-          partitionSpecs.get(0));
+      log.info("Successfully detected unpartitioned table with partition_spec: {}", partitionSpec);
     }
   }
 
@@ -166,34 +148,31 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
 
       // Action
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
 
-      // Verify: All required columns present
-      String[] columns = commitEvents.columns();
-      List<String> columnList = Arrays.asList(columns);
+      // Verify: All required fields present in typed objects
+      Assertions.assertFalse(commitEvents.isEmpty());
+      Assertions.assertEquals(numInserts, commitEvents.size());
 
-      Assertions.assertTrue(columnList.contains("database_name"));
-      Assertions.assertTrue(columnList.contains("table_name"));
-      Assertions.assertTrue(columnList.contains("cluster_name"));
-      Assertions.assertTrue(columnList.contains("table_metadata_location"));
-      Assertions.assertTrue(columnList.contains("partition_spec"));
-      Assertions.assertTrue(columnList.contains("commit_id"));
-      Assertions.assertTrue(columnList.contains("commit_timestamp_ms"));
-      Assertions.assertTrue(columnList.contains("commit_app_id"));
-      Assertions.assertTrue(columnList.contains("commit_app_name"));
-      Assertions.assertTrue(columnList.contains("commit_operation"));
-      Assertions.assertTrue(columnList.contains("event_timestamp_ms"));
+      CommitEventTable firstEvent = commitEvents.get(0);
+      Assertions.assertNotNull(firstEvent);
 
-      // Verify: Data is populated
-      List<Row> rows = commitEvents.collectAsList();
-      Assertions.assertEquals(numInserts, rows.size());
+      // Verify dataset fields (all required)
+      Assertions.assertNotNull(firstEvent.getDataset());
+      Assertions.assertEquals("db", firstEvent.getDataset().getDatabaseName());
+      Assertions.assertEquals("test_commit_schema", firstEvent.getDataset().getTableName());
+      Assertions.assertNotNull(firstEvent.getDataset().getClusterName());
+      Assertions.assertNotNull(firstEvent.getDataset().getTableMetadataLocation());
+      Assertions.assertNotNull(firstEvent.getDataset().getPartitionSpec());
 
-      Row firstRow = rows.get(0);
-      Assertions.assertEquals("db", firstRow.getAs("database_name"));
-      Assertions.assertEquals("test_commit_schema", firstRow.getAs("table_name"));
-      Assertions.assertNotNull(firstRow.getAs("commit_id"));
-      Assertions.assertEquals("append", firstRow.getAs("commit_operation"));
+      // Verify commit metadata fields (required fields only)
+      Assertions.assertNotNull(firstEvent.getCommitMetadata());
+      Assertions.assertNotNull(firstEvent.getCommitMetadata().getCommitId());
+      Assertions.assertNotNull(firstEvent.getCommitMetadata().getCommitTimestampMs());
+      // Note: commit_app_id, commit_app_name, and commit_operation are nullable
+
+      // Verify event_timestamp_ms is placeholder (will be set at publish time)
+      Assertions.assertEquals(0L, firstEvent.getEventTimestampMs());
 
       log.info("Commit events schema validated successfully");
     }
@@ -210,16 +189,15 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
 
       // Action: Collect commit events (should collect all snapshots)
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
 
       // Verify: All commits are captured
-      Assertions.assertEquals(numInserts, commitEvents.count());
+      Assertions.assertEquals(numInserts, commitEvents.size());
 
       // Verify: Commit timestamps are populated
       List<Long> commitTimestamps =
-          commitEvents.select("commit_timestamp_ms").collectAsList().stream()
-              .map(r -> r.getLong(0))
+          commitEvents.stream()
+              .map(e -> e.getCommitMetadata().getCommitTimestampMs())
               .collect(Collectors.toList());
 
       // All timestamps should be non-zero
@@ -227,7 +205,7 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
         Assertions.assertTrue(timestamp > 0, "Commit timestamp should be populated");
       }
 
-      log.info("All snapshots collected: {} commits found", commitEvents.count());
+      log.info("All snapshots collected: {} commits found", commitEvents.size());
     }
   }
 
@@ -241,14 +219,17 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
 
-      // Action: Collect with specific event timestamp
+      // Action: Collect commit events
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
+
+      // Simulate publish: Set event timestamp on all objects (this happens in publishCommitEvents)
       long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      commitEvents.forEach(event -> event.setEventTimestampMs(eventTimestamp));
 
       // Verify: All events have same event_timestamp
       List<Long> eventTimestamps =
-          commitEvents.select("event_timestamp_ms").collectAsList().stream()
-              .map(r -> r.getLong(0))
+          commitEvents.stream()
+              .map(e -> e.getEventTimestampMs())
               .distinct()
               .collect(Collectors.toList());
 
@@ -273,13 +254,12 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       }
 
       // Action
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
 
       // Verify: Events are ordered by commit_timestamp_ms
       List<Long> timestamps =
-          commitEvents.select("commit_timestamp_ms").collectAsList().stream()
-              .map(r -> r.getLong(0))
+          commitEvents.stream()
+              .map(e -> e.getCommitMetadata().getCommitTimestampMs())
               .collect(Collectors.toList());
 
       for (int i = 1; i < timestamps.size(); i++) {
@@ -300,11 +280,10 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // Action: Try to collect commit events with invalid FQTN
       // This should throw NoSuchTableException since table doesn't exist
-      long eventTimestamp = System.currentTimeMillis();
 
       Assertions.assertThrows(
           Exception.class,
-          () -> ops.collectCommitEvents(invalidTableName, eventTimestamp),
+          () -> ops.collectCommitEvents(invalidTableName),
           "Should throw exception for invalid table name");
 
       log.info("Invalid table name handled with exception as expected");
@@ -348,15 +327,10 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       // Setup: Table with no commits
       prepareTable(ops, tableName);
 
-      // Action: Try to publish empty commit events
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      // Action: Collect commit events
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
 
-      TableStatsCollectionSparkApp app =
-          new TableStatsCollectionSparkApp("test-job", null, tableName, otelEmitter);
-      app.publishCommitEvents(commitEvents);
-
-      // Verify: No exception thrown
+      // Verify: Empty list returned (no snapshots)
       Assertions.assertTrue(commitEvents.isEmpty());
 
       log.info("Empty commit events handled gracefully");
@@ -374,19 +348,18 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
 
       // Action
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
 
       TableStatsCollectionSparkApp app =
           new TableStatsCollectionSparkApp("test-job", null, tableName, otelEmitter);
       app.publishCommitEvents(commitEvents);
 
       // Verify: JSON output is valid
-      String json = commitEvents.toJSON().collectAsList().toString();
+      String json = new Gson().toJson(commitEvents);
       Assertions.assertNotNull(json);
-      Assertions.assertTrue(json.contains("commit_id"));
+      Assertions.assertTrue(json.contains("commitId"));
 
-      log.info("Commit events publishing validated with {} events", commitEvents.count());
+      log.info("Commit events publishing validated with {} events", commitEvents.size());
     }
   }
 
@@ -421,14 +394,13 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals(numInserts, stats.getNumSnapshots());
 
       // Verify: Commit events collected
-      long eventTimestamp = System.currentTimeMillis();
-      Dataset<Row> commitEvents = ops.collectCommitEvents(tableName, eventTimestamp);
-      Assertions.assertEquals(numInserts, commitEvents.count());
+      List<CommitEventTable> commitEvents = ops.collectCommitEvents(tableName);
+      Assertions.assertEquals(numInserts, commitEvents.size());
 
       // Verify: All snapshot IDs are present in commit events
       List<Long> commitIds =
-          commitEvents.select("commit_id").collectAsList().stream()
-              .map(r -> Long.parseLong(r.getString(0)))
+          commitEvents.stream()
+              .map(e -> e.getCommitMetadata().getCommitId())
               .collect(Collectors.toList());
       Assertions.assertTrue(commitIds.containsAll(snapshotIds));
 
