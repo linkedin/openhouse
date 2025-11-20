@@ -142,6 +142,27 @@ table.newAppend().appendFile(dataFile).commit()
 val snapshotIdMain = table.currentSnapshot().snapshotId()
 ```
 That committed snapshot becomes `S1` and establishes the lineage that later WAP/branch operations rely on.
+
+### Commit Snapshot S3 to `main` in the same transaction
+Use Iceberg’s `Transaction` API (see `services/tables/src/test/java/com/linkedin/openhouse/tables/e2e/h2/SnapshotsControllerTest.java`) to stage your S3 data and repoint refs atomically:
+```scala
+val txn = table.newTransaction()
+
+// Stage the data that should become S3 (no branch updated yet)
+val appendS3 = txn.newAppend()
+appendS3.appendFile(dataFileC) // your FILE_C equivalent
+appendS3.commit()
+val snapshotIdS3 = txn.table().currentSnapshot().snapshotId()
+
+// Update refs within the same transaction
+val refsUpdate = txn.manageSnapshots()
+refsUpdate.setRef("test", SnapshotRef.branchBuilder(snapshotIdS2).build()) // repoint branch
+refsUpdate.setBranchSnapshot(SnapshotRef.MAIN_BRANCH, snapshotIdS3)        // publish S3 to main
+refsUpdate.commit()
+
+// Atomically publish branch + main updates
+txn.commitTransaction()
+```
 Add other specific classes (e.g., `DataFile`) as required by your test scenario.
 
 ### 2. Enable WAP (if needed)

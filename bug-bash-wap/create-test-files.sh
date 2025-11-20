@@ -173,6 +173,19 @@ builder.setBranchSnapshot("branchName", snapshotId).commit()
 // Remove snapshots
 builder.removeSnapshots(snapshotId).commit()
 
+// Commit S3 to main + repoint branch in one transaction (see SnapshotsControllerTest)
+val txn = table.newTransaction()
+val appendS3 = txn.newAppend()
+appendS3.appendFile(dataFileC) // replace with your FILE_C
+appendS3.commit()
+val snapshotIdS3 = txn.table().currentSnapshot().snapshotId()
+
+val refsUpdate = txn.manageSnapshots()
+refsUpdate.setRef("test", SnapshotRef.branchBuilder(snapshotIdS2).build()) // update branch
+refsUpdate.setBranchSnapshot(SnapshotRef.MAIN_BRANCH, snapshotIdS3)        // publish S3 to main
+refsUpdate.commit()
+txn.commitTransaction()
+
 // View table operations
 table.snapshots()  // All snapshots
 table.refs()       // All references
