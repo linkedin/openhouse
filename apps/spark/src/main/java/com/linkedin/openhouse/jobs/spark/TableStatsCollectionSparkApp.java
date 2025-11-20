@@ -53,7 +53,7 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   /**
    * Publish table stats.
    *
-   * @param icebergTableStats Iceberg table statistics
+   * @param icebergTableStats
    */
   protected void publishStats(IcebergTableStats icebergTableStats) {
     log.info("Publishing stats for table: {}", fqtn);
