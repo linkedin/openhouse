@@ -13,7 +13,7 @@ import liopenhouse.relocated.org.apache.iceberg.Table
 import liopenhouse.relocated.org.apache.iceberg.Snapshot
 import liopenhouse.relocated.org.apache.iceberg.SnapshotRef
 import liopenhouse.relocated.org.apache.iceberg.TableMetadata
-import liopenhouse.relocated.org.apache.iceberg.catalog.Identifier
+import liopenhouse.relocated.org.apache.iceberg.catalog.TableIdentifier
 import liopenhouse.relocated.org.apache.iceberg.types.Types
 
 // Setup
@@ -26,7 +26,7 @@ spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string
 // Get catalog and table
 val catalog = spark.sessionState.catalogManager.catalog("openhouse")
   .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
-val table: Table = catalog.loadTable(Identifier.of("u_openhouse", tableName))
+val table: Table = catalog.loadTable(TableIdentifier.of("u_openhouse", tableName))
 
 // Get current snapshot
 val snapshot: Snapshot = table.currentSnapshot()
@@ -65,7 +65,7 @@ spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string
 
 val catalog = spark.sessionState.catalogManager.catalog("openhouse")
   .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
-val table: Table = catalog.loadTable(Identifier.of("u_openhouse", tableName))
+val table: Table = catalog.loadTable(TableIdentifier.of("u_openhouse", tableName))
 
 // ... your test implementation ...
 

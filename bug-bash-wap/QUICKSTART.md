@@ -126,9 +126,10 @@ import liopenhouse.relocated.org.apache.iceberg.Table
 import liopenhouse.relocated.org.apache.iceberg.Snapshot
 import liopenhouse.relocated.org.apache.iceberg.SnapshotRef
 import liopenhouse.relocated.org.apache.iceberg.TableMetadata
-import liopenhouse.relocated.org.apache.iceberg.catalog.Identifier
+import liopenhouse.relocated.org.apache.iceberg.catalog.TableIdentifier
 import liopenhouse.relocated.org.apache.iceberg.types.Types
 ```
+Use `TableIdentifier.of("u_openhouse", tableName)` (instead of `Identifier.of`) whenever you load tables via the catalog.
 Add other specific classes (e.g., `DataFile`) as required by your test scenario.
 
 ### 2. Enable WAP (if needed)
