@@ -373,4 +373,132 @@ public final class TableStatsCollectorUtil {
     }
     return policyStats;
   }
+
+  /**
+   * Collect commit events from snapshots metadata table.
+   *
+   * <p><b>Stateless Implementation:</b> Queries ALL non-expired snapshots from the Iceberg
+   * snapshots metadata table on every job run, resulting in duplicates across runs. Downstream
+   * consumers handle deduplication at query time.
+   *
+   * <p><b>Behavior:</b>
+   *
+   * <ul>
+   *   <li>Queries: All active snapshots from {@code table.snapshots}
+   *   <li>Collects: Every snapshot every time (no tracking of previous runs)
+   *   <li>Result: Same {@code commit_id} appears in multiple partitions with different event
+   *       timestamps
+   *   <li>Deduplication: Downstream consumers use {@code GROUP BY commit_id} or {@code DISTINCT}
+   * </ul>
+   *
+   * <p><b>Example Timeline:</b>
+   *
+   * <pre>
+   * Day 1 12:00 - Snapshot A created
+   * Day 1 18:00 - Job Run 1: Collects Snapshot A (event_timestamp = Day 1 18:00)
+   * Day 2 18:00 - Job Run 2: Collects Snapshot A again (event_timestamp = Day 2 18:00)
+   * Day 3 18:00 - Job Run 3: Collects Snapshot A again (event_timestamp = Day 3 18:00)
+   * Day N       - Continues until Snapshot A expires via Iceberg retention
+   * </pre>
+   *
+   * <p><b>Rationale:</b> "One duplicate == 100 duplicates" when querying. Downstream already needs
+   * deduplication for late-arriving data and reprocessing.
+   *
+   * @param fqtn fully-qualified table name (format: "database.table")
+   * @param table Iceberg table instance
+   * @param spark SparkSession
+   * @param eventTimestampInEpochMs timestamp when job started (used for event_timestamp_ms column)
+   * @return Dataset containing commit events with schema: [database_name, table_name, cluster_name,
+   *     table_metadata_location, partition_spec, commit_id, commit_timestamp_ms, commit_app_id,
+   *     commit_app_name, commit_operation, event_timestamp_ms]
+   */
+  public static Dataset<Row> collectCommitEvents(
+      String fqtn, Table table, SparkSession spark, long eventTimestampInEpochMs) {
+    log.info("Collecting commit events for table: {} (all non-expired snapshots)", fqtn);
+
+    String[] fqtnParts = fqtn.split("\\.", 2);
+    if (fqtnParts.length != 2) {
+      log.error("Invalid FQTN format: {}", fqtn);
+      return spark.emptyDataFrame();
+    }
+    String dbName = fqtnParts[0];
+    String tableName = fqtnParts[1];
+    String clusterName = getClusterName(spark);
+
+    // Query all snapshots from Iceberg metadata table (no time filtering)
+    String snapshotsQuery =
+        String.format(
+            "SELECT snapshot_id, committed_at, parent_id, operation, summary "
+                + "FROM %s.snapshots",
+            fqtn);
+
+    log.info("Executing snapshots query: {}", snapshotsQuery);
+    Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
+
+    if (snapshotsDF.isEmpty()) {
+      log.info("No snapshots found for table: {}", fqtn);
+      return spark.emptyDataFrame();
+    }
+
+    long totalSnapshots = snapshotsDF.count();
+    log.info("Found {} snapshots for table: {}", totalSnapshots, fqtn);
+
+    // Get partition spec string representation
+    String partitionSpec = table.spec().toString();
+
+    // Get table location
+    String tableMetadataLocation = table.location();
+
+    // Transform to commit events schema
+    Dataset<Row> commitEventsDF =
+        snapshotsDF
+            .withColumn("database_name", functions.lit(dbName))
+            .withColumn("table_name", functions.lit(tableName))
+            .withColumn("cluster_name", functions.lit(clusterName))
+            .withColumn("table_metadata_location", functions.lit(tableMetadataLocation))
+            .withColumn("partition_spec", functions.lit(partitionSpec))
+            .withColumn("commit_id", functions.col("snapshot_id").cast("string"))
+            .withColumn(
+                "commit_timestamp_ms", functions.col("committed_at").cast("long").multiply(1000))
+            .withColumn("commit_app_id", functions.col("summary").getItem("spark.app.id"))
+            .withColumn("commit_app_name", functions.col("summary").getItem("spark.app.name"))
+            .withColumn("commit_operation", functions.col("operation"))
+            .withColumn("event_timestamp_ms", functions.lit(eventTimestampInEpochMs))
+            .select(
+                "database_name",
+                "table_name",
+                "cluster_name",
+                "table_metadata_location",
+                "partition_spec",
+                "commit_id",
+                "commit_timestamp_ms",
+                "commit_app_id",
+                "commit_app_name",
+                "commit_operation",
+                "event_timestamp_ms")
+            .orderBy("commit_timestamp_ms");
+
+    log.info("Collected {} commit events for table: {}", totalSnapshots, fqtn);
+
+    return commitEventsDF;
+  }
+
+  /**
+   * Get cluster name from Spark configuration.
+   *
+   * @param spark SparkSession
+   * @return Cluster name
+   */
+  private static String getClusterName(SparkSession spark) {
+    try {
+      String clusterName = spark.conf().get("spark.sql.catalog.openhouse.cluster", null);
+      if (clusterName != null) {
+        return clusterName;
+      }
+      return "default";
+    } catch (Exception e) {
+      log.warn("Failed to get cluster name from Spark configuration", e);
+      return "default";
+    }
+  }
 }

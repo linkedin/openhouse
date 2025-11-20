@@ -7,6 +7,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
+import com.linkedin.openhouse.jobs.util.TableStatsCollectorUtil;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
@@ -540,5 +541,18 @@ public final class Operations implements AutoCloseable {
 
     IcebergTableStats tableStats = tableStatsCollector.collectTableStats();
     return tableStats;
+  }
+
+  /**
+   * Collect commit events for a given fully-qualified table name.
+   *
+   * @param fqtn fully-qualified table name
+   * @param eventTimestampInEpochMs timestamp for when the job started processing
+   * @return Dataset containing commit events
+   */
+  public org.apache.spark.sql.Dataset<org.apache.spark.sql.Row> collectCommitEvents(
+      String fqtn, long eventTimestampInEpochMs) {
+    Table table = getTable(fqtn);
+    return TableStatsCollectorUtil.collectCommitEvents(fqtn, table, spark, eventTimestampInEpochMs);
   }
 }
