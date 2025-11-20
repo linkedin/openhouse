@@ -141,6 +141,18 @@ import liopenhouse.relocated.org.apache.iceberg.SnapshotRef
 import liopenhouse.relocated.org.apache.iceberg.TableMetadata
 import liopenhouse.relocated.org.apache.iceberg.catalog.TableIdentifier
 import liopenhouse.relocated.org.apache.iceberg.types.Types
+import org.apache.iceberg.DataFile
+import org.apache.iceberg.DataFiles
+import org.apache.iceberg.FileFormat
+
+// Build a DataFile for commits
+val dataFile: DataFile =
+  DataFiles.builder(table.spec())
+    .withPath("/fake/path/data.parquet")
+    .withFileSizeInBytes(1024)
+    .withRecordCount(100)
+    .withFormat(FileFormat.PARQUET)
+    .build()
 
 // Setup
 val timestamp = System.currentTimeMillis()

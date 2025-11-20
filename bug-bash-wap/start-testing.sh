@@ -74,6 +74,18 @@ echo -e "  import liopenhouse.relocated.org.apache.iceberg.catalog.TableIdentifi
 echo -e "  import liopenhouse.relocated.org.apache.iceberg.types.Types"
 echo ""
 
+echo -e "${YELLOW}DataFile helper imports & builder:${NC}"
+echo -e "  import org.apache.iceberg.DataFile"
+echo -e "  import org.apache.iceberg.DataFiles"
+echo -e "  import org.apache.iceberg.FileFormat"
+echo -e "  val dataFile: DataFile = DataFiles.builder(table.spec())"
+echo -e "    .withPath(\"/fake/path/data.parquet\")"
+echo -e "    .withFileSizeInBytes(1024)"
+echo -e "    .withRecordCount(100)"
+echo -e "    .withFormat(FileFormat.PARQUET)"
+echo -e "    .build()"
+echo ""
+
 echo -e "${YELLOW}Commit snapshot S1 on main (pattern from WapIdJavaTest):${NC}"
 echo -e "  val dataFile: org.apache.iceberg.DataFile = /* build via DataFiles */"
 echo -e "  table.newAppend().appendFile(dataFile).commit()"

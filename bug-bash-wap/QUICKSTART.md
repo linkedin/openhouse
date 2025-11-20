@@ -131,6 +131,21 @@ import liopenhouse.relocated.org.apache.iceberg.types.Types
 ```
 Use `TableIdentifier.of("u_openhouse", tableName)` (instead of `Identifier.of`) whenever you load tables via the catalog.
 
+### Build a DataFile (Iceberg helper snippet)
+```scala
+import org.apache.iceberg.DataFile
+import org.apache.iceberg.DataFiles
+import org.apache.iceberg.FileFormat
+
+val dataFile: DataFile =
+  DataFiles.builder(table.spec())
+    .withPath("/fake/path/data.parquet")
+    .withFileSizeInBytes(1024)
+    .withRecordCount(100)
+    .withFormat(FileFormat.PARQUET)
+    .build()
+```
+
 ### Commit Snapshot S1 to `main`
 Before branching, follow the same pattern that `apps/spark/src/test/java/com/linkedin/openhouse/catalog/e2e/WapIdJavaTest.java` uses to create the first committed snapshot on `main`:
 ```scala
