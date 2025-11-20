@@ -33,8 +33,9 @@ val snapshot: Snapshot = table.currentSnapshot()
 val snapshotId = snapshot.snapshotId()
 val parentId = snapshot.parentId()
 
-// Append data
+// Append data (creates snapshot S1 on main just like WapIdJavaTest)
 table.newAppend().appendFile(dataFile).commit()
+val snapshotIdMain = table.currentSnapshot().snapshotId()
 
 // Set branch reference
 val builder = table.manageSnapshots()

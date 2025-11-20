@@ -74,6 +74,13 @@ echo -e "  import liopenhouse.relocated.org.apache.iceberg.catalog.TableIdentifi
 echo -e "  import liopenhouse.relocated.org.apache.iceberg.types.Types"
 echo ""
 
+echo -e "${YELLOW}Commit snapshot S1 on main (pattern from WapIdJavaTest):${NC}"
+echo -e "  val dataFile: org.apache.iceberg.DataFile = /* build via DataFiles */"
+echo -e "  table.newAppend().appendFile(dataFile).commit()"
+echo -e "  val snapshotIdMain = table.currentSnapshot().snapshotId()"
+echo -e "  // See apps/spark/src/test/java/com/linkedin/openhouse/catalog/e2e/WapIdJavaTest.java"
+echo ""
+
 echo -e "${YELLOW}3. Common Types & Accessors:${NC}"
 echo -e "  val catalog = spark.sessionState.catalogManager.catalog(\"openhouse\")"
 echo -e "    .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]"

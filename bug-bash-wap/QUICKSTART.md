@@ -130,6 +130,18 @@ import liopenhouse.relocated.org.apache.iceberg.catalog.TableIdentifier
 import liopenhouse.relocated.org.apache.iceberg.types.Types
 ```
 Use `TableIdentifier.of("u_openhouse", tableName)` (instead of `Identifier.of`) whenever you load tables via the catalog.
+
+### Commit Snapshot S1 to `main`
+Before branching, follow the same pattern that `apps/spark/src/test/java/com/linkedin/openhouse/catalog/e2e/WapIdJavaTest.java` uses to create the first committed snapshot on `main`:
+```scala
+// Build a DataFile (Iceberg helper APIs shown in WapIdJavaTest)
+val dataFile: org.apache.iceberg.DataFile = ...
+
+// Append to main and commit => creates snapshot S1
+table.newAppend().appendFile(dataFile).commit()
+val snapshotIdMain = table.currentSnapshot().snapshotId()
+```
+That committed snapshot becomes `S1` and establishes the lineage that later WAP/branch operations rely on.
 Add other specific classes (e.g., `DataFile`) as required by your test scenario.
 
 ### 2. Enable WAP (if needed)
