@@ -36,7 +36,7 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
     publishStats(icebergTableStats);
 
     // Collect and publish commit events
-    List<CommitEventTable> commitEvents = ops.collectCommitEvents(fqtn);
+    List<CommitEventTable> commitEvents = ops.collectCommitEventTable(fqtn);
 
     // Set event timestamp right before publishing (represents when event is published)
     long eventTimestampInEpochMs = System.currentTimeMillis();

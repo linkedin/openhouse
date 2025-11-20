@@ -549,7 +549,7 @@ public final class Operations implements AutoCloseable {
    * @param fqtn fully-qualified table name
    * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
    */
-  public List<CommitEventTable> collectCommitEvents(String fqtn) {
+  public List<CommitEventTable> collectCommitEventTable(String fqtn) {
     Table table = getTable(fqtn);
 
     TableStatsCollector tableStatsCollector;

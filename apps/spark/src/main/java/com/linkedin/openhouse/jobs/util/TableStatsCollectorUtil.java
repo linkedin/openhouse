@@ -437,12 +437,18 @@ public final class TableStatsCollectorUtil {
     log.info("Executing snapshots query: {}", snapshotsQuery);
     Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
 
-    if (snapshotsDF.isEmpty()) {
+    // Cache BEFORE first action to materialize during count() and reuse for collection
+    snapshotsDF.cache();
+
+    // This count() triggers cache materialization (single metadata scan)
+    long totalSnapshots = snapshotsDF.count();
+
+    if (totalSnapshots == 0) {
       log.info("No snapshots found for table: {}", fqtn);
+      snapshotsDF.unpersist(); // Clean up even though empty
       return new ArrayList<>();
     }
 
-    long totalSnapshots = snapshotsDF.count();
     log.info("Found {} snapshots for table: {}", totalSnapshots, fqtn);
 
     // Get partition spec string representation
@@ -481,7 +487,12 @@ public final class TableStatsCollectorUtil {
     log.info("Collected {} commit events for table: {}", totalSnapshots, fqtn);
 
     // Convert DataFrame to List<CommitEventTable>
-    return convertToCommitEventTableList(commitEventsDF);
+    List<CommitEventTable> commitEventTableList = convertToCommitEventTableList(commitEventsDF);
+
+    // Unpersist cached data to free memory
+    snapshotsDF.unpersist();
+
+    return commitEventTableList;
   }
 
   /**
@@ -528,7 +539,7 @@ public final class TableStatsCollectorUtil {
    * @param row DataFrame row containing commit event data
    * @return CommitEventTable object
    */
-  private static CommitEventTable rowToCommitEventTable(Row row) {
+  static CommitEventTable rowToCommitEventTable(Row row) {
     BaseEventModels.BaseTableIdentifier dataset =
         BaseEventModels.BaseTableIdentifier.builder()
             .databaseName(row.getAs("database_name"))
@@ -560,7 +571,7 @@ public final class TableStatsCollectorUtil {
    * @param operation Operation string from Iceberg (e.g., "append", "overwrite")
    * @return CommitOperation enum value, or null if parsing fails
    */
-  private static CommitOperation parseCommitOperation(String operation) {
+  static CommitOperation parseCommitOperation(String operation) {
     if (operation == null) {
       return null;
     }
