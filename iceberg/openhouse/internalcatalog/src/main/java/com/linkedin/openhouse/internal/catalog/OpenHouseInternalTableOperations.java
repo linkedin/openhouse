@@ -666,9 +666,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * @return Array of tag key-value pairs for catalog metadata metrics
    */
   private String[] getCatalogMetricTags() {
-    return new String[] {
-      InternalCatalogMetricsConstant.DATABASE_TAG, tableIdentifier.namespace().toString()
-    };
+    return new String[] {};
   }
 
   /**

@@ -1,12 +1,12 @@
 ext {
-  icebergAzureVersion = '1.5.2'
+  icebergAzureVersion = '1.5.2.1'
 }
 
 dependencies {
   // Ideally, we have these, but they are only supported for iceberg version >= 1.4.0, which is not compatible
   // with the current Openhouse implementation.
-  // implementation('org.apache.iceberg:iceberg-azure:' + icebergAzureVersion)
-  // implementation('org.apache.iceberg:iceberg-azure-bundle:' + icebergAzureVersion)
+  // implementation('com.linkedin.iceberg:iceberg-azure:' + icebergAzureVersion)
+  // implementation('com.linkedin.iceberg:iceberg-azure-bundle:' + icebergAzureVersion)
 
   implementation("com.azure:azure-storage-file-datalake:12.19.1") {
     exclude group: 'io.netty'

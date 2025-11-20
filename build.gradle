@@ -30,7 +30,8 @@ ext {
   spark_version = "3.1.1"
   ok_http3_version = "4.11.0"
   junit_version = "5.11.0"
-  li_iceberg_version = "1.2.0.4"
+  iceberg_1_2_version = "1.2.0.4"
+  iceberg_1_5_version = "1.5.2.1"
 }
 
 group = 'com.linkedin.openhouse'
@@ -69,20 +70,7 @@ allprojects {
         force 'com.fasterxml.jackson:jackson-bom:2.13.4'
         force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
         force 'org.apache.orc:orc-core:1.8.3'
-        force 'com.google.guava:guava:31.1-jre'
-
-        // Redirect Apache Iceberg 1.2.0 core modules to LinkedIn groupId/version without changing declarations/imports
-        dependencySubstitution {
-          all { sub ->
-            def req = sub.requested
-            if (req instanceof org.gradle.api.artifacts.component.ModuleComponentSelector && req.group == 'org.apache.iceberg') {
-              def versionToCheck   = req.version ? '' : req.version
-              if (versionToCheck.startsWith('1.2') && req.module != null) {
-                sub.useTarget("com.linkedin.iceberg:${req.module}:"+li_iceberg_version)
-              }
-            }
-          }
-        }
+        force 'com.google.guava:guava:33.5.0-jre'
       }
     }
   }
