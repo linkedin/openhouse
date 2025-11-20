@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.jobs.util;
 
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -44,8 +46,7 @@ public class TableStatsCollector {
    *
    * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
    */
-  public java.util.List<com.linkedin.openhouse.common.stats.model.CommitEventTable>
-      collectCommitEventTable() {
+  public List<CommitEventTable> collectCommitEventTable() {
     return TableStatsCollectorUtil.populateCommitEventTable(fqtn, table, spark);
   }
 }
