@@ -1,7 +1,7 @@
 # Test: SQL-5 - WAP Branch Switch Mid-Transaction Simulation
 **Assignee:** christian  
 **Date:** [YYYY-MM-DD]  
-**Status:** 🔲 NOT STARTED
+**Status:** DONE
 
 ## Test Prompt
 Create table, enable WAP (write.wap.enabled=true), insert base data, create branch staging and branch review, set wap.branch to staging, insert data, verify data visible on staging, change wap.branch to review mid-session, insert different data, unset wap.branch, verify staging has first insert, review has second insert, main has only base data, all isolated correctly.
