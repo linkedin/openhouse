@@ -1,7 +1,7 @@
 # Test: SQL-2 - Orphaned Snapshot After Fast-Forward Race
 **Assignee:** daniel  
-**Date:** [YYYY-MM-DD]  
-**Status:** 🔲 NOT STARTED
+**Date:** [2025-11-20]  
+**Status:** ✅ PASSED
 
 ## Test Prompt
 Create table, insert on main, create branch feature, insert twice on feature, insert once on main (diverge), create branch temp from feature, fast-forward temp to main (should fail due to divergence), verify temp still points to feature's snapshot, insert on temp, verify temp advanced independently and all snapshots are preserved.
