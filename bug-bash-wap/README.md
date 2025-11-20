@@ -48,7 +48,7 @@ See [QUICKSTART.md](QUICKSTART.md) for alternative methods and detailed commands
 ```bash
 # Check which tests you're assigned
 cat assignments.md
-# You have 2 tests: 1 Spark SQL + 1 Java API
+# Each person has one Spark SQL test
 ```
 
 ### Step 3: Read Test Details
@@ -63,15 +63,6 @@ spark-shell --conf spark.sql.catalog.openhouse=...
 
 # Execute test steps and copy commands to your result file
 # Update status from 🔲 to 🔄 while working
-```
-
-**For Java tests:**
-```bash
-# Add your test to the appropriate test file
-# e.g., apps/spark/src/test/java/com/linkedin/openhouse/catalog/e2e/BugBashTest.java
-
-# Run the test
-./gradlew test --tests "BugBashTest.testXXX"
 ```
 
 ### Step 5: Fill in Results Template
@@ -92,11 +83,6 @@ git commit -m "Results: [Test Name] - PASS"
 # OR: git commit -m "Results: [Test Name] - FAIL (found bug in parent rewriting)"
 git push origin bug-bash-wap-2024-11
 ```
-
-### Step 7: Repeat for Your Second Test
-Each person has 2 tests assigned - repeat steps 4-6 for your second test.
-
----
 
 ## Collaboration Workflow
 
@@ -153,9 +139,7 @@ bug-bash-wap/
 ├── results/                    # Individual test result files
 │   ├── sql-01-abhishek.md
 │   ├── sql-02-daniel.md
-│   ├── ...
-│   ├── java-01-abhishek.md
-│   └── java-10-shanthoosh.md
+│   └── ...
 └── logs/                       # Session logs (auto-generated)
     ├── abhishek/
     │   └── session_20241118_123456.log
@@ -174,16 +158,9 @@ bug-bash-wap/
 - Database `openhouse.d1` available for testing
 - Permissions to create/drop tables
 
-**Java Tests:**
-- Familiarity with `WapIdJavaTest.java` as a reference
-- Access to run integration tests
-- Understanding of Iceberg Table API
-
 ### Best Practices
 
-1. **Use unique table names** to avoid conflicts
-   - SQL: `test_sql01_${timestamp}`
-   - Java: `test_java01_${your_initials}`
+1. **Use unique table names** to avoid conflicts, e.g., `test_sql01_${timestamp}`
 
 2. **Save your commands** as you execute them
    - Copy-paste into the markdown template
@@ -257,45 +234,6 @@ SELECT * FROM openhouse.d1.test_xxx.refs;
 SELECT * FROM openhouse.d1.test_xxx.history;
 ```
 
-### Java API Quick Reference
-
-```java
-// Get table
-Operations operations = Operations.withCatalog(spark, null);
-Table table = operations.getTable("d1.test_xxx");
-
-// Append data
-table.newAppend().appendFile(FILE_A).commit();
-
-// WAP staging
-table.newAppend()
-  .appendFile(FILE_B)
-  .set("wap.id", "wap1")
-  .stageOnly()
-  .commit();
-
-// Branch management
-SnapshotRef ref = SnapshotRef.branchBuilder(snapshotId).build();
-table.manageSnapshots()
-  .setRef("branch_name", ref)
-  .commit();
-
-table.manageSnapshots()
-  .setBranchSnapshot(snapshot, "branch_name")
-  .commit();
-
-// Snapshot management
-table.manageSnapshots()
-  .removeSnapshots(snapshotId1, snapshotId2)
-  .commit();
-
-// Query metadata
-table.currentSnapshot();
-table.refs();
-table.snapshots();
-snapshot.parentId();
-```
-
 ## Submission Checklist
 
 Before marking your test as complete:
@@ -327,10 +265,10 @@ cd bug-bash-wap
 **Example output:**
 ```
 Completion Status:
-  Total Tests:    20
+  Total Tests:    17
   Completed:      5
   In Progress:    3
-  Not Started:    12
+  Not Started:    9
 
 Test Results:
   ✅ Passed:      4

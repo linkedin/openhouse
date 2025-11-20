@@ -29,7 +29,7 @@ cd bug-bash-wap
 ```
 
 **This shows you:**
-- ✅ Your test assignments (SQL + Java)
+- ✅ Your Spark SQL test assignment
 - ✅ Quick reference commands table
 - ✅ Testing tips (table names, status updates, etc.)
 - ✅ The command to run next
@@ -66,7 +66,6 @@ Your Test Assignments
 ════════════════════════════════════════
 
   ✓ results/sql-1-abhishek.md
-  ✓ results/java-1-abhishek.md
 
 ════════════════════════════════════════
 Quick Reference Commands
@@ -186,9 +185,7 @@ spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('w
 ```
 
 ### 3. Execute Your Test
-Follow the test prompt in your assigned result file:
-- `results/sql-01-your-name.md` (for SQL tests)
-- `results/java-01-your-name.md` (for Java tests)
+Follow the test prompt in your assigned result file (`results/sql-01-your-name.md`, etc.).
 
 ### 4. Copy Commands to Result File
 As you execute each command, copy-paste it into your result file under "Steps Executed"

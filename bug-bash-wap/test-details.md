@@ -34,40 +34,6 @@ Create table, **enable WAP** (`write.wap.enabled=true`), insert on main, create 
 
 ---
 
-## Java API Tests
-
-### Java-01: Append Chain with Manual Snapshot Ref Management
-Create table via Java, append FILE_A to create snapshot S1, create branch "dev" pointing to S1 via setRef(), append FILE_B to dev branch using setBranchSnapshot(), append FILE_C to main using setBranchSnapshot(), verify: main points to S1->S3 lineage, dev points to S1->S2 lineage, both branches isolated, total 3 snapshots exist.
-
-### Java-02: Staged WAP with Manual Cherry-Pick via replaceSnapshots
-Create table, **set table property** `write.wap.enabled=true`, append FILE_A to main and commit, append FILE_B with wap.id="test-wap" using stageOnly(), manually create new snapshot via newAppend() that copies FILE_B's data but with main as parent (simulating cherry-pick), call replaceSnapshots() to swap, verify main has FILE_A and FILE_B data, original WAP snapshot still exists with wap.id property.
-
-### Java-03: Concurrent Branch Creation with Overlapping Commits
-Create table, commit snapshot S1 to main, manually create two SnapshotRef objects for branches "A" and "B" both pointing to S1, set both refs in single metadata builder operation, append FILE_A to branch A (snapshot S2), append FILE_B to branch B (snapshot S3), verify refs table shows all three branches with correct snapshot IDs, no cross-contamination of data files.
-
-### Java-04: Parent Chain Validation After Delete and Reinsert
-Create table, commit snapshots S1, S2, S3 sequentially on main, get S2's snapshot ID, call removeSnapshots() to delete S2, verify S3's parent still points to S1 (parent chain intact), create branch from S3, append FILE_A to branch, verify new snapshot's parent is S3, parent chain remains valid.
-
-### Java-05: Manual Snapshot Ref Update Race Condition
-Create table, commit S1 to main, create branch "test" pointing to S1, commit S2 to main, attempt to update "test" branch to point to S2 using setRef() with SnapshotRef object, commit S3 to main in same transaction, verify "test" branch update succeeded and points to S2, main points to S3, refs properly separated in metadata.
-
-### Java-06: Empty Snapshot Fast-Forward Chain
-Create empty table (no commits), create branch "empty" via setRef() with SnapshotRef pointing to null snapshot (Iceberg's initial state), append FILE_A to create S1, update main to point to S1, attempt fast-forward "empty" branch to main's S1, verify empty branch now has data, call refs() to verify branch references updated correctly.
-
-### Java-07: WAP Snapshot Expiration with Lineage Preservation
-Create table, **set table property** `write.wap.enabled=true`, commit S1 to main, append FILE_A with wap.id="wap1" stageOnly() to create S2, commit S3 to main, append FILE_B with wap.id="wap2" stageOnly() to create S4, call removeSnapshots() to expire S2 (unpublished wap1), verify S1, S3, S4 remain, snapshot lineage from main (S1->S3) intact, wap2 still available for publishing.
-
-### Java-08: Multi-Branch Append with Shared Parent Snapshot
-Create table, commit S1 to main with FILE_A, create branches "b1", "b2", "b3" all pointing to S1, append FILE_B to b1 creating S2 with parent=S1, append FILE_C to b2 creating S3 with parent=S1, append FILE_D to b3 creating S4 with parent=S1, verify all three snapshots have same parent but different data files, refs table shows correct snapshot IDs for each branch.
-
-### Java-09: Snapshot Ref Retention Policy Enforcement
-Create table, commit 5 snapshots S1-S5 sequentially to main, create branch "old" pointing to S2, create branch "mid" pointing to S4, attempt removeSnapshots() with retention policy to expire S1, S3 (neither referenced by branches), verify S2, S4, S5 remain (referenced or current), verify "old" and "mid" branches still functional and point to correct snapshots.
-
-### Java-10: Branch Snapshot Override with Concurrent Main Advancement
-Create table, commit S1 to main, create branch "feature" pointing to S1, append FILE_A to feature creating S2, append FILE_B to main creating S3, call setBranchSnapshot() for feature with new snapshot S4 (child of S3) containing FILE_C, verify feature branch jumped from S1->S2 lineage to S3->S4 lineage, S2 becomes orphaned but not deleted (may be referenced elsewhere), main unaffected at S3.
-
----
-
 ## Quick Reference
 
 ### Spark SQL Commands
@@ -94,74 +60,5 @@ CALL openhouse.system.expire_snapshots(table => 'd1.test_xxx', snapshot_ids => A
 SELECT * FROM openhouse.d1.test_xxx.snapshots;
 SELECT * FROM openhouse.d1.test_xxx.refs;
 SELECT * FROM openhouse.d1.test_xxx VERSION AS OF 'branch_name';
-```
-
-### Java API Commands
-```java
-// Get table
-Operations operations = Operations.withCatalog(spark, null);
-Table table = operations.getTable("d1.test_xxx");
-
-// Append data
-table.newAppend()
-  .appendFile(FILE_A)
-  .commit();
-
-// WAP staging
-table.newAppend()
-  .appendFile(FILE_B)
-  .set("wap.id", "wap1")
-  .stageOnly()
-  .commit();
-
-// Branch operations
-SnapshotRef ref = SnapshotRef.branchBuilder(snapshotId).build();
-table.manageSnapshots()
-  .setRef("branch_name", ref)
-  .commit();
-
-table.manageSnapshots()
-  .setBranchSnapshot("branch_name", snapshot)
-  .commit();
-
-// Remove snapshots
-table.manageSnapshots()
-  .removeSnapshots(snapshotId)
-  .commit();
-
-// Query
-table.currentSnapshot();
-table.refs();
-table.snapshots();
-snapshot.parentId();
-```
-
-### Data Files for Java Tests
-```java
-private static final Schema SCHEMA =
-    new Schema(
-        required(1, "id", Types.IntegerType.get()),
-        required(2, "data", Types.StringType.get()));
-
-private static final PartitionSpec SPEC =
-    PartitionSpec.builderFor(SCHEMA).bucket("data", 16).build();
-
-private static final DataFile FILE_A =
-    DataFiles.builder(SPEC)
-        .withPath("/path/to/data-a.parquet")
-        .withFileSizeInBytes(10)
-        .withPartitionPath("data_bucket=0")
-        .withRecordCount(1)
-        .build();
-
-private static final DataFile FILE_B =
-    DataFiles.builder(SPEC)
-        .withPath("/path/to/data-b.parquet")
-        .withFileSizeInBytes(10)
-        .withPartitionPath("data_bucket=1")
-        .withRecordCount(1)
-        .build();
-
-// Add FILE_C, FILE_D as needed with different paths
 ```
 

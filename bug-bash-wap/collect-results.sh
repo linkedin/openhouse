@@ -7,7 +7,7 @@ echo "========================================="
 echo ""
 
 # Count completion
-total_tests=20
+total_tests=$(ls results/*.md 2>/dev/null | wc -l | tr -d ' ')
 completed=$(grep -l "✅ PASS\|❌ FAIL\|⚠️ PARTIAL" results/*.md | wc -l | tr -d ' ')
 in_progress=$(grep -l "🔄 IN PROGRESS" results/*.md | wc -l | tr -d ' ')
 not_started=$(grep -l "🔲 NOT STARTED" results/*.md | wc -l | tr -d ' ')

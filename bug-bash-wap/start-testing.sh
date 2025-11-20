@@ -44,13 +44,9 @@ echo -e "${BOLD}Your Test Assignments${NC}"
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 echo ""
 SQL_FILE=$(find results -name "sql-*-${ASSIGNEE}.md" 2>/dev/null | head -1)
-JAVA_FILE=$(find results -name "java-*-${ASSIGNEE}.md" 2>/dev/null | head -1)
 
 if [ -n "$SQL_FILE" ]; then
   echo -e "${GREEN}  ✓ ${SQL_FILE}${NC}"
-fi
-if [ -n "$JAVA_FILE" ]; then
-  echo -e "${GREEN}  ✓ ${JAVA_FILE}${NC}"
 fi
 echo ""
 

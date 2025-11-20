@@ -18,11 +18,6 @@
 -- Step 3: Verification
 ```
 
-Or for Java tests:
-```java
-// Paste your actual code here
-```
-
 ## Expected vs Actual Results
 | Step | Expected | Actual | Status |
 |------|----------|--------|--------|
