@@ -67,4 +67,3 @@ spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('w
 - [ ] No issues - test passed completely
 - [ ] Bug found: [describe the bug, error messages, unexpected behavior]
 
-

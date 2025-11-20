@@ -119,6 +119,18 @@ val tableName = s"test_sql01_${timestamp}"
 spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (name string)")
 ```
 
+### Java API Imports (Spark Shell)
+Avoid `import liopenhouse.relocated.org.apache.iceberg._`. That wildcard also brings an Iceberg `spark` package into scope, which collides with Spark shell’s built-in `spark` session and leads to `reference to spark is ambiguous`. Instead, import only the Iceberg types you need:
+```scala
+import liopenhouse.relocated.org.apache.iceberg.Table
+import liopenhouse.relocated.org.apache.iceberg.Snapshot
+import liopenhouse.relocated.org.apache.iceberg.SnapshotRef
+import liopenhouse.relocated.org.apache.iceberg.TableMetadata
+import liopenhouse.relocated.org.apache.iceberg.catalog.Identifier
+import liopenhouse.relocated.org.apache.iceberg.types.Types
+```
+Add other specific classes (e.g., `DataFile`) as required by your test scenario.
+
 ### 2. Enable WAP (if needed)
 ```scala
 spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('write.wap.enabled'='true')")

@@ -6,71 +6,78 @@
 ## Test Prompt
 Create table, commit S1 to main with FILE_A, create branches b1 b2 b3 all pointing to S1, append FILE_B to b1 creating S2 with parent=S1, append FILE_C to b2 creating S3 with parent=S1, append FILE_D to b3 creating S4 with parent=S1, verify all three snapshots have same parent but different data files, refs table shows correct snapshot IDs for each branch.
 
-## Steps Executed
-```java
-// Paste your actual Java test code here
+## Quick Reference
+```scala
+// Java API imports (avoid wildcard so Spark's 'spark' stays unique)
+import liopenhouse.relocated.org.apache.iceberg.Table
+import liopenhouse.relocated.org.apache.iceberg.Snapshot
+import liopenhouse.relocated.org.apache.iceberg.SnapshotRef
+import liopenhouse.relocated.org.apache.iceberg.TableMetadata
+import liopenhouse.relocated.org.apache.iceberg.catalog.Identifier
+import liopenhouse.relocated.org.apache.iceberg.types.Types
 
-@Test
-void testMultiBranchAppendWithSharedParentSnapshot() throws Exception {
-  try (SparkSession spark = getSparkSession()) {
-    spark.sql("CREATE TABLE openhouse.d1.test_java08 (id int, data string)");
-    Operations operations = Operations.withCatalog(spark, null);
-    Table table = operations.getTable("d1.test_java08");
-    
-    // Commit S1 to main
-    table.newAppend().appendFile(FILE_A).commit();
-    long s1 = table.currentSnapshot().snapshotId();
-    
-    // Create branches b1, b2, b3
-    SnapshotRef ref = SnapshotRef.branchBuilder(s1).build();
-    table.manageSnapshots()
-      .setRef("b1", ref)
-      .setRef("b2", ref)
-      .setRef("b3", ref)
-      .commit();
-    
-    // Append to each branch
-    // ... your implementation
-    
-    spark.sql("DROP TABLE openhouse.d1.test_java08");
-  }
-}
+// Setup
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_java08_${timestamp}"
+
+// Create table via Spark SQL
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
+
+// Get catalog and table
+val catalog = spark.sessionState.catalogManager.catalog("openhouse")
+  .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
+val table: Table = catalog.loadTable(Identifier.of("u_openhouse", tableName))
+
+// Get current snapshot
+val snapshot: Snapshot = table.currentSnapshot()
+val snapshotId = snapshot.snapshotId()
+val parentId = snapshot.parentId()
+
+// Append data
+table.newAppend().appendFile(dataFile).commit()
+
+// Set branch reference
+val builder = table.manageSnapshots()
+builder.setRef("branchName", SnapshotRef.branchBuilder(snapshotId).build()).commit()
+
+// Set branch snapshot
+builder.setBranchSnapshot("branchName", snapshotId).commit()
+
+// Remove snapshots
+builder.removeSnapshots(snapshotId).commit()
+
+// View table operations
+table.snapshots()  // All snapshots
+table.refs()       // All references
+table.currentSnapshot()  // Current snapshot
+
+// Cleanup
+spark.sql(s"DROP TABLE openhouse.u_openhouse.${tableName}")
 ```
 
-## Expected vs Actual Results
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| 1. Create S1 on main | Snapshot created | | |
-| 2. Create 3 branches | All point to S1 | | |
-| 3. Append to each branch | 3 new snapshots with S1 as parent | | |
+## Input
+```scala
+// Copy-paste all commands you ran here
 
-## Verification Queries & Results
-```java
-// Refs verification
-Map<String, SnapshotRef> refs = table.refs();
-System.out.println("Refs: " + refs);
-// Result: [paste output]
+val timestamp = System.currentTimeMillis()
+val tableName = s"test_java08_${timestamp}"
+spark.sql(s"CREATE TABLE openhouse.u_openhouse.${tableName} (id int, data string)")
 
-// Parent verification
-Iterator<Snapshot> snapshots = table.snapshots().iterator();
-while (snapshots.hasNext()) {
-  Snapshot s = snapshots.next();
-  System.out.println("Snapshot " + s.snapshotId() + " parent: " + s.parentId());
-}
-// Result: [paste output]
+val catalog = spark.sessionState.catalogManager.catalog("openhouse")
+  .asInstanceOf[liopenhouse.relocated.org.apache.iceberg.spark.SparkCatalog]
+val table: Table = catalog.loadTable(Identifier.of("u_openhouse", tableName))
+
+// ... your test implementation ...
+
+```
+
+## Output
+```
+[Copy-paste all output here - terminal output, query results, errors, etc.]
+
 ```
 
 ## Issues Found
 - [ ] No issues - test passed completely
-- [ ] Bug found: [describe]
-
-## Additional Notes
-[Any observations]
-
-## Cleanup
-- [ ] Test tables dropped
-
-## Sign-off
-- [ ] All assertions verified
-- [ ] Results reproducible
+- [ ] Bug found: [describe the bug, error messages, unexpected behavior]
 

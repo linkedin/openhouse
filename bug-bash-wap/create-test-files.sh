@@ -134,10 +134,13 @@ ${prompt}
 
 ## Quick Reference
 \`\`\`scala
-// Java API imports
-import liopenhouse.relocated.org.apache.iceberg._
-import liopenhouse.relocated.org.apache.iceberg.catalog._
-import liopenhouse.relocated.org.apache.iceberg.types.Types._
+// Java API imports (avoid wildcard so Spark's 'spark' stays unique)
+import liopenhouse.relocated.org.apache.iceberg.Table
+import liopenhouse.relocated.org.apache.iceberg.Snapshot
+import liopenhouse.relocated.org.apache.iceberg.SnapshotRef
+import liopenhouse.relocated.org.apache.iceberg.TableMetadata
+import liopenhouse.relocated.org.apache.iceberg.catalog.Identifier
+import liopenhouse.relocated.org.apache.iceberg.types.Types
 
 // Setup
 val timestamp = System.currentTimeMillis()

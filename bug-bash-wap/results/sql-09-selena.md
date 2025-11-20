@@ -28,7 +28,7 @@ spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} CREATE BRANCH myBranc
 spark.conf.set("spark.wap.id", "wap1")
 spark.conf.set("spark.wap.branch", "myBranch")
 
-// Cherry-pick: CALL openhouse.system.cherrypick_snapshot('u_openhouse.${tableName}', snapshotId)
+// Cherry-pick: CALL openhouse.system.cherrypick_snapshot('openhouse.u_openhouse.${tableName}', 'main', snapshotId)
 // Fast-forward: CALL openhouse.system.fast_forward('openhouse.u_openhouse.${tableName}', 'branch1', 'branch2')
 
 // View snapshots
@@ -65,15 +65,5 @@ spark.sql(s"ALTER TABLE openhouse.u_openhouse.${tableName} SET TBLPROPERTIES ('w
 
 ## Issues Found
 - [ ] No issues - test passed completely
-- [ ] Bug found: [describe]
-
-## Additional Notes
-[Any observations]
-
-## Cleanup
-- [ ] Test tables dropped
-
-## Sign-off
-- [ ] All assertions verified
-- [ ] Results reproducible
+- [ ] Bug found: [describe the bug, error messages, unexpected behavior]
 

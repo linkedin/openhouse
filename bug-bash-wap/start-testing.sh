@@ -65,11 +65,13 @@ echo -e "  spark.sql(s\"CREATE TABLE openhouse.u_openhouse.test_${ASSIGNEE}_${TI
 echo ""
 
 echo -e "${YELLOW}2. Java API Imports (copy into spark-shell):${NC}"
-echo -e "  import liopenhouse.relocated.org.apache.iceberg._"
-echo -e "  import liopenhouse.relocated.org.apache.iceberg.catalog._"
-echo -e "  import liopenhouse.relocated.org.apache.iceberg.types.Types._"
-echo -e "  import liopenhouse.relocated.org.apache.iceberg.data._"
-echo -e "  import liopenhouse.relocated.org.apache.iceberg.spark._"
+echo -e "  // Import only what you need so Spark's built-in 'spark' stays unambiguous"
+echo -e "  import liopenhouse.relocated.org.apache.iceberg.Table"
+echo -e "  import liopenhouse.relocated.org.apache.iceberg.Snapshot"
+echo -e "  import liopenhouse.relocated.org.apache.iceberg.SnapshotRef"
+echo -e "  import liopenhouse.relocated.org.apache.iceberg.TableMetadata"
+echo -e "  import liopenhouse.relocated.org.apache.iceberg.catalog.Identifier"
+echo -e "  import liopenhouse.relocated.org.apache.iceberg.types.Types"
 echo ""
 
 echo -e "${YELLOW}3. Common Types & Accessors:${NC}"
