@@ -37,11 +37,6 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
 
     // Collect and publish commit events
     List<CommitEventTable> commitEvents = ops.collectCommitEventTable(fqtn);
-
-    // Set event timestamp right before publishing (represents when event is published)
-    long eventTimestampInEpochMs = System.currentTimeMillis();
-    commitEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
-
     publishCommitEvents(commitEvents);
   }
 
@@ -61,6 +56,10 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
    * @param commitEvents List of commit events to publish
    */
   protected void publishCommitEvents(List<CommitEventTable> commitEvents) {
+    // Set event timestamp at publish time
+    long eventTimestampInEpochMs = System.currentTimeMillis();
+    commitEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
+
     log.info("Publishing commit events for table: {}", fqtn);
     log.info(new Gson().toJson(commitEvents));
   }

@@ -533,7 +533,7 @@ public final class Operations implements AutoCloseable {
 
     TableStatsCollector tableStatsCollector;
     try {
-      tableStatsCollector = new TableStatsCollector(fs(), spark, fqtn, table);
+      tableStatsCollector = new TableStatsCollector(fs(), spark, table);
     } catch (IOException e) {
       log.error("Unable to initialize file system for table stats collection", e);
       return null;
@@ -554,7 +554,7 @@ public final class Operations implements AutoCloseable {
 
     TableStatsCollector tableStatsCollector;
     try {
-      tableStatsCollector = new TableStatsCollector(fs(), spark, fqtn, table);
+      tableStatsCollector = new TableStatsCollector(fs(), spark, table);
     } catch (IOException e) {
       log.error("Unable to initialize file system for commit events collection", e);
       return new java.util.ArrayList<>();

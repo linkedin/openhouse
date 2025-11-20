@@ -6,10 +6,7 @@ import static org.apache.spark.sql.functions.*;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import com.linkedin.openhouse.common.stats.model.BaseEventModels;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
-import com.linkedin.openhouse.common.stats.model.CommitMetadata;
-import com.linkedin.openhouse.common.stats.model.CommitOperation;
 import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
@@ -33,10 +30,12 @@ import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.SparkTableUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
+import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
@@ -48,7 +47,7 @@ public final class TableStatsCollectorUtil {
   private TableStatsCollectorUtil() {}
   /** Collect stats about referenced files in a given table. */
   public static IcebergTableStats populateStatsOfAllReferencedFiles(
-      String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
+      Table table, SparkSession spark, IcebergTableStats stats) {
     long referencedManifestFilesCount =
         getManifestFilesCount(table, spark, MetadataTableType.ALL_MANIFESTS);
 
@@ -93,7 +92,7 @@ public final class TableStatsCollectorUtil {
             + "Data files: {}, Sum of file sizes in bytes: {}"
             + "Position delete files: {}, Sum of position delete file sizes in bytes: {}"
             + "Equality delete files: {}, Sum of equality delete file sizes in bytes: {}",
-        fqtn,
+        table.name(),
         totalMetadataFilesCount,
         referencedManifestFilesCount,
         referencedManifestListFilesCount,
@@ -121,7 +120,7 @@ public final class TableStatsCollectorUtil {
 
   /** Collect stats for snapshots of a given table. */
   public static IcebergTableStats populateStatsForSnapshots(
-      String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
+      Table table, SparkSession spark, IcebergTableStats stats) {
 
     Map<Integer, FilesSummary> currentSnapshotFilesSummary =
         getFileMetadataTable(table, spark, MetadataTableType.FILES);
@@ -167,7 +166,7 @@ public final class TableStatsCollectorUtil {
             + ", Position delete files: {}, Sum of position delete file sizes in bytes: {}"
             + ", Equality delete files: {}, Sum of equality delete file sizes in bytes: {}"
             + ", Earliest partition date: {}, for snapshot: {}",
-        fqtn,
+        table.name(),
         countOfDataFiles,
         sumOfDataFileSizeBytes,
         countOfPositionDeleteFiles,
@@ -205,9 +204,9 @@ public final class TableStatsCollectorUtil {
         .build();
   }
 
-  /** Collect storage stats for a given fully-qualified table name. */
+  /** Collect storage stats for a given table. */
   public static IcebergTableStats populateStorageStats(
-      String fqtn, Table table, FileSystem fs, IcebergTableStats stats) {
+      Table table, FileSystem fs, IcebergTableStats stats) {
     // Find the sum of file size in bytes on HDFS by listing recursively all files in the table
     // location using filesystem call. This just replicates hdfs dfs -count and hdfs dfs -du -s.
     long sumOfTotalDirectorySizeInBytes = 0;
@@ -220,13 +219,13 @@ public final class TableStatsCollectorUtil {
         sumOfTotalDirectorySizeInBytes += status.getLen();
       }
     } catch (IOException e) {
-      log.error("Error while listing files in HDFS directory for table: {}", fqtn, e);
+      log.error("Error while listing files in HDFS directory for table: {}", table.name(), e);
       return stats;
     }
 
     log.info(
         "Table: {}, Count of objects in HDFS directory: {}, Sum of file sizes in bytes on HDFS: {}",
-        fqtn,
+        table.name(),
         numOfObjectsInDirectory,
         sumOfTotalDirectorySizeInBytes);
     return stats
@@ -409,30 +408,35 @@ public final class TableStatsCollectorUtil {
    * <p><b>Rationale:</b> "One duplicate == 100 duplicates" when querying. Downstream already needs
    * deduplication for late-arriving data and reprocessing.
    *
-   * @param fqtn fully-qualified table name (format: "database.table")
    * @param table Iceberg table instance
    * @param spark SparkSession
    * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
    */
-  public static List<CommitEventTable> populateCommitEventTable(
-      String fqtn, Table table, SparkSession spark) {
-    log.info("Collecting commit events for table: {} (all non-expired snapshots)", fqtn);
+  public static List<CommitEventTable> populateCommitEventTable(Table table, SparkSession spark) {
+    String fullTableName = table.name();
+    log.info("Collecting commit events for table: {} (all non-expired snapshots)", fullTableName);
 
-    String[] fqtnParts = fqtn.split("\\.", 2);
-    if (fqtnParts.length != 2) {
-      log.error("Invalid FQTN format: {}", fqtn);
+    // Use Iceberg's TableIdentifier to safely parse table name
+    TableIdentifier identifier = TableIdentifier.parse(fullTableName);
+    String[] namespaceParts = identifier.namespace().levels();
+    String tableName = identifier.name();
+
+    if (namespaceParts.length == 0) {
+      log.error(
+          "Invalid table identifier: {}. Expected database.table or catalog.database.table",
+          fullTableName);
       return new ArrayList<>();
     }
-    String dbName = fqtnParts[0];
-    String tableName = fqtnParts[1];
+    // Database name is the last part of the namespace (e.g., "db" from "openhouse.db.table")
+    String dbName = namespaceParts[namespaceParts.length - 1];
     String clusterName = getClusterName(spark);
 
     // Query all snapshots from Iceberg metadata table (no time filtering)
     String snapshotsQuery =
         String.format(
             "SELECT snapshot_id, committed_at, parent_id, operation, summary "
-                + "FROM openhouse.%s.snapshots",
-            fqtn);
+                + "FROM %s.snapshots",
+            table.name());
 
     log.info("Executing snapshots query: {}", snapshotsQuery);
     Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
@@ -444,12 +448,12 @@ public final class TableStatsCollectorUtil {
     long totalSnapshots = snapshotsDF.count();
 
     if (totalSnapshots == 0) {
-      log.info("No snapshots found for table: {}", fqtn);
+      log.info("No snapshots found for table: {}", fullTableName);
       snapshotsDF.unpersist(); // Clean up even though empty
       return new ArrayList<>();
     }
 
-    log.info("Found {} snapshots for table: {}", totalSnapshots, fqtn);
+    log.info("Found {} snapshots for table: {}", totalSnapshots, fullTableName);
 
     // Get partition spec string representation
     String partitionSpec = table.spec().toString();
@@ -457,37 +461,39 @@ public final class TableStatsCollectorUtil {
     // Get table location
     String tableMetadataLocation = table.location();
 
-    // Transform to commit events schema
-    Dataset<Row> commitEventsDF =
+    // Use Spark encoder pattern for automatic DataFrame-to-object deserialization
+    Encoder<CommitEventTable> commitEventEncoder = Encoders.bean(CommitEventTable.class);
+
+    // Transform to nested structure matching CommitEventTable schema
+    List<CommitEventTable> commitEventTableList =
         snapshotsDF
-            .withColumn("database_name", functions.lit(dbName))
-            .withColumn("table_name", functions.lit(tableName))
-            .withColumn("cluster_name", functions.lit(clusterName))
-            .withColumn("table_metadata_location", functions.lit(tableMetadataLocation))
-            .withColumn("partition_spec", functions.lit(partitionSpec))
-            .withColumn("commit_id", functions.col("snapshot_id").cast("string"))
-            .withColumn(
-                "commit_timestamp_ms", functions.col("committed_at").cast("long").multiply(1000))
-            .withColumn("commit_app_id", functions.col("summary").getItem("spark.app.id"))
-            .withColumn("commit_app_name", functions.col("summary").getItem("spark.app.name"))
-            .withColumn("commit_operation", functions.col("operation"))
             .select(
-                "database_name",
-                "table_name",
-                "cluster_name",
-                "table_metadata_location",
-                "partition_spec",
-                "commit_id",
-                "commit_timestamp_ms",
-                "commit_app_id",
-                "commit_app_name",
-                "commit_operation")
-            .orderBy("commit_timestamp_ms");
+                functions
+                    .struct(
+                        functions.lit(dbName).as("databaseName"),
+                        functions.lit(tableName).as("tableName"),
+                        functions.lit(clusterName).as("clusterName"),
+                        functions.lit(tableMetadataLocation).as("tableMetadataLocation"),
+                        functions.lit(partitionSpec).as("partitionSpec"))
+                    .as("dataset"),
+                functions
+                    .struct(
+                        functions.col("snapshot_id").cast("long").as("commitId"),
+                        functions
+                            .col("committed_at")
+                            .cast("long")
+                            .multiply(1000)
+                            .as("commitTimestampMs"),
+                        functions.col("summary").getItem("spark.app.id").as("commitAppId"),
+                        functions.col("summary").getItem("spark.app.name").as("commitAppName"),
+                        functions.upper(functions.col("operation")).as("commitOperation"))
+                    .as("commitMetadata"),
+                functions.lit(0L).as("eventTimestampMs"))
+            .orderBy(functions.col("commitMetadata.commitTimestampMs"))
+            .as(commitEventEncoder)
+            .collectAsList();
 
-    log.info("Collected {} commit events for table: {}", totalSnapshots, fqtn);
-
-    // Convert DataFrame to List<CommitEventTable>
-    List<CommitEventTable> commitEventTableList = convertToCommitEventTableList(commitEventsDF);
+    log.info("Collected {} commit events for table: {}", totalSnapshots, fullTableName);
 
     // Unpersist cached data to free memory
     snapshotsDF.unpersist();
@@ -511,75 +517,6 @@ public final class TableStatsCollectorUtil {
     } catch (Exception e) {
       log.warn("Failed to get cluster name from Spark configuration", e);
       return "default";
-    }
-  }
-
-  /**
-   * Convert Dataset<Row> to List<CommitEventTable>.
-   *
-   * <p>Note: Loads data into memory. This is acceptable because Iceberg retention limits active
-   * snapshots to a manageable number (typically <10k per table).
-   *
-   * @param commitEventsDF DataFrame with commit events (without event_timestamp_ms)
-   * @return List of CommitEventTable objects
-   */
-  private static List<CommitEventTable> convertToCommitEventTableList(Dataset<Row> commitEventsDF) {
-    if (commitEventsDF == null || commitEventsDF.isEmpty()) {
-      return new ArrayList<>();
-    }
-
-    return commitEventsDF.collectAsList().stream()
-        .map(TableStatsCollectorUtil::rowToCommitEventTable)
-        .collect(Collectors.toList());
-  }
-
-  /**
-   * Convert a single Row to CommitEventTable.
-   *
-   * @param row DataFrame row containing commit event data
-   * @return CommitEventTable object
-   */
-  static CommitEventTable rowToCommitEventTable(Row row) {
-    BaseEventModels.BaseTableIdentifier dataset =
-        BaseEventModels.BaseTableIdentifier.builder()
-            .databaseName(row.getAs("database_name"))
-            .tableName(row.getAs("table_name"))
-            .clusterName(row.getAs("cluster_name"))
-            .tableMetadataLocation(row.getAs("table_metadata_location"))
-            .partitionSpec(row.getAs("partition_spec"))
-            .build();
-
-    CommitMetadata commitMetadata =
-        CommitMetadata.builder()
-            .commitId(Long.parseLong(row.getAs("commit_id")))
-            .commitTimestampMs(row.getAs("commit_timestamp_ms"))
-            .commitAppId(row.getAs("commit_app_id"))
-            .commitAppName(row.getAs("commit_app_name"))
-            .commitOperation(parseCommitOperation(row.getAs("commit_operation")))
-            .build();
-
-    return CommitEventTable.builder()
-        .dataset(dataset)
-        .commitMetadata(commitMetadata)
-        .eventTimestampMs(0L) // Placeholder - will be set at publish time
-        .build();
-  }
-
-  /**
-   * Parse commit operation string to CommitOperation enum.
-   *
-   * @param operation Operation string from Iceberg (e.g., "append", "overwrite")
-   * @return CommitOperation enum value, or null if parsing fails
-   */
-  static CommitOperation parseCommitOperation(String operation) {
-    if (operation == null) {
-      return null;
-    }
-    try {
-      return CommitOperation.valueOf(operation.toUpperCase());
-    } catch (IllegalArgumentException e) {
-      log.warn("Unknown commit operation: {}", operation);
-      return null;
     }
   }
 }

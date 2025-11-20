@@ -16,7 +16,6 @@ public class TableStatsCollector {
 
   private FileSystem fs;
   private SparkSession spark;
-  String fqtn;
   Table table;
 
   /** Collect table stats. */
@@ -27,13 +26,12 @@ public class TableStatsCollector {
         TableStatsCollectorUtil.populateTableMetadata(table, stats);
     IcebergTableStats statsWithReferenceFiles =
         TableStatsCollectorUtil.populateStatsOfAllReferencedFiles(
-            fqtn, table, spark, statsWithMetadataData);
+            table, spark, statsWithMetadataData);
     IcebergTableStats statsWithCurrentSnapshot =
-        TableStatsCollectorUtil.populateStatsForSnapshots(
-            fqtn, table, spark, statsWithReferenceFiles);
+        TableStatsCollectorUtil.populateStatsForSnapshots(table, spark, statsWithReferenceFiles);
 
     IcebergTableStats tableStats =
-        TableStatsCollectorUtil.populateStorageStats(fqtn, table, fs, statsWithCurrentSnapshot);
+        TableStatsCollectorUtil.populateStorageStats(table, fs, statsWithCurrentSnapshot);
 
     return tableStats;
   }
@@ -47,6 +45,6 @@ public class TableStatsCollector {
    * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
    */
   public List<CommitEventTable> collectCommitEventTable() {
-    return TableStatsCollectorUtil.populateCommitEventTable(fqtn, table, spark);
+    return TableStatsCollectorUtil.populateCommitEventTable(table, spark);
   }
 }
