@@ -9,10 +9,10 @@ ext {
     log4jVersion = "2.18.0"
 
     sparkVersion = '3.1.1'
-    icebergVersion = '1.2.0'
+    icebergVersion = rootProject.ext.iceberg_1_2_version
     sparkVersionSuffix = "3.1"
     openhouseSparkRuntimeModule = ":integrations:spark:spark-${sparkVersionSuffix}:openhouse-spark-runtime_2.12"
-    icebergSparkRuntimeModule = "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:${icebergVersion}"
+    icebergSparkRuntimeModule = "com.linkedin.iceberg:iceberg-spark-runtime-3.1_2.12:${icebergVersion}"
     tablesTestFixturesModule = ":tables-test-fixtures:tables-test-fixtures_2.12"
 }
 

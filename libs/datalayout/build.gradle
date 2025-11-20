@@ -5,7 +5,7 @@ plugins {
 }
 
 ext {
-    icebergVersion = '1.2.0'
+    icebergVersion = rootProject.ext.iceberg_1_2_version
     sparkVersion = '3.1.1'
     springVersion = '2.7.8'
     hadoopVersion = '2.10.0'
@@ -16,10 +16,10 @@ ext {
 
 dependencies {
     compileOnly project(openhouseSparkRuntimeModule)
-    implementation('org.apache.iceberg:iceberg-bundled-guava:' + icebergVersion)
-    implementation('org.apache.iceberg:iceberg-data:' + icebergVersion)
-    implementation('org.apache.iceberg:iceberg-core:' + icebergVersion)
-    implementation('org.apache.iceberg:iceberg-common:' + icebergVersion)
+    implementation('com.linkedin.iceberg:iceberg-bundled-guava:' + icebergVersion)
+    implementation('com.linkedin.iceberg:iceberg-data:' + icebergVersion)
+    implementation('com.linkedin.iceberg:iceberg-core:' + icebergVersion)
+    implementation('com.linkedin.iceberg:iceberg-common:' + icebergVersion)
     implementation('org.testcontainers:testcontainers:1.19.8')
     implementation ('org.apache.spark:spark-core_2.12:' + sparkVersion) {
         exclude group: 'io.netty'
@@ -32,7 +32,7 @@ dependencies {
         exclude group: 'org.apache.hadoop', module: 'hadoop-client'
     }
     implementation 'org.apache.hadoop:hadoop-common:' + hadoopVersion
-    implementation 'org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
+    implementation 'com.linkedin.iceberg:iceberg-spark-runtime-3.1_2.12:' + icebergVersion
 
     testImplementation (project(path: openhouseSparkRuntimeModule, configuration: 'shadow')) {
         exclude group: 'io.netty'

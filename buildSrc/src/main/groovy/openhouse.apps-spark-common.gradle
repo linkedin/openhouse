@@ -28,11 +28,11 @@ dependencies {
     exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
 
-  implementation("org.apache.iceberg:iceberg-bundled-guava")
-  implementation("org.apache.iceberg:iceberg-data")
-  implementation("org.apache.iceberg:iceberg-core")
-  implementation("org.apache.iceberg:iceberg-common")
-  implementation("org.apache.iceberg:iceberg-api")
+  implementation("com.linkedin.iceberg:iceberg-bundled-guava")
+  implementation("com.linkedin.iceberg:iceberg-data")
+  implementation("com.linkedin.iceberg:iceberg-core")
+  implementation("com.linkedin.iceberg:iceberg-common")
+  implementation("com.linkedin.iceberg:iceberg-api")
 
   implementation 'commons-cli:commons-cli:1.5.0'
   implementation 'org.reflections:reflections:0.10.2'
@@ -72,9 +72,9 @@ shadowJar {
   mergeServiceFiles() // merge META-INF/services configuration files to allow FileSystem to be discovered
   dependencies {
     // unnecessary dependencies from iceberg-spark3-runtime
-    exclude(dependency('org.apache.iceberg::'))
+    exclude(dependency('com.linkedin.iceberg::'))
     // this dependency will be provided at runtime
-    exclude(dependency('org.apache.iceberg:iceberg-spark3-runtime::'))
+    exclude(dependency('com.linkedin.iceberg:iceberg-spark3-runtime::'))
 
     // mirror excludes for com.linkedin.iceberg groupId after dependency substitution
     exclude(dependency('com.linkedin.iceberg::'))
