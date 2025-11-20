@@ -431,7 +431,7 @@ public final class TableStatsCollectorUtil {
     String snapshotsQuery =
         String.format(
             "SELECT snapshot_id, committed_at, parent_id, operation, summary "
-                + "FROM %s.snapshots",
+                + "FROM openhouse.%s.snapshots",
             fqtn);
 
     log.info("Executing snapshots query: {}", snapshotsQuery);
