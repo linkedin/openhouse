@@ -531,16 +531,16 @@ public final class Operations implements AutoCloseable {
   public IcebergTableStats collectTableStats(String fqtn) {
     Table table = getTable(fqtn);
 
-    TableStatsCollector tableStatsCollector;
     try {
-      tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectTableStats();
     } catch (IOException e) {
       log.error("Unable to initialize file system for table stats collection", e);
       return null;
+    } catch (Exception e) {
+      log.error("Failed to collect table stats for table: {}", fqtn, e);
+      return null;
     }
-
-    IcebergTableStats tableStats = tableStatsCollector.collectTableStats();
-    return tableStats;
   }
 
   /**
@@ -552,14 +552,15 @@ public final class Operations implements AutoCloseable {
   public List<CommitEventTable> collectCommitEventTable(String fqtn) {
     Table table = getTable(fqtn);
 
-    TableStatsCollector tableStatsCollector;
     try {
-      tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectCommitEventTable();
     } catch (IOException e) {
       log.error("Unable to initialize file system for commit events collection", e);
       return new java.util.ArrayList<>();
+    } catch (Exception e) {
+      log.error("Failed to collect commit events for table: {}", fqtn, e);
+      return new java.util.ArrayList<>();
     }
-
-    return tableStatsCollector.collectCommitEventTable();
   }
 }
