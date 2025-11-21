@@ -416,19 +416,14 @@ public final class TableStatsCollectorUtil {
     String fullTableName = table.name();
     log.info("Collecting commit events for table: {} (all non-expired snapshots)", fullTableName);
 
-    // Use Iceberg's TableIdentifier to safely parse table name
-    TableIdentifier identifier = TableIdentifier.parse(fullTableName);
-    String[] namespaceParts = identifier.namespace().levels();
-    String tableName = identifier.name();
-
-    if (namespaceParts.length == 0) {
-      log.error(
-          "Invalid table identifier: {}. Expected database.table or catalog.database.table",
-          fullTableName);
+    // Parse table name components
+    String dbName = getDatabaseName(fullTableName);
+    if (dbName == null) {
       return new ArrayList<>();
     }
-    // Database name is the last part of the namespace (e.g., "db" from "openhouse.db.table")
-    String dbName = namespaceParts[namespaceParts.length - 1];
+
+    TableIdentifier identifier = TableIdentifier.parse(fullTableName);
+    String tableName = identifier.name();
     String clusterName = getClusterName(spark);
 
     // Query all snapshots from Iceberg metadata table (no time filtering)
@@ -502,10 +497,39 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
+   * Extract database name from fully-qualified table name.
+   *
+   * <p>Safely parses FQTN using Iceberg's TableIdentifier and returns the database name (last
+   * namespace component).
+   *
+   * @param fqtn Fully-qualified table name (e.g., "db.table" or "catalog.db.table")
+   * @return Database name, or null if invalid format
+   */
+  static String getDatabaseName(String fqtn) {
+    try {
+      TableIdentifier identifier = TableIdentifier.parse(fqtn);
+      String[] namespaceParts = identifier.namespace().levels();
+
+      if (namespaceParts.length == 0) {
+        log.error(
+            "Invalid table identifier: {}. Expected database.table or catalog.database.table",
+            fqtn);
+        return null;
+      }
+
+      // Database name is the last part of the namespace (e.g., "db" from "openhouse.db.table")
+      return namespaceParts[namespaceParts.length - 1];
+    } catch (Exception e) {
+      log.error("Failed to parse table identifier: {}", fqtn, e);
+      return null;
+    }
+  }
+
+  /**
    * Get cluster name from Spark configuration.
    *
    * @param spark SparkSession
-   * @return Cluster name
+   * @return Cluster name, defaults to "default" if not found or error occurs
    */
   private static String getClusterName(SparkSession spark) {
     try {
@@ -513,10 +537,9 @@ public final class TableStatsCollectorUtil {
       if (clusterName != null) {
         return clusterName;
       }
-      return "default";
     } catch (Exception e) {
       log.warn("Failed to get cluster name from Spark configuration", e);
-      return "default";
     }
+    return "default";
   }
 }

@@ -10,6 +10,7 @@ import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -32,11 +33,52 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   protected void runInner(Operations ops) {
     log.info("Running TableStatsCollectorApp for table {}", fqtn);
 
-    IcebergTableStats icebergTableStats = ops.collectTableStats(fqtn);
+    // Run stats collection and commit events collection in parallel
+    long startTime = System.currentTimeMillis();
+
+    CompletableFuture<IcebergTableStats> statsFuture =
+        CompletableFuture.supplyAsync(
+            () -> {
+              long statsStartTime = System.currentTimeMillis();
+              log.info("Starting table stats collection for table: {}", fqtn);
+              IcebergTableStats stats = ops.collectTableStats(fqtn);
+              long statsEndTime = System.currentTimeMillis();
+              log.info(
+                  "Completed table stats collection for table: {} in {} ms",
+                  fqtn,
+                  (statsEndTime - statsStartTime));
+              return stats;
+            });
+
+    CompletableFuture<List<CommitEventTable>> commitEventsFuture =
+        CompletableFuture.supplyAsync(
+            () -> {
+              long commitStartTime = System.currentTimeMillis();
+              log.info("Starting commit events collection for table: {}", fqtn);
+              List<CommitEventTable> events = ops.collectCommitEventTable(fqtn);
+              long commitEndTime = System.currentTimeMillis();
+              log.info(
+                  "Completed commit events collection for table: {} in {} ms ({} events)",
+                  fqtn,
+                  (commitEndTime - commitStartTime),
+                  events.size());
+              return events;
+            });
+
+    // Wait for both to complete
+    CompletableFuture.allOf(statsFuture, commitEventsFuture).join();
+
+    long endTime = System.currentTimeMillis();
+    log.info(
+        "Total collection time for table: {} in {} ms (parallel execution)",
+        fqtn,
+        (endTime - startTime));
+
+    // Publish results
+    IcebergTableStats icebergTableStats = statsFuture.join();
     publishStats(icebergTableStats);
 
-    // Collect and publish commit events
-    List<CommitEventTable> commitEvents = ops.collectCommitEventTable(fqtn);
+    List<CommitEventTable> commitEvents = commitEventsFuture.join();
     publishCommitEvents(commitEvents);
   }
 
