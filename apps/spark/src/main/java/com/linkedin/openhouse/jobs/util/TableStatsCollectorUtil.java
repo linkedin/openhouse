@@ -13,7 +13,7 @@ import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -419,7 +419,7 @@ public final class TableStatsCollectorUtil {
     // Parse table name components
     String dbName = getDatabaseName(fullTableName);
     if (dbName == null) {
-      return new ArrayList<>();
+      return Collections.emptyList();
     }
 
     TableIdentifier identifier = TableIdentifier.parse(fullTableName);
@@ -445,7 +445,7 @@ public final class TableStatsCollectorUtil {
     if (totalSnapshots == 0) {
       log.info("No snapshots found for table: {}", fullTableName);
       snapshotsDF.unpersist(); // Clean up even though empty
-      return new ArrayList<>();
+      return Collections.emptyList();
     }
 
     log.info("Found {} snapshots for table: {}", totalSnapshots, fullTableName);

@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -557,10 +558,10 @@ public final class Operations implements AutoCloseable {
       return tableStatsCollector.collectCommitEventTable();
     } catch (IOException e) {
       log.error("Unable to initialize file system for commit events collection", e);
-      return new java.util.ArrayList<>();
+      return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect commit events for table: {}", fqtn, e);
-      return new java.util.ArrayList<>();
+      return Collections.emptyList();
     }
   }
 }
