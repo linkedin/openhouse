@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -37,33 +38,16 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
     long startTime = System.currentTimeMillis();
 
     CompletableFuture<IcebergTableStats> statsFuture =
-        CompletableFuture.supplyAsync(
-            () -> {
-              long statsStartTime = System.currentTimeMillis();
-              log.info("Starting table stats collection for table: {}", fqtn);
-              IcebergTableStats stats = ops.collectTableStats(fqtn);
-              long statsEndTime = System.currentTimeMillis();
-              log.info(
-                  "Completed table stats collection for table: {} in {} ms",
-                  fqtn,
-                  (statsEndTime - statsStartTime));
-              return stats;
-            });
+        executeWithTimingAsync(
+            "table stats collection",
+            () -> ops.collectTableStats(fqtn),
+            result -> String.format("%s", fqtn));
 
     CompletableFuture<List<CommitEventTable>> commitEventsFuture =
-        CompletableFuture.supplyAsync(
-            () -> {
-              long commitStartTime = System.currentTimeMillis();
-              log.info("Starting commit events collection for table: {}", fqtn);
-              List<CommitEventTable> events = ops.collectCommitEventTable(fqtn);
-              long commitEndTime = System.currentTimeMillis();
-              log.info(
-                  "Completed commit events collection for table: {} in {} ms ({} events)",
-                  fqtn,
-                  (commitEndTime - commitStartTime),
-                  events.size());
-              return events;
-            });
+        executeWithTimingAsync(
+            "commit events collection",
+            () -> ops.collectCommitEventTable(fqtn),
+            result -> String.format("%s (%d events)", fqtn, result.size()));
 
     // Wait for both to complete
     CompletableFuture.allOf(statsFuture, commitEventsFuture).join();
@@ -110,6 +94,34 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
     createApp(args, otelEmitter).run();
+  }
+
+  /**
+   * Execute a supplier asynchronously with timing and logging.
+   *
+   * @param operationName Name of the operation for logging
+   * @param supplier The operation to execute
+   * @param resultFormatter Function to format the result for logging
+   * @param <T> Return type of the operation
+   * @return CompletableFuture wrapping the operation result
+   */
+  private <T> CompletableFuture<T> executeWithTimingAsync(
+      String operationName,
+      Supplier<T> supplier,
+      java.util.function.Function<T, String> resultFormatter) {
+    return CompletableFuture.supplyAsync(
+        () -> {
+          long startTime = System.currentTimeMillis();
+          log.info("Starting {} for table: {}", operationName, fqtn);
+          T result = supplier.get();
+          long endTime = System.currentTimeMillis();
+          log.info(
+              "Completed {} for table: {} in {} ms",
+              operationName,
+              resultFormatter.apply(result),
+              (endTime - startTime));
+          return result;
+        });
   }
 
   public static TableStatsCollectionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
