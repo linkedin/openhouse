@@ -60,10 +60,20 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
 
     // Publish results
     IcebergTableStats icebergTableStats = statsFuture.join();
-    publishStats(icebergTableStats);
+    if (icebergTableStats != null) {
+      publishStats(icebergTableStats);
+    } else {
+      log.warn("Skipping stats publishing for table: {} due to collection failure", fqtn);
+    }
 
     List<CommitEventTable> commitEvents = commitEventsFuture.join();
-    publishCommitEvents(commitEvents);
+    if (commitEvents != null && !commitEvents.isEmpty()) {
+      publishCommitEvents(commitEvents);
+    } else {
+      log.warn(
+          "Skipping commit events publishing for table: {} due to collection failure or no events",
+          fqtn);
+    }
   }
 
   /**
@@ -115,10 +125,13 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
           log.info("Starting {} for table: {}", operationName, fqtn);
           T result = supplier.get();
           long endTime = System.currentTimeMillis();
+
+          String resultDescription =
+              (result != null) ? resultFormatter.apply(result) : "null (collection failed)";
           log.info(
               "Completed {} for table: {} in {} ms",
               operationName,
-              resultFormatter.apply(result),
+              resultDescription,
               (endTime - startTime));
           return result;
         });
