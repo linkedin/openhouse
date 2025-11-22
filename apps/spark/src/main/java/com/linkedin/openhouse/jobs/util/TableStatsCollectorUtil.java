@@ -6,12 +6,14 @@ import static org.apache.spark.sql.functions.*;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,10 +30,12 @@ import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.SparkTableUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
+import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
@@ -43,7 +47,7 @@ public final class TableStatsCollectorUtil {
   private TableStatsCollectorUtil() {}
   /** Collect stats about referenced files in a given table. */
   public static IcebergTableStats populateStatsOfAllReferencedFiles(
-      String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
+      Table table, SparkSession spark, IcebergTableStats stats) {
     long referencedManifestFilesCount =
         getManifestFilesCount(table, spark, MetadataTableType.ALL_MANIFESTS);
 
@@ -88,7 +92,7 @@ public final class TableStatsCollectorUtil {
             + "Data files: {}, Sum of file sizes in bytes: {}"
             + "Position delete files: {}, Sum of position delete file sizes in bytes: {}"
             + "Equality delete files: {}, Sum of equality delete file sizes in bytes: {}",
-        fqtn,
+        table.name(),
         totalMetadataFilesCount,
         referencedManifestFilesCount,
         referencedManifestListFilesCount,
@@ -116,7 +120,7 @@ public final class TableStatsCollectorUtil {
 
   /** Collect stats for snapshots of a given table. */
   public static IcebergTableStats populateStatsForSnapshots(
-      String fqtn, Table table, SparkSession spark, IcebergTableStats stats) {
+      Table table, SparkSession spark, IcebergTableStats stats) {
 
     Map<Integer, FilesSummary> currentSnapshotFilesSummary =
         getFileMetadataTable(table, spark, MetadataTableType.FILES);
@@ -162,7 +166,7 @@ public final class TableStatsCollectorUtil {
             + ", Position delete files: {}, Sum of position delete file sizes in bytes: {}"
             + ", Equality delete files: {}, Sum of equality delete file sizes in bytes: {}"
             + ", Earliest partition date: {}, for snapshot: {}",
-        fqtn,
+        table.name(),
         countOfDataFiles,
         sumOfDataFileSizeBytes,
         countOfPositionDeleteFiles,
@@ -200,9 +204,9 @@ public final class TableStatsCollectorUtil {
         .build();
   }
 
-  /** Collect storage stats for a given fully-qualified table name. */
+  /** Collect storage stats for a given table. */
   public static IcebergTableStats populateStorageStats(
-      String fqtn, Table table, FileSystem fs, IcebergTableStats stats) {
+      Table table, FileSystem fs, IcebergTableStats stats) {
     // Find the sum of file size in bytes on HDFS by listing recursively all files in the table
     // location using filesystem call. This just replicates hdfs dfs -count and hdfs dfs -du -s.
     long sumOfTotalDirectorySizeInBytes = 0;
@@ -215,13 +219,13 @@ public final class TableStatsCollectorUtil {
         sumOfTotalDirectorySizeInBytes += status.getLen();
       }
     } catch (IOException e) {
-      log.error("Error while listing files in HDFS directory for table: {}", fqtn, e);
+      log.error("Error while listing files in HDFS directory for table: {}", table.name(), e);
       return stats;
     }
 
     log.info(
         "Table: {}, Count of objects in HDFS directory: {}, Sum of file sizes in bytes on HDFS: {}",
-        fqtn,
+        table.name(),
         numOfObjectsInDirectory,
         sumOfTotalDirectorySizeInBytes);
     return stats
@@ -372,5 +376,170 @@ public final class TableStatsCollectorUtil {
       policyStats.setSharingEnabled(jsonObject.get("sharingEnabled").getAsBoolean());
     }
     return policyStats;
+  }
+
+  /**
+   * Populate commit event table data from snapshots metadata table.
+   *
+   * <p><b>Stateless Implementation:</b> Queries ALL non-expired snapshots from the Iceberg
+   * snapshots metadata table on every job run, resulting in duplicates across runs. Downstream
+   * consumers handle deduplication at query time.
+   *
+   * <p><b>Behavior:</b>
+   *
+   * <ul>
+   *   <li>Queries: All active snapshots from {@code table.snapshots}
+   *   <li>Collects: Every snapshot every time (no tracking of previous runs)
+   *   <li>Result: Same {@code commit_id} appears in multiple partitions with different event
+   *       timestamps
+   *   <li>Deduplication: Downstream consumers use {@code GROUP BY commit_id} or {@code DISTINCT}
+   * </ul>
+   *
+   * <p><b>Example Timeline:</b>
+   *
+   * <pre>
+   * Day 1 12:00 - Snapshot A created
+   * Day 1 18:00 - Job Run 1: Collects Snapshot A (event_timestamp = Day 1 18:00)
+   * Day 2 18:00 - Job Run 2: Collects Snapshot A again (event_timestamp = Day 2 18:00)
+   * Day 3 18:00 - Job Run 3: Collects Snapshot A again (event_timestamp = Day 3 18:00)
+   * Day N       - Continues until Snapshot A expires via Iceberg retention
+   * </pre>
+   *
+   * <p><b>Rationale:</b> "One duplicate == 100 duplicates" when querying. Downstream already needs
+   * deduplication for late-arriving data and reprocessing.
+   *
+   * @param table Iceberg table instance
+   * @param spark SparkSession
+   * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
+   */
+  public static List<CommitEventTable> populateCommitEventTable(Table table, SparkSession spark) {
+    String fullTableName = table.name();
+    log.info("Collecting commit events for table: {} (all non-expired snapshots)", fullTableName);
+
+    // Parse table name components
+    String dbName = getDatabaseName(fullTableName);
+    if (dbName == null) {
+      return Collections.emptyList();
+    }
+
+    TableIdentifier identifier = TableIdentifier.parse(fullTableName);
+    String tableName = identifier.name();
+    String clusterName = getClusterName(spark);
+
+    // Query all snapshots from Iceberg metadata table (no time filtering)
+    String snapshotsQuery =
+        String.format(
+            "SELECT snapshot_id, committed_at, parent_id, operation, summary "
+                + "FROM %s.snapshots",
+            table.name());
+
+    log.info("Executing snapshots query: {}", snapshotsQuery);
+    Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
+
+    // Cache BEFORE first action to materialize during count() and reuse for collection
+    snapshotsDF.cache();
+
+    // This count() triggers cache materialization (single metadata scan)
+    long totalSnapshots = snapshotsDF.count();
+
+    if (totalSnapshots == 0) {
+      log.info("No snapshots found for table: {}", fullTableName);
+      snapshotsDF.unpersist(); // Clean up even though empty
+      return Collections.emptyList();
+    }
+
+    log.info("Found {} snapshots for table: {}", totalSnapshots, fullTableName);
+
+    // Get partition spec string representation
+    String partitionSpec = table.spec().toString();
+
+    // Get table location
+    String tableMetadataLocation = table.location();
+
+    // Use Spark encoder pattern for automatic DataFrame-to-object deserialization
+    Encoder<CommitEventTable> commitEventEncoder = Encoders.bean(CommitEventTable.class);
+
+    // Transform to nested structure matching CommitEventTable schema
+    List<CommitEventTable> commitEventTableList =
+        snapshotsDF
+            .select(
+                functions
+                    .struct(
+                        functions.lit(dbName).as("databaseName"),
+                        functions.lit(tableName).as("tableName"),
+                        functions.lit(clusterName).as("clusterName"),
+                        functions.lit(tableMetadataLocation).as("tableMetadataLocation"),
+                        functions.lit(partitionSpec).as("partitionSpec"))
+                    .as("dataset"),
+                functions
+                    .struct(
+                        functions.col("snapshot_id").cast("long").as("commitId"),
+                        functions
+                            .col("committed_at")
+                            .cast("long")
+                            .multiply(1000)
+                            .as("commitTimestampMs"),
+                        functions.col("summary").getItem("spark.app.id").as("commitAppId"),
+                        functions.col("summary").getItem("spark.app.name").as("commitAppName"),
+                        functions.upper(functions.col("operation")).as("commitOperation"))
+                    .as("commitMetadata"),
+                functions.lit(0L).as("eventTimestampMs"))
+            .orderBy(functions.col("commitMetadata.commitTimestampMs"))
+            .as(commitEventEncoder)
+            .collectAsList();
+
+    log.info("Collected {} commit events for table: {}", totalSnapshots, fullTableName);
+
+    // Unpersist cached data to free memory
+    snapshotsDF.unpersist();
+
+    return commitEventTableList;
+  }
+
+  /**
+   * Extract database name from fully-qualified table name.
+   *
+   * <p>Safely parses FQTN using Iceberg's TableIdentifier and returns the database name (last
+   * namespace component).
+   *
+   * @param fqtn Fully-qualified table name (e.g., "db.table" or "catalog.db.table")
+   * @return Database name, or null if invalid format
+   */
+  static String getDatabaseName(String fqtn) {
+    try {
+      TableIdentifier identifier = TableIdentifier.parse(fqtn);
+      String[] namespaceParts = identifier.namespace().levels();
+
+      if (namespaceParts.length == 0) {
+        log.error(
+            "Invalid table identifier: {}. Expected database.table or catalog.database.table",
+            fqtn);
+        return null;
+      }
+
+      // Database name is the last part of the namespace (e.g., "db" from "openhouse.db.table")
+      return namespaceParts[namespaceParts.length - 1];
+    } catch (Exception e) {
+      log.error("Failed to parse table identifier: {}", fqtn, e);
+      return null;
+    }
+  }
+
+  /**
+   * Get cluster name from Spark configuration.
+   *
+   * @param spark SparkSession
+   * @return Cluster name, defaults to "default" if not found or error occurs
+   */
+  private static String getClusterName(SparkSession spark) {
+    try {
+      String clusterName = spark.conf().get("spark.sql.catalog.openhouse.cluster", null);
+      if (clusterName != null) {
+        return clusterName;
+      }
+    } catch (Exception e) {
+      log.warn("Failed to get cluster name from Spark configuration", e);
+    }
+    return "default";
   }
 }

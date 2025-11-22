@@ -3,12 +3,15 @@ package com.linkedin.openhouse.jobs.spark;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -31,8 +34,46 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   protected void runInner(Operations ops) {
     log.info("Running TableStatsCollectorApp for table {}", fqtn);
 
-    IcebergTableStats icebergTableStats = ops.collectTableStats(fqtn);
-    publishStats(icebergTableStats);
+    // Run stats collection and commit events collection in parallel
+    long startTime = System.currentTimeMillis();
+
+    CompletableFuture<IcebergTableStats> statsFuture =
+        executeWithTimingAsync(
+            "table stats collection",
+            () -> ops.collectTableStats(fqtn),
+            result -> String.format("%s", fqtn));
+
+    CompletableFuture<List<CommitEventTable>> commitEventsFuture =
+        executeWithTimingAsync(
+            "commit events collection",
+            () -> ops.collectCommitEventTable(fqtn),
+            result -> String.format("%s (%d events)", fqtn, result.size()));
+
+    // Wait for both to complete
+    CompletableFuture.allOf(statsFuture, commitEventsFuture).join();
+
+    long endTime = System.currentTimeMillis();
+    log.info(
+        "Total collection time for table: {} in {} ms (parallel execution)",
+        fqtn,
+        (endTime - startTime));
+
+    // Publish results
+    IcebergTableStats icebergTableStats = statsFuture.join();
+    if (icebergTableStats != null) {
+      publishStats(icebergTableStats);
+    } else {
+      log.warn("Skipping stats publishing for table: {} due to collection failure", fqtn);
+    }
+
+    List<CommitEventTable> commitEvents = commitEventsFuture.join();
+    if (commitEvents != null && !commitEvents.isEmpty()) {
+      publishCommitEvents(commitEvents);
+    } else {
+      log.warn(
+          "Skipping commit events publishing for table: {} due to collection failure or no events",
+          fqtn);
+    }
   }
 
   /**
@@ -45,10 +86,55 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
     log.info(new Gson().toJson(icebergTableStats));
   }
 
+  /**
+   * Publish commit events. Override this method in li-openhouse to send to Kafka.
+   *
+   * @param commitEvents List of commit events to publish
+   */
+  protected void publishCommitEvents(List<CommitEventTable> commitEvents) {
+    // Set event timestamp at publish time
+    long eventTimestampInEpochMs = System.currentTimeMillis();
+    commitEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
+
+    log.info("Publishing commit events for table: {}", fqtn);
+    log.info(new Gson().toJson(commitEvents));
+  }
+
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
     createApp(args, otelEmitter).run();
+  }
+
+  /**
+   * Execute a supplier asynchronously with timing and logging.
+   *
+   * @param operationName Name of the operation for logging
+   * @param supplier The operation to execute
+   * @param resultFormatter Function to format the result for logging
+   * @param <T> Return type of the operation
+   * @return CompletableFuture wrapping the operation result
+   */
+  private <T> CompletableFuture<T> executeWithTimingAsync(
+      String operationName,
+      Supplier<T> supplier,
+      java.util.function.Function<T, String> resultFormatter) {
+    return CompletableFuture.supplyAsync(
+        () -> {
+          long startTime = System.currentTimeMillis();
+          log.info("Starting {} for table: {}", operationName, fqtn);
+          T result = supplier.get();
+          long endTime = System.currentTimeMillis();
+
+          String resultDescription =
+              (result != null) ? resultFormatter.apply(result) : "null (collection failed)";
+          log.info(
+              "Completed {} for table: {} in {} ms",
+              operationName,
+              resultDescription,
+              (endTime - startTime));
+          return result;
+        });
   }
 
   public static TableStatsCollectionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {

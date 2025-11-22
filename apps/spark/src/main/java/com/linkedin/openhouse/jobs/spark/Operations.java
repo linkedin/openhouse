@@ -4,6 +4,7 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -530,15 +532,36 @@ public final class Operations implements AutoCloseable {
   public IcebergTableStats collectTableStats(String fqtn) {
     Table table = getTable(fqtn);
 
-    TableStatsCollector tableStatsCollector;
     try {
-      tableStatsCollector = new TableStatsCollector(fs(), spark, fqtn, table);
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectTableStats();
     } catch (IOException e) {
       log.error("Unable to initialize file system for table stats collection", e);
       return null;
+    } catch (Exception e) {
+      log.error("Failed to collect table stats for table: {}", fqtn, e);
+      return null;
     }
+  }
 
-    IcebergTableStats tableStats = tableStatsCollector.collectTableStats();
-    return tableStats;
+  /**
+   * Collect commit events for a given fully-qualified table name.
+   *
+   * @param fqtn fully-qualified table name
+   * @return List of CommitEventTable objects (event_timestamp_ms will be set at publish time)
+   */
+  public List<CommitEventTable> collectCommitEventTable(String fqtn) {
+    Table table = getTable(fqtn);
+
+    try {
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectCommitEventTable();
+    } catch (IOException e) {
+      log.error("Unable to initialize file system for commit events collection", e);
+      return Collections.emptyList();
+    } catch (Exception e) {
+      log.error("Failed to collect commit events for table: {}", fqtn, e);
+      return Collections.emptyList();
+    }
   }
 }
