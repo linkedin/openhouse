@@ -32,7 +32,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.mockito.Mock;
@@ -40,8 +39,6 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@Disabled(
-    "The jobs scheduler test class is disabled as it takes time to run. Enable it to test jobs scheduler locally")
 public class JobsSchedulerTest {
   @Mock private TablesClient tablesClient;
   @Mock private JobsClient jobsClient;
@@ -293,12 +290,14 @@ public class JobsSchedulerTest {
 
   @Test
   void testRegistryIsInitialized() {
-    JobsScheduler.main(
-        new String[] {
-          "--type", TableRetentionTask.OPERATION_TYPE.getValue(),
-          "--tablesURL", "http://test.openhouse.com",
-          "--jobsURL", "http://test.openhouse.com",
-          "--cluster", "unused",
-        });
+    // This test is designed to fail if the JobsScheduler class cannot be initialized.
+    // The static initializer block in JobsScheduler performs a reflective scan of OperationTask
+    // subclasses. If any of these subclasses are abstract and not properly excluded, the
+    // class initialization will fail with an ExceptionInInitializerError.
+    Assertions.assertDoesNotThrow(
+        () -> {
+          Class.forName(JobsScheduler.class.getName());
+        },
+        "JobsScheduler class should be initialized without throwing an exception");
   }
 }
