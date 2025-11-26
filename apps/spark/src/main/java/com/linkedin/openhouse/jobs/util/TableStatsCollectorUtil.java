@@ -633,6 +633,8 @@ public final class TableStatsCollectorUtil {
    * <p>This is a pure transformation method that converts raw Spark rows into domain objects.
    * Separated from query logic for better testability and maintainability.
    *
+   * <p><b>Visibility:</b> Package-private for testing purposes.
+   *
    * @param rows Spark rows containing commit and partition data
    * @param dbName Database name
    * @param tableName Table name
@@ -642,7 +644,7 @@ public final class TableStatsCollectorUtil {
    * @param partitionColumnNames List of partition column names (in spec order)
    * @return List of CommitEventTablePartitions objects
    */
-  private static List<CommitEventTablePartitions> transformRowsToPartitionEvents(
+  static List<CommitEventTablePartitions> transformRowsToPartitionEvents(
       List<Row> rows,
       String dbName,
       String tableName,
@@ -728,11 +730,13 @@ public final class TableStatsCollectorUtil {
    *   <li>String/Date/Timestamp/Others → StringColumnData
    * </ul>
    *
+   * <p><b>Visibility:</b> Package-private for testing purposes.
+   *
    * @param partitionRow Spark Row containing partition column values
    * @param columnNames List of partition column names (in spec order)
    * @return List of ColumnData with typed values
    */
-  private static List<ColumnData> transformPartitionRowToColumnData(
+  static List<ColumnData> transformPartitionRowToColumnData(
       Row partitionRow, List<String> columnNames) {
 
     List<ColumnData> result = new ArrayList<>();
