@@ -12,7 +12,7 @@ import org.apache.spark.sql.SparkSession;
  * creation, args parsing.
  */
 @Slf4j
-public abstract class BaseSparkApp extends BaseJob {
+public abstract class BaseSparkApp extends BaseApp {
   protected static final String METRICS_SCOPE = BaseSparkApp.class.getName();
   private final ScheduledExecutorService scheduledExecutorService =
       Executors.newSingleThreadScheduledExecutor();

@@ -29,7 +29,7 @@ import org.apache.commons.cli.ParseException;
 /** Generic abstract class which contains common functionality for any job type */
 @Slf4j
 @Getter
-public abstract class BaseJob {
+public abstract class BaseApp {
   protected static final String METRICS_SCOPE = "jobs";
   private final ScheduledExecutorService scheduledExecutorService =
       Executors.newSingleThreadScheduledExecutor();
@@ -39,7 +39,7 @@ public abstract class BaseJob {
   public static final long HEARTBEAT_INTERVAL_SECONDS_DEFAULT = 300;
   private final long heartbeatIntervalSeconds;
 
-  protected BaseJob(
+  protected BaseApp(
       String jobId,
       StateManager stateManager,
       long heartbeatIntervalSeconds,
