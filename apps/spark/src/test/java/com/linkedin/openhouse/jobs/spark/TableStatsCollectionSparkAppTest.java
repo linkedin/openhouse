@@ -3,7 +3,9 @@ package com.linkedin.openhouse.jobs.spark;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.common.stats.model.ColumnData;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
@@ -431,6 +433,342 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals(2, stats.getNumReferencedDataFiles());
 
       log.info("Direct app instantiation validated successfully");
+    }
+  }
+
+  // ==================== Partition Events Tests ====================
+
+  @Test
+  public void testPartitionEventsForPartitionedTable() throws Exception {
+    final String tableName = "db.test_partition_events";
+    final int numInserts = 3;
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table with data in different partitions
+      prepareTable(ops, tableName, true); // partitioned by days(ts)
+
+      // Insert data into 3 different partitions (3 commits, 3 partitions)
+      populateTable(ops, tableName, 1, 0); // Today
+      populateTable(ops, tableName, 1, 1); // Yesterday
+      populateTable(ops, tableName, 1, 2); // 2 days ago
+
+      // Action: Collect partition events
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      // Verify: Should have 3 partition events (1 per commit-partition pair)
+      Assertions.assertFalse(partitionEvents.isEmpty());
+      Assertions.assertEquals(numInserts, partitionEvents.size());
+
+      // Verify: All events have partition data
+      for (CommitEventTablePartitions event : partitionEvents) {
+        Assertions.assertNotNull(event.getPartitionData());
+        Assertions.assertFalse(event.getPartitionData().isEmpty());
+
+        // Verify: Partition data has at least one column
+        Assertions.assertTrue(event.getPartitionData().size() > 0);
+
+        // Verify: Partition values are typed ColumnData
+        ColumnData firstColumn = event.getPartitionData().get(0);
+        Assertions.assertNotNull(firstColumn);
+        Assertions.assertNotNull(firstColumn.getColumnName());
+      }
+
+      log.info("Partition events collection validated: {} events", partitionEvents.size());
+    }
+  }
+
+  @Test
+  public void testPartitionEventsForUnpartitionedTable() throws Exception {
+    final String tableName = "db.test_unpartitioned_partition_events";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create unpartitioned table
+      prepareTable(ops, tableName, false); // NOT partitioned
+      populateTable(ops, tableName, 2);
+
+      // Action: Collect partition events
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      // Verify: Empty list for unpartitioned tables
+      Assertions.assertTrue(
+          partitionEvents.isEmpty(), "Unpartitioned table should return empty partition events");
+
+      log.info("Unpartitioned table correctly returns empty partition events");
+    }
+  }
+
+  @Test
+  public void testPartitionEventsSchemaValidation() throws Exception {
+    final String tableName = "db.test_partition_schema";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+      populateTable(ops, tableName, 1);
+
+      // Action: Collect partition events
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      Assertions.assertFalse(partitionEvents.isEmpty());
+      CommitEventTablePartitions firstEvent = partitionEvents.get(0);
+
+      // Verify: Dataset fields
+      Assertions.assertNotNull(firstEvent.getDataset());
+      Assertions.assertEquals("db", firstEvent.getDataset().getDatabaseName());
+      Assertions.assertEquals("test_partition_schema", firstEvent.getDataset().getTableName());
+      Assertions.assertNotNull(firstEvent.getDataset().getClusterName());
+      Assertions.assertNotNull(firstEvent.getDataset().getTableMetadataLocation());
+      Assertions.assertNotNull(firstEvent.getDataset().getPartitionSpec());
+
+      // Verify: Commit metadata fields
+      Assertions.assertNotNull(firstEvent.getCommitMetadata());
+      Assertions.assertNotNull(firstEvent.getCommitMetadata().getCommitId());
+      Assertions.assertNotNull(firstEvent.getCommitMetadata().getCommitTimestampMs());
+      Assertions.assertTrue(firstEvent.getCommitMetadata().getCommitTimestampMs() > 0);
+
+      // Verify: Partition data (required for partitioned tables)
+      Assertions.assertNotNull(firstEvent.getPartitionData());
+      Assertions.assertFalse(firstEvent.getPartitionData().isEmpty());
+
+      // Verify: Event timestamp is placeholder (set at publish time)
+      Assertions.assertEquals(0L, firstEvent.getEventTimestampMs());
+
+      log.info("Partition events schema validated successfully");
+    }
+  }
+
+  @Test
+  public void testPartitionEventsWithMultiplePartitions() throws Exception {
+    final String tableName = "db.test_multiple_partitions";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create table and insert into multiple partitions
+      prepareTable(ops, tableName, true);
+
+      // Insert 2 rows (creates 2 separate commits, same partition)
+      populateTable(ops, tableName, 2, 0); // 2 commits to partition day=0
+      // Insert 2 rows (creates 2 separate commits, different partition)
+      populateTable(ops, tableName, 2, 1); // 2 commits to partition day=1
+      // Insert 1 row (creates 1 commit, yet another partition)
+      populateTable(ops, tableName, 1, 2); // 1 commit to partition day=2
+
+      // Action: Collect partition events
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      // Verify: Should have 5 partition events (1 per commit-partition pair)
+      // Note: populateTable creates 1 commit per row, so 2+2+1 = 5 commits total
+      Assertions.assertEquals(5, partitionEvents.size());
+
+      // Verify: All commit IDs are present
+      List<Long> commitIds =
+          partitionEvents.stream()
+              .map(e -> e.getCommitMetadata().getCommitId())
+              .collect(Collectors.toList());
+      Assertions.assertEquals(5, commitIds.size());
+
+      // Verify: Commit IDs are unique (each INSERT creates a unique commit)
+      long uniqueCommitIds = commitIds.stream().distinct().count();
+      Assertions.assertEquals(5, uniqueCommitIds);
+
+      log.info(
+          "Multiple partitions handled correctly: {} partition events", partitionEvents.size());
+    }
+  }
+
+  @Test
+  public void testPartitionDataTypeHandling() throws Exception {
+    final String tableName = "db.test_partition_types";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+      populateTable(ops, tableName, 1);
+
+      // Action: Collect partition events
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      Assertions.assertFalse(partitionEvents.isEmpty());
+      CommitEventTablePartitions event = partitionEvents.get(0);
+
+      // Verify: Partition data contains typed ColumnData objects
+      List<ColumnData> partitionData = event.getPartitionData();
+      Assertions.assertNotNull(partitionData);
+      Assertions.assertFalse(partitionData.isEmpty());
+
+      // Verify: Each column has name and value
+      for (ColumnData columnData : partitionData) {
+        Assertions.assertNotNull(columnData.getColumnName());
+
+        // Partition columns in our test are days(ts) which produces Integer/Long values
+        // Verify it's one of the supported types
+        boolean isValidType =
+            columnData instanceof ColumnData.LongColumnData
+                || columnData instanceof ColumnData.DoubleColumnData
+                || columnData instanceof ColumnData.StringColumnData;
+
+        Assertions.assertTrue(
+            isValidType, "Partition column should be one of the supported ColumnData types");
+      }
+
+      log.info("Partition data types validated successfully");
+    }
+  }
+
+  @Test
+  public void testPublishPartitionEvents() throws Exception {
+    final String tableName = "db.test_publish_partition_events";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+      populateTable(ops, tableName, 2, 0);
+      populateTable(ops, tableName, 1, 1);
+
+      // Action: Collect and publish partition events
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      TableStatsCollectionSparkApp app =
+          new TableStatsCollectionSparkApp("test-job", null, tableName, otelEmitter);
+      app.publishPartitionEvents(partitionEvents);
+
+      // Verify: Event timestamps are set after publishing
+      long publishTime = System.currentTimeMillis();
+      for (CommitEventTablePartitions event : partitionEvents) {
+        Assertions.assertTrue(
+            event.getEventTimestampMs() > 0, "Event timestamp should be set after publishing");
+        Assertions.assertTrue(
+            event.getEventTimestampMs() <= publishTime,
+            "Event timestamp should not be in the future");
+      }
+
+      // Verify: JSON serialization works
+      String json = new Gson().toJson(partitionEvents);
+      Assertions.assertNotNull(json);
+      Assertions.assertTrue(json.contains("partitionData"));
+      Assertions.assertTrue(json.contains("commitId"));
+
+      log.info("Partition events publishing validated with {} events", partitionEvents.size());
+    }
+  }
+
+  @Test
+  public void testPartitionEventsIntegrationWithFullApp() throws Exception {
+    final String tableName = "db.test_partition_integration";
+    final int numCommits = 2;
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table with multiple commits
+      prepareTable(ops, tableName, true);
+      populateTable(ops, tableName, 1, 0); // Commit 1, partition 1
+      populateTable(ops, tableName, 1, 1); // Commit 2, partition 2
+
+      // Action: Run full app (should collect stats, commit events, AND partition events)
+      TableStatsCollectionSparkApp app =
+          new TableStatsCollectionSparkApp("test-job", null, tableName, otelEmitter);
+      app.runInner(ops);
+
+      // Verify: Stats collected
+      IcebergTableStats stats = ops.collectTableStats(tableName);
+      Assertions.assertNotNull(stats);
+      Assertions.assertEquals(numCommits, stats.getNumReferencedDataFiles());
+
+      // Verify: Commit events collected
+      List<CommitEventTable> commitEvents = ops.collectCommitEventTable(tableName);
+      Assertions.assertEquals(numCommits, commitEvents.size());
+
+      // Verify: Partition events collected
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+      Assertions.assertEquals(numCommits, partitionEvents.size());
+
+      // Verify: Commit IDs match between commit events and partition events
+      List<Long> commitEventIds =
+          commitEvents.stream()
+              .map(e -> e.getCommitMetadata().getCommitId())
+              .sorted()
+              .collect(Collectors.toList());
+
+      List<Long> partitionEventCommitIds =
+          partitionEvents.stream()
+              .map(e -> e.getCommitMetadata().getCommitId())
+              .sorted()
+              .collect(Collectors.toList());
+
+      Assertions.assertEquals(
+          commitEventIds,
+          partitionEventCommitIds,
+          "Commit IDs should match between commit events and partition events");
+
+      log.info(
+          "Full app integration validated: {} commits, {} partition events",
+          commitEvents.size(),
+          partitionEvents.size());
+    }
+  }
+
+  @Test
+  public void testPartitionEventsWithNoData() throws Exception {
+    final String tableName = "db.test_partition_no_data";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table with no data
+      prepareTable(ops, tableName, true);
+
+      // Action: Collect partition events
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      // Verify: Empty list (no commits = no partition events)
+      Assertions.assertTrue(
+          partitionEvents.isEmpty(), "Table with no data should return empty partition events");
+
+      log.info("Empty table handled correctly for partition events");
+    }
+  }
+
+  @Test
+  public void testPartitionEventsParallelExecution() throws Exception {
+    final String tableName = "db.test_parallel_execution";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+      populateTable(ops, tableName, 2, 0);
+
+      // Action: Run app which executes all three collections in parallel
+      long startTime = System.currentTimeMillis();
+
+      TableStatsCollectionSparkApp app =
+          new TableStatsCollectionSparkApp("test-job", null, tableName, otelEmitter);
+      app.runInner(ops);
+
+      long endTime = System.currentTimeMillis();
+      long parallelExecutionTime = endTime - startTime;
+
+      // Verify: All three collections completed
+      IcebergTableStats stats = ops.collectTableStats(tableName);
+      List<CommitEventTable> commitEvents = ops.collectCommitEventTable(tableName);
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      Assertions.assertNotNull(stats);
+      Assertions.assertFalse(commitEvents.isEmpty());
+      Assertions.assertFalse(partitionEvents.isEmpty());
+
+      // Note: We can't easily verify parallel execution is faster without baseline,
+      // but we can verify all three completed successfully
+      log.info(
+          "Parallel execution completed in {} ms: stats={}, commits={}, partitions={}",
+          parallelExecutionTime,
+          stats != null,
+          commitEvents.size(),
+          partitionEvents.size());
     }
   }
 

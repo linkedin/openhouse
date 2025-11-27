@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
@@ -34,7 +35,7 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   protected void runInner(Operations ops) {
     log.info("Running TableStatsCollectorApp for table {}", fqtn);
 
-    // Run stats collection and commit events collection in parallel
+    // Run stats collection, commit events collection, and partition events collection in parallel
     long startTime = System.currentTimeMillis();
 
     CompletableFuture<IcebergTableStats> statsFuture =
@@ -49,8 +50,14 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
             () -> ops.collectCommitEventTable(fqtn),
             result -> String.format("%s (%d events)", fqtn, result.size()));
 
-    // Wait for both to complete
-    CompletableFuture.allOf(statsFuture, commitEventsFuture).join();
+    CompletableFuture<List<CommitEventTablePartitions>> partitionEventsFuture =
+        executeWithTimingAsync(
+            "partition events collection",
+            () -> ops.collectCommitEventTablePartitions(fqtn),
+            result -> String.format("%s (%d partition events)", fqtn, result.size()));
+
+    // Wait for all three to complete
+    CompletableFuture.allOf(statsFuture, commitEventsFuture, partitionEventsFuture).join();
 
     long endTime = System.currentTimeMillis();
     log.info(
@@ -72,6 +79,16 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
     } else {
       log.warn(
           "Skipping commit events publishing for table: {} due to collection failure or no events",
+          fqtn);
+    }
+
+    List<CommitEventTablePartitions> partitionEvents = partitionEventsFuture.join();
+    if (partitionEvents != null && !partitionEvents.isEmpty()) {
+      publishPartitionEvents(partitionEvents);
+    } else {
+      log.info(
+          "Skipping partition events publishing for table: {} "
+              + "(unpartitioned table or collection failure or no events)",
           fqtn);
     }
   }
@@ -98,6 +115,20 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
 
     log.info("Publishing commit events for table: {}", fqtn);
     log.info(new Gson().toJson(commitEvents));
+  }
+
+  /**
+   * Publish partition-level commit events. Override this method in li-openhouse to send to Kafka.
+   *
+   * @param partitionEvents List of partition events to publish
+   */
+  protected void publishPartitionEvents(List<CommitEventTablePartitions> partitionEvents) {
+    // Set event timestamp at publish time
+    long eventTimestampInEpochMs = System.currentTimeMillis();
+    partitionEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
+
+    log.info("Publishing partition events for table: {}", fqtn);
+    log.info(new Gson().toJson(partitionEvents));
   }
 
   public static void main(String[] args) {

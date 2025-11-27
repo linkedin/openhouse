@@ -5,6 +5,7 @@ import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
@@ -561,6 +562,31 @@ public final class Operations implements AutoCloseable {
       return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect commit events for table: {}", fqtn, e);
+      return Collections.emptyList();
+    }
+  }
+
+  /**
+   * Collect partition-level commit events for a given fully-qualified table name.
+   *
+   * <p>Returns one record per (commit_id, partition) pair. Returns empty list for unpartitioned
+   * tables or errors.
+   *
+   * @param fqtn fully-qualified table name
+   * @return List of CommitEventTablePartitions objects (event_timestamp_ms will be set at publish
+   *     time)
+   */
+  public List<CommitEventTablePartitions> collectCommitEventTablePartitions(String fqtn) {
+    Table table = getTable(fqtn);
+
+    try {
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectCommitEventTablePartitions();
+    } catch (IOException e) {
+      log.error("Unable to initialize file system for partition events collection", e);
+      return Collections.emptyList();
+    } catch (Exception e) {
+      log.error("Failed to collect partition events for table: {}", fqtn, e);
       return Collections.emptyList();
     }
   }
