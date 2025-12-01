@@ -13,10 +13,10 @@ const config = {
   favicon: 'ui/openhouse_logo_without_text.png',
 
   // Set the production url of your site here
-  url: 'https://www.openhousedb.org',
+  url: 'https://linkedin.github.io',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/',
+  baseUrl: '/openhouse/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
