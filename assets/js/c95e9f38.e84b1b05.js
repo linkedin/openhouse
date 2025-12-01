@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkdocs=self.webpackChunkdocs||[]).push([[711],{2045:e=>{e.exports=JSON.parse('{"label":"Table","permalink":"/openhouse/docs/tags/table","allTagsPath":"/openhouse/docs/tags","count":1,"items":[{"id":"User Guide/Catalog/TableSpec","title":"Spec","description":"","permalink":"/openhouse/docs/User Guide/Catalog/TableSpec"}],"unlisted":false}')}}]);

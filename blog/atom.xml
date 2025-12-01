@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-    <id>https://www.openhousedb.org/blog</id>
+    <id>https://linkedin.github.io/openhouse/blog</id>
     <title>OpenHouse Blog</title>
     <updated>2024-03-04T00:00:00.000Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
-    <link rel="alternate" href="https://www.openhousedb.org/blog"/>
+    <link rel="alternate" href="https://linkedin.github.io/openhouse/blog"/>
     <subtitle>OpenHouse Blog</subtitle>
-    <icon>https://www.openhousedb.org/ui/openhouse_logo_without_text.png</icon>
+    <icon>https://linkedin.github.io/openhouse/ui/openhouse_logo_without_text.png</icon>
     <entry>
         <title type="html"><![CDATA[Open Sourcing OpenHouse, A Control Plane for Managing Tables in a Data Lakehouse]]></title>
-        <id>https://www.openhousedb.org/blog/opensourcing-oh</id>
-        <link href="https://www.openhousedb.org/blog/opensourcing-oh"/>
+        <id>https://linkedin.github.io/openhouse/blog/opensourcing-oh</id>
+        <link href="https://linkedin.github.io/openhouse/blog/opensourcing-oh"/>
         <updated>2024-03-04T00:00:00.000Z</updated>
         <summary type="html"><![CDATA[<Link]]></summary>
         <content type="html"><![CDATA[<a href="https://www.linkedin.com/blog/engineering/open-source/open-sourcing-openhouse" target="_blank" rel="noopener noreferrer" class="button button--primary button--small"><small> Read More </small></a>]]></content>
@@ -24,8 +24,8 @@
     </entry>
     <entry>
         <title type="html"><![CDATA[Taking Charge of Tables, Introducing OpenHouse for Big Data Management]]></title>
-        <id>https://www.openhousedb.org/blog/introduction-oh</id>
-        <link href="https://www.openhousedb.org/blog/introduction-oh"/>
+        <id>https://linkedin.github.io/openhouse/blog/introduction-oh</id>
+        <link href="https://linkedin.github.io/openhouse/blog/introduction-oh"/>
         <updated>2023-07-19T00:00:00.000Z</updated>
         <summary type="html"><![CDATA[<Link]]></summary>
         <content type="html"><![CDATA[<a href="https://www.linkedin.com/blog/engineering/data-management/taking-charge-of-tables--introducing-openhouse-for-big-data-mana" target="_blank" rel="noopener noreferrer" class="button button--primary button--small"><small> Read More </small></a>]]></content>

@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/">
     <channel>
         <title>OpenHouse Blog</title>
-        <link>https://www.openhousedb.org/blog</link>
+        <link>https://linkedin.github.io/openhouse/blog</link>
         <description>OpenHouse Blog</description>
         <lastBuildDate>Mon, 04 Mar 2024 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
@@ -10,8 +10,8 @@
         <language>en</language>
         <item>
             <title><![CDATA[Open Sourcing OpenHouse, A Control Plane for Managing Tables in a Data Lakehouse]]></title>
-            <link>https://www.openhousedb.org/blog/opensourcing-oh</link>
-            <guid>https://www.openhousedb.org/blog/opensourcing-oh</guid>
+            <link>https://linkedin.github.io/openhouse/blog/opensourcing-oh</link>
+            <guid>https://linkedin.github.io/openhouse/blog/opensourcing-oh</guid>
             <pubDate>Mon, 04 Mar 2024 00:00:00 GMT</pubDate>
             <description><![CDATA[<Link]]></description>
             <content:encoded><![CDATA[<a href="https://www.linkedin.com/blog/engineering/open-source/open-sourcing-openhouse" target="_blank" rel="noopener noreferrer" class="button button--primary button--small"><small> Read More </small></a>]]></content:encoded>
@@ -21,8 +21,8 @@
         </item>
         <item>
             <title><![CDATA[Taking Charge of Tables, Introducing OpenHouse for Big Data Management]]></title>
-            <link>https://www.openhousedb.org/blog/introduction-oh</link>
-            <guid>https://www.openhousedb.org/blog/introduction-oh</guid>
+            <link>https://linkedin.github.io/openhouse/blog/introduction-oh</link>
+            <guid>https://linkedin.github.io/openhouse/blog/introduction-oh</guid>
             <pubDate>Wed, 19 Jul 2023 00:00:00 GMT</pubDate>
             <description><![CDATA[<Link]]></description>
             <content:encoded><![CDATA[<a href="https://www.linkedin.com/blog/engineering/data-management/taking-charge-of-tables--introducing-openhouse-for-big-data-mana" target="_blank" rel="noopener noreferrer" class="button button--primary button--small"><small> Read More </small></a>]]></content:encoded>
