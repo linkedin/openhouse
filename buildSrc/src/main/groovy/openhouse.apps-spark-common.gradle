@@ -84,11 +84,11 @@ shadowJar {
     // https://github.com/GradleUp/shadow/issues/877#issuecomment-2472922043
     exclude 'META-INF/versions/19/'
 
-    relocate('io.', 'openhouse.relocated.io.') {  // Note: added dot
+    relocate('io.', 'openhouse.relocated.io.') {
       exclude 'io.netty.resolver.dns.macos.**' // dynamically loaded classes
       exclude 'io.opentelemetry.**'
     }
-    relocate('com.', 'openhouse.relocated.com.') {  // Note: added dot
+    relocate('com.', 'openhouse.relocated.com.') {
       exclude 'com.linkedin.openhouse.**' // don't want our classes to be shaded
       exclude 'com.ctc.wstx.**' // dynamically loaded classes
       exclude 'com.squareup.**'
@@ -97,7 +97,7 @@ shadowJar {
     relocate 'okhttp3', 'openhouse.relocated.okhttp3'
     relocate 'okio', 'openhouse.relocated.okio'
     relocate 'reactor', 'openhouse.relocated.reactor'
-    relocate('org.','openhouse.relocated.org.') {  // Note: added dot
+    relocate('org.','openhouse.relocated.org.') {
       exclude 'org.apache.iceberg.**' // these are runtime classes, we shouldn't relocate them unless we shade them
       exclude '%regex[org.apache.hadoop.*]' // these are runtime classes too, use regex to exclude string literals
       exclude '%regex[org.apache.commons.*]' // these are part of method signatures reused in sub-classes
