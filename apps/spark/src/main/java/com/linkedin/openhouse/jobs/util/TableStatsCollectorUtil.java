@@ -6,7 +6,10 @@ import static org.apache.spark.sql.functions.*;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
+import com.linkedin.openhouse.common.stats.model.BaseEventModels;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitMetadata;
+import com.linkedin.openhouse.common.stats.model.CommitOperation;
 import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
@@ -35,7 +38,6 @@ import org.apache.iceberg.spark.SparkTableUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
-import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
@@ -426,15 +428,12 @@ public final class TableStatsCollectorUtil {
     String tableName = identifier.name();
     String clusterName = getClusterName(spark);
 
-    // Query all snapshots from Iceberg metadata table (no time filtering)
-    String snapshotsQuery =
-        String.format(
-            "SELECT snapshot_id, committed_at, parent_id, operation, summary "
-                + "FROM %s.snapshots",
-            table.name());
+    // Load snapshots using Spark API (not SQL) to avoid string literal relocation by shadow JAR
+    log.info("Collecting commit events for table: {} (all non-expired snapshots)", fullTableName);
 
-    log.info("Executing snapshots query: {}", snapshotsQuery);
-    Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
+    // Use SparkTableUtil.loadMetadataTable like getFileMetadataTable does
+    Dataset<Row> snapshotsDF =
+        SparkTableUtil.loadMetadataTable(spark, table, MetadataTableType.SNAPSHOTS);
 
     // Cache BEFORE first action to materialize during count() and reuse for collection
     snapshotsDF.cache();
@@ -456,37 +455,10 @@ public final class TableStatsCollectorUtil {
     // Get table location
     String tableMetadataLocation = table.location();
 
-    // Use Spark encoder pattern for automatic DataFrame-to-object deserialization
-    Encoder<CommitEventTable> commitEventEncoder = Encoders.bean(CommitEventTable.class);
-
-    // Transform to nested structure matching CommitEventTable schema
+    // Transform snapshots DataFrame to CommitEventTable objects
     List<CommitEventTable> commitEventTableList =
-        snapshotsDF
-            .select(
-                functions
-                    .struct(
-                        functions.lit(dbName).as("databaseName"),
-                        functions.lit(tableName).as("tableName"),
-                        functions.lit(clusterName).as("clusterName"),
-                        functions.lit(tableMetadataLocation).as("tableMetadataLocation"),
-                        functions.lit(partitionSpec).as("partitionSpec"))
-                    .as("dataset"),
-                functions
-                    .struct(
-                        functions.col("snapshot_id").cast("long").as("commitId"),
-                        functions
-                            .col("committed_at")
-                            .cast("long")
-                            .multiply(1000)
-                            .as("commitTimestampMs"),
-                        functions.col("summary").getItem("spark.app.id").as("commitAppId"),
-                        functions.col("summary").getItem("spark.app.name").as("commitAppName"),
-                        functions.upper(functions.col("operation")).as("commitOperation"))
-                    .as("commitMetadata"),
-                functions.lit(0L).as("eventTimestampMs"))
-            .orderBy(functions.col("commitMetadata.commitTimestampMs"))
-            .as(commitEventEncoder)
-            .collectAsList();
+        transformSnapshotsToCommitEvents(
+            snapshotsDF, dbName, tableName, clusterName, tableMetadataLocation, partitionSpec);
 
     log.info("Collected {} commit events for table: {}", totalSnapshots, fullTableName);
 
@@ -494,6 +466,150 @@ public final class TableStatsCollectorUtil {
     snapshotsDF.unpersist();
 
     return commitEventTableList;
+  }
+
+  /**
+   * Transform snapshots DataFrame to CommitEventTable objects.
+   *
+   * <p>Uses positional column access to avoid shadow JAR string literal relocation issues.
+   * Snapshots table column order: [0:committed_at, 1:snapshot_id, 2:parent_id, 3:operation,
+   * 4:manifest_list, 5:summary]
+   *
+   * @param snapshotsDF DataFrame containing snapshot metadata
+   * @param dbName Database name
+   * @param tableName Table name
+   * @param clusterName Cluster name
+   * @param tableMetadataLocation Table metadata location
+   * @param partitionSpec Partition specification
+   * @return List of CommitEventTable objects
+   */
+  private static List<CommitEventTable> transformSnapshotsToCommitEvents(
+      Dataset<Row> snapshotsDF,
+      String dbName,
+      String tableName,
+      String clusterName,
+      String tableMetadataLocation,
+      String partitionSpec) {
+
+    // Collect rows from Spark, then transform in Java
+    // This avoids shadow JAR issues with DataFrame column operations
+    List<Row> rows = snapshotsDF.collectAsList();
+
+    // Sort by commit timestamp (avoids string literal in DataFrame orderBy)
+    sortRowsByCommitTimestamp(rows);
+
+    // Build map keys at runtime using simple concatenation (avoids shadow JAR relocation)
+    // Using separate string literals prevents the shadow JAR plugin from rewriting them
+    String appIdKey = "spark" + "." + "app" + "." + "id";
+    String appNameKey = "spark" + "." + "app" + "." + "name";
+
+    return rows.stream()
+        .map(
+            row ->
+                mapRowToCommitEventTable(
+                    row,
+                    dbName,
+                    tableName,
+                    clusterName,
+                    tableMetadataLocation,
+                    partitionSpec,
+                    appIdKey,
+                    appNameKey))
+        .collect(java.util.stream.Collectors.toList());
+  }
+
+  /**
+   * Sort rows by commit timestamp in ascending order.
+   *
+   * <p>Sorts in-place using Java comparator to avoid string literals in Spark DataFrame orderBy()
+   * which could be relocated by shadow JAR.
+   *
+   * @param rows List of rows to sort (modified in place)
+   */
+  private static void sortRowsByCommitTimestamp(List<Row> rows) {
+    // Position 0 is committed_at timestamp field
+    rows.sort(
+        (r1, r2) -> {
+          long timestamp1 = r1.getTimestamp(0).getTime();
+          long timestamp2 = r2.getTimestamp(0).getTime();
+          return Long.compare(timestamp1, timestamp2);
+        });
+  }
+
+  /**
+   * Map a Row to CommitEventTable using positional access.
+   *
+   * <p>Row schema from snapshots query (positional):
+   *
+   * <ul>
+   *   <li>0: committed_at (timestamp)
+   *   <li>1: snapshot_id (long)
+   *   <li>2: parent_id (long, nullable)
+   *   <li>3: operation (string)
+   *   <li>4: manifest_list (string)
+   *   <li>5: summary (map<string,string>)
+   * </ul>
+   *
+   * @param row Row from snapshots DataFrame
+   * @param dbName Database name
+   * @param tableName Table name
+   * @param clusterName Cluster name
+   * @param tableMetadataLocation Table metadata location
+   * @param partitionSpec Partition spec string
+   * @param appIdKey Runtime-constructed key for spark.app.id
+   * @param appNameKey Runtime-constructed key for spark.app.name
+   * @return CommitEventTable object
+   */
+  private static CommitEventTable mapRowToCommitEventTable(
+      Row row,
+      String dbName,
+      String tableName,
+      String clusterName,
+      String tableMetadataLocation,
+      String partitionSpec,
+      String appIdKey,
+      String appNameKey) {
+
+    // Extract fields using positional access (shadow JAR safe)
+    // committed_at is a timestamp, convert to epoch milliseconds
+    long committedAtMs = row.getTimestamp(0).getTime();
+    long snapshotId = row.getLong(1);
+    String operation = row.getString(3);
+    Map<String, String> summary = row.getJavaMap(5);
+
+    // Extract app metadata from summary using runtime-constructed keys
+    String commitAppId = summary.get(appIdKey);
+    String commitAppName = summary.get(appNameKey);
+
+    // Parse operation enum
+    CommitOperation commitOperation = null;
+    if (operation != null) {
+      try {
+        commitOperation = CommitOperation.valueOf(operation.toUpperCase());
+      } catch (IllegalArgumentException e) {
+        log.warn("Unknown commit operation: {}, setting to null", operation);
+      }
+    }
+
+    // Build domain objects
+    BaseEventModels.BaseTableIdentifier dataset =
+        new BaseEventModels.BaseTableIdentifier(
+            dbName, tableName, clusterName, tableMetadataLocation, partitionSpec);
+
+    CommitMetadata commitMetadata =
+        CommitMetadata.builder()
+            .commitId(snapshotId)
+            .commitTimestampMs(committedAtMs)
+            .commitAppId(commitAppId)
+            .commitAppName(commitAppName)
+            .commitOperation(commitOperation)
+            .build();
+
+    return CommitEventTable.builder()
+        .dataset(dataset)
+        .commitMetadata(commitMetadata)
+        .eventTimestampMs(0L) // Set at publish time
+        .build();
   }
 
   /**

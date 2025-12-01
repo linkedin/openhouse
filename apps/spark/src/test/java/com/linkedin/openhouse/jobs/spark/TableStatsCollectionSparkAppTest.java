@@ -271,6 +271,62 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
     }
   }
 
+  @Test
+  public void testCommitEventsContainsSparkAppName() throws Exception {
+    final String tableName = "db.test_commit_app_name";
+    final int numInserts = 2;
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      // Action: Collect commit events
+      List<CommitEventTable> commitEvents = ops.collectCommitEventTable(tableName);
+
+      // Verify: Events collected
+      Assertions.assertFalse(commitEvents.isEmpty());
+      Assertions.assertEquals(numInserts, commitEvents.size());
+
+      // First, let's see what's actually in the Iceberg snapshots table
+      System.out.println("\n=== Checking Iceberg Snapshots Table ===");
+      ops.spark()
+          .sql(String.format("SELECT snapshot_id, summary FROM %s.snapshots", tableName))
+          .show(false);
+
+      CommitEventTable firstEvent = commitEvents.get(0);
+
+      // Verify: commitAppId and commitAppName are populated from Iceberg snapshot summary
+      // The Iceberg version should include spark.app.name in snapshot summary
+      Assertions.assertNotNull(
+          firstEvent.getCommitMetadata().getCommitAppId(),
+          "commitAppId should be populated from spark.app.id");
+
+      Assertions.assertNotNull(
+          firstEvent.getCommitMetadata().getCommitAppName(),
+          "commitAppName should be populated from spark.app.name");
+
+      System.out.println(
+          String.format(
+              "✅ Commit metadata validated - appId: %s, appName: %s",
+              firstEvent.getCommitMetadata().getCommitAppId(),
+              firstEvent.getCommitMetadata().getCommitAppName()));
+
+      log.info(
+          "Commit metadata validated - appId: {}, appName: {}",
+          firstEvent.getCommitMetadata().getCommitAppId(),
+          firstEvent.getCommitMetadata().getCommitAppName());
+
+      // Verify: All events have app metadata
+      for (CommitEventTable event : commitEvents) {
+        Assertions.assertNotNull(
+            event.getCommitMetadata().getCommitAppId(), "All events should have commitAppId");
+        Assertions.assertNotNull(
+            event.getCommitMetadata().getCommitAppName(), "All events should have commitAppName");
+      }
+    }
+  }
+
   // ==================== Error Handling Tests ====================
 
   @Test
