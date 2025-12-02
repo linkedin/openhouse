@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -46,5 +47,26 @@ public class TableStatsCollector {
    */
   public List<CommitEventTable> collectCommitEventTable() {
     return TableStatsCollectorUtil.populateCommitEventTable(table, spark);
+  }
+
+  /**
+   * Collect partition-level commit events for the table.
+   *
+   * <p>Returns one record per (commit_id, partition) pair. Returns empty list for unpartitioned
+   * tables.
+   *
+   * <p>Note: Returns List (loads into memory). Size is manageable due to:
+   *
+   * <ul>
+   *   <li>Iceberg retention limits active snapshots (~1-10k per table)
+   *   <li>Typical partitions per commit: 10-1000
+   *   <li>Typical size: 100K rows × 200 bytes = 20MB
+   * </ul>
+   *
+   * @return List of CommitEventTablePartitions objects (event_timestamp_ms will be set at publish
+   *     time)
+   */
+  public List<CommitEventTablePartitions> collectCommitEventTablePartitions() {
+    return TableStatsCollectorUtil.populateCommitEventTablePartitions(table, spark);
   }
 }
