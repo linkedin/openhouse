@@ -53,6 +53,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
@@ -376,7 +377,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             e);
       }
       throw new CommitFailedException(ioe);
-    } catch (InvalidIcebergSnapshotException | IllegalArgumentException e) {
+    } catch (InvalidIcebergSnapshotException | IllegalArgumentException | ValidationException e) {
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException e) {
       throw e;
