@@ -116,12 +116,7 @@ public class RepositoryTestWithSettableComponents {
         new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
     OpenHouseInternalTableOperations mockOps =
         new OpenHouseInternalTableOperations(
-            htsRepo,
-            fileIO,
-            houseTableMapper,
-            tableIdentifier,
-            metricsReporter2,
-            fileIOManager);
+            htsRepo, fileIO, houseTableMapper, tableIdentifier, metricsReporter2, fileIOManager);
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
     doReturn(actualOps.current()).when(spyOperations).refresh();
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
@@ -198,12 +193,7 @@ public class RepositoryTestWithSettableComponents {
           new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
       OpenHouseInternalTableOperations mockOps =
           new OpenHouseInternalTableOperations(
-              htsRepo,
-              fileIO,
-              houseTableMapper,
-              tableIdentifier,
-              metricsReporter,
-              fileIOManager);
+              htsRepo, fileIO, houseTableMapper, tableIdentifier, metricsReporter, fileIOManager);
       OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
       BaseTable spyOptsMockedTable =
           Mockito.spy(

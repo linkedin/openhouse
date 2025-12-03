@@ -130,7 +130,7 @@ public class OpenHouseInternalTableOperationsTest {
 
   /**
    * Tests committing snapshots to a table with no existing snapshots (initial version). Verifies
-   * that all snapshots are appended and tracked in table properties.
+   * that all snapshots are appended to the table metadata.
    */
   @Test
   void testDoCommitAppendSnapshotsInitialVersion() throws IOException {
@@ -164,7 +164,7 @@ public class OpenHouseInternalTableOperationsTest {
 
   /**
    * Tests committing additional snapshots to a table that already has existing snapshots. Verifies
-   * that only new snapshots are appended and tracked appropriately.
+   * that only new snapshots are appended to the table metadata.
    */
   @Test
   void testDoCommitAppendSnapshotsExistingVersion() throws IOException {
@@ -206,7 +206,7 @@ public class OpenHouseInternalTableOperationsTest {
 
   /**
    * Tests committing changes that both append new snapshots and delete existing ones. Verifies that
-   * both appended and deleted snapshots are correctly tracked in properties.
+   * both appended and deleted snapshots are correctly reflected in table metadata.
    */
   @Test
   void testDoCommitAppendAndDeleteSnapshots() throws IOException {
@@ -385,7 +385,7 @@ public class OpenHouseInternalTableOperationsTest {
 
   /**
    * Tests committing changes that delete some snapshots while keeping others. Verifies that deleted
-   * snapshots are properly tracked in table properties.
+   * snapshots are properly removed from table metadata.
    */
   @Test
   void testDoCommitDeleteSnapshots() throws IOException {
@@ -478,14 +478,6 @@ public class OpenHouseInternalTableOperationsTest {
 
       // Verify no persistence to repository
       verify(mockHouseTableRepository, times(0)).save(any());
-
-      // Verify no snapshot properties were set
-      Map<String, String> resultProperties =
-          openHouseInternalTableOperations.current().properties();
-      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("appended_snapshots")));
-      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("staged_snapshots")));
-      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("deleted_snapshots")));
     }
   }
 
@@ -533,14 +525,6 @@ public class OpenHouseInternalTableOperationsTest {
 
       // Verify no persistence to repository
       verify(mockHouseTableRepository, times(0)).save(any());
-
-      // Verify snapshot properties tracking
-      Map<String, String> resultProperties = currentMetadata.properties();
-      Assertions.assertNull(
-          resultProperties.get(getCanonicalFieldName("appended_snapshots")),
-          "No snapshots should be appended to main");
-      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("cherry_picked_snapshots")));
-      Assertions.assertNull(resultProperties.get(getCanonicalFieldName("deleted_snapshots")));
     }
   }
 
@@ -619,11 +603,12 @@ public class OpenHouseInternalTableOperationsTest {
 
     // This should throw exception because snapshot 1 is marked for deletion but still referenced by
     // main.
-    // Iceberg's TableMetadata.Builder.setRef throws ValidationException if the snapshot doesn't
+    // Iceberg's TableMetadata.Builder.setRef throws IllegalArgumentException if the snapshot
+    // doesn't
     // exist.
-    // doCommit catches this and wraps it in CommitStateUnknownException.
+    // doCommit catches this and wraps it in BadRequestException.
     Assertions.assertThrows(
-        CommitStateUnknownException.class,
+        BadRequestException.class,
         () ->
             openHouseInternalTableOperations.doCommit(
                 metadataWithSnapshots, metadataWithSnapshotsDeleted),
@@ -1058,6 +1043,7 @@ public class OpenHouseInternalTableOperationsTest {
         this::executeCommitMetadata,
         "Timer should not have database or table tags (both removed to reduce cardinality)");
   }
+
   @Test
   void testRefreshMetadataLatencyHasHistogramBuckets() {
     testMetricHasHistogramBuckets(
@@ -1137,10 +1123,10 @@ public class OpenHouseInternalTableOperationsTest {
             new io.micrometer.core.instrument.config.MeterFilter() {
               @Override
               public io.micrometer.core.instrument.distribution.DistributionStatisticConfig
-              configure(
-                  io.micrometer.core.instrument.Meter.Id id,
-                  io.micrometer.core.instrument.distribution.DistributionStatisticConfig
-                      config) {
+                  configure(
+                      io.micrometer.core.instrument.Meter.Id id,
+                      io.micrometer.core.instrument.distribution.DistributionStatisticConfig
+                          config) {
                 if (id.getType() == io.micrometer.core.instrument.Meter.Type.TIMER) {
                   return io.micrometer.core.instrument.distribution.DistributionStatisticConfig
                       .builder()
@@ -1702,7 +1688,6 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
-      Map<String, String> updatedProperties = capturedMetadata.properties();
 
       // Verify the divergent commit contains all 4 snapshots
       Assertions.assertEquals(
@@ -1728,13 +1713,6 @@ public class OpenHouseInternalTableOperationsTest {
           testSnapshots.get(1).snapshotId(),
           mainRef.snapshotId(),
           "Main branch should point to testSnapshots[1] after divergent commit");
-
-      Assertions.assertNull(
-          updatedProperties.get(getCanonicalFieldName("cherry_picked_snapshots")),
-          "No snapshots should be cherry-picked in this scenario");
-      Assertions.assertNull(
-          updatedProperties.get(getCanonicalFieldName("deleted_snapshots")),
-          "No snapshots should be deleted in this scenario");
 
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }

@@ -261,11 +261,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 
-      TableMetadata updatedMetadata = metadata.replaceProperties(properties);
+      TableMetadata metadataToCommit = metadata.replaceProperties(properties);
 
       if (sortOrderJson != null) {
-        SortOrder sortOrder = SortOrderParser.fromJson(updatedMetadata.schema(), sortOrderJson);
-        updatedMetadata = updatedMetadata.replaceSortOrder(sortOrder);
+        SortOrder sortOrder = SortOrderParser.fromJson(metadataToCommit.schema(), sortOrderJson);
+        metadataToCommit = metadataToCommit.replaceSortOrder(sortOrder);
       }
 
       if (serializedSnapshotsToPut != null) {
@@ -276,39 +276,41 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                 ? new HashMap<>()
                 : SnapshotsUtil.parseSnapshotRefs(serializedSnapshotRefs);
 
-        TableMetadata.Builder builder = TableMetadata.buildFrom(updatedMetadata);
+        TableMetadata.Builder builder = TableMetadata.buildFrom(metadataToCommit);
 
         // 1. Identify which snapshots are new vs existing
-        Set<Long> existingIds =
-            updatedMetadata.snapshots().stream()
+        Set<Long> existingSnapshotIds =
+            metadataToCommit.snapshots().stream()
                 .map(Snapshot::snapshotId)
                 .collect(Collectors.toSet());
-        Set<Long> newIds =
+        Set<Long> newSnapshotIds =
             snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
         // 2. Add new snapshots
         snapshotsToPut.stream()
-            .filter(s -> !existingIds.contains(s.snapshotId()))
+            .filter(s -> !existingSnapshotIds.contains(s.snapshotId()))
             .forEach(builder::addSnapshot);
 
         // 3. Remove snapshots that are no longer present in the client payload
         List<Long> toRemove =
-            existingIds.stream().filter(id -> !newIds.contains(id)).collect(Collectors.toList());
+            existingSnapshotIds.stream()
+                .filter(id -> !newSnapshotIds.contains(id))
+                .collect(Collectors.toList());
         if (!toRemove.isEmpty()) {
           builder.removeSnapshots(toRemove);
         }
 
         // 4. Sync Refs: Remove refs not in payload, Set/Update refs from payload
-        updatedMetadata.refs().keySet().stream()
+        metadataToCommit.refs().keySet().stream()
             .filter(ref -> !snapshotRefs.containsKey(ref))
             .forEach(builder::removeRef);
 
         snapshotRefs.forEach(builder::setRef);
 
-        updatedMetadata = builder.build();
+        metadataToCommit = builder.build();
       }
 
-      final TableMetadata updatedMtDataRef = updatedMetadata;
+      final TableMetadata updatedMtDataRef = metadataToCommit;
       long metadataUpdateStartTime = System.currentTimeMillis();
       try {
         metricsReporter.executeWithStats(
@@ -330,7 +332,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw e;
       }
 
-      houseTable = houseTableMapper.toHouseTable(updatedMetadata, fileIO);
+      houseTable = houseTableMapper.toHouseTable(metadataToCommit, fileIO);
       if (base != null
           && (properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
                   && !properties
@@ -374,7 +376,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             e);
       }
       throw new CommitFailedException(ioe);
-    } catch (InvalidIcebergSnapshotException e) {
+    } catch (InvalidIcebergSnapshotException | IllegalArgumentException e) {
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException e) {
       throw e;
