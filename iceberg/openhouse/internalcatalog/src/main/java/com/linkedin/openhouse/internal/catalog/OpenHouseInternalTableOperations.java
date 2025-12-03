@@ -33,7 +33,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.PartitionField;
@@ -550,28 +549,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
-  public TableMetadata maybeDeleteSnapshots(
-      TableMetadata metadata, List<Snapshot> snapshotsToDelete) {
-    TableMetadata result = metadata;
-    if (CollectionUtils.isNotEmpty(snapshotsToDelete)) {
-      Set<Long> snapshotIds =
-          snapshotsToDelete.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-      Map<String, String> updatedProperties = new HashMap<>(result.properties());
-      updatedProperties.put(
-          getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
-          snapshotsToDelete.stream()
-              .map(s -> Long.toString(s.snapshotId()))
-              .collect(Collectors.joining(",")));
-      result =
-          TableMetadata.buildFrom(result)
-              .setProperties(updatedProperties)
-              .build()
-              .removeSnapshotsIf(s -> snapshotIds.contains(s.snapshotId()));
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, snapshotsToDelete.size());
-    }
-    return result;
-  }
   /** Helper function to dump contents for map in debugging mode. */
   private void logPropertiesMap(Map<String, String> map) {
     log.debug(" === Printing the table properties within doCommit method === ");
