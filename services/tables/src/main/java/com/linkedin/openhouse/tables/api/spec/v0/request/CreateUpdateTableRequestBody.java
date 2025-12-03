@@ -68,6 +68,15 @@ public class CreateUpdateTableRequestBody {
 
   @Schema(
       nullable = true,
+      description =
+          "Map of intermediate schemas to store when updating multiple schemas at once, typically through replication. "
+              + "This is used to preserve schema history when multiple schema updates occur in a single commit.",
+      example =
+          "{\"1\": \"{\\\"type\\\": \\\"struct\\\", \\\"fields\\\": [...]}\", \"2\": \"{...}\"}")
+  private Map<String, String> intermediateSchemas;
+
+  @Schema(
+      nullable = true,
       description = "Time partitioning of the table",
       example = "\"timePartitioning\":{\"columnName\":\"timestampCol\",\"granularity\":\"HOUR\"}")
   @Valid

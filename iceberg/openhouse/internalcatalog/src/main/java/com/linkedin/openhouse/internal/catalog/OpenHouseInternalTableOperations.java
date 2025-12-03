@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
@@ -188,10 +189,18 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
-  /** An internal helper method to rebuild the {@link TableMetadata} object. */
+  /**
+   * An internal helper method to rebuild the {@link TableMetadata} object with a parsed schema.
+   *
+   * @param newMetadata The current table metadata
+   * @param writerSchema The parsed schema object
+   * @param reuseMetadata Whether to reuse existing metadata or build from empty
+   * @return Rebuilt table metadata with the new schema
+   */
   private TableMetadata rebuildTblMetaWithSchema(
-      TableMetadata newMetadata, String schemaKey, boolean reuseMetadata) {
-    Schema writerSchema = SchemaParser.fromJson(newMetadata.properties().get(schemaKey));
+      TableMetadata newMetadata, String schemaJson, boolean reuseMetadata) {
+    Schema writerSchema = SchemaParser.fromJson(schemaJson);
+
     if (reuseMetadata) {
       return TableMetadata.buildFrom(newMetadata)
           .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
@@ -212,16 +221,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
 
-    /**
-     * During table creation, the table metadata object that arrives here has the field-ids
-     * reassigned from the client supplied schema.This code block creates a new table metadata
-     * object using the client supplied schema by preserving its field-ids.
-     */
-    if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA, false);
-    } else if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY, true);
-    }
+    // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
+    metadata = processSchemas(base, metadata);
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
@@ -254,6 +255,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
       }
+
+      if (properties.containsKey(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY)) {
+        properties.remove(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+      }
+
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
@@ -547,6 +553,72 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // it throw AlreadyExistsException and will not trigger retry.
       metricsReporter.count(InternalCatalogMetricsConstant.MISSING_COMMIT_KEY);
     }
+  }
+
+  /**
+   * Process all schema-related operations including client schema (for new tables), evolved schema
+   * (for updates), and intermediate schemas (for replication scenarios). This consolidates all
+   * schema handling logic into a single method.
+   *
+   * @param base The base table metadata (null for new tables)
+   * @param metadata The current table metadata
+   * @return Updated table metadata with all schema changes applied
+   */
+  private TableMetadata processSchemas(TableMetadata base, TableMetadata metadata) {
+    boolean isNewTable = (base == null);
+    String finalSchemaUpdate =
+        isNewTable && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null
+            ? metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA)
+            : metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY);
+    String serializedIntermediateSchemas =
+        metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+
+    TableMetadata updatedMetadata = metadata;
+
+    // Process intermediate schemas first if present
+    if (serializedIntermediateSchemas != null) {
+      Map<String, String> intermediateSchemas =
+          new GsonBuilder()
+              .create()
+              .fromJson(
+                  serializedIntermediateSchemas,
+                  new com.google.gson.reflect.TypeToken<Map<String, String>>() {}.getType());
+
+      // Sort by schema ID to process in order
+      List<Map.Entry<String, String>> sortedSchemas =
+          intermediateSchemas.entrySet().stream()
+              .sorted(Map.Entry.comparingByKey())
+              .collect(Collectors.toList());
+
+      // Process each intermediate schema to rebuild the schema evolution history
+      for (Map.Entry<String, String> entry : sortedSchemas) {
+        String schemaId = entry.getKey();
+        String schemaJson = entry.getValue();
+
+        try {
+          log.info("Processing intermediate schema ID {} for table {}", schemaId, tableIdentifier);
+          updatedMetadata = rebuildTblMetaWithSchema(updatedMetadata, schemaJson, !isNewTable);
+        } catch (Exception e) {
+          log.error(
+              "Failed to process intermediate schema with ID {} for table {}: {}",
+              schemaId,
+              tableIdentifier,
+              e.getMessage(),
+              e);
+          throw new RuntimeException(
+              String.format(
+                  "Failed to process intermediate schema %s for table %s",
+                  schemaId, tableIdentifier),
+              e);
+        }
+      }
+    }
+    if (finalSchemaUpdate != null) {
+      // Then apply the final schema (either client schema for new tables or evolved schema for
+      // updates)
+      updatedMetadata = rebuildTblMetaWithSchema(updatedMetadata, finalSchemaUpdate, !isNewTable);
+    }
+    return updatedMetadata;
   }
 
   /** Helper function to dump contents for map in debugging mode. */
