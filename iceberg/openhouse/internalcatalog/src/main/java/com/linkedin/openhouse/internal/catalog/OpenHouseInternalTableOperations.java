@@ -23,7 +23,6 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -287,9 +286,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         Set<Long> newIds =
             snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
-        // 2. Add new snapshots (sorted by sequence number to satisfy builder validation)
+        // 2. Add new snapshots
         snapshotsToPut.stream()
-            .sorted(Comparator.comparingLong(Snapshot::sequenceNumber))
             .filter(s -> !existingIds.contains(s.snapshotId()))
             .forEach(builder::addSnapshot);
 
