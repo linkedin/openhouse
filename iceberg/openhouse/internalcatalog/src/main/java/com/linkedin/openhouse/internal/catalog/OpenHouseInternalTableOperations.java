@@ -23,7 +23,7 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +35,6 @@ import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.PartitionField;
@@ -44,7 +43,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
-import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
@@ -60,7 +58,6 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
-import org.springframework.data.util.Pair;
 
 @AllArgsConstructor
 @Slf4j
@@ -69,8 +66,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   HouseTableRepository houseTableRepository;
 
   FileIO fileIO;
-
-  SnapshotInspector snapshotInspector;
 
   HouseTableMapper houseTableMapper;
 
@@ -277,19 +272,42 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (serializedSnapshotsToPut != null) {
         List<Snapshot> snapshotsToPut =
             SnapshotsUtil.parseSnapshots(fileIO, serializedSnapshotsToPut);
-        Pair<List<Snapshot>, List<Snapshot>> snapshotsDiff =
-            SnapshotsUtil.symmetricDifferenceSplit(snapshotsToPut, updatedMetadata.snapshots());
-        List<Snapshot> appendedSnapshots = snapshotsDiff.getFirst();
-        List<Snapshot> deletedSnapshots = snapshotsDiff.getSecond();
-        snapshotInspector.validateSnapshotsUpdate(
-            updatedMetadata, appendedSnapshots, deletedSnapshots);
         Map<String, SnapshotRef> snapshotRefs =
             serializedSnapshotRefs == null
                 ? new HashMap<>()
                 : SnapshotsUtil.parseSnapshotRefs(serializedSnapshotRefs);
-        updatedMetadata =
-            maybeAppendSnapshots(updatedMetadata, appendedSnapshots, snapshotRefs, true);
-        updatedMetadata = maybeDeleteSnapshots(updatedMetadata, deletedSnapshots);
+
+        TableMetadata.Builder builder = TableMetadata.buildFrom(updatedMetadata);
+
+        // 1. Identify which snapshots are new vs existing
+        Set<Long> existingIds =
+            updatedMetadata.snapshots().stream()
+                .map(Snapshot::snapshotId)
+                .collect(Collectors.toSet());
+        Set<Long> newIds =
+            snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+
+        // 2. Add new snapshots (sorted by sequence number to satisfy builder validation)
+        snapshotsToPut.stream()
+            .sorted(Comparator.comparingLong(Snapshot::sequenceNumber))
+            .filter(s -> !existingIds.contains(s.snapshotId()))
+            .forEach(builder::addSnapshot);
+
+        // 3. Remove snapshots that are no longer present in the client payload
+        List<Long> toRemove =
+            existingIds.stream().filter(id -> !newIds.contains(id)).collect(Collectors.toList());
+        if (!toRemove.isEmpty()) {
+          builder.removeSnapshots(toRemove);
+        }
+
+        // 4. Sync Refs: Remove refs not in payload, Set/Update refs from payload
+        updatedMetadata.refs().keySet().stream()
+            .filter(ref -> !snapshotRefs.containsKey(ref))
+            .forEach(builder::removeRef);
+
+        snapshotRefs.forEach(builder::setRef);
+
+        updatedMetadata = builder.build();
       }
 
       final TableMetadata updatedMtDataRef = updatedMetadata;
@@ -553,103 +571,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
     return result;
   }
-
-  public TableMetadata maybeAppendSnapshots(
-      TableMetadata metadata,
-      List<Snapshot> snapshotsToAppend,
-      Map<String, SnapshotRef> snapshotRefs,
-      boolean recordAction) {
-    TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
-    List<String> appendedSnapshots = new ArrayList<>();
-    List<String> stagedSnapshots = new ArrayList<>();
-    List<String> cherryPickedSnapshots = new ArrayList<>();
-    // Throw an exception if client sent request that included non-main branches in the
-    // snapshotRefs.
-    for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
-      if (!entry.getKey().equals(SnapshotRef.MAIN_BRANCH)) {
-        throw new UnsupportedOperationException("OpenHouse supports only MAIN branch");
-      }
-    }
-    /**
-     * First check if there are new snapshots to be appended to current TableMetadata. If yes,
-     * following are the cases to be handled:
-     *
-     * <p>[1] A regular (non-wap) snapshot is being added to the MAIN branch.
-     *
-     * <p>[2] A staged (wap) snapshot is being created on top of current snapshot as its base.
-     * Recognized by STAGED_WAP_ID_PROP.
-     *
-     * <p>[3] A staged (wap) snapshot is being cherry picked to the MAIN branch wherein current
-     * snapshot in the MAIN branch is not the same as the base snapshot the staged (wap) snapshot
-     * was created on. Recognized by SOURCE_SNAPSHOT_ID_PROP. This case is called non-fast forward
-     * cherry pick.
-     *
-     * <p>In case no new snapshots are to be appended to current TableMetadata, there could be a
-     * cherrypick of a staged (wap) snapshot on top of the current snapshot in the MAIN branch which
-     * is the same as the base snapshot the staged (wap) snapshot was created on. This case is
-     * called fast forward cherry pick.
-     */
-    if (CollectionUtils.isNotEmpty(snapshotsToAppend)) {
-      for (Snapshot snapshot : snapshotsToAppend) {
-        snapshotInspector.validateSnapshot(snapshot);
-        if (snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)) {
-          // a stage only snapshot using wap.id
-          metadataBuilder.addSnapshot(snapshot);
-          stagedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-        } else if (snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)) {
-          // a snapshot created on a non fast-forward cherry-pick snapshot
-          metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
-          appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-          cherryPickedSnapshots.add(
-              String.valueOf(snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)));
-        } else {
-          // a regular snapshot
-          metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
-          appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-        }
-      }
-    } else if (MapUtils.isNotEmpty(snapshotRefs)) {
-      // Updated ref in the main branch with no new snapshot means this is a
-      // fast-forward cherry-pick or rollback operation.
-      long newSnapshotId = snapshotRefs.get(SnapshotRef.MAIN_BRANCH).snapshotId();
-      // Either the current snapshot is null or the current snapshot is not equal
-      // to the new snapshot indicates an update. The first case happens when the
-      // stage/wap snapshot being cherry-picked is the first snapshot.
-      if (MapUtils.isEmpty(metadata.refs())
-          || metadata.refs().get(SnapshotRef.MAIN_BRANCH).snapshotId() != newSnapshotId) {
-        metadataBuilder.setBranchSnapshot(newSnapshotId, SnapshotRef.MAIN_BRANCH);
-        cherryPickedSnapshots.add(String.valueOf(newSnapshotId));
-      }
-    }
-    if (recordAction) {
-      Map<String, String> updatedProperties = new HashMap<>(metadata.properties());
-      if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-            appendedSnapshots.stream().collect(Collectors.joining(",")));
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedSnapshots.size());
-      }
-      if (CollectionUtils.isNotEmpty(stagedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-            stagedSnapshots.stream().collect(Collectors.joining(",")));
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, stagedSnapshots.size());
-      }
-      if (CollectionUtils.isNotEmpty(cherryPickedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-            cherryPickedSnapshots.stream().collect(Collectors.joining(",")));
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR,
-            cherryPickedSnapshots.size());
-      }
-      metadataBuilder.setProperties(updatedProperties);
-    }
-    return metadataBuilder.build();
-  }
-
   /** Helper function to dump contents for map in debugging mode. */
   private void logPropertiesMap(Map<String, String> map) {
     log.debug(" === Printing the table properties within doCommit method === ");

@@ -8,7 +8,7 @@ import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
-import com.linkedin.openhouse.internal.catalog.SnapshotInspector;
+import com.linkedin.openhouse.internal.catalog.SnapshotDiffApplier;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -60,11 +60,11 @@ public class RepositoryTestWithSettableComponents {
 
   @Autowired FileIOManager fileIOManager;
 
-  @Autowired SnapshotInspector snapshotInspector;
-
   @Autowired HouseTableMapper houseTableMapper;
 
   @Autowired MeterRegistry meterRegistry;
+
+  @Autowired SnapshotDiffApplier snapshotDiffApplier;
 
   FileIO fileIO;
 
@@ -97,15 +97,17 @@ public class RepositoryTestWithSettableComponents {
 
     // construct a real table object to prepare subsequent client call for table-update (that they
     // will fail)
+    MetricsReporter metricsReporter =
+        new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
     OpenHouseInternalTableOperations actualOps =
         new OpenHouseInternalTableOperations(
             houseTablesRepository,
             fileIO,
-            snapshotInspector,
             houseTableMapper,
             tableIdentifier,
-            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
-            fileIOManager);
+            metricsReporter,
+            fileIOManager,
+            snapshotDiffApplier);
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
     creationDTO = openHouseInternalRepository.save(creationDTO);
@@ -114,15 +116,17 @@ public class RepositoryTestWithSettableComponents {
 
     // injecting mocked htsRepo within a tableOperation that fails doCommit method.
     // The requirement to trigger htsRepo.save call are: Detectable updates in Transaction itself.
+    MetricsReporter metricsReporter2 =
+        new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
     OpenHouseInternalTableOperations mockOps =
         new OpenHouseInternalTableOperations(
             htsRepo,
             fileIO,
-            snapshotInspector,
             houseTableMapper,
             tableIdentifier,
-            new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
-            fileIOManager);
+            metricsReporter2,
+            fileIOManager,
+            snapshotDiffApplier);
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
     doReturn(actualOps.current()).when(spyOperations).refresh();
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
@@ -195,15 +199,17 @@ public class RepositoryTestWithSettableComponents {
 
     for (Class c : exs) {
       HouseTableRepository htsRepo = provideFailedHtsRepoWhenGet(c);
+      MetricsReporter metricsReporter =
+          new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
       OpenHouseInternalTableOperations mockOps =
           new OpenHouseInternalTableOperations(
               htsRepo,
               fileIO,
-              snapshotInspector,
               houseTableMapper,
               tableIdentifier,
-              new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList()),
-              fileIOManager);
+              metricsReporter,
+              fileIOManager,
+              snapshotDiffApplier);
       OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
       BaseTable spyOptsMockedTable =
           Mockito.spy(
