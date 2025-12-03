@@ -8,7 +8,6 @@ import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
-import com.linkedin.openhouse.internal.catalog.SnapshotDiffApplier;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -64,8 +63,6 @@ public class RepositoryTestWithSettableComponents {
 
   @Autowired MeterRegistry meterRegistry;
 
-  @Autowired SnapshotDiffApplier snapshotDiffApplier;
-
   FileIO fileIO;
 
   @PostConstruct
@@ -106,8 +103,7 @@ public class RepositoryTestWithSettableComponents {
             houseTableMapper,
             tableIdentifier,
             metricsReporter,
-            fileIOManager,
-            snapshotDiffApplier);
+            fileIOManager);
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
     creationDTO = openHouseInternalRepository.save(creationDTO);
@@ -125,8 +121,7 @@ public class RepositoryTestWithSettableComponents {
             houseTableMapper,
             tableIdentifier,
             metricsReporter2,
-            fileIOManager,
-            snapshotDiffApplier);
+            fileIOManager);
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
     doReturn(actualOps.current()).when(spyOperations).refresh();
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
@@ -208,8 +203,7 @@ public class RepositoryTestWithSettableComponents {
               houseTableMapper,
               tableIdentifier,
               metricsReporter,
-              fileIOManager,
-              snapshotDiffApplier);
+              fileIOManager);
       OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
       BaseTable spyOptsMockedTable =
           Mockito.spy(
