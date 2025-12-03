@@ -9,6 +9,7 @@ import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
+import com.linkedin.openhouse.jobs.scheduler.tasks.DatabaseOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfo;
 import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfoManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationMode;
@@ -100,7 +101,8 @@ public class JobsScheduler {
         .forEach(
             subclass -> {
               if (!subclass.equals(TableOperationTask.class)
-                  && !subclass.equals(TableDirectoryOperationTask.class)) {
+                  && !subclass.equals(TableDirectoryOperationTask.class)
+                  && !subclass.equals(DatabaseOperationTask.class)) {
                 try {
                   Field nameField = subclass.getDeclaredField("OPERATION_TYPE");
                   OPERATIONS_REGISTRY.put(
