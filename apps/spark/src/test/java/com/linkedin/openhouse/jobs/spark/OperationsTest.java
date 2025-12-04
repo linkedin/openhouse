@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.tables.client.model.Policies;
@@ -56,7 +57,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1, false, "");
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now());
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
@@ -157,7 +158,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
-    ops.runRetention(tableName, column, pattern, granularity, 2, false, "");
+    ops.runRetention(tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now());
   }
 
   @Test
@@ -169,7 +170,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2, false, "");
+      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now());
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -213,19 +214,22 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', '%s', '%s', 0), ('b', '%s', '%s', 0)",
                   tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
-      ops.runRetention(tableName, columnName, columnPattern, granularity, count, true, ".backup");
+      ZonedDateTime now = ZonedDateTime.now();
+      ops.runRetention(
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
       Path firstManifestPath =
           new Path(
               String.format(
-                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
-                  table.location(), twoDayAgoDate, twoDayAgoHour));
+                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/%s",
+                  table.location(), twoDayAgoDate, twoDayAgoHour, manifestName));
       Path secondManifestPath =
           new Path(
               String.format(
-                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
-                  table.location(), threeDayAgoDate, threeDayAgoHour));
+                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/%s",
+                  table.location(), threeDayAgoDate, threeDayAgoHour, manifestName));
       Assertions.assertTrue(ops.fs().exists(firstManifestPath));
       Assertions.assertTrue(ops.fs().exists(secondManifestPath));
       try (InputStream in = ops.fs().open(firstManifestPath);
@@ -246,6 +250,8 @@ public class OperationsTest extends OpenHouseSparkITest {
             oneDataFilePath.startsWith(secondManifestPath.getParent().toString())
                 && oneDataFilePath.endsWith(".orc"));
       }
+      Assertions.assertEquals(
+          table.location() + "/.backup", table.properties().get(AppConstants.BACKUP_DIR_KEY));
     }
   }
 
@@ -277,13 +283,16 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
                   tableName, today, twoDayAgo));
-      ops.runRetention(tableName, columnName, columnPattern, granularity, count, true, ".backup");
+      ZonedDateTime now = ZonedDateTime.now();
+      ops.runRetention(
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
       Path manifestPath =
           new Path(
               String.format(
-                  "%s/.backup/data/ts_day=%s/data_manifest.json", table.location(), twoDayAgo));
+                  "%s/.backup/data/ts_day=%s/%s", table.location(), twoDayAgo, manifestName));
       Assertions.assertTrue(ops.fs().exists(manifestPath));
       try (InputStream in = ops.fs().open(manifestPath);
           InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
@@ -294,6 +303,8 @@ public class OperationsTest extends OpenHouseSparkITest {
             oneDataFilePath.startsWith(manifestPath.getParent().toString())
                 && oneDataFilePath.endsWith(".orc"));
       }
+      Assertions.assertEquals(
+          table.location() + "/.backup", table.properties().get(AppConstants.BACKUP_DIR_KEY));
     }
   }
 

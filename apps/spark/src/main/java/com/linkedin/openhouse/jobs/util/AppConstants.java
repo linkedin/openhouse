@@ -50,5 +50,9 @@ public final class AppConstants {
   public static final String QUEUED_TIME = "queued_time";
   public static final String DATABASE_NAME = "database_name";
 
+  // Maintenance jobs table properties keys
+  public static final String BACKUP_ENABLED_KEY = "retention.backup.enabled";
+  public static final String BACKUP_DIR_KEY = "retention.backup.dir";
+
   private AppConstants() {}
 }

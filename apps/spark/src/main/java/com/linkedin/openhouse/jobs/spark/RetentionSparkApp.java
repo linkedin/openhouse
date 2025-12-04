@@ -3,7 +3,9 @@ package com.linkedin.openhouse.jobs.spark;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -23,12 +25,11 @@ import org.apache.iceberg.Table;
  */
 @Slf4j
 public class RetentionSparkApp extends BaseTableSparkApp {
-  public static final String BACKUP_ENABLED_KEY = "retention.backup.enabled";
-  public static final String BACKUP_DIR_KEY = "retention.backup.dir";
   private final String columnName;
   private final String columnPattern;
   private final String granularity;
   private final int count;
+  private final String backupDir;
 
   public RetentionSparkApp(
       String jobId,
@@ -38,30 +39,35 @@ public class RetentionSparkApp extends BaseTableSparkApp {
       String columnPattern,
       String granularity,
       int count,
-      OtelEmitter otelEmitter) {
+      OtelEmitter otelEmitter,
+      String backupDir) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.columnName = columnName;
     this.columnPattern = columnPattern;
     this.granularity = granularity;
     this.count = count;
+    this.backupDir = backupDir;
   }
 
   @Override
   protected void runInner(Operations ops) {
     Table table = ops.getTable(fqtn);
     boolean backupEnabled =
-        Boolean.parseBoolean(table.properties().getOrDefault(BACKUP_ENABLED_KEY, "false"));
-    String backupDir = table.properties().getOrDefault(BACKUP_DIR_KEY, ".backup");
+        Boolean.parseBoolean(
+            table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
+    ZonedDateTime now = ZonedDateTime.now();
     log.info(
-        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}",
+        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, ts={}",
         fqtn,
         columnName,
         columnPattern,
         count,
         granularity,
         backupEnabled,
-        backupDir);
-    ops.runRetention(fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir);
+        backupDir,
+        now);
+    ops.runRetention(
+        fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
   }
 
   public static void main(String[] args) {
@@ -77,6 +83,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("cp", "columnPattern", true, "Retention column pattern"));
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day, week"));
     extraOptions.add(new Option("c", "count", true, "Retain last <count> <granularity>s"));
+    extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new RetentionSparkApp(
         getJobId(cmdLine),
@@ -86,6 +93,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         cmdLine.getOptionValue("columnPattern", ""),
         cmdLine.getOptionValue("granularity"),
         Integer.parseInt(cmdLine.getOptionValue("count")),
-        otelEmitter);
+        otelEmitter,
+        cmdLine.getOptionValue("backupDir", ".backup"));
   }
 }
