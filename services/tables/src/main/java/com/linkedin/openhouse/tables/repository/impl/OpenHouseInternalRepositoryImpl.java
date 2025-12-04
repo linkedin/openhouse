@@ -502,7 +502,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       UpdateProperties updateProperties, TableDto tableDto) {
     if (MapUtils.isNotEmpty(tableDto.getIntermediateSchemas())) {
       updateProperties.set(
-          INTERMEDIATE_SCHEMAS_KEY, SnapshotsUtil.serializeMap(tableDto.getIntermediateSchemas()));
+          INTERMEDIATE_SCHEMAS_KEY,
+          new GsonBuilder().create().toJson(tableDto.getIntermediateSchemas()));
       log.info(
           "Setting {} intermediate schemas for table {}.{}",
           tableDto.getIntermediateSchemas().size(),
