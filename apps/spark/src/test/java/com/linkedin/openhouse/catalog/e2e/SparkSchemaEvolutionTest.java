@@ -1,11 +1,19 @@
 package com.linkedin.openhouse.catalog.e2e;
 
+import com.linkedin.openhouse.javaclient.OpenHouseCatalog;
 import com.linkedin.openhouse.jobs.spark.Operations;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.SparkSchemaUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
@@ -18,6 +26,7 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import scala.collection.JavaConverters;
 
 public class SparkSchemaEvolutionTest extends OpenHouseSparkITest {
 
@@ -98,5 +107,70 @@ public class SparkSchemaEvolutionTest extends OpenHouseSparkITest {
         spark.sql("DROP TABLE openhouse.d1.t1");
       }
     }
+  }
+
+  @Test
+  void testMultiSchemaEvolution() throws Exception {
+    SparkSession spark = null;
+    try {
+      spark = getSparkSession();
+      spark.sql(
+          "CREATE TABLE openhouse.d1.t2 (name string, id int) TBLPROPERTIES ('openhouse.tableType' = 'REPLICA_TABLE');");
+      spark.sql("INSERT INTO openhouse.d1.t2 VALUES ('Alice', 1)");
+      spark.sql("INSERT INTO openhouse.d1.t2 VALUES ('Bob', 2), ('Charlie', 3)");
+      TableIdentifier tableIdentifier = TableIdentifier.of("d1", "t2");
+      OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
+      TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
+      Schema evolvedSchema =
+          new Schema(
+              Types.NestedField.optional(1, "name", Types.StringType.get()),
+              Types.NestedField.optional(2, "id", Types.IntegerType.get()),
+              Types.NestedField.optional(3, "newCol", Types.IntegerType.get()));
+      Schema evolvedFinalSchema =
+          new Schema(
+              Types.NestedField.optional(1, "name", Types.StringType.get()),
+              Types.NestedField.optional(2, "id", Types.IntegerType.get()),
+              Types.NestedField.optional(3, "newCol1", Types.IntegerType.get()),
+              Types.NestedField.optional(4, "newCol2", Types.IntegerType.get()));
+
+      TableMetadata metadata = ops.current();
+      TableMetadata evolvedMetadata =
+          TableMetadata.buildFrom(metadata)
+              .addSchema(evolvedSchema, evolvedSchema.highestFieldId())
+              .build();
+      TableMetadata finalEvolvedMetadata =
+          TableMetadata.buildFrom(evolvedMetadata)
+              .addSchema(evolvedFinalSchema, evolvedFinalSchema.highestFieldId())
+              .setCurrentSchema(2)
+              .build();
+
+      Assertions.assertEquals(finalEvolvedMetadata.schemas().size(), 3);
+      ops.commit(metadata, finalEvolvedMetadata);
+      TableMetadata result = ops.current();
+      Assertions.assertEquals(3, result.schemas().size());
+
+    } finally {
+      if (spark != null) {
+        spark.sql("DROP TABLE openhouse.d1.t2");
+      }
+    }
+  }
+
+  private Catalog getOpenHouseCatalog(SparkSession spark) {
+    final Map<String, String> catalogProperties = new HashMap<>();
+    final String catalogPropertyPrefix = "spark.sql.catalog.openhouse.";
+    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
+    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
+      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
+        catalogProperties.put(
+            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
+      }
+    }
+    // this initializes the catalog based on runtime Catalog class passed in catalog-impl conf.
+    return CatalogUtil.loadCatalog(
+        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
+        "openhouse",
+        catalogProperties,
+        spark.sparkContext().hadoopConfiguration());
   }
 }

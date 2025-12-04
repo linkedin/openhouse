@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -186,6 +187,17 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
       createUpdateTableRequestBody.setTableType(getTableType(base, metadata));
     }
+    if (isMultiSchemaUpdateCommit(base, metadata)
+        && getTableType(base, metadata)
+            == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE) {
+      Map<String, String> intermediateSchemas = new HashMap<>();
+      int startSchemaId = base == null ? 0 : base.currentSchemaId() + 1;
+      for (int i = startSchemaId; i < metadata.currentSchemaId(); i++) {
+        intermediateSchemas.put(
+            String.valueOf(i), SchemaParser.toJson(metadata.schemasById().get(i), false));
+      }
+      createUpdateTableRequestBody.setIntermediateSchemas(intermediateSchemas);
+    }
     // If base table is a replicated table, retain the property from base table
     if (base != null && base.properties().containsKey(OPENHOUSE_IS_TABLE_REPLICATED_KEY)) {
       Map<String, String> newTblProperties = createUpdateTableRequestBody.getTableProperties();
@@ -295,6 +307,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     }
     return !base.snapshots().equals(newMetadata.snapshots())
         || !base.refs().equals(newMetadata.refs());
+  }
+
+  protected boolean isMultiSchemaUpdateCommit(TableMetadata base, TableMetadata newMetadata) {
+    return (base == null && newMetadata.currentSchemaId() > 0)
+        || (base != null && newMetadata.currentSchemaId() > base.currentSchemaId() + 1);
   }
 
   /**
