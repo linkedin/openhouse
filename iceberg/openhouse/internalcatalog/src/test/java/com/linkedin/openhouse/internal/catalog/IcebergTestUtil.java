@@ -14,7 +14,6 @@ import org.apache.iceberg.SnapshotRefParser;
 
 public final class IcebergTestUtil {
   private static final String SNAPSHOTS_FILE = "serialized_snapshots.json";
-  private static final String FUTURE_SNAPSHOTS_FILE = "future_serialized_snapshots.json";
   private static final String EXTRA_SNAPSHOTS_FILE = "extra_serialized_snapshots.json";
   private static final String WAP_SNAPSHOTS_FILE = "wap_serialized_snapshots.json";
 
@@ -22,10 +21,6 @@ public final class IcebergTestUtil {
 
   public static List<Snapshot> getSnapshots() throws IOException {
     return loadSnapshots(SNAPSHOTS_FILE);
-  }
-
-  public static List<Snapshot> getFutureSnapshots() throws IOException {
-    return loadSnapshots(FUTURE_SNAPSHOTS_FILE);
   }
 
   public static List<Snapshot> getExtraSnapshots() throws IOException {
@@ -44,15 +39,14 @@ public final class IcebergTestUtil {
     return SnapshotsUtil.parseSnapshots(null, data);
   }
 
-  public static Map<String, String> obtainSnapshotRefsFromSnapshot(Snapshot snapshot) {
+  public static Map<String, String> createMainBranchRefPointingTo(Snapshot snapshot) {
     Map<String, String> snapshotRefs = new HashMap<>();
     SnapshotRef snapshotRef = SnapshotRef.branchBuilder(snapshot.snapshotId()).build();
     snapshotRefs.put(SnapshotRef.MAIN_BRANCH, SnapshotRefParser.toJson(snapshotRef));
     return snapshotRefs;
   }
 
-  public static Map<String, String> obtainSnapshotRefsFromSnapshot(
-      Snapshot snapshot, String branch) {
+  public static Map<String, String> createBranchRefPointingTo(Snapshot snapshot, String branch) {
     Map<String, String> snapshotRefs = new HashMap<>();
     SnapshotRef snapshotRef = SnapshotRef.branchBuilder(snapshot.snapshotId()).build();
     snapshotRefs.put(branch, SnapshotRefParser.toJson(snapshotRef));
