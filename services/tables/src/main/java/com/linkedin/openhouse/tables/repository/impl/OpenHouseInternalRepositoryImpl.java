@@ -440,10 +440,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (!writeSchema.sameSchema(tableSchema)) {
       try {
         schemaValidator.validateWriteSchema(tableSchema, writeSchema, tableDto.getTableUri());
-        log.info("Intermediate schemas: " + tableDto.getIntermediateSchemas());
         doSetIntermediateSchemasIfNeeded(updateProperties, tableDto);
         updateProperties.set(CatalogConstants.EVOLVED_SCHEMA_KEY, SchemaParser.toJson(writeSchema));
-        // Also set intermediate schemas if provided
         return true;
       } catch (Exception e) {
         // TODO: Make upstream change to have explicit SchemaEvolutionFailureException

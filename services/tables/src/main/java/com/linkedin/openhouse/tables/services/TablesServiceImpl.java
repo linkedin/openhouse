@@ -29,7 +29,6 @@ import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -40,7 +39,6 @@ import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
 /** Default Table Service Implementation for /tables REST endpoint. */
-@Slf4j
 @Component
 public class TablesServiceImpl implements TablesService {
 
@@ -97,6 +95,7 @@ public class TablesServiceImpl implements TablesService {
     Optional<TableDto> tableDto =
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+
     // Special case handling
     if (tableDto.isPresent()) {
       if (failOnExist) {
