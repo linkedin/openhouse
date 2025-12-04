@@ -187,6 +187,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
       createUpdateTableRequestBody.setTableType(getTableType(base, metadata));
     }
+    // TODO: consider allowing this for any table type, not just replica tables
     if (isMultiSchemaUpdateCommit(base, metadata)
         && getTableType(base, metadata)
             == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE) {

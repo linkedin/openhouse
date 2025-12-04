@@ -596,7 +596,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         String schemaJson = entry.getValue();
 
         try {
-          log.info("Processing intermediate schema ID {} for table {}", schemaId, tableIdentifier);
           updatedMetadata = rebuildTblMetaWithSchema(updatedMetadata, schemaJson, !isNewTable);
         } catch (Exception e) {
           log.error(
@@ -617,6 +616,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // Then apply the final schema (either client schema for new tables or evolved schema for
       // updates)
       updatedMetadata = rebuildTblMetaWithSchema(updatedMetadata, finalSchemaUpdate, !isNewTable);
+      log.info("Schema after commit is " + updatedMetadata.schema());
     }
     return updatedMetadata;
   }
