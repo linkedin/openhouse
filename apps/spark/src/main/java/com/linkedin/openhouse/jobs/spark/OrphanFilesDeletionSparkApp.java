@@ -28,15 +28,18 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 @Slf4j
 public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   private final long ttlSeconds;
+  private final String backupDir;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
       StateManager stateManager,
       String fqtn,
       long ttlSeconds,
-      OtelEmitter otelEmitter) {
+      OtelEmitter otelEmitter,
+      String backupDir) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.ttlSeconds = ttlSeconds;
+    this.backupDir = backupDir;
   }
 
   @Override
@@ -46,8 +49,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
     Table table = ops.getTable(fqtn);
     boolean backupEnabled =
         Boolean.parseBoolean(
-            table.properties().getOrDefault(RetentionSparkApp.BACKUP_ENABLED_KEY, "false"));
-    String backupDir = table.properties().getOrDefault(RetentionSparkApp.BACKUP_DIR_KEY, ".backup");
+            table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
     log.info(
         "Orphan files deletion app start for table={} with olderThanTimestampMillis={} backupEnabled={} and backupDir={}",
         fqtn,
@@ -89,6 +91,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
     extraOptions.add(
         new Option(
             "s", "skipStaging", false, "Whether to skip staging orphan files before deletion"));
+    extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new OrphanFilesDeletionSparkApp(
         getJobId(cmdLine),
@@ -97,6 +100,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         Math.max(
             NumberUtils.toLong(cmdLine.getOptionValue("ttl"), TimeUnit.DAYS.toSeconds(7)),
             TimeUnit.DAYS.toSeconds(1)),
-        otelEmitter);
+        otelEmitter,
+        cmdLine.getOptionValue("backupDir", ".backup"));
   }
 }
