@@ -184,11 +184,19 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+    CommandLine cmdLine = createCommandLine(args);
+    DataLayoutStrategyGeneratorSparkApp app =
+        new DataLayoutStrategyGeneratorSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            cmdLine.getOptionValue("tableName"),
+            cmdLine.getOptionValue("outputTableName"),
+            cmdLine.getOptionValue("partitionLevelOutputTableName"),
+            otelEmitter);
+    app.run();
   }
 
-  public static DataLayoutStrategyGeneratorSparkApp createApp(
-      String[] args, OtelEmitter otelEmitter) {
+  protected static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(
@@ -203,13 +211,6 @@ public class DataLayoutStrategyGeneratorSparkApp extends BaseTableSparkApp {
             "partitionLevelOutputTableName",
             true,
             "Fully-qualified table name used to store strategies at partition level"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return new DataLayoutStrategyGeneratorSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        cmdLine.getOptionValue("tableName"),
-        cmdLine.getOptionValue("outputTableName"),
-        cmdLine.getOptionValue("partitionLevelOutputTableName"),
-        otelEmitter);
+    return createCommandLine(args, extraOptions);
   }
 }

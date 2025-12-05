@@ -84,24 +84,25 @@ public class OrphanTableDirectoryDeletionSparkApp extends BaseTableDirectorySpar
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+    CommandLine cmdLine = createCommandLine(args);
+    OrphanTableDirectoryDeletionSparkApp app =
+        new OrphanTableDirectoryDeletionSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            new Path(cmdLine.getOptionValue("tableDirectoryPath")),
+            cmdLine.getOptionValue("trashDir", ".trash"),
+            Integer.parseInt(cmdLine.getOptionValue("orphanDaysOld", "7")),
+            Integer.parseInt(cmdLine.getOptionValue("stagedDeleteDaysOld", "3")),
+            otelEmitter);
+    app.run();
   }
 
-  public static OrphanTableDirectoryDeletionSparkApp createApp(
-      String[] args, OtelEmitter otelEmitter) {
+  protected static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableDirectoryPath", true, "Path to the directory"));
     extraOptions.add(new Option("b", "trashDir", false, "Trash dir to perform delete action"));
     extraOptions.add(new Option("o", "orphanDaysOld", false, "Days old files are staged"));
     extraOptions.add(new Option("d", "stagedDeleteDaysOld", false, "Days old files are deleted"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return new OrphanTableDirectoryDeletionSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        new Path(cmdLine.getOptionValue("tableDirectoryPath")),
-        cmdLine.getOptionValue("trashDir", ".trash"),
-        Integer.parseInt(cmdLine.getOptionValue("orphanDaysOld", "7")),
-        Integer.parseInt(cmdLine.getOptionValue("stagedDeleteDaysOld", "3")),
-        otelEmitter);
+    return createCommandLine(args, extraOptions);
   }
 }

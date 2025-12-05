@@ -65,10 +65,20 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+    CommandLine cmdLine = createCommandLine(args);
+    SnapshotsExpirationSparkApp app =
+        new SnapshotsExpirationSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            cmdLine.getOptionValue("tableName"),
+            Integer.parseInt(cmdLine.getOptionValue("maxAge", "0")),
+            cmdLine.getOptionValue("granularity", ""),
+            Integer.parseInt(cmdLine.getOptionValue("versions", "0")),
+            otelEmitter);
+    app.run();
   }
 
-  public static SnapshotsExpirationSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
+  protected static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(
@@ -76,14 +86,6 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day"));
     extraOptions.add(
         new Option("v", "versions", true, "Number of versions to keep after snapshot expiration"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return new SnapshotsExpirationSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        cmdLine.getOptionValue("tableName"),
-        Integer.parseInt(cmdLine.getOptionValue("maxAge", "0")),
-        cmdLine.getOptionValue("granularity", ""),
-        Integer.parseInt(cmdLine.getOptionValue("versions", "0")),
-        otelEmitter);
+    return createCommandLine(args, extraOptions);
   }
 }

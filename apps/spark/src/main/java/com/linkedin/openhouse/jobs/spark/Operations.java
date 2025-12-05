@@ -23,6 +23,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -97,48 +98,19 @@ public final class Operations implements AutoCloseable {
    * given backup directory if backup is enabled. It moves files older than the provided timestamp.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
-      Table table, long olderThanTimestampMillis, boolean backupEnabled, String backupDir) {
+      Table table,
+      long olderThanTimestampMillis,
+      BackupManager backupManager,
+      boolean backupEnabled) {
 
-    DeleteOrphanFiles operation = SparkActions.get(spark).deleteOrphanFiles(table);
+    DeleteOrphanFiles action = SparkActions.get(spark).deleteOrphanFiles(table);
     // if time filter is not provided it defaults to 3 days
     if (olderThanTimestampMillis > 0) {
-      operation = operation.olderThan(olderThanTimestampMillis);
+      action = action.olderThan(olderThanTimestampMillis);
     }
-    Path backupDirRoot = new Path(table.location(), backupDir);
-    Path dataDirRoot = new Path(table.location(), "data");
-    operation =
-        operation.deleteWith(
-            file -> {
-              log.info("Detected orphan file {}", file);
-              if (file.endsWith("metadata.json")) {
-                // Don't remove metadata.json files since current metadata.json is recognized as
-                // orphan because of inclusion of the scheme in its file path returned by catalog.
-                // Also, we want Iceberg commits to remove the metadata.json files not the OFD job.
-                log.info("Skipped deleting metadata file {}", file);
-              } else if (file.contains(backupDirRoot.toString())) {
-                // files present in .backup dir should not be considered orphan
-                log.info("Skipped deleting backup file {}", file);
-              } else if (file.contains(dataDirRoot.toString()) && backupEnabled) {
-                // move data files to backup dir if backup is enabled
-                Path backupFilePath = getTrashPath(table, file, backupDir);
-                log.info("Moving orphan file {} to {}", file, backupFilePath);
-                try {
-                  rename(new Path(file), backupFilePath);
-                  // update modification time to current time
-                  fs().setTimes(backupFilePath, System.currentTimeMillis(), -1);
-                } catch (IOException e) {
-                  log.error(String.format("Move operation failed for file: %s", file), e);
-                }
-              } else {
-                log.info("Deleting orphan file {}", file);
-                try {
-                  fs().delete(new Path(file), false);
-                } catch (IOException e) {
-                  log.error(String.format("Delete operation failed for file: %s", file), e);
-                }
-              }
-            });
-    return operation.execute();
+    action =
+        action.deleteWith(file -> backupManager.handleOrphanFile(this, table, file, backupEnabled));
+    return action.execute();
   }
 
   /**
@@ -252,7 +224,7 @@ public final class Operations implements AutoCloseable {
    * @param granularity time granularity in Hour, Day, Month, Year
    * @param count granularity count representing retention timeline for @fqtn records
    * @param backupEnabled flag to indicate if backup manifests need to be created for data files
-   * @param backupDir backup directory under which data manifests are created
+   * @param backupManager backup manager to handle backup of partition data files
    * @param now current timestamp to be used for retention calculation
    */
   public void runRetention(
@@ -262,14 +234,12 @@ public final class Operations implements AutoCloseable {
       String granularity,
       int count,
       boolean backupEnabled,
-      String backupDir,
+      BackupManager backupManager,
       ZonedDateTime now) {
     if (backupEnabled) {
-      // Cache of manifests: partitionPath -> list of data file path
-      Map<String, List<String>> manifestCache =
+      Map<String, List<String>> expiredDataFilesByPartition =
           prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
-      writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir, now);
-      exposeBackupLocation(getTable(fqtn), backupDir);
+      backupManager.processExpiredFiles(this, getTable(fqtn), expiredDataFilesByPartition, now);
     }
     final String statement =
         SparkJobUtil.createDeleteStatement(
@@ -304,46 +274,7 @@ public final class Operations implements AutoCloseable {
     }
   }
 
-  private void writeBackupDataManifests(
-      Map<String, List<String>> manifestCache, Table table, String backupDir, ZonedDateTime now) {
-    for (String partitionPath : manifestCache.keySet()) {
-      List<String> files = manifestCache.get(partitionPath);
-      List<String> backupFiles =
-          files.stream()
-              .map(file -> getTrashPath(table, file, backupDir).toString())
-              .collect(Collectors.toList());
-      Map<String, Object> jsonMap = new HashMap<>();
-      jsonMap.put("file_count", backupFiles.size());
-      jsonMap.put("files", backupFiles);
-      String jsonStr = new Gson().toJson(jsonMap);
-      // Create data_manifest.json
-      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
-      Path destPath =
-          getTrashPath(table, new Path(partitionPath, manifestName).toString(), backupDir);
-      try {
-        final FileSystem fs = fs();
-        if (!fs.exists(destPath.getParent())) {
-          fs.mkdirs(destPath.getParent());
-        }
-        try (FSDataOutputStream out = fs.create(destPath, true)) {
-          out.write(jsonStr.getBytes());
-        }
-        log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
-      } catch (IOException e) {
-        throw new RuntimeException("Failed to write data_manifest.json", e);
-      }
-    }
-  }
-
-  private void exposeBackupLocation(Table table, String backupDir) {
-    Path fullyQualifiedBackupDir = new Path(table.location(), backupDir);
-    spark.sql(
-        String.format(
-            "ALTER TABLE %s SET TBLPROPERTIES ('%s'='%s')",
-            table.name(), AppConstants.BACKUP_DIR_KEY, fullyQualifiedBackupDir));
-  }
-
-  private Path getTrashPath(String path, String filePath, String trashDir) {
+  private static Path getTrashPath(String path, String filePath, String trashDir) {
     return new Path(filePath.replace(path, new Path(path, trashDir).toString()));
   }
 
@@ -351,7 +282,7 @@ public final class Operations implements AutoCloseable {
    * Get trash path location for a file in a table. It replaces the tableLocation part from filePath
    * with trashPath which contains <tableLocation>+/.trash
    */
-  public Path getTrashPath(Table table, String filePath, String trashDir) {
+  public static Path getTrashPath(Table table, String filePath, String trashDir) {
     return getTrashPath(table.location(), filePath, trashDir);
   }
 
@@ -600,6 +531,105 @@ public final class Operations implements AutoCloseable {
     } catch (Exception e) {
       log.error("Failed to collect partition events for table: {}", fqtn, e);
       return Collections.emptyList();
+    }
+  }
+
+  @Builder
+  public static class BackupManager {
+    public final String backupDir;
+
+    public void handleOrphanFile(Operations ops, Table table, String file, boolean backupEnabled) {
+      log.info("Handling orphan file {}", file);
+      Path backupDirRoot = new Path(table.location(), backupDir);
+      Path dataDirRoot = new Path(table.location(), "data");
+      if (file.endsWith("metadata.json")) {
+        // Don't remove metadata.json files since current metadata.json is recognized as
+        // orphan because of inclusion of the scheme in its file path returned by catalog.
+        // Also, we want Iceberg commits to remove the metadata.json files not the OFD job.
+        log.info("Skip deleting metadata file {}", file);
+      } else if (file.contains(backupDirRoot.toString())) {
+        // files present in .backup dir should not be considered orphan
+        log.info("Skip deleting backup file {}", file);
+      } else if (backupEnabled && file.contains(dataDirRoot.toString())) {
+        Path backupFilePath = getTrashPath(table, file, backupDir);
+        log.info("Moving orphan file {} to {}", file, backupFilePath);
+        try {
+          ops.rename(new Path(file), backupFilePath);
+          processBackupFile(ops.fs(), backupFilePath);
+        } catch (IOException e) {
+          log.error(String.format("Move operation failed for file: %s", file), e);
+          throw new RuntimeException(e);
+        }
+      } else {
+        log.info("Deleting orphan file {}", file);
+        try {
+          ops.fs().delete(new Path(file), false);
+        } catch (IOException e) {
+          log.error(String.format("Delete operation failed for file: %s", file), e);
+        }
+      }
+    }
+
+    public void processExpiredFiles(
+        Operations ops,
+        Table table,
+        Map<String, List<String>> expiredDataFilesByPartition,
+        ZonedDateTime now) {
+      writeBackupDataManifests(ops, expiredDataFilesByPartition, table, backupDir, now);
+      exposeBackupLocation(ops.spark(), table, backupDir);
+    }
+
+    public void processBackupFile(FileSystem fs, Path filePath) {
+      try {
+        fs.setTimes(filePath, System.currentTimeMillis(), -1);
+      } catch (IOException e) {
+        log.error(String.format("Failed to update modification time for file: %s", filePath), e);
+        throw new RuntimeException(e);
+      }
+    }
+
+    private void writeBackupDataManifests(
+        Operations ops,
+        Map<String, List<String>> expiredDataFilesByPartition,
+        Table table,
+        String backupDir,
+        ZonedDateTime now) {
+      for (String partitionPath : expiredDataFilesByPartition.keySet()) {
+        List<String> files = expiredDataFilesByPartition.get(partitionPath);
+        List<String> backupFiles =
+            files.stream()
+                .map(file -> getTrashPath(table, file, backupDir).toString())
+                .collect(Collectors.toList());
+        Map<String, Object> jsonMap = new HashMap<>();
+        jsonMap.put("file_count", backupFiles.size());
+        jsonMap.put("files", backupFiles);
+        String jsonStr = new Gson().toJson(jsonMap);
+        // Create data_manifest.json
+        String manifestName =
+            String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
+        Path destPath =
+            getTrashPath(table, new Path(partitionPath, manifestName).toString(), backupDir);
+        try {
+          final FileSystem fs = ops.fs();
+          if (!fs.exists(destPath.getParent())) {
+            fs.mkdirs(destPath.getParent());
+          }
+          try (FSDataOutputStream out = fs.create(destPath, true)) {
+            out.write(jsonStr.getBytes());
+          }
+          log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
+        } catch (IOException e) {
+          throw new RuntimeException("Failed to write data_manifest.json", e);
+        }
+      }
+    }
+
+    private void exposeBackupLocation(SparkSession spark, Table table, String backupDir) {
+      Path fullyQualifiedBackupDir = new Path(table.location(), backupDir);
+      spark.sql(
+          String.format(
+              "ALTER TABLE %s SET TBLPROPERTIES ('%s'='%s')",
+              table.name(), AppConstants.BACKUP_DIR_KEY, fullyQualifiedBackupDir));
     }
   }
 }

@@ -32,18 +32,20 @@ public class SortStatsCollectionSparkApp extends BaseTableSparkApp {
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+    CommandLine cmdLine = createCommandLine(args);
+    SortStatsCollectionSparkApp app =
+        new SortStatsCollectionSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            cmdLine.getOptionValue("tableName"),
+            otelEmitter);
+    app.run();
   }
 
-  public static SortStatsCollectionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
+  protected static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return new SortStatsCollectionSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        cmdLine.getOptionValue("tableName"),
-        otelEmitter);
+    return createCommandLine(args, extraOptions);
   }
 
   @Override

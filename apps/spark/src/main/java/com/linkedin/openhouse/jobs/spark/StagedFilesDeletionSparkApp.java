@@ -57,24 +57,26 @@ public class StagedFilesDeletionSparkApp extends BaseTableSparkApp {
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+    CommandLine cmdLine = createCommandLine(args);
+    StagedFilesDeletionSparkApp app =
+        new StagedFilesDeletionSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            cmdLine.getOptionValue("tableName"),
+            cmdLine.getOptionValue("trashDir", ".trash"),
+            Integer.parseInt(cmdLine.getOptionValue("daysOld", "3")),
+            Boolean.parseBoolean(cmdLine.getOptionValue("recursive", "true")),
+            otelEmitter);
+    app.run();
   }
 
-  public static StagedFilesDeletionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
+  protected static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("b", "trashDir", false, "Base dir to perform delete action"));
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(new Option("o", "daysOld", false, "Days old files are deleted"));
     extraOptions.add(
         new Option("r", "recursive", false, "Delete files recursively from <trashDir>"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return new StagedFilesDeletionSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        cmdLine.getOptionValue("tableName"),
-        cmdLine.getOptionValue("trashDir", ".trash"),
-        Integer.parseInt(cmdLine.getOptionValue("daysOld", "3")),
-        Boolean.parseBoolean(cmdLine.getOptionValue("recursive", "true")),
-        otelEmitter);
+    return createCommandLine(args, extraOptions);
   }
 }

@@ -22,7 +22,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -44,27 +44,29 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 @Slf4j
-public class OperationsTest extends OpenHouseSparkITest {
+class OperationsTest extends OpenHouseSparkITest {
   private static final String TRASH_DIR = ".trash";
   private static final String BACKUP_DIR = ".backup";
   private final OtelEmitter otelEmitter =
-      new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
+      new AppsOtelEmitter(Collections.singletonList(DefaultOtelConfig.getOpenTelemetry()));
 
   @Test
-  public void testRetentionSparkApp() throws Exception {
+  void testRetentionSparkApp() throws Exception {
     final String tableName = "db.test_retention_sql";
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now());
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir("").build();
+      ops.runRetention(tableName, "ts", "", "day", 1, false, backupManager, ZonedDateTime.now());
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
   }
 
   @Test
-  public void testRetentionSparkAppWithStringPartitionColumns() throws Exception {
+  void testRetentionSparkAppWithStringPartitionColumns() throws Exception {
     final String tableName1 = "db.test_retention_string_partition1";
     final String tableName2 = "db.test_retention_string_partition2";
     final String tableName3 = "db.test_retention_string_partition3";
@@ -158,11 +160,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
-    ops.runRetention(tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now());
+    Operations.BackupManager backupManager =
+        Operations.BackupManager.builder().backupDir("").build();
+    ops.runRetention(
+        tableName, column, pattern, granularity, 2, false, backupManager, ZonedDateTime.now());
   }
 
   @Test
-  public void testRetentionCreatesSnapshotsOnNoOpDelete() throws Exception {
+  void testRetentionCreatesSnapshotsOnNoOpDelete() throws Exception {
     final String tableName = "db_test.test_retention_sql";
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
@@ -170,7 +175,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now());
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir("").build();
+      ops.runRetention(tableName, "ts", "", "day", 2, false, backupManager, ZonedDateTime.now());
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -178,7 +185,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionDataManifestWithStringDatePartitionedTable() throws Exception {
+  void testRetentionDataManifestWithStringDatePartitionedTable() throws Exception {
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // set up
       String tableName = "db.test_string_partition";
@@ -215,8 +222,10 @@ public class OperationsTest extends OpenHouseSparkITest {
                   "insert into %s values ('b', '%s', '%s', 0), ('b', '%s', '%s', 0)",
                   tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
       ZonedDateTime now = ZonedDateTime.now();
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir(".backup").build();
       ops.runRetention(
-          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
+          tableName, columnName, columnPattern, granularity, count, true, backupManager, now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
@@ -256,7 +265,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionDataManifestWithTimestampPartitionedTable() throws Exception {
+  void testRetentionDataManifestWithTimestampPartitionedTable() throws Exception {
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // set up
       String tableName = "db.test_time_partition";
@@ -284,8 +293,10 @@ public class OperationsTest extends OpenHouseSparkITest {
                   "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
                   tableName, today, twoDayAgo));
       ZonedDateTime now = ZonedDateTime.now();
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir(".backup").build();
       ops.runRetention(
-          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
+          tableName, columnName, columnPattern, granularity, count, true, backupManager, now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
@@ -309,7 +320,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionJavaAPI() throws Exception {
+  void testOrphanFilesDeletionJavaAPI() throws Exception {
     final String tableName = "db.test_ofd_java";
     final String testOrphanFileName = "data/test_orphan_file.orc";
     final int numInserts = 3;
@@ -329,8 +340,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       log.info("Created orphan file {}", testOrphanFileName);
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir(BACKUP_DIR).build();
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), backupManager, true);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles.size());
       for (String of : orphanFiles) {
@@ -346,7 +359,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionIgnoresFilesInBackupDir() throws Exception {
+  void testOrphanFilesDeletionIgnoresFilesInBackupDir() throws Exception {
     final String tableName = "db.test_ofd_java";
     final String testOrphanFileName = "data/test_orphan_file.orc";
     final int numInserts = 3;
@@ -359,8 +372,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       log.info("Created orphan file {}", testOrphanFileName);
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir(BACKUP_DIR).build();
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), backupManager, true);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles.size());
       for (String of : orphanFiles) {
@@ -370,7 +385,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertTrue(fs.exists(trashFilePath));
       // run delete operation again and verify that files in .trash are not listed as Orphan
       DeleteOrphanFiles.Result result2 =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), backupManager, true);
       List<String> orphanFiles2 = Lists.newArrayList(result2.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles2.size());
       Assertions.assertEquals(0, orphanFiles2.size());
@@ -379,7 +394,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionDeleteNonDataFiles() throws Exception {
+  void testOrphanFilesDeletionDeleteNonDataFiles() throws Exception {
     final String tableName = "db.test_ofd";
     final String testOrphanFileName = "metadata/test_orphan_file.avro";
     final int numInserts = 3;
@@ -399,8 +414,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       log.info("Created orphan file {}", testOrphanFileName);
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir(BACKUP_DIR).build();
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), backupManager, true);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles.size());
       for (String of : orphanFiles) {
@@ -416,7 +433,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionBackupDisabled() throws Exception {
+  void testOrphanFilesDeletionBackupDisabled() throws Exception {
     final String tableName = "db.test_ofd";
     final String testOrphanFileName = "data/test_orphan_file.orc";
     final int numInserts = 3;
@@ -436,8 +453,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       log.info("Created orphan file {}", testOrphanFileName);
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir(BACKUP_DIR).build();
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), false, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), backupManager, false);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       log.info("Detected {} orphan files", orphanFiles.size());
       for (String of : orphanFiles) {
@@ -453,7 +472,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationMaxAge() throws Exception {
+  void testSnapshotsExpirationMaxAge() throws Exception {
     final String tableName = "db.test_es_maxage_java";
     final int numInserts = 3;
     final int maxAge = 0;
@@ -484,7 +503,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationMaxAgeNoop() throws Exception {
+  void testSnapshotsExpirationMaxAgeNoop() throws Exception {
     final String tableName = "db.test_es_maxage_noop_java";
     final int numInserts = 3;
     final int maxAge = 3;
@@ -514,7 +533,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationVersionsNoop() throws Exception {
+  void testSnapshotsExpirationVersionsNoop() throws Exception {
     final String tableName = "db.test_es_versions_noop_java";
     final int numInserts = 3;
     final int versionsToKeep = 5; // Should keep all versions given that there are fewer versions
@@ -544,7 +563,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationVersions() throws Exception {
+  void testSnapshotsExpirationVersions() throws Exception {
     final String tableName = "db.test_es_versions_java";
     final int numInserts = 3;
     final int versionsToKeep = 2;
@@ -578,7 +597,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationBothAgeAndVersions() throws Exception {
+  void testSnapshotsExpirationBothAgeAndVersions() throws Exception {
     final String tableName = "db.test_es_age_and_versions_java";
     final int numInserts = 3;
     final int maxAge = 3;
@@ -612,7 +631,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationPrioritizeAge() throws Exception {
+  void testSnapshotsExpirationPrioritizeAge() throws Exception {
     final String tableName = "db.test_es_age_prioritization_java";
     final int numInserts = 3;
     final int maxAge = 20;
@@ -653,7 +672,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotExpirationWithHoursDaysMonthsYears() throws Exception {
+  void testSnapshotExpirationWithHoursDaysMonthsYears() throws Exception {
     final String tableName = "db.test_es_age_policy";
     final int numInserts = 3;
     final int maxAge = 20;
@@ -685,7 +704,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testStagedFilesDelete() throws Exception {
+  void testStagedFilesDelete() throws Exception {
     final String tableName = "db.test_staged_delete";
     final int numInserts = 3;
     final String testOrphanFile1 = "data/test_orphan_file1.orc";
@@ -702,7 +721,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath2);
       log.info("Created orphan file {}", testOrphanFile1);
       log.info("Created orphan file {}", testOrphanFile2);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR);
+      Operations.BackupManager backupManager =
+          Operations.BackupManager.builder().backupDir(TRASH_DIR).build();
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), backupManager, true);
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile1)))));
       Assertions.assertTrue(
@@ -721,7 +742,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testDataCompactionPartialProgressNonPartitionedTable() throws Exception {
+  void testDataCompactionPartialProgressNonPartitionedTable() throws Exception {
     final String tableName = "db.test_data_compaction";
     final int numInserts = 3;
 
@@ -778,7 +799,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testDataCompactionPartialProgressPartitionedTable() throws Exception {
+  void testDataCompactionPartialProgressPartitionedTable() throws Exception {
     final String tableName = "db.test_data_compaction_partitioned";
     final int numInsertsPerPartition = 3;
     final int numDailyPartitions = 10;
@@ -862,7 +883,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanDirsDeletionJavaAPI() throws Exception {
+  void testOrphanDirsDeletionJavaAPI() throws Exception {
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // test orphan delete
       Path tbLoc = prepareOrphanTableDirectory(ops, "db1.test_odd_orphan");
@@ -919,7 +940,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testCollectEarliestPartitionDateStat() throws Exception {
+  void testCollectEarliestPartitionDateStat() throws Exception {
     final String tableName = "db.test_collect_earliest_partition_date";
     List<String> rowValue = new ArrayList<>();
 
@@ -963,7 +984,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testCollectTableStatsWithEmptyPartitions() throws Exception {
+  void testCollectTableStatsWithEmptyPartitions() throws Exception {
     final String tableName = "db.test_empty_partitions";
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
@@ -985,7 +1006,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testCollectTablePolicyStats() throws Exception {
+  void testCollectTablePolicyStats() throws Exception {
     final String tableName = "db.test_collect_table_stats_with_policy";
     List<String> rowValue = new ArrayList<>();
 
@@ -1055,7 +1076,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testCollectTableStats() throws Exception {
+  void testCollectTableStats() throws Exception {
     final String tableName = "db.test_collect_table_stats";
     final int numInserts = 3;
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
@@ -1101,7 +1122,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testCollectHistoryPolicyStatsWithSnapshots() throws Exception {
+  void testCollectHistoryPolicyStatsWithSnapshots() throws Exception {
     final String tableName = "db.test_collect_table_stats_with_history_policy_snapshots";
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
