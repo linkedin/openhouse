@@ -9,7 +9,6 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
-import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
@@ -34,7 +33,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.types.Types;
@@ -45,7 +43,6 @@ import org.junit.jupiter.api.Test;
 
 @Slf4j
 class OperationsTest extends OpenHouseSparkITest {
-  private static final String TRASH_DIR = ".trash";
   private static final String BACKUP_DIR = ".backup";
   private final OtelEmitter otelEmitter =
       new AppsOtelEmitter(Collections.singletonList(DefaultOtelConfig.getOpenTelemetry()));
@@ -704,44 +701,6 @@ class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  void testStagedFilesDelete() throws Exception {
-    final String tableName = "db.test_staged_delete";
-    final int numInserts = 3;
-    final String testOrphanFile1 = "data/test_orphan_file1.orc";
-    final String testOrphanFile2 = "data/test_orphan_file2.orc";
-    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      prepareTable(ops, tableName);
-      populateTable(ops, tableName, numInserts);
-      Table table = ops.getTable(tableName);
-      log.info("Loaded table {}, location {}", table.name(), table.location());
-      Path orphanFilePath1 = new Path(table.location(), testOrphanFile1);
-      Path orphanFilePath2 = new Path(table.location(), testOrphanFile2);
-      FileSystem fs = ops.fs();
-      fs.createNewFile(orphanFilePath1);
-      fs.createNewFile(orphanFilePath2);
-      log.info("Created orphan file {}", testOrphanFile1);
-      log.info("Created orphan file {}", testOrphanFile2);
-      Operations.BackupManager backupManager =
-          Operations.BackupManager.builder().backupDir(TRASH_DIR).build();
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), backupManager, true);
-      Assertions.assertTrue(
-          fs.exists(new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile1)))));
-      Assertions.assertTrue(
-          fs.exists((new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile2))))));
-      Assertions.assertFalse(fs.exists(orphanFilePath1));
-      Assertions.assertFalse(fs.exists(orphanFilePath2));
-      // set timestamp for an orphan file in trash dir to 4 days old
-      SparkJobUtil.setModifiedTimeStamp(
-          fs, new Path(table.location(), new Path(TRASH_DIR, testOrphanFile1)), 4);
-      ops.deleteStagedFiles(new Path(table.location(), TRASH_DIR), 3, true);
-      Assertions.assertFalse(
-          fs.exists(new Path(table.location(), new Path(TRASH_DIR, testOrphanFile1))));
-      Assertions.assertTrue(
-          fs.exists(new Path(table.location(), new Path(TRASH_DIR, testOrphanFile2))));
-    }
-  }
-
-  @Test
   void testDataCompactionPartialProgressNonPartitionedTable() throws Exception {
     final String tableName = "db.test_data_compaction";
     final int numInserts = 3;
@@ -880,63 +839,6 @@ class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(0, result.rewrittenDataFilesCount());
       Assertions.assertEquals(0, result.rewrittenBytesCount());
     }
-  }
-
-  @Test
-  void testOrphanDirsDeletionJavaAPI() throws Exception {
-    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      // test orphan delete
-      Path tbLoc = prepareOrphanTableDirectory(ops, "db1.test_odd_orphan");
-
-      long timeThreshold = System.currentTimeMillis();
-      List<Path> matchingFilesBefore = new ArrayList<>();
-      ops.listFiles(tbLoc, file -> true, true, matchingFilesBefore);
-      boolean orphaned = ops.deleteOrphanDirectory(tbLoc, ".trash", timeThreshold);
-      Assertions.assertTrue(orphaned);
-      // All files should have been moved to trash dir
-      // Making sure nothing needs to be orphaned again
-      orphaned = ops.deleteOrphanDirectory(tbLoc, ".trash", timeThreshold);
-      Assertions.assertFalse(orphaned);
-      List<Path> matchingFilesAfter = new ArrayList<>();
-      ops.listFiles(tbLoc, file -> true, true, matchingFilesAfter);
-      Assertions.assertEquals(matchingFilesBefore.size(), matchingFilesAfter.size());
-
-      // test stage delete
-      ops.deleteStagedOrphanDirectory(tbLoc, ".trash", timeThreshold);
-      // test table dir no longer exists
-      Assertions.assertFalse(ops.fs().exists(tbLoc));
-    }
-  }
-
-  private static Path prepareOrphanTableDirectory(Operations ops, String tableName)
-      throws Exception {
-    Schema schema = getTableSchema();
-    Transaction xact = ops.createTransaction(tableName, schema);
-    Path tbLoc = new Path(xact.table().location());
-
-    // populate more files
-    FileSystem fs = ops.fs();
-    Path dataPath = new Path(tbLoc, "data/datepartition");
-    fs.mkdirs(dataPath);
-    Assertions.assertTrue(fs.exists(dataPath));
-
-    int numInserts = 4;
-    for (int i = 0; i < numInserts; ++i) {
-      String fileName = "testing" + i + ".orc";
-      fs.createNewFile(new Path(dataPath, fileName));
-      Assertions.assertTrue(fs.exists(new Path(dataPath, fileName)));
-    }
-
-    Path metadataPath = new Path(tbLoc, "metadata");
-    fs.mkdirs(metadataPath);
-    Assertions.assertTrue(fs.exists(metadataPath));
-
-    for (int i = 0; i < numInserts; ++i) {
-      String fileName = "testing" + i + ".avro";
-      fs.createNewFile(new Path(metadataPath, fileName));
-      Assertions.assertTrue(fs.exists(new Path(metadataPath, fileName)));
-    }
-    return tbLoc;
   }
 
   @Test

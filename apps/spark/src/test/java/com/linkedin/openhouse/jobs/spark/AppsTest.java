@@ -21,7 +21,7 @@ public class AppsTest extends OpenHouseSparkITest {
   @Test
   public void testCreateDataCompactionSparkApp() {
     final String tableName = "db.test_data_compaction_app";
-    DataCompactionSparkApp.createApp(
+    DataCompactionSparkApp.createCommandLine(
         new String[] {
           "--jobId",
           "test-job-id",
@@ -42,9 +42,8 @@ public class AppsTest extends OpenHouseSparkITest {
           "--partialProgressEnabled",
           "--partialProgressMaxCommits",
           "10"
-        },
-        otelEmitter);
-    DataCompactionSparkApp.createApp(
+        });
+    DataCompactionSparkApp.createCommandLine(
         new String[] {
           "--jobId",
           "test-job-id",
@@ -54,9 +53,8 @@ public class AppsTest extends OpenHouseSparkITest {
           tableName,
           "--targetByteSize",
           "1048576",
-        },
-        otelEmitter);
-    DataCompactionSparkApp.createApp(
+        });
+    DataCompactionSparkApp.createCommandLine(
         new String[] {
           "--jobId",
           "test-job-id",
@@ -69,9 +67,8 @@ public class AppsTest extends OpenHouseSparkITest {
           "--partialProgressEnabled",
           "--partialProgressMaxCommits",
           "10"
-        },
-        otelEmitter);
-    DataCompactionSparkApp.createApp(
+        });
+    DataCompactionSparkApp.createCommandLine(
         new String[] {
           "--jobId",
           "test-job-id",
@@ -79,8 +76,7 @@ public class AppsTest extends OpenHouseSparkITest {
           "http://localhost:8080",
           "--tableName",
           tableName
-        },
-        otelEmitter);
+        });
   }
 
   @Test

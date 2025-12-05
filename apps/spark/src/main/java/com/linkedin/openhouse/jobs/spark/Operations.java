@@ -18,7 +18,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
@@ -111,70 +110,6 @@ public final class Operations implements AutoCloseable {
     action =
         action.deleteWith(file -> backupManager.handleOrphanFile(this, table, file, backupEnabled));
     return action.execute();
-  }
-
-  /**
-   * Run deleteOrphanDirectory operation on the given table directory path with time filter, moves
-   * files to the given trash subdirectory if the table is created older than the provided
-   * timestamp.
-   */
-  public boolean deleteOrphanDirectory(
-      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
-    List<Path> matchingFiles = Lists.newArrayList();
-    listFiles(
-        tableDirectoryPath,
-        file -> !file.getPath().toString().contains(trashDir),
-        true,
-        matchingFiles);
-
-    boolean anyMatched = false;
-    // if there is one file that satisfy predicate, all files should go into trash
-    try {
-      FileSystem fileSystem = fs();
-      for (Path matchingFile : matchingFiles) {
-        FileStatus filestatus = fileSystem.getFileStatus(matchingFile);
-        if (filestatus.getModificationTime() < olderThanTimestampMillis) {
-          anyMatched = true;
-          break;
-        }
-      }
-    } catch (IOException e) {
-      log.error("Error fetching the file system given path: {}", tableDirectoryPath);
-    }
-
-    if (!anyMatched) {
-      return false;
-    }
-
-    for (Path matchingFile : matchingFiles) {
-      Path trashPath =
-          getTrashPath(tableDirectoryPath.toString(), matchingFile.toString(), trashDir);
-      try {
-        rename(matchingFile, trashPath);
-      } catch (IOException e) {
-        log.error(String.format("Move operation failed for file path: %s", tableDirectoryPath), e);
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Remove staged orphan files in the staged trash directory and eventually delete the table
-   * directory
-   */
-  public void deleteStagedOrphanDirectory(
-      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
-    Path trashFolderPath = new Path(tableDirectoryPath, trashDir);
-    try {
-      deleteStagedFiles(trashFolderPath, olderThanTimestampMillis, true);
-      if (!fs().delete(tableDirectoryPath, true)) {
-        log.error(String.format("Failed to delete directory %s", tableDirectoryPath));
-      }
-    } catch (IOException e) {
-      log.error(
-          String.format("Delete staged files failed for orphan directory: %s", tableDirectoryPath),
-          e);
-    }
   }
 
   /** Expire snapshots on a given fully-qualified table name. */
@@ -284,43 +219,6 @@ public final class Operations implements AutoCloseable {
    */
   public static Path getTrashPath(Table table, String filePath, String trashDir) {
     return getTrashPath(table.location(), filePath, trashDir);
-  }
-
-  private List<Path> deleteStagedFiles(Path baseDir, long modTimeThreshold, boolean recursive)
-      throws IOException {
-    List<Path> matchingFiles = Lists.newArrayList();
-    Predicate<FileStatus> predicate = file -> file.getModificationTime() < modTimeThreshold;
-    FileSystem fs = fs();
-    if (fs.exists(baseDir)) {
-      listFiles(baseDir, predicate, recursive, matchingFiles);
-      log.info(
-          "Deleting {} files from {} that are older than modificationTimeThreshold {}",
-          matchingFiles.size(),
-          baseDir,
-          modTimeThreshold);
-      for (Path p : matchingFiles) {
-        try {
-          if (!fs.delete(p, false)) {
-            log.error(String.format("Failed to delete file %s", p));
-          }
-        } catch (IOException e) {
-          log.error(String.format("Exception while deleting file %s", p), e);
-        }
-      }
-    } else {
-      log.info("Trash dir {} does not exist", baseDir);
-    }
-    return matchingFiles;
-  }
-
-  /**
-   * Run deleteStagedFiles operation for the given table with time filter. It deletes files older
-   * than the provided number of days from the staged directory.
-   */
-  public List<Path> deleteStagedFiles(Path baseDir, int olderThanDays, boolean recursive)
-      throws IOException {
-    return deleteStagedFiles(
-        baseDir, System.currentTimeMillis() - TimeUnit.DAYS.toMillis(olderThanDays), recursive);
   }
 
   /**

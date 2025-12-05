@@ -58,16 +58,6 @@ jobs:
           <<: *spark-defaults
           "spark.driver.memory": "2g"
         << : *livy-engine
-      - type: STAGED_FILES_DELETION
-        class-name: com.linkedin.openhouse.jobs.spark.StagedFilesDeletionSparkApp
-        args: ["--trashDir", ".trash", "--daysOld", "10", "--recursive", "true"]
-        <<: *apps-defaults
-        << : *livy-engine
-      - type: ORPHAN_DIRECTORY_DELETION
-        class-name: com.linkedin.openhouse.jobs.spark.OrphanTableDirectoryDeletionSparkApp
-        args: [ "--trashDir", ".trash" ]
-        <<: *apps-defaults
-        << : *livy-engine
       - type: TABLE_STATS_COLLECTION
         class-name: com.linkedin.openhouse.jobs.spark.TableStatsCollectionSparkApp
         args: []
