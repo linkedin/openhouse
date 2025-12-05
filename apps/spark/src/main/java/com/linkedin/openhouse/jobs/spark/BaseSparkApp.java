@@ -2,8 +2,6 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.sql.SparkSession;
 
@@ -14,8 +12,6 @@ import org.apache.spark.sql.SparkSession;
 @Slf4j
 public abstract class BaseSparkApp extends BaseApp {
   protected static final String METRICS_SCOPE = BaseSparkApp.class.getName();
-  private final ScheduledExecutorService scheduledExecutorService =
-      Executors.newSingleThreadScheduledExecutor();
 
   protected BaseSparkApp(String jobId, StateManager stateManager, OtelEmitter otelEmitter) {
     super(jobId, stateManager, HEARTBEAT_INTERVAL_SECONDS_DEFAULT, otelEmitter);

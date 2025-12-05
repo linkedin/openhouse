@@ -101,10 +101,64 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
         new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+    CommandLine cmdLine = createCommandLine(args);
+    DataCompactionConfig config;
+    if (cmdLine.hasOption("strategy")) {
+      config = StrategiesDaoTableProps.deserialize(cmdLine.getOptionValue("strategy")).getConfig();
+    } else {
+      long targetByteSize =
+          NumberUtils.toLong(
+              cmdLine.getOptionValue("targetByteSize"),
+              DataCompactionConfig.TARGET_BYTE_SIZE_DEFAULT);
+      double minByteSizeRatio =
+          NumberUtils.toDouble(
+              cmdLine.getOptionValue("minByteSizeRatio"),
+              DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+      if (minByteSizeRatio <= 0.0 || minByteSizeRatio >= 1.0) {
+        throw new RuntimeException("minByteSizeRatio must be in range (0.0, 1.0)");
+      }
+      double maxByteSizeRatio =
+          NumberUtils.toDouble(
+              cmdLine.getOptionValue("maxByteSizeRatio"),
+              DataCompactionConfig.MAX_BYTE_SIZE_RATIO_DEFAULT);
+      if (maxByteSizeRatio <= 1.0) {
+        throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
+      }
+      config =
+          DataCompactionConfig.builder()
+              .targetByteSize(targetByteSize)
+              .minByteSizeRatio(minByteSizeRatio)
+              .maxByteSizeRatio(maxByteSizeRatio)
+              .minInputFiles(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("minInputFiles"),
+                      DataCompactionConfig.MIN_INPUT_FILES_DEFAULT))
+              .maxConcurrentFileGroupRewrites(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("maxConcurrentFileGroupRewrites"),
+                      DataCompactionConfig.MAX_CONCURRENT_FILE_GROUP_REWRITES_DEFAULT))
+              .partialProgressEnabled(cmdLine.hasOption("partialProgressEnabled"))
+              .partialProgressMaxCommits(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("partialProgressMaxCommits"),
+                      DataCompactionConfig.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT))
+              .deleteFileThreshold(
+                  NumberUtils.toInt(
+                      cmdLine.getOptionValue("deleteFileThreshold"),
+                      DataCompactionConfig.DELETE_FILE_THRESHOLD_DEFAULT))
+              .build();
+    }
+    DataCompactionSparkApp app =
+        new DataCompactionSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            cmdLine.getOptionValue("tableName"),
+            config,
+            otelEmitter);
+    app.run();
   }
 
-  public static DataCompactionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
+  protected static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(new Option(null, "targetByteSize", true, "Target data file byte size"));
@@ -156,60 +210,6 @@ public class DataCompactionSparkApp extends BaseTableSparkApp {
             "deleteFileThreshold",
             true,
             "Minimum number of deletes that needs to be associated with a data file for it to be considered for rewriting"));
-
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-
-    DataCompactionConfig config;
-    if (cmdLine.hasOption("strategy")) {
-      config = StrategiesDaoTableProps.deserialize(cmdLine.getOptionValue("strategy")).getConfig();
-    } else {
-      long targetByteSize =
-          NumberUtils.toLong(
-              cmdLine.getOptionValue("targetByteSize"),
-              DataCompactionConfig.TARGET_BYTE_SIZE_DEFAULT);
-      double minByteSizeRatio =
-          NumberUtils.toDouble(
-              cmdLine.getOptionValue("minByteSizeRatio"),
-              DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
-      if (minByteSizeRatio <= 0.0 || minByteSizeRatio >= 1.0) {
-        throw new RuntimeException("minByteSizeRatio must be in range (0.0, 1.0)");
-      }
-      double maxByteSizeRatio =
-          NumberUtils.toDouble(
-              cmdLine.getOptionValue("maxByteSizeRatio"),
-              DataCompactionConfig.MAX_BYTE_SIZE_RATIO_DEFAULT);
-      if (maxByteSizeRatio <= 1.0) {
-        throw new RuntimeException("maxByteSizeRatio must be greater than 1.0");
-      }
-      config =
-          DataCompactionConfig.builder()
-              .targetByteSize(targetByteSize)
-              .minByteSizeRatio(minByteSizeRatio)
-              .maxByteSizeRatio(maxByteSizeRatio)
-              .minInputFiles(
-                  NumberUtils.toInt(
-                      cmdLine.getOptionValue("minInputFiles"),
-                      DataCompactionConfig.MIN_INPUT_FILES_DEFAULT))
-              .maxConcurrentFileGroupRewrites(
-                  NumberUtils.toInt(
-                      cmdLine.getOptionValue("maxConcurrentFileGroupRewrites"),
-                      DataCompactionConfig.MAX_CONCURRENT_FILE_GROUP_REWRITES_DEFAULT))
-              .partialProgressEnabled(cmdLine.hasOption("partialProgressEnabled"))
-              .partialProgressMaxCommits(
-                  NumberUtils.toInt(
-                      cmdLine.getOptionValue("partialProgressMaxCommits"),
-                      DataCompactionConfig.PARTIAL_PROGRESS_MAX_COMMITS_DEFAULT))
-              .deleteFileThreshold(
-                  NumberUtils.toInt(
-                      cmdLine.getOptionValue("deleteFileThreshold"),
-                      DataCompactionConfig.DELETE_FILE_THRESHOLD_DEFAULT))
-              .build();
-    }
-    return new DataCompactionSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        cmdLine.getOptionValue("tableName"),
-        config,
-        otelEmitter);
+    return createCommandLine(args, extraOptions);
   }
 }

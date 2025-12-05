@@ -7,7 +7,7 @@ import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -29,7 +29,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
   private final String columnPattern;
   private final String granularity;
   private final int count;
-  private final String backupDir;
+  private final Operations.BackupManager backupManager;
 
   public RetentionSparkApp(
       String jobId,
@@ -40,13 +40,13 @@ public class RetentionSparkApp extends BaseTableSparkApp {
       String granularity,
       int count,
       OtelEmitter otelEmitter,
-      String backupDir) {
+      Operations.BackupManager backupManager) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.columnName = columnName;
     this.columnPattern = columnPattern;
     this.granularity = granularity;
     this.count = count;
-    this.backupDir = backupDir;
+    this.backupManager = backupManager;
   }
 
   @Override
@@ -64,19 +64,35 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         count,
         granularity,
         backupEnabled,
-        backupDir,
+        backupManager.backupDir,
         now);
     ops.runRetention(
-        fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
+        fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupManager, now);
   }
 
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
-        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+        new AppsOtelEmitter(Collections.singletonList(DefaultOtelConfig.getOpenTelemetry()));
+    CommandLine cmdLine = createCommandLine(args);
+    Operations.BackupManager backupManager =
+        Operations.BackupManager.builder()
+            .backupDir(cmdLine.getOptionValue("backupDir", ".backup"))
+            .build();
+    RetentionSparkApp app =
+        new RetentionSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            cmdLine.getOptionValue("tableName"),
+            cmdLine.getOptionValue("columnName"),
+            cmdLine.getOptionValue("columnPattern", ""),
+            cmdLine.getOptionValue("granularity"),
+            Integer.parseInt(cmdLine.getOptionValue("count")),
+            otelEmitter,
+            backupManager);
+    app.run();
   }
 
-  public static RetentionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
+  public static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(new Option("cn", "columnName", true, "Retention column name"));
@@ -84,16 +100,6 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day, week"));
     extraOptions.add(new Option("c", "count", true, "Retain last <count> <granularity>s"));
     extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return new RetentionSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        cmdLine.getOptionValue("tableName"),
-        cmdLine.getOptionValue("columnName"),
-        cmdLine.getOptionValue("columnPattern", ""),
-        cmdLine.getOptionValue("granularity"),
-        Integer.parseInt(cmdLine.getOptionValue("count")),
-        otelEmitter,
-        cmdLine.getOptionValue("backupDir", ".backup"));
+    return createCommandLine(args, extraOptions);
   }
 }

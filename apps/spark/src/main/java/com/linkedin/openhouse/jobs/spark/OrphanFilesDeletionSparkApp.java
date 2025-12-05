@@ -9,7 +9,7 @@ import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +28,7 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 @Slf4j
 public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   private final long ttlSeconds;
-  private final String backupDir;
+  private final Operations.BackupManager backupManager;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
@@ -36,10 +36,10 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
       String fqtn,
       long ttlSeconds,
       OtelEmitter otelEmitter,
-      String backupDir) {
+      Operations.BackupManager backupManager) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.ttlSeconds = ttlSeconds;
-    this.backupDir = backupDir;
+    this.backupManager = backupManager;
   }
 
   @Override
@@ -55,10 +55,9 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         fqtn,
         olderThanTimestampMillis,
         backupEnabled,
-        backupDir);
+        backupManager.backupDir);
     DeleteOrphanFiles.Result result =
-        ops.deleteOrphanFiles(
-            ops.getTable(fqtn), olderThanTimestampMillis, backupEnabled, backupDir);
+        ops.deleteOrphanFiles(table, olderThanTimestampMillis, backupManager, backupEnabled);
     List<String> orphanFileLocations = Lists.newArrayList(result.orphanFileLocations().iterator());
     log.info(
         "Detected {} orphan files older than {}ms",
@@ -73,34 +72,35 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
 
   public static void main(String[] args) {
     OtelEmitter otelEmitter =
-        new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
-    createApp(args, otelEmitter).run();
+        new AppsOtelEmitter(Collections.singletonList(DefaultOtelConfig.getOpenTelemetry()));
+    CommandLine cmdLine = createCommandLine(args);
+    Operations.BackupManager backupManager =
+        Operations.BackupManager.builder()
+            .backupDir(cmdLine.getOptionValue("backupDir", ".backup"))
+            .build();
+    OrphanFilesDeletionSparkApp app =
+        new OrphanFilesDeletionSparkApp(
+            getJobId(cmdLine),
+            createStateManager(cmdLine, otelEmitter),
+            cmdLine.getOptionValue("tableName"),
+            Math.max(
+                NumberUtils.toLong(cmdLine.getOptionValue("ttl"), TimeUnit.DAYS.toSeconds(7)),
+                TimeUnit.DAYS.toSeconds(1)),
+            otelEmitter,
+            backupManager);
+    app.run();
   }
 
-  public static OrphanFilesDeletionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
+  protected static CommandLine createCommandLine(String[] args) {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
-    extraOptions.add(
-        new Option("tr", "trashDir", true, "Orphan files staging dir before deletion"));
     extraOptions.add(
         new Option(
             "r",
             "ttl",
             true,
             "How old files should be to be considered orphaned in seconds, minimum 1d is enforced"));
-    extraOptions.add(
-        new Option(
-            "s", "skipStaging", false, "Whether to skip staging orphan files before deletion"));
-    extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
-    CommandLine cmdLine = createCommandLine(args, extraOptions);
-    return new OrphanFilesDeletionSparkApp(
-        getJobId(cmdLine),
-        createStateManager(cmdLine, otelEmitter),
-        cmdLine.getOptionValue("tableName"),
-        Math.max(
-            NumberUtils.toLong(cmdLine.getOptionValue("ttl"), TimeUnit.DAYS.toSeconds(7)),
-            TimeUnit.DAYS.toSeconds(1)),
-        otelEmitter,
-        cmdLine.getOptionValue("backupDir", ".backup"));
+    extraOptions.add(new Option("b", "backupDir", true, "Backup directory"));
+    return createCommandLine(args, extraOptions);
   }
 }
