@@ -56,6 +56,7 @@ public interface TablesMapper {
     @Mapping(source = "requestBody.timePartitioning", target = "timePartitioning"),
     @Mapping(source = "requestBody.clustering", target = "clustering"),
     @Mapping(source = "requestBody.tableProperties", target = "tableProperties"),
+    @Mapping(source = "requestBody.intermediateSchemas", target = "intermediateSchemas"),
     @Mapping(source = "requestBody.policies", target = "policies", qualifiedByName = "mapPolicies"),
     @Mapping(source = "requestBody.stageCreate", target = "stageCreate"),
     @Mapping(
