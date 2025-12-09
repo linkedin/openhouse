@@ -7,7 +7,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
@@ -16,18 +15,19 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.SparkSchemaUtil;
+import org.apache.iceberg.spark.source.HasIcebergCatalog;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.connector.catalog.CatalogPlugin;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import scala.collection.JavaConverters;
 
 public class SparkSchemaEvolutionTest extends OpenHouseSparkITest {
 
@@ -222,20 +222,7 @@ public class SparkSchemaEvolutionTest extends OpenHouseSparkITest {
   }
 
   private Catalog getOpenHouseCatalog(SparkSession spark) {
-    final Map<String, String> catalogProperties = new HashMap<>();
-    final String catalogPropertyPrefix = "spark.sql.catalog.openhouse.";
-    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
-    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
-      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
-        catalogProperties.put(
-            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
-      }
-    }
-    // this initializes the catalog based on runtime Catalog class passed in catalog-impl conf.
-    return CatalogUtil.loadCatalog(
-        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
-        "openhouse",
-        catalogProperties,
-        spark.sparkContext().hadoopConfiguration());
+    CatalogPlugin plugin = spark.sessionState().catalogManager().catalog("openhouse");
+    return ((HasIcebergCatalog) plugin).icebergCatalog();
   }
 }

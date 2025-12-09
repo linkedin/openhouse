@@ -14,7 +14,6 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -191,13 +190,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     if (isMultiSchemaUpdateCommit(base, metadata)
         && getTableType(base, metadata)
             == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE) {
-      Map<String, String> intermediateSchemas = new HashMap<>();
+      List<String> newIntermediateSchemas = new ArrayList<>();
       int startSchemaId = base == null ? 0 : base.currentSchemaId() + 1;
       for (int i = startSchemaId; i < metadata.currentSchemaId(); i++) {
-        intermediateSchemas.put(
-            String.valueOf(i), SchemaParser.toJson(metadata.schemasById().get(i), false));
+        newIntermediateSchemas.add(SchemaParser.toJson(metadata.schemasById().get(i), false));
       }
-      createUpdateTableRequestBody.setIntermediateSchemas(intermediateSchemas);
+      createUpdateTableRequestBody.setnewIntermediateSchemas(newIntermediateSchemas);
     }
     // If base table is a replicated table, retain the property from base table
     if (base != null && base.properties().containsKey(OPENHOUSE_IS_TABLE_REPLICATED_KEY)) {

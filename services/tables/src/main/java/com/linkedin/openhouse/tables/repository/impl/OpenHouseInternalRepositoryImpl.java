@@ -380,9 +380,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(tableDto.getSnapshotRefs()));
       }
     }
-    if (!MapUtils.isEmpty(tableDto.getIntermediateSchemas())) {
+    if (!MapUtils.isEmpty(tableDto.getnewIntermediateSchemas())) {
       propertiesMap.put(
-          INTERMEDIATE_SCHEMAS_KEY, SnapshotsUtil.serializeMap(tableDto.getIntermediateSchemas()));
+          INTERMEDIATE_SCHEMAS_KEY,
+          SnapshotsUtil.serializeMap(tableDto.getnewIntermediateSchemas()));
     }
     if (tableDto.getTableType() != null) {
       propertiesMap.put(getCanonicalFieldName(TABLE_TYPE_KEY), tableDto.getTableType().toString());
@@ -440,7 +441,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (!writeSchema.sameSchema(tableSchema)) {
       try {
         schemaValidator.validateWriteSchema(tableSchema, writeSchema, tableDto.getTableUri());
-        doSetIntermediateSchemasIfNeeded(updateProperties, tableDto);
+        doSetnewIntermediateSchemasIfNeeded(updateProperties, tableDto);
         updateProperties.set(CatalogConstants.EVOLVED_SCHEMA_KEY, SchemaParser.toJson(writeSchema));
         return true;
       } catch (Exception e) {
@@ -498,15 +499,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * @param updateProperties The properties to update
    * @param tableDto The table DTO containing potential intermediate schemas
    */
-  private void doSetIntermediateSchemasIfNeeded(
+  private void doSetnewIntermediateSchemasIfNeeded(
       UpdateProperties updateProperties, TableDto tableDto) {
-    if (MapUtils.isNotEmpty(tableDto.getIntermediateSchemas())) {
+    if (MapUtils.isNotEmpty(tableDto.getnewIntermediateSchemas())) {
       updateProperties.set(
           INTERMEDIATE_SCHEMAS_KEY,
-          new GsonBuilder().create().toJson(tableDto.getIntermediateSchemas()));
+          new GsonBuilder().create().toJson(tableDto.getnewIntermediateSchemas()));
       log.info(
           "Setting {} intermediate schemas for table {}.{}",
-          tableDto.getIntermediateSchemas().size(),
+          tableDto.getnewIntermediateSchemas().size(),
           tableDto.getDatabaseId(),
           tableDto.getTableId());
     }

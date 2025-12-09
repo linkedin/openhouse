@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
@@ -570,44 +571,30 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         isNewTable && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null
             ? metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA)
             : metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY);
-    String serializedIntermediateSchemas =
+    String serializednewIntermediateSchemas =
         metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
 
     TableMetadata updatedMetadata = metadata;
 
     // Process intermediate schemas first if present
-    if (serializedIntermediateSchemas != null) {
-      Map<String, String> intermediateSchemas =
+    if (serializednewIntermediateSchemas != null) {
+      List<String> newIntermediateSchemas =
           new GsonBuilder()
               .create()
               .fromJson(
-                  serializedIntermediateSchemas,
-                  new com.google.gson.reflect.TypeToken<Map<String, String>>() {}.getType());
+                  serializednewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
 
-      // Sort by schema ID to process in order
-      List<Map.Entry<String, String>> sortedSchemas =
-          intermediateSchemas.entrySet().stream()
-              .sorted(Map.Entry.comparingByKey())
-              .collect(Collectors.toList());
-
-      // Process each intermediate schema to rebuild the schema evolution history
-      for (Map.Entry<String, String> entry : sortedSchemas) {
-        String schemaId = entry.getKey();
-        String schemaJson = entry.getValue();
-
+      // Process schemas in order
+      for (int i = 0; i < newIntermediateSchemas.size(); i++) {
+        String schemaJson = newIntermediateSchemas.get(i);
+        int nextSchemaId = updatedMetadata.currentSchemaId() + i + 1;
         try {
           updatedMetadata = rebuildTblMetaWithSchema(updatedMetadata, schemaJson, !isNewTable);
         } catch (Exception e) {
           log.error(
-              "Failed to process intermediate schema with ID {} for table {}: {}",
-              schemaId,
+              "Failed to process intermediate schema with ID {} for table {}",
+              nextSchemaId,
               tableIdentifier,
-              e.getMessage(),
-              e);
-          throw new RuntimeException(
-              String.format(
-                  "Failed to process intermediate schema %s for table %s",
-                  schemaId, tableIdentifier),
               e);
         }
       }

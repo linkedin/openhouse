@@ -61,7 +61,6 @@ public class CreateUpdateTableRequestBody {
       example =
           "{\"type\": \"struct\", "
               + "\"fields\": [{\"id\": 1,\"required\": true,\"name\": \"id\",\"type\": \"string\"}, "
-              + "{\"id\": 2,\"required\": true,\"name\": \"name\", \"type\": \"string\"}, "
               + "{\"id\": 3,\"required\": true,\"name\":\"timestampColumn\",\"type\": \"timestamp\"}]}")
   @NotEmpty(message = "schema cannot be empty")
   private String schema;
@@ -69,11 +68,10 @@ public class CreateUpdateTableRequestBody {
   @Schema(
       nullable = true,
       description =
-          "Map of intermediate schemas to store when updating multiple schemas at once, typically through replication. "
+          "List of schema JSON strings for intermediate schemas created during this operation. "
               + "This is used to preserve schema history when multiple schema updates occur in a single commit.",
-      example =
-          "{\"1\": \"{\\\"type\\\": \\\"struct\\\", \\\"fields\\\": [...]}\", \"2\": \"{...}\"}")
-  private Map<String, String> intermediateSchemas;
+      example = "[\"{\\\"type\\\": \\\"struct\\\", \\\"fields\\\": [...]}\", \"{...}\"]")
+  private List<String> newIntermediateSchemas;
 
   @Schema(
       nullable = true,
