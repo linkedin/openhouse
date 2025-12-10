@@ -11,7 +11,6 @@ import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -38,26 +37,23 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
     // Run stats collection, commit events collection, and partition events collection in parallel
     long startTime = System.currentTimeMillis();
 
-    CompletableFuture<IcebergTableStats> statsFuture =
-        executeWithTimingAsync(
+    IcebergTableStats icebergStats =
+        executeWithTiming(
             "table stats collection",
             () -> ops.collectTableStats(fqtn),
             result -> String.format("%s", fqtn));
 
-    CompletableFuture<List<CommitEventTable>> commitEventsFuture =
-        executeWithTimingAsync(
+    List<CommitEventTable> commitEvents =
+        executeWithTiming(
             "commit events collection",
             () -> ops.collectCommitEventTable(fqtn),
             result -> String.format("%s (%d events)", fqtn, result.size()));
 
-    CompletableFuture<List<CommitEventTablePartitions>> partitionEventsFuture =
-        executeWithTimingAsync(
+    List<CommitEventTablePartitions> partitionEvents =
+        executeWithTiming(
             "partition events collection",
             () -> ops.collectCommitEventTablePartitions(fqtn),
             result -> String.format("%s (%d partition events)", fqtn, result.size()));
-
-    // Wait for all three to complete
-    CompletableFuture.allOf(statsFuture, commitEventsFuture, partitionEventsFuture).join();
 
     long endTime = System.currentTimeMillis();
     log.info(
@@ -65,15 +61,12 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
         fqtn,
         (endTime - startTime));
 
-    // Publish results
-    IcebergTableStats icebergTableStats = statsFuture.join();
-    if (icebergTableStats != null) {
-      publishStats(icebergTableStats);
+    if (icebergStats != null) {
+      publishStats(icebergStats);
     } else {
       log.warn("Skipping stats publishing for table: {} due to collection failure", fqtn);
     }
 
-    List<CommitEventTable> commitEvents = commitEventsFuture.join();
     if (commitEvents != null && !commitEvents.isEmpty()) {
       publishCommitEvents(commitEvents);
     } else {
@@ -82,7 +75,6 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
           fqtn);
     }
 
-    List<CommitEventTablePartitions> partitionEvents = partitionEventsFuture.join();
     if (partitionEvents != null && !partitionEvents.isEmpty()) {
       publishPartitionEvents(partitionEvents);
     } else {
@@ -138,34 +130,31 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   }
 
   /**
-   * Execute a supplier asynchronously with timing and logging.
+   * Trigger supplier with timing and logging.
    *
    * @param operationName Name of the operation for logging
    * @param supplier The operation to execute
    * @param resultFormatter Function to format the result for logging
    * @param <T> Return type of the operation
-   * @return CompletableFuture wrapping the operation result
+   * @return operation result
    */
-  private <T> CompletableFuture<T> executeWithTimingAsync(
+  private <T> T executeWithTiming(
       String operationName,
       Supplier<T> supplier,
       java.util.function.Function<T, String> resultFormatter) {
-    return CompletableFuture.supplyAsync(
-        () -> {
-          long startTime = System.currentTimeMillis();
-          log.info("Starting {} for table: {}", operationName, fqtn);
-          T result = supplier.get();
-          long endTime = System.currentTimeMillis();
+    long startTime = System.currentTimeMillis();
+    log.info("Starting {} for table: {}", operationName, fqtn);
+    T result = supplier.get();
+    long endTime = System.currentTimeMillis();
 
-          String resultDescription =
-              (result != null) ? resultFormatter.apply(result) : "null (collection failed)";
-          log.info(
-              "Completed {} for table: {} in {} ms",
-              operationName,
-              resultDescription,
-              (endTime - startTime));
-          return result;
-        });
+    String resultDescription =
+        (result != null) ? resultFormatter.apply(result) : "null (collection failed)";
+    log.info(
+        "Completed {} for table: {} in {} ms",
+        operationName,
+        resultDescription,
+        (endTime - startTime));
+    return result;
   }
 
   public static TableStatsCollectionSparkApp createApp(String[] args, OtelEmitter otelEmitter) {
