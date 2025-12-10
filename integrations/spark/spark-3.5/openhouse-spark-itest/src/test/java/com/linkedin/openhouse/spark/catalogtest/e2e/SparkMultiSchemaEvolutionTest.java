@@ -25,10 +25,10 @@ public class SparkMultiSchemaEvolutionTest extends OpenHouseSparkITest {
     try {
       spark = getSparkSession();
       spark.sql(
-          "CREATE TABLE openhouse.d1.t2 (name string, id int) TBLPROPERTIES ('openhouse.tableType' = 'REPLICA_TABLE');");
-      spark.sql("INSERT INTO openhouse.d1.t2 VALUES ('Alice', 1)");
-      spark.sql("INSERT INTO openhouse.d1.t2 VALUES ('Bob', 2), ('Charlie', 3)");
-      TableIdentifier tableIdentifier = TableIdentifier.of("d1", "t2");
+          "CREATE TABLE openhouse.multiSchemaTest.t1 (name string, id int) TBLPROPERTIES ('openhouse.tableType' = 'REPLICA_TABLE');");
+      spark.sql("INSERT INTO openhouse.multiSchemaTest.t1 VALUES ('Alice', 1)");
+      spark.sql("INSERT INTO openhouse.multiSchemaTest.t1 VALUES ('Bob', 2), ('Charlie', 3)");
+      TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", "t1");
       OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
       TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
       Schema evolvedSchema =
@@ -61,7 +61,7 @@ public class SparkMultiSchemaEvolutionTest extends OpenHouseSparkITest {
       Assertions.assertTrue(result.schema().sameSchema(finalEvolvedSchema));
     } finally {
       if (spark != null) {
-        spark.sql("DROP TABLE openhouse.d1.t2");
+        spark.sql("DROP TABLE openhouse.multiSchemaTest.t1");
       }
     }
   }
@@ -71,7 +71,7 @@ public class SparkMultiSchemaEvolutionTest extends OpenHouseSparkITest {
     SparkSession spark = null;
     try {
       spark = getSparkSession();
-      TableIdentifier tableIdentifier = TableIdentifier.of("d1", "t3");
+      TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", "t2");
       OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
       Schema schemaColumnOrdering =
           new Schema(
@@ -125,7 +125,7 @@ public class SparkMultiSchemaEvolutionTest extends OpenHouseSparkITest {
       Assertions.assertTrue(result.schema().sameSchema(schemaColumnOrdering3));
     } finally {
       if (spark != null) {
-        spark.sql("DROP TABLE openhouse.d1.t3");
+        spark.sql("DROP TABLE openhouse.multiSchemaTest.t2");
       }
     }
   }
