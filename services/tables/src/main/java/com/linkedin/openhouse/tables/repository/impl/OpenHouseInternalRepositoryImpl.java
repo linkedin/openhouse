@@ -380,10 +380,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(tableDto.getSnapshotRefs()));
       }
     }
-    if (!MapUtils.isEmpty(tableDto.getnewIntermediateSchemas())) {
+    if (!CollectionUtils.isEmpty(tableDto.getNewIntermediateSchemas())) {
       propertiesMap.put(
           INTERMEDIATE_SCHEMAS_KEY,
-          SnapshotsUtil.serializeMap(tableDto.getnewIntermediateSchemas()));
+          new GsonBuilder().create().toJson(tableDto.getNewIntermediateSchemas()));
     }
     if (tableDto.getTableType() != null) {
       propertiesMap.put(getCanonicalFieldName(TABLE_TYPE_KEY), tableDto.getTableType().toString());
@@ -501,13 +501,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   private void doSetnewIntermediateSchemasIfNeeded(
       UpdateProperties updateProperties, TableDto tableDto) {
-    if (MapUtils.isNotEmpty(tableDto.getnewIntermediateSchemas())) {
+    if (CollectionUtils.isNotEmpty(tableDto.getNewIntermediateSchemas())) {
       updateProperties.set(
           INTERMEDIATE_SCHEMAS_KEY,
-          new GsonBuilder().create().toJson(tableDto.getnewIntermediateSchemas()));
+          new GsonBuilder().create().toJson(tableDto.getNewIntermediateSchemas()));
       log.info(
           "Setting {} intermediate schemas for table {}.{}",
-          tableDto.getnewIntermediateSchemas().size(),
+          tableDto.getNewIntermediateSchemas().size(),
           tableDto.getDatabaseId(),
           tableDto.getTableId());
     }
