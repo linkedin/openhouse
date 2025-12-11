@@ -194,18 +194,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * An internal helper method to rebuild the {@link TableMetadata} object with a parsed schema.
    *
    * @param newMetadata The current table metadata
-   * @param writerSchema The parsed schema object
+   * @param schemaJson The parsed schema object
    * @param reuseMetadata Whether to reuse existing metadata or build from empty
-   * @return Rebuilt table metadata with the new schema
+   * @return Table metadata builder with the new schema set as current
    */
-  private TableMetadata rebuildTblMetaWithSchema(
+  private TableMetadata.Builder rebuildTblMetaWithSchemaBuilder(
       TableMetadata newMetadata, String schemaJson, boolean reuseMetadata) {
     Schema writerSchema = SchemaParser.fromJson(schemaJson);
 
     if (reuseMetadata) {
       return TableMetadata.buildFrom(newMetadata)
-          .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
-          .build();
+          .setCurrentSchema(writerSchema, writerSchema.highestFieldId());
     } else {
       return TableMetadata.buildFromEmpty()
           .setLocation(newMetadata.location())
@@ -213,8 +212,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           .addPartitionSpec(
               rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
           .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
-          .setProperties(newMetadata.properties())
-          .build();
+          .setProperties(newMetadata.properties());
     }
   }
 
@@ -571,25 +569,33 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         isNewTable && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null
             ? metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA)
             : metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY);
-    String serializednewIntermediateSchemas =
+    String serializedNewIntermediateSchemas =
         metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
-
-    TableMetadata updatedMetadata = metadata;
+    // If there is no schema update, return the original metadata
+    if (finalSchemaUpdate == null) {
+      return metadata;
+    }
+    TableMetadata.Builder updatedMetadataBuilder;
 
     // Process intermediate schemas first if present
-    if (serializednewIntermediateSchemas != null) {
+    if (serializedNewIntermediateSchemas != null) {
       List<String> newIntermediateSchemas =
           new GsonBuilder()
               .create()
               .fromJson(
-                  serializednewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
+                  serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
 
       // Process schemas in order
-      for (int i = 0; i < newIntermediateSchemas.size(); i++) {
+      int startingSchemaId = metadata.currentSchemaId();
+      updatedMetadataBuilder =
+          rebuildTblMetaWithSchemaBuilder(metadata, newIntermediateSchemas.get(0), !isNewTable);
+      for (int i = 1; i < newIntermediateSchemas.size(); i++) {
         String schemaJson = newIntermediateSchemas.get(i);
-        int nextSchemaId = updatedMetadata.currentSchemaId() + i + 1;
+        int nextSchemaId = startingSchemaId + i + 1;
         try {
-          updatedMetadata = rebuildTblMetaWithSchema(updatedMetadata, schemaJson, !isNewTable);
+          Schema writerSchema = SchemaParser.fromJson(schemaJson);
+          updatedMetadataBuilder =
+              updatedMetadataBuilder.setCurrentSchema(writerSchema, writerSchema.highestFieldId());
         } catch (Exception e) {
           log.error(
               "Failed to process intermediate schema with ID {} for table {}",
@@ -598,14 +604,15 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               e);
         }
       }
-    }
-    if (finalSchemaUpdate != null) {
       // Then apply the final schema (either client schema for new tables or evolved schema for
       // updates)
-      updatedMetadata = rebuildTblMetaWithSchema(updatedMetadata, finalSchemaUpdate, !isNewTable);
-      log.info("Schema after commit is " + updatedMetadata.schema());
+      Schema finalSchema = SchemaParser.fromJson(finalSchemaUpdate);
+      updatedMetadataBuilder =
+          updatedMetadataBuilder.setCurrentSchema(finalSchema, finalSchema.highestFieldId());
+      return updatedMetadataBuilder.build();
+    } else {
+      return rebuildTblMetaWithSchemaBuilder(metadata, finalSchemaUpdate, !isNewTable).build();
     }
-    return updatedMetadata;
   }
 
   /** Helper function to dump contents for map in debugging mode. */
