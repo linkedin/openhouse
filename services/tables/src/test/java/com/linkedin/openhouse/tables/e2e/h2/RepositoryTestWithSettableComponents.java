@@ -29,6 +29,7 @@ import java.util.Optional;
 import javax.annotation.PostConstruct;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -175,6 +176,52 @@ public class RepositoryTestWithSettableComponents {
     // If there's no exception thrown or another other non-CommitFailedException exception, it is a
     // failed case.
     assert false;
+  }
+
+  @Test
+  void testSaveClearsTransientCommitPropertiesDuringTransaction() throws Exception {
+    TableIdentifier tableIdentifier =
+        TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId());
+
+    MetricsReporter metricsReporter =
+        new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
+    OpenHouseInternalTableOperations actualOps =
+        new OpenHouseInternalTableOperations(
+            houseTablesRepository,
+            fileIO,
+            houseTableMapper,
+            tableIdentifier,
+            metricsReporter,
+            fileIOManager);
+    ((SettableCatalogForTest) catalog).setOperation(actualOps);
+
+    TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
+    TableDto createdDto = openHouseInternalRepository.save(creationDTO);
+
+    Map<String, String> updatedProps =
+        createdDto.getTableProperties() == null
+            ? new HashMap<>()
+            : new HashMap<>(createdDto.getTableProperties());
+    String userProvidedRetries = "7";
+    updatedProps.put(TableProperties.COMMIT_NUM_RETRIES, userProvidedRetries);
+
+    TableDto updateDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .tableProperties(updatedProps)
+            .build();
+
+    openHouseInternalRepository.save(updateDto);
+
+    Table table = catalog.loadTable(tableIdentifier);
+    Map<String, String> persistedProps = table.properties();
+    Assertions.assertEquals(
+        userProvidedRetries,
+        persistedProps.get(TableProperties.COMMIT_NUM_RETRIES),
+        "custom commit.num-retries value should be preserved after transaction commit");
+
+    catalog.dropTable(tableIdentifier);
   }
 
   private HouseTableRepository provideFailedHtsRepoWhenGet(Class c) {

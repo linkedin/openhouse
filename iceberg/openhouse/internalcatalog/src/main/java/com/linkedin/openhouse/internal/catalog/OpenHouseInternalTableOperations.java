@@ -234,6 +234,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // Now that we have metadataLocation we stamp it in metadata property.
       Map<String, String> properties = new HashMap<>(metadata.properties());
       failIfRetryUpdate(properties);
+      restoreOverriddenProperties(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -253,9 +254,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
-      }
-      if (properties.containsKey(TableProperties.COMMIT_NUM_RETRIES)) {
-        properties.remove(TableProperties.COMMIT_NUM_RETRIES);
       }
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
@@ -558,6 +556,43 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     for (Map.Entry<String, String> entry : map.entrySet()) {
       log.debug(entry.getKey() + ":" + entry.getValue());
     }
+  }
+
+  /**
+   * Restores table properties that were temporarily overridden by the repository layer. Properties
+   * marked with {@code TRANSIENT_RESTORE_PREFIX} have their original values reinstated, while those
+   * marked with {@code TRANSIENT_ADDED_PREFIX} are removed entirely.
+   *
+   * @param properties mutable map of table properties
+   */
+  private void restoreOverriddenProperties(Map<String, String> properties) {
+    final String restorePrefix = CatalogConstants.TRANSIENT_RESTORE_PREFIX;
+    final String addedPrefix = CatalogConstants.TRANSIENT_ADDED_PREFIX;
+
+    Map<String, String> toRestore = new HashMap<>();
+    Set<String> toRemove = new java.util.HashSet<>();
+
+    for (String key : new java.util.ArrayList<>(properties.keySet())) {
+      if (key.startsWith(restorePrefix)) {
+        String propertyKey = key.substring(restorePrefix.length());
+        toRestore.put(propertyKey, properties.get(key));
+        properties.remove(key);
+      } else if (key.startsWith(addedPrefix)) {
+        String propertyKey = key.substring(addedPrefix.length());
+        toRemove.add(propertyKey);
+        properties.remove(key);
+      }
+    }
+
+    toRestore.forEach(
+        (propertyKey, originalValue) -> {
+          if (originalValue == null) {
+            properties.remove(propertyKey);
+          } else {
+            properties.put(propertyKey, originalValue);
+          }
+        });
+    toRemove.forEach(properties::remove);
   }
 
   /**
