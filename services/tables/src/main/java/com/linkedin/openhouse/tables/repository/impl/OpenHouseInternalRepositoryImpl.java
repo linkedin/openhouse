@@ -154,8 +154,18 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
-      updateProperties.set(COMMIT_KEY, tableDto.getTableVersion());
-      updateProperties.commit();
+      updateProperties.set(COMMIT_KEY, tableDto.getTableVersion()).commit();
+      // this relies on forked iceberg-core to use this property for building the base transaction
+      // retryer
+      // default iceberg behavior will use the hdfs base metadata to derive the base transaction
+      // retryer
+      String desiredCommitRetries =
+          tableDto.getTableProperties() != null
+                  && tableDto.getTableProperties().containsKey(TableProperties.COMMIT_NUM_RETRIES)
+              ? tableDto.getTableProperties().get(TableProperties.COMMIT_NUM_RETRIES)
+              : table.properties().get(TableProperties.COMMIT_NUM_RETRIES);
+      overrideProperty(
+          updateProperties, desiredCommitRetries, TableProperties.COMMIT_NUM_RETRIES, "0");
 
       // No new metadata.json shall be generated if nothing changed.
       if (schemaUpdated
@@ -527,6 +537,39 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       tableTypeAdded = true;
     }
     return tableTypeAdded;
+  }
+
+  private void overrideProperty(
+      UpdateProperties updateProperties,
+      String desiredFinalValue,
+      String propertyKey,
+      String overrideValue) {
+    if (desiredFinalValue != null) {
+      String desiredFinalValueForLog =
+          desiredFinalValue.length() > 256
+              ? desiredFinalValue.substring(0, 256) + "...(truncated)"
+              : desiredFinalValue;
+      log.info(
+          "overrideProperty: stashing desiredFinalValue for {} into {}{} (desiredFinalValue={}), then overriding {} -> {}",
+          propertyKey,
+          CatalogConstants.TRANSIENT_RESTORE_PREFIX,
+          propertyKey,
+          desiredFinalValueForLog,
+          propertyKey,
+          overrideValue);
+      updateProperties.set(
+          CatalogConstants.TRANSIENT_RESTORE_PREFIX + propertyKey, desiredFinalValue);
+    } else {
+      log.info(
+          "overrideProperty: desiredFinalValue is null for {}; setting {}{} as transient-added marker, then overriding {} -> {}",
+          propertyKey,
+          CatalogConstants.TRANSIENT_ADDED_PREFIX,
+          propertyKey,
+          propertyKey,
+          overrideValue);
+      updateProperties.set(CatalogConstants.TRANSIENT_ADDED_PREFIX + propertyKey, "");
+    }
+    updateProperties.set(propertyKey, overrideValue).commit();
   }
 
   @Timed(metricKey = MetricsConstant.REPO_TABLE_FIND_TIME)

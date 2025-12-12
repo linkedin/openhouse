@@ -29,6 +29,7 @@ import java.util.Optional;
 import javax.annotation.PostConstruct;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -74,23 +75,23 @@ public class RepositoryTestWithSettableComponents {
    * mocking the behavior of HouseTableRepository to throw exception for triggering retry when
    * needed.
    */
-  private HouseTableRepository provideFailedHtsRepoWhenSave() {
+  private HouseTableRepository provideFailedHtsRepoWhenSave(String tableLocation) {
     HouseTableRepository htsRepo = Mockito.mock(HouseTableRepository.class);
     doThrow(CommitFailedException.class).when(htsRepo).save(Mockito.any(HouseTable.class));
     HouseTable dummyHt =
         HouseTable.builder()
             .tableId(TABLE_DTO.getTableId())
             .databaseId(TABLE_DTO.getDatabaseId())
+            .tableLocation(tableLocation)
             .build();
     doReturn(Optional.of(dummyHt)).when(htsRepo).findById(Mockito.any(HouseTablePrimaryKey.class));
     return htsRepo;
   }
 
   @Test
-  void testNoRetryInternalRepo() {
+  void testNoRetryInternalRepo() throws Exception {
     TableIdentifier tableIdentifier =
         TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId());
-    HouseTableRepository htsRepo = provideFailedHtsRepoWhenSave();
 
     // construct a real table object to prepare subsequent client call for table-update (that they
     // will fail)
@@ -110,6 +111,9 @@ public class RepositoryTestWithSettableComponents {
     // obtain the realTable object for mocking behavior later.
     Table realTable = catalog.loadTable(tableIdentifier);
 
+    // Use the actual metadata location from the created table for the mock
+    HouseTableRepository htsRepo = provideFailedHtsRepoWhenSave(creationDTO.getTableLocation());
+
     // injecting mocked htsRepo within a tableOperation that fails doCommit method.
     // The requirement to trigger htsRepo.save call are: Detectable updates in Transaction itself.
     MetricsReporter metricsReporter2 =
@@ -118,7 +122,7 @@ public class RepositoryTestWithSettableComponents {
         new OpenHouseInternalTableOperations(
             htsRepo, fileIO, houseTableMapper, tableIdentifier, metricsReporter2, fileIOManager);
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
-    doReturn(actualOps.current()).when(spyOperations).refresh();
+
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
 
     Catalog spyCatalog = Mockito.spy(Catalog.class);
@@ -156,6 +160,14 @@ public class RepositoryTestWithSettableComponents {
       spyRepo.save(creationDTO);
     } catch (CommitFailedException e) {
       verify(htsRepo, times(1)).save(Mockito.any(HouseTable.class));
+
+      // Verify refresh() call count to confirm no Iceberg retry loop engaged on the server.
+      //   - 1 call from Transactions.newTransaction() -> ops.refresh()
+      //   - 1 call from BaseTransaction.applyUpdates() -> underlyingOps.refresh()
+      // Total: 2 calls.
+      // If this test has more than 2 calls, there's a retry loop bug on the server.
+      verify(spyOperations, times(2)).refresh();
+
       ((SettableCatalogForTest) catalog).setOperation(actualOps);
       catalog.dropTable(tableIdentifier);
       return;
@@ -164,6 +176,52 @@ public class RepositoryTestWithSettableComponents {
     // If there's no exception thrown or another other non-CommitFailedException exception, it is a
     // failed case.
     assert false;
+  }
+
+  @Test
+  void testSaveClearsTransientCommitPropertiesDuringTransaction() throws Exception {
+    TableIdentifier tableIdentifier =
+        TableIdentifier.of(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId());
+
+    MetricsReporter metricsReporter =
+        new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
+    OpenHouseInternalTableOperations actualOps =
+        new OpenHouseInternalTableOperations(
+            houseTablesRepository,
+            fileIO,
+            houseTableMapper,
+            tableIdentifier,
+            metricsReporter,
+            fileIOManager);
+    ((SettableCatalogForTest) catalog).setOperation(actualOps);
+
+    TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
+    TableDto createdDto = openHouseInternalRepository.save(creationDTO);
+
+    Map<String, String> updatedProps =
+        createdDto.getTableProperties() == null
+            ? new HashMap<>()
+            : new HashMap<>(createdDto.getTableProperties());
+    String userProvidedRetries = "7";
+    updatedProps.put(TableProperties.COMMIT_NUM_RETRIES, userProvidedRetries);
+
+    TableDto updateDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .tableProperties(updatedProps)
+            .build();
+
+    openHouseInternalRepository.save(updateDto);
+
+    Table table = catalog.loadTable(tableIdentifier);
+    Map<String, String> persistedProps = table.properties();
+    Assertions.assertEquals(
+        userProvidedRetries,
+        persistedProps.get(TableProperties.COMMIT_NUM_RETRIES),
+        "custom commit.num-retries value should be preserved after transaction commit");
+
+    catalog.dropTable(tableIdentifier);
   }
 
   private HouseTableRepository provideFailedHtsRepoWhenGet(Class c) {

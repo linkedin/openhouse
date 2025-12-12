@@ -234,6 +234,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // Now that we have metadataLocation we stamp it in metadata property.
       Map<String, String> properties = new HashMap<>(metadata.properties());
       failIfRetryUpdate(properties);
+      restoreOverriddenProperties(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -555,6 +556,65 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     for (Map.Entry<String, String> entry : map.entrySet()) {
       log.debug(entry.getKey() + ":" + entry.getValue());
     }
+  }
+
+  /**
+   * Restores table properties that were temporarily overridden by the repository layer. Properties
+   * marked with {@code TRANSIENT_RESTORE_PREFIX} have their original values reinstated, while those
+   * marked with {@code TRANSIENT_ADDED_PREFIX} are removed entirely.
+   *
+   * @param properties mutable map of table properties
+   */
+  private void restoreOverriddenProperties(Map<String, String> properties) {
+    final String restorePrefix = CatalogConstants.TRANSIENT_RESTORE_PREFIX;
+    final String addedPrefix = CatalogConstants.TRANSIENT_ADDED_PREFIX;
+
+    Map<String, String> toRestore = new HashMap<>();
+    Set<String> toRemove = new java.util.HashSet<>();
+
+    for (String key : new java.util.ArrayList<>(properties.keySet())) {
+      if (key.startsWith(restorePrefix)) {
+        String propertyKey = key.substring(restorePrefix.length());
+        toRestore.put(propertyKey, properties.get(key));
+        properties.remove(key);
+      } else if (key.startsWith(addedPrefix)) {
+        String propertyKey = key.substring(addedPrefix.length());
+        toRemove.add(propertyKey);
+        properties.remove(key);
+      }
+    }
+
+    log.info(
+        "restoreOverriddenProperties: restoring {} properties, removing {} transient-added properties",
+        toRestore.size(),
+        toRemove.size());
+
+    toRestore.forEach(
+        (propertyKey, originalValue) -> {
+          if (originalValue == null) {
+            log.info(
+                "restoreOverriddenProperties: removing property {} because originalValue is null",
+                propertyKey);
+            properties.remove(propertyKey);
+          } else {
+            String originalValueForLog =
+                originalValue.length() > 256
+                    ? originalValue.substring(0, 256) + "...(truncated)"
+                    : originalValue;
+            log.info(
+                "restoreOverriddenProperties: restoring property {} to {}",
+                propertyKey,
+                originalValueForLog);
+            properties.put(propertyKey, originalValue);
+          }
+        });
+
+    toRemove.forEach(
+        propertyKey -> {
+          log.info(
+              "restoreOverriddenProperties: removing transient-added property {}", propertyKey);
+          properties.remove(propertyKey);
+        });
   }
 
   /**
