@@ -5,6 +5,7 @@ import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
@@ -599,6 +600,46 @@ public final class Operations implements AutoCloseable {
       return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect partition events for table: {}", fqtn, e);
+      return Collections.emptyList();
+    }
+  }
+
+  /**
+   * Collect statistics for a given fully-qualified table name (partitioned or unpartitioned).
+   *
+   * <p><b>For PARTITIONED tables:</b> Returns one record per unique partition with aggregated
+   * statistics. Each partition is associated with its LATEST commit (highest committed_at
+   * timestamp).
+   *
+   * <p><b>For UNPARTITIONED tables:</b> Returns a single record with aggregated statistics from ALL
+   * data_files and current snapshot metadata.
+   *
+   * <p><b>Key differences from collectCommitEventTablePartitions:</b>
+   *
+   * <ul>
+   *   <li>One record per unique partition (or single record for unpartitioned), not per
+   *       commit-partition pair
+   *   <li>Latest commit only (max committed_at or current snapshot)
+   *   <li>Includes aggregated statistics from data_files metadata table
+   * </ul>
+   *
+   * <p>Returns empty list on errors.
+   *
+   * @param fqtn fully-qualified table name
+   * @return List of CommitEventTablePartitionStats objects (event_timestamp_ms will be set at
+   *     publish time)
+   */
+  public List<CommitEventTablePartitionStats> collectCommitEventTablePartitionStats(String fqtn) {
+    Table table = getTable(fqtn);
+
+    try {
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectCommitEventTablePartitionStats();
+    } catch (IOException e) {
+      log.error("Unable to initialize file system for partition stats collection", e);
+      return Collections.emptyList();
+    } catch (Exception e) {
+      log.error("Failed to collect partition stats for table: {}", fqtn, e);
       return Collections.emptyList();
     }
   }
