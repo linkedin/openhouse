@@ -154,8 +154,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
-      updateProperties.set(COMMIT_KEY, tableDto.getTableVersion());
-      updateProperties.commit();
+      updateProperties.set(COMMIT_KEY, tableDto.getTableVersion()).commit();
+      updateProperties.set(TableProperties.COMMIT_NUM_RETRIES, "0").commit();
 
       // No new metadata.json shall be generated if nothing changed.
       if (schemaUpdated

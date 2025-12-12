@@ -254,6 +254,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
       }
+      if (properties.containsKey(TableProperties.COMMIT_NUM_RETRIES)) {
+        properties.remove(TableProperties.COMMIT_NUM_RETRIES);
+      }
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
