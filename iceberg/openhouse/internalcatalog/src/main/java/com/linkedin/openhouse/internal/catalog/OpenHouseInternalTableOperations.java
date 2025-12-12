@@ -584,15 +584,37 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
     }
 
+    log.info(
+        "restoreOverriddenProperties: restoring {} properties, removing {} transient-added properties",
+        toRestore.size(),
+        toRemove.size());
+
     toRestore.forEach(
         (propertyKey, originalValue) -> {
           if (originalValue == null) {
+            log.info(
+                "restoreOverriddenProperties: removing property {} because originalValue is null",
+                propertyKey);
             properties.remove(propertyKey);
           } else {
+            String originalValueForLog =
+                originalValue.length() > 256
+                    ? originalValue.substring(0, 256) + "...(truncated)"
+                    : originalValue;
+            log.info(
+                "restoreOverriddenProperties: restoring property {} to {}",
+                propertyKey,
+                originalValueForLog);
             properties.put(propertyKey, originalValue);
           }
         });
-    toRemove.forEach(properties::remove);
+
+    toRemove.forEach(
+        propertyKey -> {
+          log.info(
+              "restoreOverriddenProperties: removing transient-added property {}", propertyKey);
+          properties.remove(propertyKey);
+        });
   }
 
   /**

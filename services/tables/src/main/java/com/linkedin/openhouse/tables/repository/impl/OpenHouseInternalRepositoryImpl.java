@@ -545,9 +545,28 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       String propertyKey,
       String overrideValue) {
     if (desiredFinalValue != null) {
+      String desiredFinalValueForLog =
+          desiredFinalValue.length() > 256
+              ? desiredFinalValue.substring(0, 256) + "...(truncated)"
+              : desiredFinalValue;
+      log.info(
+          "overrideProperty: stashing desiredFinalValue for {} into {}{} (desiredFinalValue={}), then overriding {} -> {}",
+          propertyKey,
+          CatalogConstants.TRANSIENT_RESTORE_PREFIX,
+          propertyKey,
+          desiredFinalValueForLog,
+          propertyKey,
+          overrideValue);
       updateProperties.set(
           CatalogConstants.TRANSIENT_RESTORE_PREFIX + propertyKey, desiredFinalValue);
     } else {
+      log.info(
+          "overrideProperty: desiredFinalValue is null for {}; setting {}{} as transient-added marker, then overriding {} -> {}",
+          propertyKey,
+          CatalogConstants.TRANSIENT_ADDED_PREFIX,
+          propertyKey,
+          propertyKey,
+          overrideValue);
       updateProperties.set(CatalogConstants.TRANSIENT_ADDED_PREFIX + propertyKey, "");
     }
     updateProperties.set(propertyKey, overrideValue).commit();
