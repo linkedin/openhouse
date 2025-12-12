@@ -155,6 +155,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
       updateProperties.set(COMMIT_KEY, tableDto.getTableVersion()).commit();
+      // this relies on forked iceberg-core to use this property for building the base transaction
+      // retryer
+      // default iceberg behavior will use the hdfs base metadata to derive the base transaction
+      // retryer
       updateProperties.set(TableProperties.COMMIT_NUM_RETRIES, "0").commit();
 
       // No new metadata.json shall be generated if nothing changed.
