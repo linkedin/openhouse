@@ -53,6 +53,9 @@ public final class AppConstants {
   // Maintenance jobs table properties keys
   public static final String BACKUP_ENABLED_KEY = "retention.backup.enabled";
   public static final String BACKUP_DIR_KEY = "retention.backup.dir";
+  public static final String OPENHOUSE_TABLE_TYPE_KEY = "openhouse.tableType";
+  public static final String TABLE_TYPE_PRIMARY = "PRIMARY_TABLE";
+  public static final String TABLE_TYPE_REPLICA = "REPLICA_TABLE";
 
   private AppConstants() {}
 }

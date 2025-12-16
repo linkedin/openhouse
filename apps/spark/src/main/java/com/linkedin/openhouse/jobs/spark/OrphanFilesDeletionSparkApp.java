@@ -8,6 +8,7 @@ import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -27,8 +28,9 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
  */
 @Slf4j
 public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
-  private final long ttlSeconds;
+  private long ttlSeconds;
   private final String backupDir;
+  private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
@@ -44,6 +46,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
 
   @Override
   protected void runInner(Operations ops) {
+    updateTtlSeconds(ops);
     long olderThanTimestampMillis =
         System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(ttlSeconds);
     Table table = ops.getTable(fqtn);
@@ -69,6 +72,26 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         AppConstants.ORPHAN_FILE_COUNT,
         orphanFileLocations.size(),
         Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
+  }
+
+  /**
+   * Validate and keep min OFD TTL for replica table as 3 days if provided TTL is less than 3 days
+   *
+   * @param ops
+   */
+  private void updateTtlSeconds(Operations ops) {
+    Table table = ops.getTable(fqtn);
+    String tableType =
+        table
+            .properties()
+            .getOrDefault(AppConstants.OPENHOUSE_TABLE_TYPE_KEY, AppConstants.TABLE_TYPE_PRIMARY);
+    if (AppConstants.TABLE_TYPE_REPLICA.equals(tableType)) {
+      long days = Duration.ofSeconds(ttlSeconds).toDays();
+      // Keep the min default OFD TTL for replica tables
+      if (days < DEFAULT_MIN_OFD_TTL_IN_DAYS) {
+        ttlSeconds = TimeUnit.DAYS.toSeconds(DEFAULT_MIN_OFD_TTL_IN_DAYS);
+      }
+    }
   }
 
   public static void main(String[] args) {
