@@ -85,6 +85,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         table
             .properties()
             .getOrDefault(AppConstants.OPENHOUSE_TABLE_TYPE_KEY, AppConstants.TABLE_TYPE_PRIMARY);
+    // Check if replica table and update TTL
     if (AppConstants.TABLE_TYPE_REPLICA.equals(tableType)) {
       long days = Duration.ofSeconds(ttlSeconds).toDays();
       // Keep the min default OFD TTL for replica tables
@@ -92,6 +93,15 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         ttlSeconds = TimeUnit.DAYS.toSeconds(DEFAULT_MIN_OFD_TTL_IN_DAYS);
       }
     }
+  }
+
+  /**
+   * Get ttl in seconds
+   *
+   * @return long
+   */
+  protected long getTtlSeconds() {
+    return ttlSeconds;
   }
 
   public static void main(String[] args) {
