@@ -25,6 +25,7 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -569,50 +570,32 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         isNewTable && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null
             ? metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA)
             : metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY);
-    String serializedNewIntermediateSchemas =
-        metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
     // If there is no schema update, return the original metadata
     if (finalSchemaUpdate == null) {
       return metadata;
     }
+    List<String> newSchemas = getNewSchemasFromProps(metadata);
+    newSchemas.add(finalSchemaUpdate);
     TableMetadata.Builder updatedMetadataBuilder;
 
     // Process intermediate schemas first if present
-    if (serializedNewIntermediateSchemas != null) {
-      List<String> newIntermediateSchemas =
-          new GsonBuilder()
-              .create()
-              .fromJson(
-                  serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
+    updatedMetadataBuilder =
+        rebuildTblMetaWithSchemaBuilder(metadata, newSchemas.get(0), !isNewTable);
 
-      // Process schemas in order
-      int startingSchemaId = metadata.currentSchemaId();
-      updatedMetadataBuilder =
-          rebuildTblMetaWithSchemaBuilder(metadata, newIntermediateSchemas.get(0), !isNewTable);
-      for (int i = 1; i < newIntermediateSchemas.size(); i++) {
-        String schemaJson = newIntermediateSchemas.get(i);
-        int nextSchemaId = startingSchemaId + i + 1;
-        try {
-          Schema writerSchema = SchemaParser.fromJson(schemaJson);
-          updatedMetadataBuilder =
-              updatedMetadataBuilder.setCurrentSchema(writerSchema, writerSchema.highestFieldId());
-        } catch (Exception e) {
-          log.error(
-              "Failed to process intermediate schema with ID {} for table {}",
-              nextSchemaId,
-              tableIdentifier,
-              e);
-        }
-      }
-      // Then apply the final schema (either client schema for new tables or evolved schema for
-      // updates)
-      Schema finalSchema = SchemaParser.fromJson(finalSchemaUpdate);
-      updatedMetadataBuilder =
-          updatedMetadataBuilder.setCurrentSchema(finalSchema, finalSchema.highestFieldId());
-      return updatedMetadataBuilder.build();
-    } else {
-      return rebuildTblMetaWithSchemaBuilder(metadata, finalSchemaUpdate, !isNewTable).build();
-    }
+    newSchemas.stream()
+        .skip(1) // Skip the initialization schema
+        .forEach(
+            schemaJson -> {
+              try {
+                Schema schema = SchemaParser.fromJson(schemaJson);
+                updatedMetadataBuilder.setCurrentSchema(schema, schema.highestFieldId());
+              } catch (Exception e) {
+                log.error(
+                    "Failed to process schema: {} for table {}", schemaJson, tableIdentifier, e);
+              }
+            });
+
+    return updatedMetadataBuilder.build();
   }
 
   /** Helper function to dump contents for map in debugging mode. */
@@ -672,5 +655,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             .getOrDefault(
                 CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION)
             .equals(CatalogConstants.INITIAL_VERSION);
+  }
+
+  private List<String> getNewSchemasFromProps(TableMetadata metadata) {
+    String serializedNewIntermediateSchemas =
+        metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+    if (serializedNewIntermediateSchemas == null) {
+      return new ArrayList<>();
+    }
+    return new GsonBuilder()
+        .create()
+        .fromJson(serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
   }
 }
