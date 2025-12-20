@@ -574,7 +574,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     if (finalSchemaUpdate == null) {
       return metadata;
     }
-    List<String> newSchemas = getNewSchemasFromProps(metadata);
+    List<String> newSchemas = getIntermediateSchemasFromProps(metadata);
     newSchemas.add(finalSchemaUpdate);
     TableMetadata.Builder updatedMetadataBuilder;
 
@@ -657,7 +657,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             .equals(CatalogConstants.INITIAL_VERSION);
   }
 
-  private List<String> getNewSchemasFromProps(TableMetadata metadata) {
+  private List<String> getIntermediateSchemasFromProps(TableMetadata metadata) {
     String serializedNewIntermediateSchemas =
         metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
     if (serializedNewIntermediateSchemas == null) {
