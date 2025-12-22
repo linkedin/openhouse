@@ -4,7 +4,9 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
@@ -23,6 +25,7 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -188,14 +191,21 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
-  /** An internal helper method to rebuild the {@link TableMetadata} object. */
-  private TableMetadata rebuildTblMetaWithSchema(
-      TableMetadata newMetadata, String schemaKey, boolean reuseMetadata) {
-    Schema writerSchema = SchemaParser.fromJson(newMetadata.properties().get(schemaKey));
+  /**
+   * An internal helper method to rebuild the {@link TableMetadata} object with a parsed schema.
+   *
+   * @param newMetadata The current table metadata
+   * @param schemaJson The parsed schema object
+   * @param reuseMetadata Whether to reuse existing metadata or build from empty
+   * @return Table metadata builder with the new schema set as current
+   */
+  private TableMetadata.Builder rebuildTblMetaWithSchemaBuilder(
+      TableMetadata newMetadata, String schemaJson, boolean reuseMetadata) {
+    Schema writerSchema = SchemaParser.fromJson(schemaJson);
+
     if (reuseMetadata) {
       return TableMetadata.buildFrom(newMetadata)
-          .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
-          .build();
+          .setCurrentSchema(writerSchema, writerSchema.highestFieldId());
     } else {
       return TableMetadata.buildFromEmpty()
           .setLocation(newMetadata.location())
@@ -203,8 +213,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           .addPartitionSpec(
               rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
           .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
-          .setProperties(newMetadata.properties())
-          .build();
+          .setProperties(newMetadata.properties());
     }
   }
 
@@ -212,16 +221,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
 
-    /**
-     * During table creation, the table metadata object that arrives here has the field-ids
-     * reassigned from the client supplied schema.This code block creates a new table metadata
-     * object using the client supplied schema by preserving its field-ids.
-     */
-    if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA, false);
-    } else if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY, true);
-    }
+    // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
+    metadata = processSchemas(base, metadata);
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
@@ -255,6 +256,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
       }
+
+      if (properties.containsKey(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY)) {
+        properties.remove(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+      }
+
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
@@ -550,6 +556,49 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
+  /**
+   * Process all schema-related operations including client schema (for new tables), evolved schema
+   * (for updates), and intermediate schemas (for replication scenarios). This consolidates all
+   * schema handling logic into a single method.
+   *
+   * @param base The base table metadata (null for new tables)
+   * @param metadata The current table metadata
+   * @return Updated table metadata with all schema changes applied
+   */
+  private TableMetadata processSchemas(TableMetadata base, TableMetadata metadata) {
+    boolean isNewTable = (base == null);
+    String finalSchemaUpdate =
+        isNewTable && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null
+            ? metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA)
+            : metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY);
+    // If there is no schema update, return the original metadata
+    if (finalSchemaUpdate == null) {
+      return metadata;
+    }
+    List<String> newSchemas = getIntermediateSchemasFromProps(metadata);
+    newSchemas.add(finalSchemaUpdate);
+    TableMetadata.Builder updatedMetadataBuilder;
+
+    // Process intermediate schemas first if present
+    updatedMetadataBuilder =
+        rebuildTblMetaWithSchemaBuilder(metadata, newSchemas.get(0), !isNewTable);
+
+    newSchemas.stream()
+        .skip(1) // Skip the initialization schema
+        .forEach(
+            schemaJson -> {
+              try {
+                Schema schema = SchemaParser.fromJson(schemaJson);
+                updatedMetadataBuilder.setCurrentSchema(schema, schema.highestFieldId());
+              } catch (Exception e) {
+                log.error(
+                    "Failed to process schema: {} for table {}", schemaJson, tableIdentifier, e);
+              }
+            });
+
+    return updatedMetadataBuilder.build();
+  }
+
   /** Helper function to dump contents for map in debugging mode. */
   private void logPropertiesMap(Map<String, String> map) {
     log.debug(" === Printing the table properties within doCommit method === ");
@@ -666,5 +715,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             .getOrDefault(
                 CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION)
             .equals(CatalogConstants.INITIAL_VERSION);
+  }
+
+  private List<String> getIntermediateSchemasFromProps(TableMetadata metadata) {
+    String serializedNewIntermediateSchemas =
+        metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+    if (serializedNewIntermediateSchemas == null) {
+      return new ArrayList<>();
+    }
+    return new GsonBuilder()
+        .create()
+        .fromJson(serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
   }
 }

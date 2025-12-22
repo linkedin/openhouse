@@ -23,7 +23,8 @@ import org.junit.jupiter.api.Test;
 public class TableDtoMappingTest {
 
   private static final Set<String> FIELDS_INTO_SPEC =
-      ImmutableSet.of("schema", "timePartitioning", "tableProperties", "clustering");
+      ImmutableSet.of(
+          "schema", "timePartitioning", "tableProperties", "clustering", "newIntermediateSchemas");
   private static final Set<String> FIELDS_UNMAPPABLE =
       ImmutableSet.of("stageCreate", "jsonSnapshots", "snapshotRefs", "policies", "tableType");
 
