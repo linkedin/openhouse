@@ -579,7 +579,7 @@ public final class TableStatsCollectorUtil {
             .join(snapshotsDF, "snapshot_id")
             .select(
                 functions.col("snapshot_id"),
-                functions.col("committed_at").cast("long"), // Cast timestamp to epoch milliseconds
+                functions.col("committed_at").cast("long"), // Cast timestamp to epoch seconds
                 functions.col("operation"),
                 functions.col("summary"),
                 functions.col("partition")); // Keep partition struct for transformation
