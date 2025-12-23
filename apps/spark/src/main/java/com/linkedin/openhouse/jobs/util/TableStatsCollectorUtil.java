@@ -542,9 +542,6 @@ public final class TableStatsCollectorUtil {
     // Query all_entries metadata table for partitions per commit
     // Use DISTINCT to deduplicate (snapshot_id, partition) pairs
     // No status filter - captures all affected partitions (ADDED or DELETED files)
-    // Note: We query snapshots here even though populateCommitEventTable() also queries it.
-    // This is intentional to maintain parallel execution (both methods run simultaneously).
-    // Snapshots query is fast (~10-50ms, hits Iceberg metadata cache).
     String allEntriesQuery =
         String.format(
             "SELECT DISTINCT snapshot_id, data_file.partition " + "FROM %s.all_entries",
@@ -647,7 +644,13 @@ public final class TableStatsCollectorUtil {
     // Step 3: Collect to driver and transform in Java with type safety
     // This matches populateCommitEventTable() pattern which also uses collectAsList()
     // Size is manageable: typically 100K rows × 200 bytes = 20MB
+
+    // Cache BEFORE first action to materialize during count() and reuse for collection
+    enrichedDF.cache();
+
+    // This count() triggers cache materialization (single join execution)
     long totalRecords = enrichedDF.count();
+
     log.info("Collecting {} rows to driver for transformation", totalRecords);
     List<Row> rows = enrichedDF.collectAsList();
 
@@ -665,6 +668,9 @@ public final class TableStatsCollectorUtil {
 
     log.info(
         "Collected {} partition-level commit events for table: {}", result.size(), fullTableName);
+
+    // Unpersist cached data to free memory
+    enrichedDF.unpersist();
 
     return result;
   }
