@@ -25,6 +25,12 @@ public final class TestSparkSessionUtil {
             ("org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
                 + "com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions"))
         .config("spark.hadoop.fs.defaultFS", fsURI.toString())
+        // Set session timezone to UTC to ensure consistent timestamp handling across different
+        // system timezones. This prevents test flakiness when timestamp operations
+        // (like using from_unixtime) are interpreted differently based on the
+        // system's local timezone.With UTC, all tests behave consistently
+        // regardless of where they run.
+        .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.autoBroadcastJoinThreshold", "-1")
         .config("spark.driver.memory", "2g")
         .config("spark.driver.bindAddress", "127.0.0.1");
