@@ -286,14 +286,45 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         TableMetadata.Builder builder = TableMetadata.buildFrom(metadataToCommit);
 
         // 1. Identify which snapshots are new vs existing
+        // Include snapshots from both metadataToCommit AND current() to handle the case where
+        // a concurrent process added snapshots after a refresh.
         Set<Long> existingSnapshotIds =
             metadataToCommit.snapshots().stream()
                 .map(Snapshot::snapshotId)
                 .collect(Collectors.toSet());
+        TableMetadata currentMeta = current();
+        if (currentMeta != null) {
+          currentMeta.snapshots().stream()
+              .map(Snapshot::snapshotId)
+              .forEach(existingSnapshotIds::add);
+        }
         Set<Long> newSnapshotIds =
             snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
-        // 2. Add new snapshots
+        // 2. Detect stale snapshots before Iceberg validation
+        // This can happen when metadata is refreshed during transaction retry but the client's
+        // snapshots (in SNAPSHOTS_JSON_KEY) still have old sequence numbers. This is a concurrency
+        // conflict (409), not a client validation error (400).
+        // IMPORTANT: Use current() to get the refreshed metadata's sequence number, not
+        // metadataToCommit which is derived from the stale transaction metadata.
+        if (metadataToCommit.formatVersion() > 1) {
+          long lastSeqNum =
+              currentMeta != null
+                  ? currentMeta.lastSequenceNumber()
+                  : metadataToCommit.lastSequenceNumber();
+          for (Snapshot snapshot : snapshotsToPut) {
+            if (!existingSnapshotIds.contains(snapshot.snapshotId())
+                && snapshot.sequenceNumber() <= lastSeqNum) {
+              throw new CommitFailedException(
+                  "Stale snapshot detected: sequence number %s is not greater than current sequence number %s. "
+                      + "This indicates a concurrent modification - client should refresh and retry.",
+                  snapshot.sequenceNumber(),
+                  lastSeqNum);
+            }
+          }
+        }
+
+        // 3. Add new snapshots
         snapshotsToPut.stream()
             .filter(s -> !existingSnapshotIds.contains(s.snapshotId()))
             .forEach(builder::addSnapshot);
