@@ -1718,4 +1718,72 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
+
+  /**
+   * Tests that stale snapshot detection returns 409 Conflict instead of 400 Bad Request.
+   *
+   * <p>This test reproduces the production scenario where:
+   *
+   * <ol>
+   *   <li>Table has 4 existing snapshots with lastSequenceNumber = 4
+   *   <li>A concurrent modification occurs during commit
+   *   <li>Client tries to add a snapshot with sequenceNumber = 4 (now stale)
+   *   <li>Before fix: ValidationException → BadRequestException (400)
+   *   <li>After fix: Stale snapshot detected → CommitFailedException (409)
+   * </ol>
+   *
+   * <p>The 409 response tells clients to refresh and retry, while 400 incorrectly suggests the
+   * request was invalid.
+   */
+  @Test
+  void testStaleSnapshotDuringConcurrentModificationReturns409NotBadRequest() throws IOException {
+    // Build base metadata with all 4 test snapshots (lastSequenceNumber = 4)
+    List<Snapshot> existingSnapshots = IcebergTestUtil.getSnapshots();
+    TableMetadata tempMetadata = BASE_TABLE_METADATA;
+    for (Snapshot snapshot : existingSnapshots) {
+      tempMetadata =
+          TableMetadata.buildFrom(tempMetadata)
+              .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
+              .build();
+    }
+    final TableMetadata baseMetadata = tempMetadata;
+
+    // Load stale snapshot with sequenceNumber = 4 (same as lastSequenceNumber)
+    // This simulates a concurrent modification where another process already committed
+    List<Snapshot> staleSnapshots = IcebergTestUtil.getStaleSnapshots();
+
+    // Create metadata with the stale snapshot in SNAPSHOTS_JSON_KEY
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(staleSnapshots));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.createMainBranchRefPointingTo(existingSnapshots.get(3))));
+    properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+    final TableMetadata metadataWithStaleSnapshot = baseMetadata.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+
+      // Should throw CommitFailedException (409), not BadRequestException (400)
+      Exception exception =
+          Assertions.assertThrows(
+              CommitFailedException.class,
+              () ->
+                  openHouseInternalTableOperations.doCommit(
+                      baseMetadata, metadataWithStaleSnapshot),
+              "Stale snapshot should return 409 Conflict (CommitFailedException), not 400 "
+                  + "(BadRequestException). 400 suggests invalid request, 409 suggests retry.");
+
+      String message = exception.getMessage().toLowerCase();
+      Assertions.assertTrue(
+          message.contains("stale")
+              || message.contains("sequence")
+              || message.contains("concurrent"),
+          "Exception message should indicate stale snapshot or sequence number issue: "
+              + exception.getMessage());
+    }
+  }
 }

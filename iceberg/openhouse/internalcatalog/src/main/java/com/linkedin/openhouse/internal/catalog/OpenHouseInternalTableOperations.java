@@ -302,25 +302,19 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
         // 2. Detect stale snapshots before Iceberg validation
-        // This can happen when metadata is refreshed during transaction retry but the client's
-        // snapshots (in SNAPSHOTS_JSON_KEY) still have old sequence numbers. This is a concurrency
-        // conflict (409), not a client validation error (400).
-        // IMPORTANT: Use current() to get the refreshed metadata's sequence number, not
-        // metadataToCommit which is derived from the stale transaction metadata.
-        if (metadataToCommit.formatVersion() > 1) {
-          long lastSeqNum =
-              currentMeta != null
-                  ? currentMeta.lastSequenceNumber()
-                  : metadataToCommit.lastSequenceNumber();
-          for (Snapshot snapshot : snapshotsToPut) {
-            if (!existingSnapshotIds.contains(snapshot.snapshotId())
-                && snapshot.sequenceNumber() <= lastSeqNum) {
-              throw new CommitFailedException(
-                  "Stale snapshot detected: sequence number %s is not greater than current sequence number %s. "
-                      + "This indicates a concurrent modification - client should refresh and retry.",
-                  snapshot.sequenceNumber(),
-                  lastSeqNum);
-            }
+        // A snapshot is stale if its sequence number is <= the table's lastSequenceNumber.
+        // This can happen during concurrent modifications where another process committed
+        // a snapshot after this transaction started. Returning 409 Conflict (CommitFailedException)
+        // allows clients to refresh and retry, whereas 400 Bad Request (ValidationException)
+        // incorrectly suggests the request was invalid.
+        long lastSequenceNumber = metadataToCommit.lastSequenceNumber();
+        for (Snapshot snapshot : snapshotsToPut) {
+          if (!existingSnapshotIds.contains(snapshot.snapshotId())
+              && snapshot.sequenceNumber() <= lastSequenceNumber) {
+            throw new CommitFailedException(
+                "Stale snapshot detected: sequence number %s is not greater than last sequence "
+                    + "number %s. This indicates a concurrent modification occurred.",
+                snapshot.sequenceNumber(), lastSequenceNumber);
           }
         }
 
@@ -329,7 +323,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             .filter(s -> !existingSnapshotIds.contains(s.snapshotId()))
             .forEach(builder::addSnapshot);
 
-        // 3. Remove snapshots that are no longer present in the client payload
+        // 4. Remove snapshots that are no longer present in the client payload
         List<Long> toRemove =
             existingSnapshotIds.stream()
                 .filter(id -> !newSnapshotIds.contains(id))
@@ -338,7 +332,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           builder.removeSnapshots(toRemove);
         }
 
-        // 4. Sync Refs: Remove refs not in payload, Set/Update refs from payload
+        // 5. Sync Refs: Remove refs not in payload, Set/Update refs from payload
         metadataToCommit.refs().keySet().stream()
             .filter(ref -> !snapshotRefs.containsKey(ref))
             .forEach(builder::removeRef);
