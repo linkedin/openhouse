@@ -52,6 +52,7 @@ import org.apache.iceberg.common.DynFields;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -1735,6 +1736,10 @@ public class OpenHouseInternalTableOperationsTest {
    * <p>The 409 response tells clients to refresh and retry, while 400 incorrectly suggests the
    * request was invalid.
    */
+  /**
+   * First verifies that Iceberg's validation actually throws for stale snapshots in format v2, then
+   * tests the OpenHouse doCommit path.
+   */
   @Test
   void testStaleSnapshotDuringConcurrentModificationReturns409NotBadRequest() throws IOException {
     // Build base metadata with all 4 test snapshots (lastSequenceNumber = 4)
@@ -1748,14 +1753,38 @@ public class OpenHouseInternalTableOperationsTest {
     }
     final TableMetadata baseMetadata = tempMetadata;
 
-    // Load stale snapshot with sequenceNumber = 4 (same as lastSequenceNumber)
-    // This simulates a concurrent modification where another process already committed
-    List<Snapshot> staleSnapshots = IcebergTestUtil.getStaleSnapshots();
+    // Verify base metadata has format version 2 and lastSequenceNumber = 4
+    Assertions.assertEquals(2, baseMetadata.formatVersion(), "Format version should be 2");
+    Assertions.assertEquals(4, baseMetadata.lastSequenceNumber(), "lastSequenceNumber should be 4");
 
-    // Create metadata with the stale snapshot in SNAPSHOTS_JSON_KEY
+    // Load stale snapshot with sequenceNumber = 4 (same as lastSequenceNumber)
+    List<Snapshot> staleSnapshots = IcebergTestUtil.getStaleSnapshots();
+    Snapshot staleSnapshot = staleSnapshots.get(0);
+    Assertions.assertEquals(
+        4, staleSnapshot.sequenceNumber(), "Stale snapshot should have sequenceNumber = 4");
+
+    // Verify stale snapshot has a parent (required for Iceberg 1.5+ validation)
+    Assertions.assertNotNull(
+        staleSnapshot.parentId(), "Stale snapshot must have parentId for validation to trigger");
+
+    // FIRST: Verify Iceberg's validation works directly
+    TableMetadata.Builder directBuilder = TableMetadata.buildFrom(baseMetadata);
+    ValidationException icebergException =
+        Assertions.assertThrows(
+            ValidationException.class,
+            () -> directBuilder.addSnapshot(staleSnapshot),
+            "Iceberg should throw ValidationException for stale snapshot");
+    Assertions.assertTrue(
+        icebergException.getMessage().contains("Cannot add snapshot with sequence number"),
+        "Iceberg should report sequence number issue: " + icebergException.getMessage());
+
+    // NOW test the full doCommit path
+    List<Snapshot> allSnapshots = new ArrayList<>(existingSnapshots);
+    allSnapshots.addAll(staleSnapshots);
+
     Map<String, String> properties = new HashMap<>(baseMetadata.properties());
     properties.put(
-        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(staleSnapshots));
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(allSnapshots));
     properties.put(
         CatalogConstants.SNAPSHOTS_REFS_KEY,
         SnapshotsUtil.serializeMap(
