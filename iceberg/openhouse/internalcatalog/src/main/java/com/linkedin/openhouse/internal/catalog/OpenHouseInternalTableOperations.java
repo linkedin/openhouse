@@ -285,19 +285,20 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
         TableMetadata.Builder builder = TableMetadata.buildFrom(metadataToCommit);
 
-        // 1. Identify which snapshots are new vs existing
-        // Include snapshots from both metadataToCommit AND current() to handle the case where
-        // a concurrent process added snapshots after a refresh.
-        Set<Long> existingSnapshotIds =
-            metadataToCommit.snapshots().stream()
-                .map(Snapshot::snapshotId)
-                .collect(Collectors.toSet());
+        // 1. Identify which snapshots already exist in the table.
+        // current() is refreshed by commit() before doCommit() is called, so it contains
+        // the authoritative view of existing snapshots including any concurrent additions.
+        // In production, current() should never be null since commit() always refreshes it.
+        // Fallback to metadataToCommit only for tests that call doCommit() directly.
         TableMetadata currentMeta = current();
-        if (currentMeta != null) {
-          currentMeta.snapshots().stream()
-              .map(Snapshot::snapshotId)
-              .forEach(existingSnapshotIds::add);
-        }
+        Set<Long> existingSnapshotIds =
+            currentMeta != null
+                ? currentMeta.snapshots().stream()
+                    .map(Snapshot::snapshotId)
+                    .collect(Collectors.toSet())
+                : metadataToCommit.snapshots().stream()
+                    .map(Snapshot::snapshotId)
+                    .collect(Collectors.toSet());
         Set<Long> newSnapshotIds =
             snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
