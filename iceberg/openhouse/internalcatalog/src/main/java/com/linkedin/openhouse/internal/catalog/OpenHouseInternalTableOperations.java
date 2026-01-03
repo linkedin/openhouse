@@ -285,20 +285,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
         TableMetadata.Builder builder = TableMetadata.buildFrom(metadataToCommit);
 
-        // 1. Identify which snapshots already exist in the table.
-        // current() is refreshed by commit() before doCommit() is called, so it contains
-        // the authoritative view of existing snapshots including any concurrent additions.
-        // In production, current() should never be null since commit() always refreshes it.
-        // Fallback to metadataToCommit only for tests that call doCommit() directly.
-        TableMetadata currentMeta = current();
+        // 1. Identify which snapshots are new vs existing
         Set<Long> existingSnapshotIds =
-            currentMeta != null
-                ? currentMeta.snapshots().stream()
-                    .map(Snapshot::snapshotId)
-                    .collect(Collectors.toSet())
-                : metadataToCommit.snapshots().stream()
-                    .map(Snapshot::snapshotId)
-                    .collect(Collectors.toSet());
+            metadataToCommit.snapshots().stream()
+                .map(Snapshot::snapshotId)
+                .collect(Collectors.toSet());
         Set<Long> newSnapshotIds =
             snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
@@ -574,10 +565,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   /**
    * Checks if a ValidationException is due to a stale snapshot (sequence number conflict). This
    * happens during concurrent modifications and should be retryable (409), not a bad request (400).
-   *
-   * <p>Note: "Unknown snapshot" errors are NOT included here because they can occur both from
-   * concurrent modification (another process deleted the snapshot) and user error (inconsistent
-   * request where refs point to a snapshot being deleted in the same request).
    */
   private boolean isStaleSnapshotError(ValidationException e) {
     String msg = e.getMessage();
