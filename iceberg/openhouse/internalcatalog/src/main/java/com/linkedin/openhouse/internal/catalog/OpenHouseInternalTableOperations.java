@@ -302,29 +302,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         Set<Long> newSnapshotIds =
             snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
 
-        // 2. Detect stale snapshots before Iceberg validation
-        // A snapshot is stale if its sequence number is <= the table's lastSequenceNumber.
-        // This can happen during concurrent modifications where another process committed
-        // a snapshot after this transaction started. Returning 409 Conflict (CommitFailedException)
-        // allows clients to refresh and retry, whereas 400 Bad Request (ValidationException)
-        // incorrectly suggests the request was invalid.
-        long lastSequenceNumber = metadataToCommit.lastSequenceNumber();
-        for (Snapshot snapshot : snapshotsToPut) {
-          if (!existingSnapshotIds.contains(snapshot.snapshotId())
-              && snapshot.sequenceNumber() <= lastSequenceNumber) {
-            throw new CommitFailedException(
-                "Stale snapshot detected: sequence number %s is not greater than last sequence "
-                    + "number %s. This indicates a concurrent modification occurred.",
-                snapshot.sequenceNumber(), lastSequenceNumber);
-          }
-        }
-
-        // 3. Add new snapshots
+        // 2. Add new snapshots
         snapshotsToPut.stream()
             .filter(s -> !existingSnapshotIds.contains(s.snapshotId()))
             .forEach(builder::addSnapshot);
 
-        // 4. Remove snapshots that are no longer present in the client payload
+        // 3. Remove snapshots that are no longer present in the client payload
         List<Long> toRemove =
             existingSnapshotIds.stream()
                 .filter(id -> !newSnapshotIds.contains(id))
@@ -333,7 +316,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           builder.removeSnapshots(toRemove);
         }
 
-        // 5. Sync Refs: Remove refs not in payload, Set/Update refs from payload
+        // 4. Sync Refs: Remove refs not in payload, Set/Update refs from payload
         metadataToCommit.refs().keySet().stream()
             .filter(ref -> !snapshotRefs.containsKey(ref))
             .forEach(builder::removeRef);
@@ -409,7 +392,13 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             e);
       }
       throw new CommitFailedException(ioe);
-    } catch (InvalidIcebergSnapshotException | IllegalArgumentException | ValidationException e) {
+    } catch (InvalidIcebergSnapshotException | IllegalArgumentException e) {
+      throw new BadRequestException(e, e.getMessage());
+    } catch (ValidationException e) {
+      // Stale snapshot errors are retryable - client should refresh and retry
+      if (isStaleSnapshotError(e)) {
+        throw new CommitFailedException(e);
+      }
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException e) {
       throw e;
@@ -580,6 +569,21 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // it throw AlreadyExistsException and will not trigger retry.
       metricsReporter.count(InternalCatalogMetricsConstant.MISSING_COMMIT_KEY);
     }
+  }
+
+  /**
+   * Checks if a ValidationException is due to a stale snapshot (sequence number conflict). This
+   * happens during concurrent modifications and should be retryable (409), not a bad request (400).
+   *
+   * <p>Note: "Unknown snapshot" errors are NOT included here because they can occur both from
+   * concurrent modification (another process deleted the snapshot) and user error (inconsistent
+   * request where refs point to a snapshot being deleted in the same request).
+   */
+  private boolean isStaleSnapshotError(ValidationException e) {
+    String msg = e.getMessage();
+    return msg != null
+        && msg.contains("Cannot add snapshot with sequence number")
+        && msg.contains("older than last sequence number");
   }
 
   /**
