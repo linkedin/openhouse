@@ -18,6 +18,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -958,7 +959,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(
           stats.getEarliestPartitionDate(),
-          LocalDate.now().minusDays(2).format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
+          LocalDate.now(ZoneOffset.UTC)
+              .minusDays(2)
+              .format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
     }
   }
 
