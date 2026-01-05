@@ -603,9 +603,9 @@ public final class TableStatsCollectorUtil {
     // Step 1: Build enriched DataFrame with partition and commit data using shared helper
     Dataset<Row> enrichedDF = buildEnrichedPartitionDataFrame(table, spark);
 
-    // Check if table is unpartitioned
+    // Check if any data was found
     if (enrichedDF == null) {
-      log.info("No partition-level commit events for unpartitioned table: {}", fullTableName);
+      log.info("No partition-level commit events found for table: {}", fullTableName);
       return Collections.emptyList();
     }
 
