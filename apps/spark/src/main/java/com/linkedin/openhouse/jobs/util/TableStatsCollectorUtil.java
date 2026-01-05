@@ -508,14 +508,16 @@ public final class TableStatsCollectorUtil {
    * Builds an enriched DataFrame containing partition data joined with commit metadata.
    *
    * <p>This shared helper method queries Iceberg metadata tables (all_entries and snapshots) and
-   * creates a DataFrame with partition information enriched with commit metadata. The resulting
-   * DataFrame can be used by both partition events and partition stats collection methods.
+   * creates a DataFrame with partition information enriched with commit metadata.
+   *
+   * <p>This is a pure query builder - it does not manage caching or counting. The caller is
+   * responsible for the DataFrame lifecycle (cache, count, collect, unpersist).
    *
    * <p><b>Output Schema:</b>
    *
    * <ul>
    *   <li>snapshot_id: long - Iceberg snapshot ID
-   *   <li>committed_at: long - Commit timestamp in epoch milliseconds
+   *   <li>committed_at: long - Commit timestamp in epoch seconds
    *   <li>operation: string - Commit operation (append, overwrite, delete, etc.)
    *   <li>summary: map&lt;string,string&gt; - Commit summary metadata
    *   <li>partition: struct - Partition column values as a struct
@@ -527,7 +529,7 @@ public final class TableStatsCollectorUtil {
    *
    * @param table Iceberg Table
    * @param spark SparkSession
-   * @return DataFrame with enriched partition and commit data, or null if unpartitioned/empty
+   * @return DataFrame with enriched partition and commit data, or null if unpartitioned
    */
   static Dataset<Row> buildEnrichedPartitionDataFrame(Table table, SparkSession spark) {
     String fullTableName = table.name();
@@ -550,18 +552,6 @@ public final class TableStatsCollectorUtil {
     log.info("Executing all_entries query for table {}: {}", fullTableName, allEntriesQuery);
     Dataset<Row> partitionsPerCommitDF = spark.sql(allEntriesQuery);
 
-    // Cache for reuse
-    partitionsPerCommitDF.cache();
-    long totalRecords = partitionsPerCommitDF.count();
-
-    if (totalRecords == 0) {
-      log.info("No partition-level records found for table: {}", fullTableName);
-      partitionsPerCommitDF.unpersist();
-      return null;
-    }
-
-    log.info("Found {} partition-level records for table: {}", totalRecords, fullTableName);
-
     // Query snapshots to get commit metadata
     String snapshotsQuery =
         String.format(
@@ -570,21 +560,16 @@ public final class TableStatsCollectorUtil {
 
     Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
 
-    // Join partitions with commit metadata
-    Dataset<Row> enrichedDF =
-        partitionsPerCommitDF
-            .join(snapshotsDF, "snapshot_id")
-            .select(
-                functions.col("snapshot_id"),
-                functions.col("committed_at").cast("long"), // Cast timestamp to epoch seconds
-                functions.col("operation"),
-                functions.col("summary"),
-                functions.col("partition")); // Keep partition struct for transformation
-
-    // Important: unpersist the cached DF after creating enrichedDF
-    partitionsPerCommitDF.unpersist();
-
-    return enrichedDF;
+    // Join partitions with commit metadata and return
+    // Caller manages the lifecycle (cache, count, collect, unpersist)
+    return partitionsPerCommitDF
+        .join(snapshotsDF, "snapshot_id")
+        .select(
+            functions.col("snapshot_id"),
+            functions.col("committed_at").cast("long"), // Cast timestamp to epoch seconds
+            functions.col("operation"),
+            functions.col("summary"),
+            functions.col("partition")); // Keep partition struct for transformation
   }
 
   /**
@@ -618,9 +603,9 @@ public final class TableStatsCollectorUtil {
     // Step 1: Build enriched DataFrame with partition and commit data using shared helper
     Dataset<Row> enrichedDF = buildEnrichedPartitionDataFrame(table, spark);
 
-    // Check if any data was found
+    // Check if table is unpartitioned
     if (enrichedDF == null) {
-      log.info("No partition-level commit events found for table: {}", fullTableName);
+      log.info("No partition-level commit events for unpartitioned table: {}", fullTableName);
       return Collections.emptyList();
     }
 
@@ -641,18 +626,25 @@ public final class TableStatsCollectorUtil {
     List<String> partitionColumnNames =
         spec.fields().stream().map(f -> f.name()).collect(Collectors.toList());
 
-    // Step 3: Collect to driver and transform in Java with type safety
-    // This matches populateCommitEventTable() pattern which also uses collectAsList()
-    // Size is manageable: typically 100K rows × 200 bytes = 20MB
-
-    // Cache BEFORE first action to materialize during count() and reuse for collection
+    // Step 3: Manage DataFrame lifecycle and collect to driver
+    // Cache BEFORE first action to materialize and reuse for collection
     enrichedDF.cache();
 
-    // This count() triggers cache materialization (single join execution)
+    // Count triggers cache materialization (single join execution)
     long totalRecords = enrichedDF.count();
 
+    // Early return if no data found (after cache materialization)
+    if (totalRecords == 0) {
+      log.info("No partition-level records found for table: {}", fullTableName);
+      enrichedDF.unpersist();
+      return Collections.emptyList();
+    }
+
     log.info("Collecting {} rows to driver for transformation", totalRecords);
-    List<Row> rows = enrichedDF.collectAsList();
+    List<Row> rows = enrichedDF.collectAsList(); // Uses cached data
+
+    // Unpersist immediately after collection to free memory
+    enrichedDF.unpersist();
 
     // Step 4: Delegate transformation to helper method
     // Separated for testability and readability
@@ -668,9 +660,6 @@ public final class TableStatsCollectorUtil {
 
     log.info(
         "Collected {} partition-level commit events for table: {}", result.size(), fullTableName);
-
-    // Unpersist cached data to free memory
-    enrichedDF.unpersist();
 
     return result;
   }
