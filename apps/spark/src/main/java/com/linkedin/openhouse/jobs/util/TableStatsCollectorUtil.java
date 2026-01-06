@@ -720,22 +720,8 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Collect statistics for a partitioned table.
-   *
-   * <p>For partitioned tables, returns one CommitEventTablePartitionStats record per unique
-   * partition, containing:
-   *
-   * <ul>
-   *   <li>Latest commit metadata per partition (deduplicates multiple commits to same partition)
-   *   <li>Aggregated statistics from data_files grouped by partition
-   *   <li>Partition-specific data (partition values)
-   * </ul>
-   *
-   * <p><b>Visibility:</b> Package-private for testing purposes.
-   *
-   * @param table Iceberg table instance (must be partitioned)
-   * @param spark SparkSession
-   * @return List of CommitEventTablePartitionStats objects (one per unique partition)
+   * Collect statistics for partitioned table (one record per unique partition with latest commit).
+   * Package-private for testing.
    */
   static List<CommitEventTablePartitionStats> populateStatsForPartitionedTable(
       Table table, SparkSession spark) {
@@ -786,15 +772,7 @@ public final class TableStatsCollectorUtil {
     return transformToPartitionStatsObjects(rows, table, spark, schema, columnNames, spec);
   }
 
-  /**
-   * Select the latest commit for each unique partition using a window function.
-   *
-   * <p>Uses window function with snapshot_id as tiebreaker to handle race conditions where multiple
-   * commits may have the same timestamp.
-   *
-   * @param enrichedDF DataFrame with partition and commit metadata
-   * @return DataFrame with one row per partition (latest commit only)
-   */
+  /** Select latest commit per partition (uses snapshot_id as tiebreaker for timestamp ties). */
   private static Dataset<Row> selectLatestCommitPerPartition(Dataset<Row> enrichedDF) {
     log.info("Selecting latest commit for each unique partition using window function...");
 
@@ -814,18 +792,7 @@ public final class TableStatsCollectorUtil {
     return latestCommitsDF;
   }
 
-  /**
-   * Aggregate statistics from data_files metadata table per partition.
-   *
-   * <p>Builds and executes SQL query to aggregate metrics (row count, null counts, min/max, etc.)
-   * from Iceberg's data_files metadata table, grouped by partition.
-   *
-   * @param table Iceberg table
-   * @param spark SparkSession
-   * @param fullTableName Fully qualified table name
-   * @param columnNames List of column names from readable_metrics
-   * @return DataFrame with aggregated stats per partition
-   */
+  /** Aggregate statistics from data_files per partition (row count, nulls, min/max, etc.). */
   private static Dataset<Row> aggregatePartitionStats(
       Table table, SparkSession spark, String fullTableName, List<String> columnNames) {
     log.info(
@@ -844,13 +811,7 @@ public final class TableStatsCollectorUtil {
     return spark.sql(aggregationQuery);
   }
 
-  /**
-   * Join partition statistics with latest commit metadata.
-   *
-   * @param latestCommitsDF DataFrame with latest commit metadata per partition
-   * @param partitionStatsDF DataFrame with aggregated stats per partition
-   * @return DataFrame with joined commit metadata and statistics
-   */
+  /** Join partition statistics with latest commit metadata. */
   private static Dataset<Row> joinStatsWithCommitMetadata(
       Dataset<Row> latestCommitsDF, Dataset<Row> partitionStatsDF) {
     log.info("Joining partition stats with commit metadata...");
@@ -874,20 +835,7 @@ public final class TableStatsCollectorUtil {
     return joinedDF;
   }
 
-  /**
-   * Transform rows to CommitEventTablePartitionStats objects.
-   *
-   * <p>This is a pure transformation method that converts raw Spark rows into domain objects. The
-   * caller is responsible for DataFrame lifecycle management (cache, count, collect, unpersist).
-   *
-   * @param rows List of rows with complete partition stats and metadata (already collected)
-   * @param table Iceberg table
-   * @param spark SparkSession
-   * @param schema Table schema
-   * @param columnNames List of column names with metrics
-   * @param spec Partition spec
-   * @return List of CommitEventTablePartitionStats objects
-   */
+  /** Transform collected rows to CommitEventTablePartitionStats objects. */
   private static List<CommitEventTablePartitionStats> transformToPartitionStatsObjects(
       List<Row> rows,
       Table table,
@@ -935,17 +883,8 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Collect statistics for an unpartitioned (snapshot) table.
-   *
-   * <p>For unpartitioned tables, returns a single CommitEventTablePartitionStats record with:
-   * latest snapshot commit metadata, aggregated stats from ALL data_files, and empty partition
-   * data.
-   *
-   * <p><b>Visibility:</b> Package-private for testing purposes.
-   *
-   * @param table Iceberg table instance (must be unpartitioned)
-   * @param spark SparkSession
-   * @return List with single stats record for the table (latest snapshot)
+   * Collect statistics for unpartitioned table (single record with current snapshot).
+   * Package-private for testing.
    */
   static List<CommitEventTablePartitionStats> populateStatsForUnpartitionedTable(
       Table table, SparkSession spark) {
@@ -999,16 +938,7 @@ public final class TableStatsCollectorUtil {
     return Collections.singletonList(stats);
   }
 
-  /**
-   * Aggregate statistics for an unpartitioned table from data_files metadata.
-   *
-   * <p>Executes SQL query to aggregate metrics across ALL data files (no GROUP BY).
-   *
-   * @param spark SparkSession
-   * @param fullTableName Fully qualified table name
-   * @param columnNames List of column names from readable_metrics
-   * @return Row with aggregated stats, or null if no data found
-   */
+  /** Aggregate statistics for unpartitioned table (all data files, no GROUP BY). */
   private static Row aggregateUnpartitionedTableStats(
       SparkSession spark, String fullTableName, List<String> columnNames) {
     log.info("Aggregating statistics for unpartitioned table...");
@@ -1034,18 +964,9 @@ public final class TableStatsCollectorUtil {
     return rows.get(0);
   }
 
-  /**
-   * Build CommitMetadata object from an Iceberg Snapshot.
-   *
-   * @param snapshot Iceberg snapshot
-   * @return CommitMetadata with snapshot information
-   */
-  private static CommitMetadata buildCommitMetadataFromSnapshot(Snapshot snapshot) {
-    Long snapshotId = snapshot.snapshotId();
-    Long committedAt = snapshot.timestampMillis();
-    String operation = snapshot.operation();
-    Map<String, String> summary = snapshot.summary();
-
+  /** Build CommitMetadata from snapshot or row data. */
+  private static CommitMetadata buildCommitMetadata(
+      Long snapshotId, Long commitTimestampMs, String operation, Map<String, String> summary) {
     CommitOperation commitOp = null;
     if (operation != null) {
       try {
@@ -1054,28 +975,40 @@ public final class TableStatsCollectorUtil {
         log.warn("Unknown commit operation: {}", operation);
       }
     }
-
     return CommitMetadata.builder()
         .commitId(snapshotId)
-        .commitTimestampMs(committedAt)
+        .commitTimestampMs(commitTimestampMs)
         .commitAppId(summary.getOrDefault("spark.app.id", "unknown"))
         .commitAppName(summary.getOrDefault("spark.app.name", "unknown"))
         .commitOperation(commitOp)
         .build();
   }
 
-  /**
-   * Build CommitEventTablePartitionStats object from extracted data.
-   *
-   * @param table Iceberg table
-   * @param spark SparkSession
-   * @param schema Table schema
-   * @param statsRow Row with aggregated statistics
-   * @param commitMetadata Commit metadata
-   * @param metricsMap Map of column-level metrics
-   * @param partitionData List of partition data (empty for unpartitioned tables)
-   * @return CommitEventTablePartitionStats object, or null if table metadata extraction fails
-   */
+  private static CommitMetadata buildCommitMetadataFromSnapshot(Snapshot snapshot) {
+    return buildCommitMetadata(
+        snapshot.snapshotId(),
+        snapshot.timestampMillis(),
+        snapshot.operation(),
+        snapshot.summary());
+  }
+
+  /** Build BaseTableIdentifier from table metadata. */
+  private static BaseTableIdentifier buildDatasetIdentifier(
+      String dbName,
+      String tableName,
+      String clusterName,
+      String tableMetadataLocation,
+      String partitionSpec) {
+    return BaseTableIdentifier.builder()
+        .databaseName(dbName)
+        .tableName(tableName)
+        .clusterName(clusterName)
+        .tableMetadataLocation(tableMetadataLocation)
+        .partitionSpec(partitionSpec)
+        .build();
+  }
+
+  /** Build CommitEventTablePartitionStats object from extracted data. */
   private static CommitEventTablePartitionStats buildPartitionStatsObject(
       Table table,
       SparkSession spark,
@@ -1108,19 +1041,11 @@ public final class TableStatsCollectorUtil {
     List<ColumnData> maxValues = metricsMap.get("maxValue");
     List<ColumnData> columnSizes = metricsMap.get("columnSize");
 
-    // Build dataset identifier
-    BaseTableIdentifier dataset =
-        BaseTableIdentifier.builder()
-            .databaseName(dbName)
-            .tableName(tableName)
-            .clusterName(clusterName)
-            .tableMetadataLocation(tableMetadataLocation)
-            .partitionSpec(partitionSpecString)
-            .build();
-
     // Build and return stats object
     return CommitEventTablePartitionStats.builder()
-        .dataset(dataset)
+        .dataset(
+            buildDatasetIdentifier(
+                dbName, tableName, clusterName, tableMetadataLocation, partitionSpecString))
         .commitMetadata(commitMetadata)
         .partitionData(partitionData)
         .rowCount(rowCount != null ? rowCount : 0L)
@@ -1135,23 +1060,8 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Get column names from readable_metrics structure.
-   *
-   * <p>This method queries the data_files metadata table to discover which columns have metrics in
-   * readable_metrics. This is more accurate than using table schema because:
-   *
-   * <ul>
-   *   <li>Handles nested columns (flattened in readable_metrics)
-   *   <li>Only includes columns that actually have metrics
-   *   <li>Matches Iceberg's metric collection behavior
-   * </ul>
-   *
-   * <p><b>Visibility:</b> Package-private for testing purposes.
-   *
-   * @param table Iceberg table instance
-   * @param spark SparkSession
-   * @param fullTableName Fully-qualified table name for logging
-   * @return List of column names that have metrics
+   * Get column names from readable_metrics (queries data_files to find columns with metrics).
+   * Package-private for testing.
    */
   static List<String> getColumnNamesFromReadableMetrics(
       Table table, SparkSession spark, String fullTableName) {
@@ -1185,23 +1095,8 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Build SQL aggregation expressions for column-level metrics.
-   *
-   * <p>Creates aggregation expressions for each column that can be used in a SQL GROUP BY query.
-   * Generates expressions for: null_count, nan_count, min_value, max_value, column_size.
-   *
-   * <p><b>Example output:</b>
-   *
-   * <pre>
-   * sum(coalesce(readable_metrics.`col1`.null_value_count, 0)) as col1_null_count,
-   * min(readable_metrics.`col1`.lower_bound) as col1_min_value,
-   * ...
-   * </pre>
-   *
-   * <p><b>Visibility:</b> Package-private for testing purposes.
-   *
-   * @param columnNames List of column names to generate expressions for
-   * @return List of SQL aggregation expression strings
+   * Build SQL aggregation expressions for column metrics (null_count, min/max, etc.).
+   * Package-private for testing.
    */
   static List<String> buildColumnAggregationExpressions(List<String> columnNames) {
 
@@ -1251,19 +1146,7 @@ public final class TableStatsCollectorUtil {
     return columnAggExpressions;
   }
 
-  /**
-   * Extract column-level metrics from SQL-aggregated result row.
-   *
-   * <p>Reads pre-computed metrics from SQL result columns (colname_null_count, colname_min_value,
-   * etc.) and creates typed ColumnData lists for each metric type.
-   *
-   * <p><b>Visibility:</b> Package-private for testing purposes.
-   *
-   * @param statsRow Spark Row with aggregated metrics
-   * @param schema Table schema for column metadata and type information
-   * @param columnNames List of column names to extract (from readable_metrics)
-   * @return Map of metric type to List of ColumnData
-   */
+  /** Extract column metrics from aggregated SQL result row. Package-private for testing. */
   static Map<String, List<ColumnData>> extractColumnMetricsFromAggregatedRow(
       Row statsRow, Schema schema, List<String> columnNames) {
 
@@ -1481,26 +1364,8 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Transform Spark rows to CommitEventTablePartitionStats objects from SQL-aggregated results.
-   *
-   * <p>This method processes rows where column-level metrics have already been aggregated by SQL.
-   * Each row contains columns like: colname_null_count, colname_min_value, etc.
-   *
-   * <p><b>Simpler than Java aggregation:</b> SQL has already done the heavy lifting with
-   * sum/min/max aggregations. We just need to extract the pre-computed values.
-   *
-   * <p><b>Visibility:</b> Package-private for testing purposes.
-   *
-   * @param rows Rows with SQL-aggregated stats (total_row_count, colname_null_count, etc.)
-   * @param schema Table schema for column metadata
-   * @param columnNames List of column names that have metrics (from readable_metrics)
-   * @param dbName Database name
-   * @param tableName Table name
-   * @param clusterName Cluster name
-   * @param tableMetadataLocation Table metadata location
-   * @param partitionSpecString Partition spec string
-   * @param partitionColumnNames Partition column names
-   * @return List of CommitEventTablePartitionStats objects
+   * Transform SQL-aggregated rows to CommitEventTablePartitionStats objects. Package-private for
+   * testing.
    */
   static List<CommitEventTablePartitionStats> transformRowsToPartitionStatsFromAggregatedSQL(
       List<Row> rows,
@@ -1528,24 +1393,8 @@ public final class TableStatsCollectorUtil {
         String operation = row.getAs("operation");
         scala.collection.Map<String, String> scalaMap = row.getMap(row.fieldIndex("summary"));
         Map<String, String> summary = scala.collection.JavaConverters.mapAsJavaMap(scalaMap);
-
-        CommitOperation commitOp = null;
-        if (operation != null) {
-          try {
-            commitOp = CommitOperation.valueOf(operation.toUpperCase());
-          } catch (IllegalArgumentException e) {
-            log.warn("Unknown commit operation: {}", operation);
-          }
-        }
-
         CommitMetadata commitMetadata =
-            CommitMetadata.builder()
-                .commitId(snapshotId)
-                .commitTimestampMs(committedAt)
-                .commitAppId(summary.getOrDefault("spark.app.id", "unknown"))
-                .commitAppName(summary.getOrDefault("spark.app.name", "unknown"))
-                .commitOperation(commitOp)
-                .build();
+            buildCommitMetadata(snapshotId, committedAt, operation, summary);
 
         // Extract table-level stats
         Long rowCount = row.getAs("total_row_count");
@@ -1561,20 +1410,12 @@ public final class TableStatsCollectorUtil {
         List<ColumnData> maxValues = metricsMap.get("maxValue");
         List<ColumnData> columnSizes = metricsMap.get("columnSize");
 
-        // Build dataset identifier
-        BaseTableIdentifier dataset =
-            BaseTableIdentifier.builder()
-                .databaseName(dbName)
-                .tableName(tableName)
-                .clusterName(clusterName)
-                .tableMetadataLocation(tableMetadataLocation)
-                .partitionSpec(partitionSpecString)
-                .build();
-
         // Build CommitEventTablePartitionStats object
         CommitEventTablePartitionStats stats =
             CommitEventTablePartitionStats.builder()
-                .dataset(dataset)
+                .dataset(
+                    buildDatasetIdentifier(
+                        dbName, tableName, clusterName, tableMetadataLocation, partitionSpecString))
                 .commitMetadata(commitMetadata)
                 .partitionData(partitionData)
                 .rowCount(rowCount != null ? rowCount : 0L)
