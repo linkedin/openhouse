@@ -752,9 +752,6 @@ public final class TableStatsCollectorUtil {
 
     // Step 2: Select latest commit per partition (handles timestamp ties)
     Dataset<Row> latestCommitsDF = selectLatestCommitPerPartition(enrichedDF);
-    if (latestCommitsDF.isEmpty()) {
-      return Collections.emptyList();
-    }
 
     // Step 3: Aggregate statistics from data_files per partition
     Schema schema = table.schema();
@@ -799,7 +796,7 @@ public final class TableStatsCollectorUtil {
    * @return DataFrame with one row per partition (latest commit only)
    */
   private static Dataset<Row> selectLatestCommitPerPartition(Dataset<Row> enrichedDF) {
-    log.info("Finding latest commit for each unique partition...");
+    log.info("Selecting latest commit for each unique partition using window function...");
 
     org.apache.spark.sql.expressions.WindowSpec window =
         org.apache.spark.sql.expressions.Window.partitionBy("partition")
@@ -812,8 +809,7 @@ public final class TableStatsCollectorUtil {
             .drop("row_num")
             .select("snapshot_id", "committed_at", "operation", "summary", "partition");
 
-    long uniquePartitions = latestCommitsDF.count();
-    log.info("Found {} unique partitions with latest commits", uniquePartitions);
+    log.debug("Window function applied to deduplicate partitions by latest commit");
 
     return latestCommitsDF;
   }
@@ -857,7 +853,7 @@ public final class TableStatsCollectorUtil {
    */
   private static Dataset<Row> joinStatsWithCommitMetadata(
       Dataset<Row> latestCommitsDF, Dataset<Row> partitionStatsDF) {
-    log.info("Joining stats with commit metadata...");
+    log.info("Joining partition stats with commit metadata...");
 
     Dataset<Row> joinedDF =
         latestCommitsDF
@@ -874,7 +870,7 @@ public final class TableStatsCollectorUtil {
                 partitionStatsDF.col("total_row_count"),
                 partitionStatsDF.col("*"));
 
-    log.info("Successfully joined stats for {} partitions", joinedDF.count());
+    log.debug("Join operation defined (will execute on first action)");
     return joinedDF;
   }
 
