@@ -511,14 +511,16 @@ public final class TableStatsCollectorUtil {
    * Builds an enriched DataFrame containing partition data joined with commit metadata.
    *
    * <p>This shared helper method queries Iceberg metadata tables (all_entries and snapshots) and
-   * creates a DataFrame with partition information enriched with commit metadata. The resulting
-   * DataFrame can be used by both partition events and partition stats collection methods.
+   * creates a DataFrame with partition information enriched with commit metadata.
+   *
+   * <p>This is a pure query builder - it does not manage caching or counting. The caller is
+   * responsible for the DataFrame lifecycle (cache, count, collect, unpersist).
    *
    * <p><b>Output Schema:</b>
    *
    * <ul>
    *   <li>snapshot_id: long - Iceberg snapshot ID
-   *   <li>committed_at: long - Commit timestamp in epoch milliseconds
+   *   <li>committed_at: long - Commit timestamp in epoch seconds
    *   <li>operation: string - Commit operation (append, overwrite, delete, etc.)
    *   <li>summary: map&lt;string,string&gt; - Commit summary metadata
    *   <li>partition: struct - Partition column values as a struct
@@ -530,7 +532,7 @@ public final class TableStatsCollectorUtil {
    *
    * @param table Iceberg Table
    * @param spark SparkSession
-   * @return DataFrame with enriched partition and commit data, or null if unpartitioned/empty
+   * @return DataFrame with enriched partition and commit data, or null if unpartitioned
    */
   static Dataset<Row> buildEnrichedPartitionDataFrame(Table table, SparkSession spark) {
     String fullTableName = table.name();
@@ -545,9 +547,6 @@ public final class TableStatsCollectorUtil {
     // Query all_entries metadata table for partitions per commit
     // Use DISTINCT to deduplicate (snapshot_id, partition) pairs
     // No status filter - captures all affected partitions (ADDED or DELETED files)
-    // Note: We query snapshots here even though populateCommitEventTable() also queries it.
-    // This is intentional to maintain parallel execution (both methods run simultaneously).
-    // Snapshots query is fast (~10-50ms, hits Iceberg metadata cache).
     String allEntriesQuery =
         String.format(
             "SELECT DISTINCT snapshot_id, data_file.partition " + "FROM %s.all_entries",
@@ -555,18 +554,6 @@ public final class TableStatsCollectorUtil {
 
     log.info("Executing all_entries query for table {}: {}", fullTableName, allEntriesQuery);
     Dataset<Row> partitionsPerCommitDF = spark.sql(allEntriesQuery);
-
-    // Cache for reuse
-    partitionsPerCommitDF.cache();
-    long totalRecords = partitionsPerCommitDF.count();
-
-    if (totalRecords == 0) {
-      log.info("No partition-level records found for table: {}", fullTableName);
-      partitionsPerCommitDF.unpersist();
-      return null;
-    }
-
-    log.info("Found {} partition-level records for table: {}", totalRecords, fullTableName);
 
     // Query snapshots to get commit metadata
     String snapshotsQuery =
@@ -576,21 +563,16 @@ public final class TableStatsCollectorUtil {
 
     Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
 
-    // Join partitions with commit metadata
-    Dataset<Row> enrichedDF =
-        partitionsPerCommitDF
-            .join(snapshotsDF, "snapshot_id")
-            .select(
-                functions.col("snapshot_id"),
-                functions.col("committed_at").cast("long"), // Cast timestamp to epoch milliseconds
-                functions.col("operation"),
-                functions.col("summary"),
-                functions.col("partition")); // Keep partition struct for transformation
-
-    // Important: unpersist the cached DF after creating enrichedDF
-    partitionsPerCommitDF.unpersist();
-
-    return enrichedDF;
+    // Join partitions with commit metadata and return
+    // Caller manages the lifecycle (cache, count, collect, unpersist)
+    return partitionsPerCommitDF
+        .join(snapshotsDF, "snapshot_id")
+        .select(
+            functions.col("snapshot_id"),
+            functions.col("committed_at").cast("long"), // Cast timestamp to epoch seconds
+            functions.col("operation"),
+            functions.col("summary"),
+            functions.col("partition")); // Keep partition struct for transformation
   }
 
   /**
@@ -647,12 +629,25 @@ public final class TableStatsCollectorUtil {
     List<String> partitionColumnNames =
         spec.fields().stream().map(f -> f.name()).collect(Collectors.toList());
 
-    // Step 3: Collect to driver and transform in Java with type safety
-    // This matches populateCommitEventTable() pattern which also uses collectAsList()
-    // Size is manageable: typically 100K rows × 200 bytes = 20MB
+    // Step 3: Manage DataFrame lifecycle and collect to driver
+    // Cache BEFORE first action to materialize and reuse for collection
+    enrichedDF.cache();
+
+    // Count triggers cache materialization (single join execution)
     long totalRecords = enrichedDF.count();
+
+    // Early return if no data found (after cache materialization)
+    if (totalRecords == 0) {
+      log.info("No partition-level records found for table: {}", fullTableName);
+      enrichedDF.unpersist();
+      return Collections.emptyList();
+    }
+
     log.info("Collecting {} rows to driver for transformation", totalRecords);
-    List<Row> rows = enrichedDF.collectAsList();
+    List<Row> rows = enrichedDF.collectAsList(); // Uses cached data
+
+    // Unpersist immediately after collection to free memory
+    enrichedDF.unpersist();
 
     // Step 4: Delegate transformation to helper method
     // Separated for testability and readability
@@ -770,8 +765,28 @@ public final class TableStatsCollectorUtil {
     // Step 4: Join stats with commit metadata
     Dataset<Row> finalStatsDF = joinStatsWithCommitMetadata(latestCommitsDF, partitionStatsDF);
 
-    // Step 5: Transform to CommitEventTablePartitionStats objects
-    return transformToPartitionStatsObjects(finalStatsDF, table, spark, schema, columnNames, spec);
+    // Step 5: Manage DataFrame lifecycle and collect to driver
+    // Cache BEFORE first action to materialize and reuse for collection
+    finalStatsDF.cache();
+
+    // Count triggers cache materialization (single execution of joins and aggregations)
+    long totalPartitions = finalStatsDF.count();
+
+    // Early return if no data found (after cache materialization)
+    if (totalPartitions == 0) {
+      log.warn("No partition stats found after join for table: {}", fullTableName);
+      finalStatsDF.unpersist();
+      return Collections.emptyList();
+    }
+
+    log.info("Collecting {} partition stats rows to driver", totalPartitions);
+    List<Row> rows = finalStatsDF.collectAsList(); // Uses cached data
+
+    // Unpersist immediately after collection to free memory
+    finalStatsDF.unpersist();
+
+    // Step 6: Transform to CommitEventTablePartitionStats objects
+    return transformToPartitionStatsObjects(rows, table, spark, schema, columnNames, spec);
   }
 
   /**
@@ -864,9 +879,12 @@ public final class TableStatsCollectorUtil {
   }
 
   /**
-   * Transform DataFrame rows to CommitEventTablePartitionStats objects.
+   * Transform rows to CommitEventTablePartitionStats objects.
    *
-   * @param finalStatsDF DataFrame with complete partition stats and metadata
+   * <p>This is a pure transformation method that converts raw Spark rows into domain objects. The
+   * caller is responsible for DataFrame lifecycle management (cache, count, collect, unpersist).
+   *
+   * @param rows List of rows with complete partition stats and metadata (already collected)
    * @param table Iceberg table
    * @param spark SparkSession
    * @param schema Table schema
@@ -875,7 +893,7 @@ public final class TableStatsCollectorUtil {
    * @return List of CommitEventTablePartitionStats objects
    */
   private static List<CommitEventTablePartitionStats> transformToPartitionStatsObjects(
-      Dataset<Row> finalStatsDF,
+      List<Row> rows,
       Table table,
       SparkSession spark,
       Schema schema,
@@ -897,10 +915,8 @@ public final class TableStatsCollectorUtil {
     List<String> partitionColumnNames =
         spec.fields().stream().map(f -> f.name()).collect(Collectors.toList());
 
-    // Collect and transform rows
-    log.info(
-        "Transforming {} rows to CommitEventTablePartitionStats objects", finalStatsDF.count());
-    List<Row> rows = finalStatsDF.collectAsList();
+    // Transform rows to domain objects
+    log.info("Transforming {} rows to CommitEventTablePartitionStats objects", rows.size());
 
     List<CommitEventTablePartitionStats> result =
         transformRowsToPartitionStatsFromAggregatedSQL(
