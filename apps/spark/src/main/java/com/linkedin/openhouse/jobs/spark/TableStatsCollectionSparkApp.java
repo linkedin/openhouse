@@ -96,7 +96,7 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   }
 
   /**
-   * Publish commit events. Override this method in li-openhouse to send to Kafka.
+   * Publish commit events.
    *
    * @param commitEvents List of commit events to publish
    */
@@ -110,7 +110,7 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   }
 
   /**
-   * Publish partition-level commit events. Override this method in li-openhouse to send to Kafka.
+   * Publish partition-level commit events.
    *
    * @param partitionEvents List of partition events to publish
    */
