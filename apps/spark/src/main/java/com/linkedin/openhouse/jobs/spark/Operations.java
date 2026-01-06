@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -104,6 +105,7 @@ public final class Operations implements AutoCloseable {
     if (olderThanTimestampMillis > 0) {
       operation = operation.olderThan(olderThanTimestampMillis);
     }
+    Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
     Path backupDirRoot = new Path(table.location(), backupDir);
     Path dataDirRoot = new Path(table.location(), "data");
     operation =
@@ -120,7 +122,7 @@ public final class Operations implements AutoCloseable {
                 log.info("Skipped deleting backup file {}", file);
               } else if (file.contains(dataDirRoot.toString())
                   && backupEnabled
-                  && isExistBackupDataManifests(table, file, backupDir)) {
+                  && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
                 // move data files to backup dir if backup is enabled
                 Path backupFilePath = getTrashPath(table, file, backupDir);
                 log.info("Moving orphan file {} to {}", file, backupFilePath);
@@ -143,12 +145,18 @@ public final class Operations implements AutoCloseable {
     return operation.execute();
   }
 
-  private boolean isExistBackupDataManifests(Table table, String file, String backupDir) {
+  private boolean isExistBackupDataManifests(
+      Table table, String file, String backupDir, Map<String, Boolean> dataManifestsCache) {
     try {
-      Path backupFilePath = getTrashPath(table, file, backupDir);
-      Path pattern = new Path(backupFilePath.getParent(), "data_manifest*");
+      Path backupPartition = getTrashPath(table, file, backupDir).getParent();
+      if (dataManifestsCache.containsKey(backupPartition.toString())) {
+        return dataManifestsCache.get(backupPartition.toString());
+      }
+      Path pattern = new Path(backupPartition, "data_manifest*");
       FileStatus[] matches = fs().globStatus(pattern);
-      return matches != null && matches.length > 0;
+      boolean isExist = matches != null && matches.length > 0;
+      dataManifestsCache.put(backupPartition.toString(), isExist);
+      return isExist;
     } catch (IOException e) {
       return false;
     }
