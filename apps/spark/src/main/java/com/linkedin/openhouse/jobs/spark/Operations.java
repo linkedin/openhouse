@@ -119,7 +119,9 @@ public final class Operations implements AutoCloseable {
               } else if (file.contains(backupDirRoot.toString())) {
                 // files present in .backup dir should not be considered orphan
                 log.info("Skipped deleting backup file {}", file);
-              } else if (file.contains(dataDirRoot.toString()) && backupEnabled) {
+              } else if (file.contains(dataDirRoot.toString())
+                  && backupEnabled
+                  && isExistBackupDataManifests(table, file, backupDir)) {
                 // move data files to backup dir if backup is enabled
                 Path backupFilePath = getTrashPath(table, file, backupDir);
                 log.info("Moving orphan file {} to {}", file, backupFilePath);
@@ -140,6 +142,17 @@ public final class Operations implements AutoCloseable {
               }
             });
     return operation.execute();
+  }
+
+  private boolean isExistBackupDataManifests(Table table, String file, String backupDir) {
+    try {
+      Path backupFilePath = getTrashPath(table, file, backupDir);
+      Path pattern = new Path(backupFilePath.getParent(), "data_manifest*");
+      FileStatus[] matches = fs().globStatus(pattern);
+      return matches != null && matches.length > 0;
+    } catch (IOException e) {
+      return false;
+    }
   }
 
   /**

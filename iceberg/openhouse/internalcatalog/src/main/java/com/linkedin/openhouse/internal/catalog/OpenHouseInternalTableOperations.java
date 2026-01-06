@@ -4,7 +4,9 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
@@ -23,6 +25,7 @@ import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -188,14 +191,21 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
-  /** An internal helper method to rebuild the {@link TableMetadata} object. */
-  private TableMetadata rebuildTblMetaWithSchema(
-      TableMetadata newMetadata, String schemaKey, boolean reuseMetadata) {
-    Schema writerSchema = SchemaParser.fromJson(newMetadata.properties().get(schemaKey));
+  /**
+   * An internal helper method to rebuild the {@link TableMetadata} object with a parsed schema.
+   *
+   * @param newMetadata The current table metadata
+   * @param schemaJson The parsed schema object
+   * @param reuseMetadata Whether to reuse existing metadata or build from empty
+   * @return Table metadata builder with the new schema set as current
+   */
+  private TableMetadata.Builder rebuildTblMetaWithSchemaBuilder(
+      TableMetadata newMetadata, String schemaJson, boolean reuseMetadata) {
+    Schema writerSchema = SchemaParser.fromJson(schemaJson);
+
     if (reuseMetadata) {
       return TableMetadata.buildFrom(newMetadata)
-          .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
-          .build();
+          .setCurrentSchema(writerSchema, writerSchema.highestFieldId());
     } else {
       return TableMetadata.buildFromEmpty()
           .setLocation(newMetadata.location())
@@ -203,8 +213,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           .addPartitionSpec(
               rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
           .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
-          .setProperties(newMetadata.properties())
-          .build();
+          .setProperties(newMetadata.properties());
     }
   }
 
@@ -212,16 +221,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
 
-    /**
-     * During table creation, the table metadata object that arrives here has the field-ids
-     * reassigned from the client supplied schema.This code block creates a new table metadata
-     * object using the client supplied schema by preserving its field-ids.
-     */
-    if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA, false);
-    } else if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY, true);
-    }
+    // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
+    metadata = processSchemas(base, metadata);
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
@@ -234,6 +235,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // Now that we have metadataLocation we stamp it in metadata property.
       Map<String, String> properties = new HashMap<>(metadata.properties());
       failIfRetryUpdate(properties);
+      restoreOverriddenProperties(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -254,6 +256,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
       }
+
+      if (properties.containsKey(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY)) {
+        properties.remove(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+      }
+
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
@@ -376,7 +383,13 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             e);
       }
       throw new CommitFailedException(ioe);
-    } catch (InvalidIcebergSnapshotException | IllegalArgumentException | ValidationException e) {
+    } catch (InvalidIcebergSnapshotException | IllegalArgumentException e) {
+      throw new BadRequestException(e, e.getMessage());
+    } catch (ValidationException e) {
+      // Stale snapshot errors are retryable - client should refresh and retry
+      if (isStaleSnapshotError(e)) {
+        throw new CommitFailedException(e);
+      }
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException e) {
       throw e;
@@ -549,12 +562,125 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
+  /**
+   * Checks if a ValidationException is due to a stale snapshot (sequence number conflict). This
+   * happens during concurrent modifications and should be retryable (409), not a bad request (400).
+   */
+  private boolean isStaleSnapshotError(ValidationException e) {
+    String msg = e.getMessage();
+    return msg != null
+        && msg.contains("Cannot add snapshot with sequence number")
+        && msg.contains("older than last sequence number");
+  }
+
+  /**
+   * Process all schema-related operations including client schema (for new tables), evolved schema
+   * (for updates), and intermediate schemas (for replication scenarios). This consolidates all
+   * schema handling logic into a single method.
+   *
+   * @param base The base table metadata (null for new tables)
+   * @param metadata The current table metadata
+   * @return Updated table metadata with all schema changes applied
+   */
+  private TableMetadata processSchemas(TableMetadata base, TableMetadata metadata) {
+    boolean isNewTable = (base == null);
+    String finalSchemaUpdate =
+        isNewTable && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null
+            ? metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA)
+            : metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY);
+    // If there is no schema update, return the original metadata
+    if (finalSchemaUpdate == null) {
+      return metadata;
+    }
+    List<String> newSchemas = getIntermediateSchemasFromProps(metadata);
+    newSchemas.add(finalSchemaUpdate);
+    TableMetadata.Builder updatedMetadataBuilder;
+
+    // Process intermediate schemas first if present
+    updatedMetadataBuilder =
+        rebuildTblMetaWithSchemaBuilder(metadata, newSchemas.get(0), !isNewTable);
+
+    newSchemas.stream()
+        .skip(1) // Skip the initialization schema
+        .forEach(
+            schemaJson -> {
+              try {
+                Schema schema = SchemaParser.fromJson(schemaJson);
+                updatedMetadataBuilder.setCurrentSchema(schema, schema.highestFieldId());
+              } catch (Exception e) {
+                log.error(
+                    "Failed to process schema: {} for table {}", schemaJson, tableIdentifier, e);
+              }
+            });
+
+    return updatedMetadataBuilder.build();
+  }
+
   /** Helper function to dump contents for map in debugging mode. */
   private void logPropertiesMap(Map<String, String> map) {
     log.debug(" === Printing the table properties within doCommit method === ");
     for (Map.Entry<String, String> entry : map.entrySet()) {
       log.debug(entry.getKey() + ":" + entry.getValue());
     }
+  }
+
+  /**
+   * Restores table properties that were temporarily overridden by the repository layer. Properties
+   * marked with {@code TRANSIENT_RESTORE_PREFIX} have their original values reinstated, while those
+   * marked with {@code TRANSIENT_ADDED_PREFIX} are removed entirely.
+   *
+   * @param properties mutable map of table properties
+   */
+  private void restoreOverriddenProperties(Map<String, String> properties) {
+    final String restorePrefix = CatalogConstants.TRANSIENT_RESTORE_PREFIX;
+    final String addedPrefix = CatalogConstants.TRANSIENT_ADDED_PREFIX;
+
+    Map<String, String> toRestore = new HashMap<>();
+    Set<String> toRemove = new java.util.HashSet<>();
+
+    for (String key : new java.util.ArrayList<>(properties.keySet())) {
+      if (key.startsWith(restorePrefix)) {
+        String propertyKey = key.substring(restorePrefix.length());
+        toRestore.put(propertyKey, properties.get(key));
+        properties.remove(key);
+      } else if (key.startsWith(addedPrefix)) {
+        String propertyKey = key.substring(addedPrefix.length());
+        toRemove.add(propertyKey);
+        properties.remove(key);
+      }
+    }
+
+    log.info(
+        "restoreOverriddenProperties: restoring {} properties, removing {} transient-added properties",
+        toRestore.size(),
+        toRemove.size());
+
+    toRestore.forEach(
+        (propertyKey, originalValue) -> {
+          if (originalValue == null) {
+            log.info(
+                "restoreOverriddenProperties: removing property {} because originalValue is null",
+                propertyKey);
+            properties.remove(propertyKey);
+          } else {
+            String originalValueForLog =
+                originalValue.length() > 256
+                    ? originalValue.substring(0, 256) + "...(truncated)"
+                    : originalValue;
+            log.info(
+                "restoreOverriddenProperties: restoring property {} to {}",
+                propertyKey,
+                originalValueForLog);
+            properties.put(propertyKey, originalValue);
+          }
+        });
+
+    toRemove.forEach(
+        propertyKey -> {
+          log.info(
+              "restoreOverriddenProperties: removing transient-added property {}", propertyKey);
+          properties.remove(propertyKey);
+        });
   }
 
   /**
@@ -606,5 +732,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             .getOrDefault(
                 CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION)
             .equals(CatalogConstants.INITIAL_VERSION);
+  }
+
+  private List<String> getIntermediateSchemasFromProps(TableMetadata metadata) {
+    String serializedNewIntermediateSchemas =
+        metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+    if (serializedNewIntermediateSchemas == null) {
+      return new ArrayList<>();
+    }
+    return new GsonBuilder()
+        .create()
+        .fromJson(serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
   }
 }

@@ -52,6 +52,7 @@ import org.apache.iceberg.common.DynFields;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -77,7 +78,7 @@ public class OpenHouseInternalTableOperationsTest {
               Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone())),
           PartitionSpec.unpartitioned(),
           getTempLocation(),
-          ImmutableMap.of());
+          ImmutableMap.of("format-version", "2"));
   @Mock private HouseTableRepository mockHouseTableRepository;
   @Mock private HouseTableMapper mockHouseTableMapper;
   @Mock private HouseTable mockHouseTable;
@@ -1716,6 +1717,102 @@ public class OpenHouseInternalTableOperationsTest {
           "Main branch should point to testSnapshots[1] after divergent commit");
 
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  /**
+   * Tests that stale snapshot detection returns 409 Conflict instead of 400 Bad Request.
+   *
+   * <p>This test reproduces the production scenario where:
+   *
+   * <ol>
+   *   <li>Table has 4 existing snapshots with lastSequenceNumber = 4
+   *   <li>A concurrent modification occurs during commit
+   *   <li>Client tries to add a snapshot with sequenceNumber = 4 (now stale)
+   *   <li>Before fix: ValidationException → BadRequestException (400)
+   *   <li>After fix: Stale snapshot detected → CommitFailedException (409)
+   * </ol>
+   *
+   * <p>The 409 response tells clients to refresh and retry, while 400 incorrectly suggests the
+   * request was invalid.
+   */
+  /**
+   * First verifies that Iceberg's validation actually throws for stale snapshots in format v2, then
+   * tests the OpenHouse doCommit path.
+   */
+  @Test
+  void testStaleSnapshotDuringConcurrentModificationReturns409NotBadRequest() throws IOException {
+    // Build base metadata with all 4 test snapshots (lastSequenceNumber = 4)
+    List<Snapshot> existingSnapshots = IcebergTestUtil.getSnapshots();
+    TableMetadata tempMetadata = BASE_TABLE_METADATA;
+    for (Snapshot snapshot : existingSnapshots) {
+      tempMetadata =
+          TableMetadata.buildFrom(tempMetadata)
+              .setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
+              .build();
+    }
+    final TableMetadata baseMetadata = tempMetadata;
+
+    // Verify base metadata has format version 2 and lastSequenceNumber = 4
+    Assertions.assertEquals(2, baseMetadata.formatVersion(), "Format version should be 2");
+    Assertions.assertEquals(4, baseMetadata.lastSequenceNumber(), "lastSequenceNumber should be 4");
+
+    // Load stale snapshot with sequenceNumber = 4 (same as lastSequenceNumber)
+    List<Snapshot> staleSnapshots = IcebergTestUtil.getStaleSnapshots();
+    Snapshot staleSnapshot = staleSnapshots.get(0);
+    Assertions.assertEquals(
+        4, staleSnapshot.sequenceNumber(), "Stale snapshot should have sequenceNumber = 4");
+
+    // Verify stale snapshot has a parent (required for Iceberg 1.5+ validation)
+    Assertions.assertNotNull(
+        staleSnapshot.parentId(), "Stale snapshot must have parentId for validation to trigger");
+
+    // FIRST: Verify Iceberg's validation works directly
+    TableMetadata.Builder directBuilder = TableMetadata.buildFrom(baseMetadata);
+    ValidationException icebergException =
+        Assertions.assertThrows(
+            ValidationException.class,
+            () -> directBuilder.addSnapshot(staleSnapshot),
+            "Iceberg should throw ValidationException for stale snapshot");
+    Assertions.assertTrue(
+        icebergException.getMessage().contains("Cannot add snapshot with sequence number"),
+        "Iceberg should report sequence number issue: " + icebergException.getMessage());
+
+    // NOW test the full doCommit path
+    List<Snapshot> allSnapshots = new ArrayList<>(existingSnapshots);
+    allSnapshots.addAll(staleSnapshots);
+
+    Map<String, String> properties = new HashMap<>(baseMetadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(allSnapshots));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.createMainBranchRefPointingTo(existingSnapshots.get(3))));
+    properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+
+    final TableMetadata metadataWithStaleSnapshot = baseMetadata.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+
+      // Should throw CommitFailedException (409), not BadRequestException (400)
+      Exception exception =
+          Assertions.assertThrows(
+              CommitFailedException.class,
+              () ->
+                  openHouseInternalTableOperations.doCommit(
+                      baseMetadata, metadataWithStaleSnapshot),
+              "Stale snapshot should return 409 Conflict (CommitFailedException), not 400 "
+                  + "(BadRequestException). 400 suggests invalid request, 409 suggests retry.");
+
+      String message = exception.getMessage().toLowerCase();
+      Assertions.assertTrue(
+          message.contains("stale")
+              || message.contains("sequence")
+              || message.contains("concurrent"),
+          "Exception message should indicate stale snapshot or sequence number issue: "
+              + exception.getMessage());
     }
   }
 }
