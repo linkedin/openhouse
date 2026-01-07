@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.tables.client.model.Policies;
@@ -17,6 +18,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -56,7 +58,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1, false, "");
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now());
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
@@ -157,7 +159,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
-    ops.runRetention(tableName, column, pattern, granularity, 2, false, "");
+    ops.runRetention(tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now());
   }
 
   @Test
@@ -169,7 +171,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2, false, "");
+      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now());
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -213,19 +215,22 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', '%s', '%s', 0), ('b', '%s', '%s', 0)",
                   tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
-      ops.runRetention(tableName, columnName, columnPattern, granularity, count, true, ".backup");
+      ZonedDateTime now = ZonedDateTime.now();
+      ops.runRetention(
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
       Path firstManifestPath =
           new Path(
               String.format(
-                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
-                  table.location(), twoDayAgoDate, twoDayAgoHour));
+                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/%s",
+                  table.location(), twoDayAgoDate, twoDayAgoHour, manifestName));
       Path secondManifestPath =
           new Path(
               String.format(
-                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/data_manifest.json",
-                  table.location(), threeDayAgoDate, threeDayAgoHour));
+                  "%s/.backup/data/datepartition=%s/hourpartition=%s/late=0/%s",
+                  table.location(), threeDayAgoDate, threeDayAgoHour, manifestName));
       Assertions.assertTrue(ops.fs().exists(firstManifestPath));
       Assertions.assertTrue(ops.fs().exists(secondManifestPath));
       try (InputStream in = ops.fs().open(firstManifestPath);
@@ -246,6 +251,8 @@ public class OperationsTest extends OpenHouseSparkITest {
             oneDataFilePath.startsWith(secondManifestPath.getParent().toString())
                 && oneDataFilePath.endsWith(".orc"));
       }
+      Assertions.assertEquals(
+          table.location() + "/.backup", table.properties().get(AppConstants.BACKUP_DIR_KEY));
     }
   }
 
@@ -277,13 +284,16 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
                   tableName, today, twoDayAgo));
-      ops.runRetention(tableName, columnName, columnPattern, granularity, count, true, ".backup");
+      ZonedDateTime now = ZonedDateTime.now();
+      ops.runRetention(
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
       Path manifestPath =
           new Path(
               String.format(
-                  "%s/.backup/data/ts_day=%s/data_manifest.json", table.location(), twoDayAgo));
+                  "%s/.backup/data/ts_day=%s/%s", table.location(), twoDayAgo, manifestName));
       Assertions.assertTrue(ops.fs().exists(manifestPath));
       try (InputStream in = ops.fs().open(manifestPath);
           InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
@@ -294,6 +304,8 @@ public class OperationsTest extends OpenHouseSparkITest {
             oneDataFilePath.startsWith(manifestPath.getParent().toString())
                 && oneDataFilePath.endsWith(".orc"));
       }
+      Assertions.assertEquals(
+          table.location() + "/.backup", table.properties().get(AppConstants.BACKUP_DIR_KEY));
     }
   }
 
@@ -307,24 +319,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      List<Row> snapshots =
-          ops.spark().sql(String.format("SELECT * from %s.history", tableName)).collectAsList();
-      Assertions.assertEquals(numInserts, snapshots.size());
-      log.info("Found {} snapshots", snapshots.size());
-      for (Row metadataFileRow : snapshots) {
-        log.info(metadataFileRow.toString());
-      }
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
+      fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
@@ -345,25 +347,19 @@ public class OperationsTest extends OpenHouseSparkITest {
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
+      fs.createNewFile(dataManifestPath);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+      Path backupFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
+      Assertions.assertTrue(fs.exists(backupFilePath));
+      // run delete operation again and verify that files in .backup are not listed as Orphan
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
-      Path trashFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
-      Assertions.assertTrue(fs.exists(trashFilePath));
-      // run delete operation again and verify that files in .trash are not listed as Orphan
-      DeleteOrphanFiles.Result result2 =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
-      List<String> orphanFiles2 = Lists.newArrayList(result2.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles2.size());
-      Assertions.assertEquals(0, orphanFiles2.size());
-      Assertions.assertTrue(fs.exists(trashFilePath));
+      Assertions.assertEquals(0, orphanFiles.size());
+      Assertions.assertTrue(fs.exists(backupFilePath));
     }
   }
 
@@ -377,24 +373,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      List<Row> snapshots =
-          ops.spark().sql(String.format("SELECT * from %s.history", tableName)).collectAsList();
-      Assertions.assertEquals(numInserts, snapshots.size());
-      log.info("Found {} snapshots", snapshots.size());
-      for (Row metadataFileRow : snapshots) {
-        log.info(metadataFileRow.toString());
-      }
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
+      fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
@@ -414,24 +400,39 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      List<Row> snapshots =
-          ops.spark().sql(String.format("SELECT * from %s.history", tableName)).collectAsList();
-      Assertions.assertEquals(numInserts, snapshots.size());
-      log.info("Found {} snapshots", snapshots.size());
-      for (Row metadataFileRow : snapshots) {
-        log.info(metadataFileRow.toString());
-      }
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
+      fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(table, System.currentTimeMillis(), false, BACKUP_DIR);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
+      Assertions.assertFalse(
+          fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
+      Assertions.assertEquals(1, orphanFiles.size());
+      Assertions.assertTrue(
+          orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
+      Assertions.assertFalse(fs.exists(orphanFilePath));
+    }
+  }
+
+  @Test
+  public void testOrphanFilesDeletionDeleteDataWhenDataManifestNotExists() throws Exception {
+    final String tableName = "db.test_ofd_java";
+    final String testOrphanFileName = "data/test_orphan_file.orc";
+    final int numInserts = 3;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+      Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      FileSystem fs = ops.fs();
+      fs.createNewFile(orphanFilePath);
+      DeleteOrphanFiles.Result result =
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+      List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
@@ -686,9 +687,11 @@ public class OperationsTest extends OpenHouseSparkITest {
       log.info("Loaded table {}, location {}", table.name(), table.location());
       Path orphanFilePath1 = new Path(table.location(), testOrphanFile1);
       Path orphanFilePath2 = new Path(table.location(), testOrphanFile2);
+      Path dataManifestPath = new Path(table.location(), ".trash/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath1);
       fs.createNewFile(orphanFilePath2);
+      fs.createNewFile(dataManifestPath);
       log.info("Created orphan file {}", testOrphanFile1);
       log.info("Created orphan file {}", testOrphanFile2);
       ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR);
@@ -947,7 +950,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(
           stats.getEarliestPartitionDate(),
-          LocalDate.now().minusDays(2).format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
+          LocalDate.now(ZoneOffset.UTC)
+              .minusDays(2)
+              .format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
     }
   }
 

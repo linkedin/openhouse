@@ -37,7 +37,7 @@ jobs:
         << : *livy-engine
       - type: RETENTION
         class-name: com.linkedin.openhouse.jobs.spark.RetentionSparkApp
-        args: []
+        args: ["--backupDir", ".backup"]
         << : *apps-defaults
         << : *livy-engine
       - type: DATA_COMPACTION
@@ -52,7 +52,7 @@ jobs:
         << : *livy-engine
       - type: ORPHAN_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
-        args: []
+        args: ["--backupDir", ".backup"]
         <<: *apps-defaults
         spark-properties:
           <<: *spark-defaults

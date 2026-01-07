@@ -5,7 +5,9 @@ import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import java.io.IOException;
@@ -116,7 +118,9 @@ public final class Operations implements AutoCloseable {
               } else if (file.contains(backupDirRoot.toString())) {
                 // files present in .backup dir should not be considered orphan
                 log.info("Skipped deleting backup file {}", file);
-              } else if (file.contains(dataDirRoot.toString()) && backupEnabled) {
+              } else if (file.contains(dataDirRoot.toString())
+                  && backupEnabled
+                  && isExistBackupDataManifests(table, file, backupDir)) {
                 // move data files to backup dir if backup is enabled
                 Path backupFilePath = getTrashPath(table, file, backupDir);
                 log.info("Moving orphan file {} to {}", file, backupFilePath);
@@ -137,6 +141,17 @@ public final class Operations implements AutoCloseable {
               }
             });
     return operation.execute();
+  }
+
+  private boolean isExistBackupDataManifests(Table table, String file, String backupDir) {
+    try {
+      Path backupFilePath = getTrashPath(table, file, backupDir);
+      Path pattern = new Path(backupFilePath.getParent(), "data_manifest*");
+      FileStatus[] matches = fs().globStatus(pattern);
+      return matches != null && matches.length > 0;
+    } catch (IOException e) {
+      return false;
+    }
   }
 
   /**
@@ -251,6 +266,7 @@ public final class Operations implements AutoCloseable {
    * @param count granularity count representing retention timeline for @fqtn records
    * @param backupEnabled flag to indicate if backup manifests need to be created for data files
    * @param backupDir backup directory under which data manifests are created
+   * @param now current timestamp to be used for retention calculation
    */
   public void runRetention(
       String fqtn,
@@ -259,13 +275,14 @@ public final class Operations implements AutoCloseable {
       String granularity,
       int count,
       boolean backupEnabled,
-      String backupDir) {
-    ZonedDateTime now = ZonedDateTime.now();
+      String backupDir,
+      ZonedDateTime now) {
     if (backupEnabled) {
       // Cache of manifests: partitionPath -> list of data file path
       Map<String, List<String>> manifestCache =
           prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
-      writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir);
+      writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir, now);
+      exposeBackupLocation(getTable(fqtn), backupDir);
     }
     final String statement =
         SparkJobUtil.createDeleteStatement(
@@ -301,7 +318,7 @@ public final class Operations implements AutoCloseable {
   }
 
   private void writeBackupDataManifests(
-      Map<String, List<String>> manifestCache, Table table, String backupDir) {
+      Map<String, List<String>> manifestCache, Table table, String backupDir, ZonedDateTime now) {
     for (String partitionPath : manifestCache.keySet()) {
       List<String> files = manifestCache.get(partitionPath);
       List<String> backupFiles =
@@ -313,8 +330,9 @@ public final class Operations implements AutoCloseable {
       jsonMap.put("files", backupFiles);
       String jsonStr = new Gson().toJson(jsonMap);
       // Create data_manifest.json
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
       Path destPath =
-          getTrashPath(table, new Path(partitionPath, "data_manifest.json").toString(), backupDir);
+          getTrashPath(table, new Path(partitionPath, manifestName).toString(), backupDir);
       try {
         final FileSystem fs = fs();
         if (!fs.exists(destPath.getParent())) {
@@ -328,6 +346,14 @@ public final class Operations implements AutoCloseable {
         throw new RuntimeException("Failed to write data_manifest.json", e);
       }
     }
+  }
+
+  private void exposeBackupLocation(Table table, String backupDir) {
+    Path fullyQualifiedBackupDir = new Path(table.location(), backupDir);
+    spark.sql(
+        String.format(
+            "ALTER TABLE %s SET TBLPROPERTIES ('%s'='%s')",
+            table.name(), AppConstants.BACKUP_DIR_KEY, fullyQualifiedBackupDir));
   }
 
   private Path getTrashPath(String path, String filePath, String trashDir) {
@@ -561,6 +587,31 @@ public final class Operations implements AutoCloseable {
       return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect commit events for table: {}", fqtn, e);
+      return Collections.emptyList();
+    }
+  }
+
+  /**
+   * Collect partition-level commit events for a given fully-qualified table name.
+   *
+   * <p>Returns one record per (commit_id, partition) pair. Returns empty list for unpartitioned
+   * tables or errors.
+   *
+   * @param fqtn fully-qualified table name
+   * @return List of CommitEventTablePartitions objects (event_timestamp_ms will be set at publish
+   *     time)
+   */
+  public List<CommitEventTablePartitions> collectCommitEventTablePartitions(String fqtn) {
+    Table table = getTable(fqtn);
+
+    try {
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectCommitEventTablePartitions();
+    } catch (IOException e) {
+      log.error("Unable to initialize file system for partition events collection", e);
+      return Collections.emptyList();
+    } catch (Exception e) {
+      log.error("Failed to collect partition events for table: {}", fqtn, e);
       return Collections.emptyList();
     }
   }

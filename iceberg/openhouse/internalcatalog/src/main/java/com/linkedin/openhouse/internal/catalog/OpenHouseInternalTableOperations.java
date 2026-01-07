@@ -4,7 +4,9 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
@@ -34,8 +36,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.PartitionField;
@@ -44,7 +44,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
-import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
@@ -56,11 +55,11 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
-import org.springframework.data.util.Pair;
 
 @AllArgsConstructor
 @Slf4j
@@ -69,8 +68,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   HouseTableRepository houseTableRepository;
 
   FileIO fileIO;
-
-  SnapshotInspector snapshotInspector;
 
   HouseTableMapper houseTableMapper;
 
@@ -194,14 +191,21 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
-  /** An internal helper method to rebuild the {@link TableMetadata} object. */
-  private TableMetadata rebuildTblMetaWithSchema(
-      TableMetadata newMetadata, String schemaKey, boolean reuseMetadata) {
-    Schema writerSchema = SchemaParser.fromJson(newMetadata.properties().get(schemaKey));
+  /**
+   * An internal helper method to rebuild the {@link TableMetadata} object with a parsed schema.
+   *
+   * @param newMetadata The current table metadata
+   * @param schemaJson The parsed schema object
+   * @param reuseMetadata Whether to reuse existing metadata or build from empty
+   * @return Table metadata builder with the new schema set as current
+   */
+  private TableMetadata.Builder rebuildTblMetaWithSchemaBuilder(
+      TableMetadata newMetadata, String schemaJson, boolean reuseMetadata) {
+    Schema writerSchema = SchemaParser.fromJson(schemaJson);
+
     if (reuseMetadata) {
       return TableMetadata.buildFrom(newMetadata)
-          .setCurrentSchema(writerSchema, writerSchema.highestFieldId())
-          .build();
+          .setCurrentSchema(writerSchema, writerSchema.highestFieldId());
     } else {
       return TableMetadata.buildFromEmpty()
           .setLocation(newMetadata.location())
@@ -209,8 +213,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           .addPartitionSpec(
               rebuildPartitionSpec(newMetadata.spec(), newMetadata.schema(), writerSchema))
           .addSortOrder(rebuildSortOrder(newMetadata.sortOrder(), writerSchema))
-          .setProperties(newMetadata.properties())
-          .build();
+          .setProperties(newMetadata.properties());
     }
   }
 
@@ -218,16 +221,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
 
-    /**
-     * During table creation, the table metadata object that arrives here has the field-ids
-     * reassigned from the client supplied schema.This code block creates a new table metadata
-     * object using the client supplied schema by preserving its field-ids.
-     */
-    if (base == null && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.CLIENT_TABLE_SCHEMA, false);
-    } else if (metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY) != null) {
-      metadata = rebuildTblMetaWithSchema(metadata, CatalogConstants.EVOLVED_SCHEMA_KEY, true);
-    }
+    // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
+    metadata = processSchemas(base, metadata);
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
@@ -240,6 +235,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // Now that we have metadataLocation we stamp it in metadata property.
       Map<String, String> properties = new HashMap<>(metadata.properties());
       failIfRetryUpdate(properties);
+      restoreOverriddenProperties(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -260,6 +256,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
       }
+
+      if (properties.containsKey(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY)) {
+        properties.remove(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+      }
+
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
@@ -267,32 +268,56 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 
-      TableMetadata updatedMetadata = metadata.replaceProperties(properties);
+      TableMetadata metadataToCommit = metadata.replaceProperties(properties);
 
       if (sortOrderJson != null) {
-        SortOrder sortOrder = SortOrderParser.fromJson(updatedMetadata.schema(), sortOrderJson);
-        updatedMetadata = updatedMetadata.replaceSortOrder(sortOrder);
+        SortOrder sortOrder = SortOrderParser.fromJson(metadataToCommit.schema(), sortOrderJson);
+        metadataToCommit = metadataToCommit.replaceSortOrder(sortOrder);
       }
 
       if (serializedSnapshotsToPut != null) {
         List<Snapshot> snapshotsToPut =
             SnapshotsUtil.parseSnapshots(fileIO, serializedSnapshotsToPut);
-        Pair<List<Snapshot>, List<Snapshot>> snapshotsDiff =
-            SnapshotsUtil.symmetricDifferenceSplit(snapshotsToPut, updatedMetadata.snapshots());
-        List<Snapshot> appendedSnapshots = snapshotsDiff.getFirst();
-        List<Snapshot> deletedSnapshots = snapshotsDiff.getSecond();
-        snapshotInspector.validateSnapshotsUpdate(
-            updatedMetadata, appendedSnapshots, deletedSnapshots);
         Map<String, SnapshotRef> snapshotRefs =
             serializedSnapshotRefs == null
                 ? new HashMap<>()
                 : SnapshotsUtil.parseSnapshotRefs(serializedSnapshotRefs);
-        updatedMetadata =
-            maybeAppendSnapshots(updatedMetadata, appendedSnapshots, snapshotRefs, true);
-        updatedMetadata = maybeDeleteSnapshots(updatedMetadata, deletedSnapshots);
+
+        TableMetadata.Builder builder = TableMetadata.buildFrom(metadataToCommit);
+
+        // 1. Identify which snapshots are new vs existing
+        Set<Long> existingSnapshotIds =
+            metadataToCommit.snapshots().stream()
+                .map(Snapshot::snapshotId)
+                .collect(Collectors.toSet());
+        Set<Long> newSnapshotIds =
+            snapshotsToPut.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+
+        // 2. Add new snapshots
+        snapshotsToPut.stream()
+            .filter(s -> !existingSnapshotIds.contains(s.snapshotId()))
+            .forEach(builder::addSnapshot);
+
+        // 3. Remove snapshots that are no longer present in the client payload
+        List<Long> toRemove =
+            existingSnapshotIds.stream()
+                .filter(id -> !newSnapshotIds.contains(id))
+                .collect(Collectors.toList());
+        if (!toRemove.isEmpty()) {
+          builder.removeSnapshots(toRemove);
+        }
+
+        // 4. Sync Refs: Remove refs not in payload, Set/Update refs from payload
+        metadataToCommit.refs().keySet().stream()
+            .filter(ref -> !snapshotRefs.containsKey(ref))
+            .forEach(builder::removeRef);
+
+        snapshotRefs.forEach(builder::setRef);
+
+        metadataToCommit = builder.build();
       }
 
-      final TableMetadata updatedMtDataRef = updatedMetadata;
+      final TableMetadata updatedMtDataRef = metadataToCommit;
       long metadataUpdateStartTime = System.currentTimeMillis();
       try {
         metricsReporter.executeWithStats(
@@ -314,7 +339,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw e;
       }
 
-      houseTable = houseTableMapper.toHouseTable(updatedMetadata, fileIO);
+      houseTable = houseTableMapper.toHouseTable(metadataToCommit, fileIO);
       if (base != null
           && (properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
                   && !properties
@@ -358,7 +383,13 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             e);
       }
       throw new CommitFailedException(ioe);
-    } catch (InvalidIcebergSnapshotException e) {
+    } catch (InvalidIcebergSnapshotException | IllegalArgumentException e) {
+      throw new BadRequestException(e, e.getMessage());
+    } catch (ValidationException e) {
+      // Stale snapshot errors are retryable - client should refresh and retry
+      if (isStaleSnapshotError(e)) {
+        throw new CommitFailedException(e);
+      }
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException e) {
       throw e;
@@ -531,123 +562,58 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
-  public TableMetadata maybeDeleteSnapshots(
-      TableMetadata metadata, List<Snapshot> snapshotsToDelete) {
-    TableMetadata result = metadata;
-    if (CollectionUtils.isNotEmpty(snapshotsToDelete)) {
-      Set<Long> snapshotIds =
-          snapshotsToDelete.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
-      Map<String, String> updatedProperties = new HashMap<>(result.properties());
-      updatedProperties.put(
-          getCanonicalFieldName(CatalogConstants.DELETED_SNAPSHOTS),
-          snapshotsToDelete.stream()
-              .map(s -> Long.toString(s.snapshotId()))
-              .collect(Collectors.joining(",")));
-      result =
-          TableMetadata.buildFrom(result)
-              .setProperties(updatedProperties)
-              .build()
-              .removeSnapshotsIf(s -> snapshotIds.contains(s.snapshotId()));
-      metricsReporter.count(
-          InternalCatalogMetricsConstant.SNAPSHOTS_DELETED_CTR, snapshotsToDelete.size());
-    }
-    return result;
+  /**
+   * Checks if a ValidationException is due to a stale snapshot (sequence number conflict). This
+   * happens during concurrent modifications and should be retryable (409), not a bad request (400).
+   */
+  private boolean isStaleSnapshotError(ValidationException e) {
+    String msg = e.getMessage();
+    return msg != null
+        && msg.contains("Cannot add snapshot with sequence number")
+        && msg.contains("older than last sequence number");
   }
 
-  public TableMetadata maybeAppendSnapshots(
-      TableMetadata metadata,
-      List<Snapshot> snapshotsToAppend,
-      Map<String, SnapshotRef> snapshotRefs,
-      boolean recordAction) {
-    TableMetadata.Builder metadataBuilder = TableMetadata.buildFrom(metadata);
-    List<String> appendedSnapshots = new ArrayList<>();
-    List<String> stagedSnapshots = new ArrayList<>();
-    List<String> cherryPickedSnapshots = new ArrayList<>();
-    // Throw an exception if client sent request that included non-main branches in the
-    // snapshotRefs.
-    for (Map.Entry<String, SnapshotRef> entry : snapshotRefs.entrySet()) {
-      if (!entry.getKey().equals(SnapshotRef.MAIN_BRANCH)) {
-        throw new UnsupportedOperationException("OpenHouse supports only MAIN branch");
-      }
+  /**
+   * Process all schema-related operations including client schema (for new tables), evolved schema
+   * (for updates), and intermediate schemas (for replication scenarios). This consolidates all
+   * schema handling logic into a single method.
+   *
+   * @param base The base table metadata (null for new tables)
+   * @param metadata The current table metadata
+   * @return Updated table metadata with all schema changes applied
+   */
+  private TableMetadata processSchemas(TableMetadata base, TableMetadata metadata) {
+    boolean isNewTable = (base == null);
+    String finalSchemaUpdate =
+        isNewTable && metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA) != null
+            ? metadata.properties().get(CatalogConstants.CLIENT_TABLE_SCHEMA)
+            : metadata.properties().get(CatalogConstants.EVOLVED_SCHEMA_KEY);
+    // If there is no schema update, return the original metadata
+    if (finalSchemaUpdate == null) {
+      return metadata;
     }
-    /**
-     * First check if there are new snapshots to be appended to current TableMetadata. If yes,
-     * following are the cases to be handled:
-     *
-     * <p>[1] A regular (non-wap) snapshot is being added to the MAIN branch.
-     *
-     * <p>[2] A staged (wap) snapshot is being created on top of current snapshot as its base.
-     * Recognized by STAGED_WAP_ID_PROP.
-     *
-     * <p>[3] A staged (wap) snapshot is being cherry picked to the MAIN branch wherein current
-     * snapshot in the MAIN branch is not the same as the base snapshot the staged (wap) snapshot
-     * was created on. Recognized by SOURCE_SNAPSHOT_ID_PROP. This case is called non-fast forward
-     * cherry pick.
-     *
-     * <p>In case no new snapshots are to be appended to current TableMetadata, there could be a
-     * cherrypick of a staged (wap) snapshot on top of the current snapshot in the MAIN branch which
-     * is the same as the base snapshot the staged (wap) snapshot was created on. This case is
-     * called fast forward cherry pick.
-     */
-    if (CollectionUtils.isNotEmpty(snapshotsToAppend)) {
-      for (Snapshot snapshot : snapshotsToAppend) {
-        snapshotInspector.validateSnapshot(snapshot);
-        if (snapshot.summary().containsKey(SnapshotSummary.STAGED_WAP_ID_PROP)) {
-          // a stage only snapshot using wap.id
-          metadataBuilder.addSnapshot(snapshot);
-          stagedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-        } else if (snapshot.summary().containsKey(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)) {
-          // a snapshot created on a non fast-forward cherry-pick snapshot
-          metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
-          appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-          cherryPickedSnapshots.add(
-              String.valueOf(snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP)));
-        } else {
-          // a regular snapshot
-          metadataBuilder.setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH);
-          appendedSnapshots.add(String.valueOf(snapshot.snapshotId()));
-        }
-      }
-    } else if (MapUtils.isNotEmpty(snapshotRefs)) {
-      // Updated ref in the main branch with no new snapshot means this is a
-      // fast-forward cherry-pick or rollback operation.
-      long newSnapshotId = snapshotRefs.get(SnapshotRef.MAIN_BRANCH).snapshotId();
-      // Either the current snapshot is null or the current snapshot is not equal
-      // to the new snapshot indicates an update. The first case happens when the
-      // stage/wap snapshot being cherry-picked is the first snapshot.
-      if (MapUtils.isEmpty(metadata.refs())
-          || metadata.refs().get(SnapshotRef.MAIN_BRANCH).snapshotId() != newSnapshotId) {
-        metadataBuilder.setBranchSnapshot(newSnapshotId, SnapshotRef.MAIN_BRANCH);
-        cherryPickedSnapshots.add(String.valueOf(newSnapshotId));
-      }
-    }
-    if (recordAction) {
-      Map<String, String> updatedProperties = new HashMap<>(metadata.properties());
-      if (CollectionUtils.isNotEmpty(appendedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.APPENDED_SNAPSHOTS),
-            appendedSnapshots.stream().collect(Collectors.joining(",")));
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_ADDED_CTR, appendedSnapshots.size());
-      }
-      if (CollectionUtils.isNotEmpty(stagedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.STAGED_SNAPSHOTS),
-            stagedSnapshots.stream().collect(Collectors.joining(",")));
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_STAGED_CTR, stagedSnapshots.size());
-      }
-      if (CollectionUtils.isNotEmpty(cherryPickedSnapshots)) {
-        updatedProperties.put(
-            getCanonicalFieldName(CatalogConstants.CHERRY_PICKED_SNAPSHOTS),
-            cherryPickedSnapshots.stream().collect(Collectors.joining(",")));
-        metricsReporter.count(
-            InternalCatalogMetricsConstant.SNAPSHOTS_CHERRY_PICKED_CTR,
-            cherryPickedSnapshots.size());
-      }
-      metadataBuilder.setProperties(updatedProperties);
-    }
-    return metadataBuilder.build();
+    List<String> newSchemas = getIntermediateSchemasFromProps(metadata);
+    newSchemas.add(finalSchemaUpdate);
+    TableMetadata.Builder updatedMetadataBuilder;
+
+    // Process intermediate schemas first if present
+    updatedMetadataBuilder =
+        rebuildTblMetaWithSchemaBuilder(metadata, newSchemas.get(0), !isNewTable);
+
+    newSchemas.stream()
+        .skip(1) // Skip the initialization schema
+        .forEach(
+            schemaJson -> {
+              try {
+                Schema schema = SchemaParser.fromJson(schemaJson);
+                updatedMetadataBuilder.setCurrentSchema(schema, schema.highestFieldId());
+              } catch (Exception e) {
+                log.error(
+                    "Failed to process schema: {} for table {}", schemaJson, tableIdentifier, e);
+              }
+            });
+
+    return updatedMetadataBuilder.build();
   }
 
   /** Helper function to dump contents for map in debugging mode. */
@@ -656,6 +622,65 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     for (Map.Entry<String, String> entry : map.entrySet()) {
       log.debug(entry.getKey() + ":" + entry.getValue());
     }
+  }
+
+  /**
+   * Restores table properties that were temporarily overridden by the repository layer. Properties
+   * marked with {@code TRANSIENT_RESTORE_PREFIX} have their original values reinstated, while those
+   * marked with {@code TRANSIENT_ADDED_PREFIX} are removed entirely.
+   *
+   * @param properties mutable map of table properties
+   */
+  private void restoreOverriddenProperties(Map<String, String> properties) {
+    final String restorePrefix = CatalogConstants.TRANSIENT_RESTORE_PREFIX;
+    final String addedPrefix = CatalogConstants.TRANSIENT_ADDED_PREFIX;
+
+    Map<String, String> toRestore = new HashMap<>();
+    Set<String> toRemove = new java.util.HashSet<>();
+
+    for (String key : new java.util.ArrayList<>(properties.keySet())) {
+      if (key.startsWith(restorePrefix)) {
+        String propertyKey = key.substring(restorePrefix.length());
+        toRestore.put(propertyKey, properties.get(key));
+        properties.remove(key);
+      } else if (key.startsWith(addedPrefix)) {
+        String propertyKey = key.substring(addedPrefix.length());
+        toRemove.add(propertyKey);
+        properties.remove(key);
+      }
+    }
+
+    log.info(
+        "restoreOverriddenProperties: restoring {} properties, removing {} transient-added properties",
+        toRestore.size(),
+        toRemove.size());
+
+    toRestore.forEach(
+        (propertyKey, originalValue) -> {
+          if (originalValue == null) {
+            log.info(
+                "restoreOverriddenProperties: removing property {} because originalValue is null",
+                propertyKey);
+            properties.remove(propertyKey);
+          } else {
+            String originalValueForLog =
+                originalValue.length() > 256
+                    ? originalValue.substring(0, 256) + "...(truncated)"
+                    : originalValue;
+            log.info(
+                "restoreOverriddenProperties: restoring property {} to {}",
+                propertyKey,
+                originalValueForLog);
+            properties.put(propertyKey, originalValue);
+          }
+        });
+
+    toRemove.forEach(
+        propertyKey -> {
+          log.info(
+              "restoreOverriddenProperties: removing transient-added property {}", propertyKey);
+          properties.remove(propertyKey);
+        });
   }
 
   /**
@@ -707,5 +732,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             .getOrDefault(
                 CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION)
             .equals(CatalogConstants.INITIAL_VERSION);
+  }
+
+  private List<String> getIntermediateSchemasFromProps(TableMetadata metadata) {
+    String serializedNewIntermediateSchemas =
+        metadata.properties().get(CatalogConstants.INTERMEDIATE_SCHEMAS_KEY);
+    if (serializedNewIntermediateSchemas == null) {
+      return new ArrayList<>();
+    }
+    return new GsonBuilder()
+        .create()
+        .fromJson(serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
   }
 }

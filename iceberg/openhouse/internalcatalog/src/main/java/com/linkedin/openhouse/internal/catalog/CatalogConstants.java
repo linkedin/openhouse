@@ -4,6 +4,7 @@ package com.linkedin.openhouse.internal.catalog;
 public final class CatalogConstants {
   public static final String SNAPSHOTS_JSON_KEY = "snapshotsJsonToBePut";
   public static final String SNAPSHOTS_REFS_KEY = "snapshotsRefs";
+  public static final String INTERMEDIATE_SCHEMAS_KEY = "newIntermediateSchemas";
   public static final String SORT_ORDER_KEY = "sortOrder";
   public static final String IS_STAGE_CREATE_KEY = "isStageCreate";
   public static final String OPENHOUSE_TABLE_VERSION = "openhouse.tableVersion";
@@ -15,6 +16,8 @@ public final class CatalogConstants {
   public static final String OPENHOUSE_CLUSTERID_KEY = "openhouse.clusterId";
   public static final String INITIAL_VERSION = "INITIAL_VERSION";
   public static final String LAST_UPDATED_MS = "last-updated-ms";
+  public static final String TRANSIENT_RESTORE_PREFIX = "__transient_restore_";
+  public static final String TRANSIENT_ADDED_PREFIX = "__transient_added_";
   public static final String APPENDED_SNAPSHOTS = "appended_snapshots";
   public static final String STAGED_SNAPSHOTS = "staged_snapshots";
   public static final String CHERRY_PICKED_SNAPSHOTS = "cherry_picked_snapshots";

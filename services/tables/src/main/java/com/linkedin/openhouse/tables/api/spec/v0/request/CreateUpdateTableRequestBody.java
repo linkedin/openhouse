@@ -61,10 +61,17 @@ public class CreateUpdateTableRequestBody {
       example =
           "{\"type\": \"struct\", "
               + "\"fields\": [{\"id\": 1,\"required\": true,\"name\": \"id\",\"type\": \"string\"}, "
-              + "{\"id\": 2,\"required\": true,\"name\": \"name\", \"type\": \"string\"}, "
               + "{\"id\": 3,\"required\": true,\"name\":\"timestampColumn\",\"type\": \"timestamp\"}]}")
   @NotEmpty(message = "schema cannot be empty")
   private String schema;
+
+  @Schema(
+      nullable = true,
+      description =
+          "List of schema JSON strings for intermediate schemas created during this operation. "
+              + "This is used to preserve schema history when multiple schema updates occur in a single commit.",
+      example = "[\"{\\\"type\\\": \\\"struct\\\", \\\"fields\\\": [...]}\", \"{...}\"]")
+  private List<String> newIntermediateSchemas;
 
   @Schema(
       nullable = true,

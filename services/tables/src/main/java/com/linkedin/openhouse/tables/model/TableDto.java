@@ -75,6 +75,8 @@ public class TableDto {
 
   @ElementCollection private Map<String, String> tableProperties;
 
+  @ElementCollection private List<String> newIntermediateSchemas;
+
   private boolean stageCreate;
 
   /**

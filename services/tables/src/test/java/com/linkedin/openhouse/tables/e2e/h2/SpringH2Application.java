@@ -5,9 +5,6 @@ import com.linkedin.openhouse.common.audit.DummyServiceAuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.tables.audit.DummyTableAuditHandler;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
-import org.apache.hadoop.fs.Path;
 import org.mockito.Mockito;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration;
@@ -17,7 +14,6 @@ import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.Primary;
 
 @SpringBootApplication
 @ComponentScan(
@@ -51,19 +47,6 @@ public class SpringH2Application {
 
   public static void main(String[] args) {
     SpringApplication.run(SpringH2Application.class, args);
-  }
-
-  /**
-   * File secure used for testing purpose. We cannot directly use the actual
-   * SnapshotInspector#fileSecurer as that changes file to a user group that is not guaranteed to
-   * exist across different platforms thus creating environment dependencies for unit tests.
-   */
-  @Bean
-  @Primary
-  Consumer<Supplier<Path>> provideTestFileSecurer() {
-    return pathSupplier -> {
-      // This is a no-op Consumer. It does nothing with the supplied Path.
-    };
   }
 
   @Bean
