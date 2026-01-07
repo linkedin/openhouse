@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
 import static com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils.*;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
 import com.google.gson.GsonBuilder;
@@ -344,7 +345,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * @param tableDto
    * @return
    */
-  private Map<String, String> computePropsForTableCreation(TableDto tableDto) {
+  @VisibleForTesting
+  Map<String, String> computePropsForTableCreation(TableDto tableDto) {
     // Populate non-preserved keys, mainly user defined properties.
     Map<String, String> propertiesMap =
         tableDto.getTableProperties().entrySet().stream()
@@ -401,9 +403,20 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
         Boolean.toString(
             clusterProperties.isClusterIcebergWriteMetadataDeleteAfterCommitEnabled()));
-    propertiesMap.put(
-        TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
-        Integer.toString(clusterProperties.getClusterIcebergWriteMetadataPreviousVersionsMax()));
+    if (!propertiesMap.containsKey(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX)) {
+      propertiesMap.put(
+          TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
+          Integer.toString(clusterProperties.getClusterIcebergWriteMetadataPreviousVersionsMax()));
+      log.info(
+          "Setting the table property: {} to default value: {}.",
+          TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
+          Integer.toString(clusterProperties.getClusterIcebergWriteMetadataPreviousVersionsMax()));
+    } else {
+      log.info(
+          "Using the value: {} for table property: {}.",
+          propertiesMap.get(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX),
+          TableProperties.METADATA_PREVIOUS_VERSIONS_MAX);
+    }
     propertiesMap.put(
         TableProperties.FORMAT_VERSION,
         Integer.toString(clusterProperties.getClusterIcebergFormatVersion()));
