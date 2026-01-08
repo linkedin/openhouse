@@ -29,6 +29,7 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   private final long ttlSeconds;
   private final String backupDir;
+  private final int concurrentDeletes;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
@@ -36,10 +37,12 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
       String fqtn,
       long ttlSeconds,
       OtelEmitter otelEmitter,
-      String backupDir) {
+      String backupDir,
+      int concurrentDeletes) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.ttlSeconds = ttlSeconds;
     this.backupDir = backupDir;
+    this.concurrentDeletes = concurrentDeletes;
   }
 
   @Override
@@ -58,7 +61,11 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         backupDir);
     DeleteOrphanFiles.Result result =
         ops.deleteOrphanFiles(
-            ops.getTable(fqtn), olderThanTimestampMillis, backupEnabled, backupDir);
+            ops.getTable(fqtn),
+            olderThanTimestampMillis,
+            backupEnabled,
+            backupDir,
+            concurrentDeletes);
     List<String> orphanFileLocations = Lists.newArrayList(result.orphanFileLocations().iterator());
     log.info(
         "Detected {} orphan files older than {}ms",
@@ -92,6 +99,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
         new Option(
             "s", "skipStaging", false, "Whether to skip staging orphan files before deletion"));
     extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
+    extraOptions.add(new Option("c", "concurrentDeletes", true, "Number of concurrent deletes"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new OrphanFilesDeletionSparkApp(
         getJobId(cmdLine),
@@ -101,6 +109,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
             NumberUtils.toLong(cmdLine.getOptionValue("ttl"), TimeUnit.DAYS.toSeconds(7)),
             TimeUnit.DAYS.toSeconds(1)),
         otelEmitter,
-        cmdLine.getOptionValue("backupDir", ".backup"));
+        cmdLine.getOptionValue("backupDir", ".backup"),
+        Integer.parseInt(cmdLine.getOptionValue("concurrentDeletes", "10")));
   }
 }
