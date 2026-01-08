@@ -2,6 +2,8 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
@@ -19,6 +21,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -98,12 +103,19 @@ public final class Operations implements AutoCloseable {
    * given backup directory if backup is enabled. It moves files older than the provided timestamp.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
-      Table table, long olderThanTimestampMillis, boolean backupEnabled, String backupDir) {
+      Table table,
+      long olderThanTimestampMillis,
+      boolean backupEnabled,
+      String backupDir,
+      int concurrentDeletes) {
 
     DeleteOrphanFiles operation = SparkActions.get(spark).deleteOrphanFiles(table);
     // if time filter is not provided it defaults to 3 days
     if (olderThanTimestampMillis > 0) {
       operation = operation.olderThan(olderThanTimestampMillis);
+    }
+    if (concurrentDeletes > 1) {
+      operation = operation.executeDeleteWith(removeFilesService(concurrentDeletes));
     }
     Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
     Path backupDirRoot = new Path(table.location(), backupDir);
@@ -143,6 +155,14 @@ public final class Operations implements AutoCloseable {
               }
             });
     return operation.execute();
+  }
+
+  private ExecutorService removeFilesService(int concurrentDeletes) {
+    return MoreExecutors.getExitingExecutorService(
+        (ThreadPoolExecutor)
+            Executors.newFixedThreadPool(
+                concurrentDeletes,
+                new ThreadFactoryBuilder().setNameFormat("remove-orphans-%d").build()));
   }
 
   private boolean isExistBackupDataManifests(
