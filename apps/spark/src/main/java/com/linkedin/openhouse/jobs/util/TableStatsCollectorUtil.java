@@ -444,22 +444,8 @@ public final class TableStatsCollectorUtil {
                 + "FROM %s.snapshots",
             table.name());
 
-    log.info("Executing snapshots query: {}", snapshotsQuery);
+    log.info("Building snapshots query: {}", snapshotsQuery);
     Dataset<Row> snapshotsDF = spark.sql(snapshotsQuery);
-
-    // Cache BEFORE first action to materialize during count() and reuse for collection
-    snapshotsDF.cache();
-
-    // This count() triggers cache materialization (single metadata scan)
-    long totalSnapshots = snapshotsDF.count();
-
-    if (totalSnapshots == 0) {
-      log.info("No snapshots found for table: {}", fullTableName);
-      snapshotsDF.unpersist(); // Clean up even though empty
-      return Collections.emptyList();
-    }
-
-    log.info("Found {} snapshots for table: {}", totalSnapshots, fullTableName);
 
     // Get partition spec string representation
     String partitionSpec = table.spec().toString();
@@ -499,10 +485,13 @@ public final class TableStatsCollectorUtil {
             .as(commitEventEncoder)
             .collectAsList();
 
-    log.info("Collected {} commit events for table: {}", totalSnapshots, fullTableName);
+    if (commitEventTableList.isEmpty()) {
+      log.info("No snapshots found for table: {}", fullTableName);
+      return Collections.emptyList();
+    }
 
-    // Unpersist cached data to free memory
-    snapshotsDF.unpersist();
+    log.info(
+        "Collected {} commit events for table: {}", commitEventTableList.size(), fullTableName);
 
     return commitEventTableList;
   }
@@ -552,7 +541,7 @@ public final class TableStatsCollectorUtil {
             "SELECT DISTINCT snapshot_id, data_file.partition " + "FROM %s.all_entries",
             table.name());
 
-    log.info("Executing all_entries query for table {}: {}", fullTableName, allEntriesQuery);
+    log.info("Building all_entries query for table {}: {}", fullTableName, allEntriesQuery);
     Dataset<Row> partitionsPerCommitDF = spark.sql(allEntriesQuery);
 
     // Query snapshots to get commit metadata
@@ -629,25 +618,17 @@ public final class TableStatsCollectorUtil {
     List<String> partitionColumnNames =
         spec.fields().stream().map(f -> f.name()).collect(Collectors.toList());
 
-    // Step 3: Manage DataFrame lifecycle and collect to driver
-    // Cache BEFORE first action to materialize and reuse for collection
-    enrichedDF.cache();
+    // Step 3: Collect to driver
+    List<Row> rows = enrichedDF.collectAsList();
+    long totalRecords = rows.size();
 
-    // Count triggers cache materialization (single join execution)
-    long totalRecords = enrichedDF.count();
-
-    // Early return if no data found (after cache materialization)
+    // Early return if no data found
     if (totalRecords == 0) {
       log.info("No partition-level records found for table: {}", fullTableName);
-      enrichedDF.unpersist();
       return Collections.emptyList();
     }
 
-    log.info("Collecting {} rows to driver for transformation", totalRecords);
-    List<Row> rows = enrichedDF.collectAsList(); // Uses cached data
-
-    // Unpersist immediately after collection to free memory
-    enrichedDF.unpersist();
+    log.info("Collected {} rows to driver for transformation", totalRecords);
 
     // Step 4: Delegate transformation to helper method
     // Separated for testability and readability
@@ -742,43 +723,43 @@ public final class TableStatsCollectorUtil {
     // Step 3: Aggregate statistics from data_files per partition
     Schema schema = table.schema();
     List<String> columnNames = getColumnNamesFromReadableMetrics(table, spark, fullTableName);
+
+    if (columnNames.isEmpty()) {
+      log.warn("No columns with metrics found for partitioned table: {}", fullTableName);
+      return Collections.emptyList();
+    }
+
     Dataset<Row> partitionStatsDF =
         aggregatePartitionStats(table, spark, fullTableName, columnNames);
 
     // Step 4: Join stats with commit metadata
     Dataset<Row> finalStatsDF = joinStatsWithCommitMetadata(latestCommitsDF, partitionStatsDF);
 
-    // Step 5: Manage DataFrame lifecycle and collect to driver
-    // Cache BEFORE first action to materialize and reuse for collection
-    finalStatsDF.cache();
+    // Step 5: Collect to driver
+    List<Row> rows = finalStatsDF.collectAsList();
+    long totalPartitions = rows.size();
 
-    // Count triggers cache materialization (single execution of joins and aggregations)
-    long totalPartitions = finalStatsDF.count();
-
-    // Early return if no data found (after cache materialization)
+    // Early return if no data found
     if (totalPartitions == 0) {
       log.warn("No partition stats found after join for table: {}", fullTableName);
-      finalStatsDF.unpersist();
       return Collections.emptyList();
     }
 
-    log.info("Collecting {} partition stats rows to driver", totalPartitions);
-    List<Row> rows = finalStatsDF.collectAsList(); // Uses cached data
-
-    // Unpersist immediately after collection to free memory
-    finalStatsDF.unpersist();
+    log.info("Collected {} partition stats rows to driver", totalPartitions);
 
     // Step 6: Transform to CommitEventTablePartitionStats objects
     return transformToPartitionStatsObjects(rows, table, spark, schema, columnNames, spec);
   }
 
-  /** Select latest commit per partition (uses snapshot_id as tiebreaker for timestamp ties). */
+  /**
+   * Select latest commit per partition (uses snapshot_id as primary, committed_at as secondary).
+   */
   private static Dataset<Row> selectLatestCommitPerPartition(Dataset<Row> enrichedDF) {
     log.info("Selecting latest commit for each unique partition using window function...");
 
     org.apache.spark.sql.expressions.WindowSpec window =
         org.apache.spark.sql.expressions.Window.partitionBy("partition")
-            .orderBy(functions.col("committed_at").desc(), functions.col("snapshot_id").desc());
+            .orderBy(functions.col("snapshot_id").desc(), functions.col("committed_at").desc());
 
     Dataset<Row> latestCommitsDF =
         enrichedDF
@@ -807,7 +788,7 @@ public final class TableStatsCollectorUtil {
             "SELECT partition, sum(record_count) as total_row_count, %s FROM %s.data_files GROUP BY partition",
             String.join(", ", columnAggExpressions), fullTableName);
 
-    log.debug("Executing partition stats aggregation query");
+    log.debug("Building partition stats aggregation query");
     return spark.sql(aggregationQuery);
   }
 
@@ -816,20 +797,16 @@ public final class TableStatsCollectorUtil {
       Dataset<Row> latestCommitsDF, Dataset<Row> partitionStatsDF) {
     log.info("Joining partition stats with commit metadata...");
 
+    // Perform inner join on partition
     Dataset<Row> joinedDF =
         latestCommitsDF
             .join(
                 partitionStatsDF,
                 latestCommitsDF.col("partition").equalTo(partitionStatsDF.col("partition")),
                 "inner")
-            .select(
-                latestCommitsDF.col("snapshot_id"),
-                latestCommitsDF.col("committed_at"),
-                latestCommitsDF.col("operation"),
-                latestCommitsDF.col("summary"),
-                latestCommitsDF.col("partition"),
-                partitionStatsDF.col("total_row_count"),
-                partitionStatsDF.col("*"));
+            .drop(
+                partitionStatsDF.col(
+                    "partition")); // Drop duplicate partition column from right side
 
     log.debug("Join operation defined (will execute on first action)");
     return joinedDF;
@@ -907,6 +884,11 @@ public final class TableStatsCollectorUtil {
     List<String> columnNames = getColumnNamesFromReadableMetrics(table, spark, fullTableName);
     log.info("Found {} columns with metrics for unpartitioned table", columnNames.size());
 
+    if (columnNames.isEmpty()) {
+      log.warn("No columns with metrics found for unpartitioned table: {}", fullTableName);
+      return Collections.emptyList();
+    }
+
     // Step 2: Aggregate statistics from ALL data_files (no partitioning)
     Row statsRow = aggregateUnpartitionedTableStats(spark, fullTableName, columnNames);
     if (statsRow == null) {
@@ -952,7 +934,7 @@ public final class TableStatsCollectorUtil {
             "SELECT sum(record_count) as total_row_count, %s FROM %s.data_files",
             String.join(", ", columnAggExpressions), fullTableName);
 
-    log.debug("Executing unpartitioned table stats aggregation query");
+    log.debug("Building unpartitioned table stats aggregation query");
     Dataset<Row> statsDF = spark.sql(aggregationQuery);
 
     List<Row> rows = statsDF.collectAsList();
@@ -992,22 +974,6 @@ public final class TableStatsCollectorUtil {
         snapshot.summary());
   }
 
-  /** Build BaseTableIdentifier from table metadata. */
-  private static BaseTableIdentifier buildDatasetIdentifier(
-      String dbName,
-      String tableName,
-      String clusterName,
-      String tableMetadataLocation,
-      String partitionSpec) {
-    return BaseTableIdentifier.builder()
-        .databaseName(dbName)
-        .tableName(tableName)
-        .clusterName(clusterName)
-        .tableMetadataLocation(tableMetadataLocation)
-        .partitionSpec(partitionSpec)
-        .build();
-  }
-
   /** Build CommitEventTablePartitionStats object from extracted data. */
   private static CommitEventTablePartitionStats buildPartitionStatsObject(
       Table table,
@@ -1044,8 +1010,13 @@ public final class TableStatsCollectorUtil {
     // Build and return stats object
     return CommitEventTablePartitionStats.builder()
         .dataset(
-            buildDatasetIdentifier(
-                dbName, tableName, clusterName, tableMetadataLocation, partitionSpecString))
+            BaseTableIdentifier.builder()
+                .databaseName(dbName)
+                .tableName(tableName)
+                .clusterName(clusterName)
+                .tableMetadataLocation(tableMetadataLocation)
+                .partitionSpec(partitionSpecString)
+                .build())
         .commitMetadata(commitMetadata)
         .partitionData(partitionData)
         .rowCount(rowCount != null ? rowCount : 0L)
@@ -1066,6 +1037,8 @@ public final class TableStatsCollectorUtil {
   static List<String> getColumnNamesFromReadableMetrics(
       Table table, SparkSession spark, String fullTableName) {
 
+    log.info("Discovering columns with metrics from readable_metrics for table: {}", fullTableName);
+
     // Query readable_metrics structure (Scala pattern)
     String readableMetricsSchemaQuery =
         String.format("SELECT readable_metrics FROM %s.data_files LIMIT 1", fullTableName);
@@ -1083,12 +1056,7 @@ public final class TableStatsCollectorUtil {
       }
       log.debug("Found {} columns with metrics from readable_metrics", columnNames.size());
     } else {
-      log.warn("No data found in data_files for {}, using table schema as fallback", fullTableName);
-      // Fallback to table schema if no data
-      Schema schema = table.schema();
-      for (Types.NestedField field : schema.columns()) {
-        columnNames.add(field.name());
-      }
+      log.warn("No data files found for table: {}, cannot collect column metrics", fullTableName);
     }
 
     return columnNames;
@@ -1414,8 +1382,13 @@ public final class TableStatsCollectorUtil {
         CommitEventTablePartitionStats stats =
             CommitEventTablePartitionStats.builder()
                 .dataset(
-                    buildDatasetIdentifier(
-                        dbName, tableName, clusterName, tableMetadataLocation, partitionSpecString))
+                    BaseTableIdentifier.builder()
+                        .databaseName(dbName)
+                        .tableName(tableName)
+                        .clusterName(clusterName)
+                        .tableMetadataLocation(tableMetadataLocation)
+                        .partitionSpec(partitionSpecString)
+                        .build())
                 .commitMetadata(commitMetadata)
                 .partitionData(partitionData)
                 .rowCount(rowCount != null ? rowCount : 0L)
@@ -1461,12 +1434,19 @@ public final class TableStatsCollectorUtil {
       switch (icebergType.typeId()) {
         case INTEGER:
         case LONG:
-        case DATE:
-        case TIME:
+        case DATE: // Days since epoch (stored as int in readable_metrics)
+        case TIME: // Microseconds since midnight (stored as long in readable_metrics)
           Long longValue;
           if (value instanceof Number) {
             longValue = ((Number) value).longValue();
+          } else if (value instanceof java.sql.Date) {
+            // Handle Date objects: convert to days since epoch
+            longValue = ((java.sql.Date) value).toLocalDate().toEpochDay();
+          } else if (value instanceof java.sql.Time) {
+            // Handle Time objects: convert to microseconds since midnight
+            longValue = ((java.sql.Time) value).toLocalTime().toNanoOfDay() / 1000;
           } else {
+            // Fallback: try parsing as long
             longValue = Long.parseLong(value.toString());
           }
           return new ColumnData.LongColumnData(columnName, longValue);
