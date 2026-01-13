@@ -480,7 +480,7 @@ public final class TableStatsCollectorUtil {
                         functions.col("summary").getItem("spark.app.name").as("commitAppName"),
                         functions.upper(functions.col("operation")).as("commitOperation"))
                     .as("commitMetadata"),
-                functions.lit(0L).as("eventTimestampMs"))
+                functions.lit(System.currentTimeMillis()).as("eventTimestampMs"))
             .orderBy(functions.col("commitMetadata.commitTimestampMs"))
             .as(commitEventEncoder)
             .collectAsList();
@@ -751,15 +751,13 @@ public final class TableStatsCollectorUtil {
     return transformToPartitionStatsObjects(rows, table, spark, schema, columnNames, spec);
   }
 
-  /**
-   * Select latest commit per partition (uses snapshot_id as primary, committed_at as secondary).
-   */
+  /** Select latest commit per partition (orders by committed_at timestamp). */
   private static Dataset<Row> selectLatestCommitPerPartition(Dataset<Row> enrichedDF) {
     log.info("Selecting latest commit for each unique partition using window function...");
 
     org.apache.spark.sql.expressions.WindowSpec window =
         org.apache.spark.sql.expressions.Window.partitionBy("partition")
-            .orderBy(functions.col("snapshot_id").desc(), functions.col("committed_at").desc());
+            .orderBy(functions.col("committed_at").desc(), functions.col("snapshot_id").desc());
 
     Dataset<Row> latestCommitsDF =
         enrichedDF
@@ -1026,7 +1024,7 @@ public final class TableStatsCollectorUtil {
         .minValue(minValues)
         .maxValue(maxValues)
         .columnSizeInBytes(columnSizes)
-        .eventTimestampMs(0L) // Will be set at publish time
+        .eventTimestampMs(System.currentTimeMillis())
         .build();
   }
 
@@ -1263,7 +1261,7 @@ public final class TableStatsCollectorUtil {
                         .commitOperation(commitOperation)
                         .build())
                 .partitionData(partitionData)
-                .eventTimestampMs(0L) // Will be set at publish time
+                .eventTimestampMs(System.currentTimeMillis())
                 .build();
 
         result.add(event);
@@ -1398,7 +1396,7 @@ public final class TableStatsCollectorUtil {
                 .minValue(minValues)
                 .maxValue(maxValues)
                 .columnSizeInBytes(columnSizes)
-                .eventTimestampMs(0L) // Will be set at publish time
+                .eventTimestampMs(System.currentTimeMillis())
                 .build();
 
         result.add(stats);

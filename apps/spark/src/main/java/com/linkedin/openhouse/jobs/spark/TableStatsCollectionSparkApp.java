@@ -115,10 +115,6 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
    * @param commitEvents List of commit events to publish
    */
   protected void publishCommitEvents(List<CommitEventTable> commitEvents) {
-    // Set event timestamp at publish time
-    long eventTimestampInEpochMs = System.currentTimeMillis();
-    commitEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
-
     log.info("Publishing commit events for table: {}", fqtn);
     log.info(new Gson().toJson(commitEvents));
   }
@@ -129,10 +125,6 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
    * @param partitionEvents List of partition events to publish
    */
   protected void publishPartitionEvents(List<CommitEventTablePartitions> partitionEvents) {
-    // Set event timestamp at publish time
-    long eventTimestampInEpochMs = System.currentTimeMillis();
-    partitionEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
-
     log.info("Publishing partition events for table: {}", fqtn);
     log.info(new Gson().toJson(partitionEvents));
   }
@@ -146,10 +138,6 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
    * @param partitionStats List of partition statistics to publish
    */
   protected void publishPartitionStats(List<CommitEventTablePartitionStats> partitionStats) {
-    // Set event timestamp at publish time
-    long eventTimestampInEpochMs = System.currentTimeMillis();
-    partitionStats.forEach(stats -> stats.setEventTimestampMs(eventTimestampInEpochMs));
-
     log.info("Publishing partition stats for table: {} ({} stats)", fqtn, partitionStats.size());
     log.info(new Gson().toJson(partitionStats));
   }
