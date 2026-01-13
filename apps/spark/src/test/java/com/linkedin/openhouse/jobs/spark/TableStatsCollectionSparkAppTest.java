@@ -173,8 +173,8 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertNotNull(firstEvent.getCommitMetadata().getCommitTimestampMs());
       // Note: commit_app_id, commit_app_name, and commit_operation are nullable
 
-      // Verify event_timestamp_ms is placeholder (will be set at publish time)
-      Assertions.assertEquals(0L, firstEvent.getEventTimestampMs());
+      // Verify event_timestamp_ms is set at collection time
+      Assertions.assertTrue(firstEvent.getEventTimestampMs() > 0);
 
       log.info("Commit events schema validated successfully");
     }
@@ -533,8 +533,8 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertNotNull(firstEvent.getPartitionData());
       Assertions.assertFalse(firstEvent.getPartitionData().isEmpty());
 
-      // Verify: Event timestamp is placeholder (set at publish time)
-      Assertions.assertEquals(0L, firstEvent.getEventTimestampMs());
+      // Verify: Event timestamp is set at collection time
+      Assertions.assertTrue(firstEvent.getEventTimestampMs() > 0);
 
       log.info("Partition events schema validated successfully");
     }
