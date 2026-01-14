@@ -173,8 +173,8 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertNotNull(firstEvent.getCommitMetadata().getCommitTimestampMs());
       // Note: commit_app_id, commit_app_name, and commit_operation are nullable
 
-      // Verify event_timestamp_ms is placeholder (will be set at publish time)
-      Assertions.assertEquals(0L, firstEvent.getEventTimestampMs());
+      // Verify event_timestamp_ms is set at collection time
+      Assertions.assertTrue(firstEvent.getEventTimestampMs() > 0);
 
       log.info("Commit events schema validated successfully");
     }
@@ -533,8 +533,8 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertNotNull(firstEvent.getPartitionData());
       Assertions.assertFalse(firstEvent.getPartitionData().isEmpty());
 
-      // Verify: Event timestamp is placeholder (set at publish time)
-      Assertions.assertEquals(0L, firstEvent.getEventTimestampMs());
+      // Verify: Event timestamp is set at collection time
+      Assertions.assertTrue(firstEvent.getEventTimestampMs() > 0);
 
       log.info("Partition events schema validated successfully");
     }
@@ -772,6 +772,283 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
     }
   }
 
+  // ==================== Partition Stats Tests (NEW) ====================
+
+  @Test
+  public void testPartitionStatsForPartitionedTable() throws Exception {
+    final String tableName = "db.test_partition_stats";
+    final int numInserts = 3;
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+      populateTable(ops, tableName, numInserts);
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Partition stats collected
+      Assertions.assertFalse(partitionStats.isEmpty(), "Partition stats should not be empty");
+
+      // Verify: Each partition has latest commit only (not all commits)
+      Assertions.assertTrue(
+          partitionStats.size() <= numInserts,
+          "Partition stats should have at most one record per unique partition");
+
+      // Verify: Each stat has required fields
+      for (com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat :
+          partitionStats) {
+        Assertions.assertNotNull(stat.getDataset(), "Dataset should not be null");
+        Assertions.assertNotNull(stat.getCommitMetadata(), "Commit metadata should not be null");
+        Assertions.assertNotNull(stat.getPartitionData(), "Partition data should not be null");
+        Assertions.assertNotNull(stat.getRowCount(), "Row count should not be null");
+        Assertions.assertNotNull(stat.getColumnCount(), "Column count should not be null");
+
+        // Verify: Stats include column-level metrics
+        Assertions.assertNotNull(stat.getNullCount(), "Null count list should not be null");
+        Assertions.assertNotNull(stat.getNanCount(), "NaN count list should not be null");
+        Assertions.assertNotNull(stat.getMinValue(), "Min value list should not be null");
+        Assertions.assertNotNull(stat.getMaxValue(), "Max value list should not be null");
+        Assertions.assertNotNull(
+            stat.getColumnSizeInBytes(), "Column size list should not be null");
+
+        log.info(
+            "Partition stats: partition={}, rowCount={}, columnCount={}, commitId={}",
+            stat.getPartitionData(),
+            stat.getRowCount(),
+            stat.getColumnCount(),
+            stat.getCommitMetadata().getCommitId());
+      }
+
+      log.info("Collected {} partition stats for partitioned table", partitionStats.size());
+    }
+  }
+
+  @Test
+  public void testPartitionStatsForUnpartitionedTable() throws Exception {
+    final String tableName = "db.test_unpartitioned_stats";
+    final int numInserts = 2;
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create unpartitioned table
+      prepareTable(ops, tableName, false);
+      populateTable(ops, tableName, numInserts);
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Single stats record for unpartitioned table
+      Assertions.assertEquals(
+          1, partitionStats.size(), "Unpartitioned table should return exactly one stats record");
+
+      com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat =
+          partitionStats.get(0);
+
+      // Verify: Partition data is empty for unpartitioned table
+      Assertions.assertTrue(
+          stat.getPartitionData().isEmpty(),
+          "Unpartitioned table should have empty partition data");
+
+      // Verify: Row count includes all data
+      Assertions.assertTrue(
+          stat.getRowCount() > 0, "Row count should be positive for table with data");
+
+      // Verify: Has current snapshot metadata
+      Assertions.assertNotNull(
+          stat.getCommitMetadata(), "Commit metadata should not be null for unpartitioned");
+      Assertions.assertNotNull(
+          stat.getCommitMetadata().getCommitId(), "Snapshot ID should not be null");
+
+      log.info(
+          "Collected stats for unpartitioned table: rowCount={}, commitId={}",
+          stat.getRowCount(),
+          stat.getCommitMetadata().getCommitId());
+    }
+  }
+
+  @Test
+  public void testPartitionStatsWithMultiplePartitions() throws Exception {
+    final String tableName = "db.test_multiple_partitions";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+
+      // Insert data into different partitions (different days)
+      populateTable(ops, tableName, 1, 0); // Day 0
+      populateTable(ops, tableName, 1, 1); // Day 1
+      populateTable(ops, tableName, 1, 2); // Day 2
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Each partition has one stats record (latest commit)
+      Assertions.assertEquals(
+          3, partitionStats.size(), "Should have 3 partition stats (one per unique partition)");
+
+      // Verify: All partitions have different partition data
+      java.util.Set<String> uniquePartitions = new java.util.HashSet<>();
+      for (com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat :
+          partitionStats) {
+        String partitionKey = stat.getPartitionData().toString();
+        uniquePartitions.add(partitionKey);
+      }
+
+      Assertions.assertEquals(
+          3, uniquePartitions.size(), "All 3 partitions should have unique partition data");
+
+      log.info("Collected stats for {} unique partitions", partitionStats.size());
+    }
+  }
+
+  @Test
+  public void testPartitionStatsWithNestedColumns() throws Exception {
+    final String tableName = "db.test_nested_columns";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create table with nested column
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (id bigint, user struct<name:string, age:int>, ts timestamp) "
+                      + "partitioned by (days(ts))",
+                  tableName))
+          .show();
+
+      // Insert data
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES (1, named_struct('name', 'Alice', 'age', 30), current_timestamp())",
+                  tableName))
+          .show();
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Stats collected for table with nested columns
+      Assertions.assertFalse(partitionStats.isEmpty(), "Should collect stats for nested columns");
+
+      com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat =
+          partitionStats.get(0);
+
+      // Verify: Column count includes flattened nested columns if available in readable_metrics
+      Assertions.assertTrue(
+          stat.getColumnCount() >= 3, "Column count should be at least 3 (id, user, ts)");
+
+      log.info(
+          "Collected stats for table with nested columns: columnCount={}", stat.getColumnCount());
+    }
+  }
+
+  @Test
+  public void testPartitionStatsLatestCommitOnly() throws Exception {
+    final String tableName = "db.test_latest_commit";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+
+      // Insert into same partition multiple times
+      long timestamp = System.currentTimeMillis() / 1000;
+      populateTable(ops, tableName, 1, 0, timestamp); // First commit
+      Thread.sleep(100); // Small delay to ensure different commit timestamps
+      populateTable(ops, tableName, 1, 0, timestamp); // Second commit (same partition)
+      Thread.sleep(100);
+      populateTable(ops, tableName, 1, 0, timestamp); // Third commit (same partition)
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Only one stats record (latest commit per partition)
+      Assertions.assertEquals(
+          1,
+          partitionStats.size(),
+          "Should have only 1 stats record (latest commit for the partition)");
+
+      // Compare with partition events (which have all commits)
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+
+      Assertions.assertEquals(
+          3, partitionEvents.size(), "Partition events should have 3 records (all commits)");
+
+      log.info(
+          "Verified latest commit only: {} partition stats vs {} partition events",
+          partitionStats.size(),
+          partitionEvents.size());
+    }
+  }
+
+  @Test
+  public void testPartitionStatsFullAppIntegration() throws Exception {
+    final String tableName = "db.test_full_integration_stats";
+    final int numInserts = 2;
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+      populateTable(ops, tableName, numInserts);
+
+      // Action: Run full app (collects stats, commits, partition events, and partition stats)
+      TableStatsCollectionSparkApp app =
+          new TableStatsCollectionSparkApp("test-job", null, tableName, otelEmitter);
+      app.runInner(ops);
+
+      // Verify: All four types collected
+      IcebergTableStats tableStats = ops.collectTableStats(tableName);
+      List<CommitEventTable> commitEvents = ops.collectCommitEventTable(tableName);
+      List<CommitEventTablePartitions> partitionEvents =
+          ops.collectCommitEventTablePartitions(tableName);
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      Assertions.assertNotNull(tableStats, "Table stats should be collected");
+      Assertions.assertFalse(commitEvents.isEmpty(), "Commit events should be collected");
+      Assertions.assertFalse(partitionEvents.isEmpty(), "Partition events should be collected");
+      Assertions.assertFalse(partitionStats.isEmpty(), "Partition stats should be collected");
+
+      // Verify: Partition stats count is less than or equal to partition events
+      // (stats have latest commit only, events have all commits)
+      Assertions.assertTrue(
+          partitionStats.size() <= partitionEvents.size(),
+          "Partition stats should have fewer or equal records than partition events");
+
+      log.info(
+          "Full app integration: table stats={}, commits={}, partition events={}, partition stats={}",
+          tableStats != null,
+          commitEvents.size(),
+          partitionEvents.size(),
+          partitionStats.size());
+    }
+  }
+
+  @Test
+  public void testPartitionStatsEmptyTable() throws Exception {
+    final String tableName = "db.test_stats_empty_table";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create table with no data
+      prepareTable(ops, tableName, true);
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Empty list (no data = no stats)
+      Assertions.assertTrue(
+          partitionStats.isEmpty(), "Empty table should return empty partition stats");
+
+      log.info("Empty table handled correctly for partition stats");
+    }
+  }
+
   // ==================== Helper Methods ====================
 
   private static void prepareTable(Operations ops, String tableName) {
@@ -801,6 +1078,124 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
 
   private static void populateTable(Operations ops, String tableName, int numRows, int dayLag) {
     populateTable(ops, tableName, numRows, dayLag, System.currentTimeMillis() / 1000);
+  }
+
+  @Test
+  public void testPartitionStatsColumnLevelMetricsPopulated() throws Exception {
+    final String tableName = "db.test_column_metrics";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create table with multiple data types
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (id INT, name STRING, age INT, score DOUBLE, ts TIMESTAMP) "
+                      + "USING iceberg PARTITIONED BY (days(ts))",
+                  tableName))
+          .show();
+
+      // Insert data with intentional nulls and varied values
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES "
+                      + "(1, 'Alice', 25, 95.5, timestamp('2024-01-01')), "
+                      + "(2, NULL, 30, 87.2, timestamp('2024-01-01')), "
+                      + "(3, 'Charlie', NULL, 92.0, timestamp('2024-01-01')), "
+                      + "(4, 'Diana', 28, NULL, timestamp('2024-01-02')), "
+                      + "(5, 'Eve', 35, 88.8, timestamp('2024-01-02'))",
+                  tableName))
+          .show();
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Stats collected for both partitions
+      Assertions.assertTrue(
+          partitionStats.size() >= 2, "Should have stats for at least 2 partitions");
+
+      // Verify: Each partition has column-level metrics populated
+      for (com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat :
+          partitionStats) {
+        log.info("Verifying column metrics for partition: {}", stat.getPartitionData());
+
+        // Check null count metrics are present and valid
+        Assertions.assertNotNull(stat.getNullCount(), "Null count map should not be null");
+        Assertions.assertFalse(stat.getNullCount().isEmpty(), "Null count map should not be empty");
+
+        // Log all null count entries
+        log.info("Null count entries:");
+        for (ColumnData cd : stat.getNullCount()) {
+          log.info(
+              "  Column '{}' has null count: {}",
+              cd.getColumnName(),
+              ((ColumnData.LongColumnData) cd).getValue());
+        }
+
+        // Should have null count for ALL columns (id, name, age, score, ts)
+        Assertions.assertTrue(
+            stat.getNullCount().size() >= 5,
+            String.format(
+                "Should have null count for all 5 columns (id, name, age, score, ts), got %d",
+                stat.getNullCount().size()));
+
+        // At least one column should have null count > 0 (we inserted nulls)
+        boolean hasNonZeroNullCounts =
+            stat.getNullCount().stream()
+                .anyMatch(cd -> ((ColumnData.LongColumnData) cd).getValue() > 0);
+        Assertions.assertTrue(
+            hasNonZeroNullCounts,
+            "At least one column should have null count > 0 since we inserted null values");
+
+        // Check NaN count is populated for all columns
+        Assertions.assertNotNull(stat.getNanCount(), "NaN count map should not be null");
+        log.info("NaN count entries: {}", stat.getNanCount().size());
+        for (ColumnData cd : stat.getNanCount()) {
+          log.info(
+              "  Column '{}' has NaN count: {}",
+              cd.getColumnName(),
+              ((ColumnData.LongColumnData) cd).getValue());
+        }
+
+        // Check column size metrics
+        Assertions.assertNotNull(stat.getColumnSizeInBytes(), "Column size map should not be null");
+        Assertions.assertFalse(
+            stat.getColumnSizeInBytes().isEmpty(), "Column size map should not be empty");
+
+        // Check min/max value metrics exist
+        Assertions.assertNotNull(stat.getMinValue(), "Min value map should not be null");
+        Assertions.assertNotNull(stat.getMaxValue(), "Max value map should not be null");
+
+        // Verify min/max have entries for non-null columns
+        log.info(
+            "Column metrics summary: nullCount={}, minValue={}, maxValue={}, columnSize={}",
+            stat.getNullCount().size(),
+            stat.getMinValue().size(),
+            stat.getMaxValue().size(),
+            stat.getColumnSizeInBytes().size());
+
+        // Verify we have min/max values for at least one column
+        Assertions.assertTrue(
+            stat.getMinValue().size() > 0 || stat.getMaxValue().size() > 0,
+            "Should have min or max values for at least one column");
+
+        // Verify specific column metrics - column names are preserved correctly
+        for (ColumnData cd : stat.getNullCount()) {
+          Assertions.assertNotNull(cd.getColumnName(), "Column name should not be null");
+          Assertions.assertFalse(cd.getColumnName().isEmpty(), "Column name should not be empty");
+
+          // Verify the value is accessible and valid
+          Long nullCount = ((ColumnData.LongColumnData) cd).getValue();
+          Assertions.assertTrue(
+              nullCount >= 0,
+              String.format(
+                  "Null count for column '%s' should be non-negative", cd.getColumnName()));
+        }
+      }
+
+      log.info("✅ Column-level metrics validation passed for all partitions");
+    }
   }
 
   private static void populateTable(
