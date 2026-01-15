@@ -17,6 +17,8 @@ dependencies {
 }
 
 jar {
+    // Ensure all runtime dependencies are built before creating the fat jar
+    dependsOn configurations.runtimeClasspath
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
         attributes(

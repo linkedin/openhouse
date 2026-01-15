@@ -20,6 +20,14 @@ plugins {
   id 'openhouse.service-specgen-convention'
 }
 
+// Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds
+openApi {
+  customBootRun {
+    args = ["--server.port=8001"]
+  }
+  apiDocsUrl.set("http://localhost:8001/v3/api-docs")
+}
+
 configurations {
   all {
     exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'

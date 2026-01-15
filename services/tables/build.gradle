@@ -22,6 +22,14 @@ plugins {
   id 'openhouse.service-specgen-convention'
 }
 
+// Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds
+openApi {
+  customBootRun {
+    args = ["--server.port=8000"]
+  }
+  apiDocsUrl.set("http://localhost:8000/v3/api-docs")
+}
+
 dependencies {
   implementation project(':services:common')
   implementation project(':iceberg:openhouse:internalcatalog')
