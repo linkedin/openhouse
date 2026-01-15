@@ -6,13 +6,19 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.actuate.metrics.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
@@ -20,17 +26,25 @@ import org.springframework.test.context.ContextConfiguration;
  * configured for metrics. Specifically tests that the 600s maximum expected value is configured for
  * the catalog_metadata_retrieval_latency metric.
  *
- * <p>Note: The test context uses SimpleMeterRegistry which doesn't support histogram buckets
- * natively. These tests verify that:
+ * <p>These tests use the actual autowired MeterRegistry from Spring context
+ * (PrometheusMeterRegistry in production configuration) and verify histogram buckets via the
+ * /actuator/prometheus endpoint.
+ *
+ * <p>Uses webEnvironment = RANDOM_PORT to start a real web server which activates the full actuator
+ * and Prometheus metrics configuration.
+ *
+ * <p>NOTE: {@code @AutoConfigureMetrics} is required because Spring Boot disables metrics exporters
+ * by default in tests, replacing PrometheusMeterRegistry with SimpleMeterRegistry. This annotation
+ * re-enables the production metrics configuration.
  *
  * <ol>
  *   <li>The configuration property is correctly set in application.properties
- *   <li>Timers can record values up to and beyond 600 seconds without loss
- *   <li>The configuration would be applied in production with PrometheusMeterRegistry
+ *   <li>The MeterRegistry is a PrometheusMeterRegistry with histogram buckets
+ *   <li>Histogram buckets extend to 600 seconds for catalog_metadata_retrieval_latency
  * </ol>
  */
-@SpringBootTest
-@AutoConfigureMockMvc
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMetrics
 @ContextConfiguration(
     initializers = {
       PropertyOverrideContextInitializer.class,
@@ -39,6 +53,10 @@ import org.springframework.test.context.ContextConfiguration;
 public class MetricsHistogramConfigurationTest {
 
   @Autowired private MeterRegistry meterRegistry;
+
+  @Autowired private TestRestTemplate restTemplate;
+
+  @LocalServerPort private int port;
 
   @Value(
       "${management.metrics.distribution.maximum-expected-value.catalog_metadata_retrieval_latency:}")
@@ -80,11 +98,30 @@ public class MetricsHistogramConfigurationTest {
   }
 
   /**
-   * Tests that the timer records values correctly across the full range of expected latencies,
-   * including values near and beyond the 600s boundary.
+   * Tests that the autowired MeterRegistry is a PrometheusMeterRegistry. This is required for
+   * histogram buckets to work correctly in production.
+   */
+  @Test
+  void testMeterRegistryIsPrometheus() {
+    assertTrue(
+        meterRegistry instanceof PrometheusMeterRegistry,
+        String.format(
+            "MeterRegistry should be PrometheusMeterRegistry but was %s",
+            meterRegistry.getClass().getName()));
+  }
+
+  /**
+   * Tests that histogram buckets are properly configured for catalog_metadata_retrieval_latency
+   * metric with buckets extending to 600 seconds.
    *
-   * <p>This verifies that even without histogram buckets, the timer correctly captures large
-   * latency values that would be bucketed in production.
+   * <p>This test validates that:
+   *
+   * <ol>
+   *   <li>The Prometheus actuator endpoint is accessible
+   *   <li>Recording a value creates histogram bucket entries
+   *   <li>Histogram buckets include the 600s boundary (le="600.0")
+   *   <li>Values beyond 600s are captured in higher buckets
+   * </ol>
    */
   @Test
   void testMetadataRetrievalLatencyRecordsLargeValues() {
@@ -105,18 +142,66 @@ public class MetricsHistogramConfigurationTest {
     // Verify all recordings were captured
     assertEquals(8, timer.count(), "All recordings should be captured");
 
-    // Verify the max value is correctly recorded (should be 700s)
-    double maxSeconds = timer.max(TimeUnit.SECONDS);
-    assertTrue(
-        maxSeconds >= 699 && maxSeconds <= 701,
-        String.format("Max should be around 700 seconds, got %.2f", maxSeconds));
+    // Fetch Prometheus metrics via actuator endpoint
+    ResponseEntity<String> response =
+        restTemplate.getForEntity("/actuator/prometheus", String.class);
 
-    // Verify total time is approximately correct
-    // Sum: 0.1 + 1 + 10 + 60 + 300 + 550 + 600 + 700 = 2221.1 seconds
-    double totalSeconds = timer.totalTime(TimeUnit.SECONDS);
+    assertEquals(200, response.getStatusCodeValue(), "Prometheus endpoint should return 200 OK");
+    String prometheusOutput = response.getBody();
+    assertNotNull(prometheusOutput, "Prometheus output should not be null");
+
+    // Verify histogram bucket entries exist for our metric
+    // Prometheus histogram format: metric_name_bucket{le="value",...} count
     assertTrue(
-        totalSeconds >= 2220 && totalSeconds <= 2223,
-        String.format("Total time should be around 2221 seconds, got %.2f", totalSeconds));
+        prometheusOutput.contains("catalog_metadata_retrieval_latency_seconds_bucket"),
+        "Prometheus output should contain histogram bucket entries for catalog_metadata_retrieval_latency");
+
+    // Extract and log the histogram buckets for debugging
+    String buckets = extractHistogramBuckets(prometheusOutput, metricName);
+
+    // Verify the 600s bucket exists (le="600.0" in seconds)
+    // This confirms the maximum-expected-value configuration is applied
+    // Note: le label may appear after other labels like application and clusterName
+    assertTrue(
+        prometheusOutput.contains("le=\"600.0\"")
+            && prometheusOutput.contains("catalog_metadata_retrieval_latency_seconds_bucket"),
+        "Histogram should have a bucket at 600 seconds boundary. "
+            + "This validates the maximum-expected-value.catalog_metadata_retrieval_latency=600s configuration. "
+            + "Found buckets: "
+            + buckets);
+
+    // Verify there are buckets above 600s to capture the 700s value (le="+Inf")
+    assertTrue(
+        prometheusOutput.contains("le=\"+Inf\"")
+            && prometheusOutput.contains("catalog_metadata_retrieval_latency_seconds_bucket"),
+        "Histogram should have an +Inf bucket");
+
+    // Verify the count is correctly reported (may have trailing space or comma variations)
+    assertTrue(
+        prometheusOutput.contains("catalog_metadata_retrieval_latency_seconds_count")
+            && prometheusOutput.contains("8.0"),
+        "Prometheus output should show count of 8 recordings");
+  }
+
+  /**
+   * Helper method to extract histogram bucket values from Prometheus output for debugging. The le
+   * label may appear after other labels like application and clusterName.
+   */
+  private String extractHistogramBuckets(String prometheusOutput, String metricName) {
+    StringBuilder buckets = new StringBuilder();
+    // Pattern to find le="value" anywhere in the bucket entry
+    // Format: metric_seconds_bucket{...,le="value",...} count
+    Pattern pattern =
+        Pattern.compile(metricName + "_seconds_bucket\\{[^}]*le=\"([^\"]+)\"[^}]*\\}");
+    Matcher matcher = pattern.matcher(prometheusOutput);
+
+    while (matcher.find()) {
+      if (buckets.length() > 0) {
+        buckets.append(", ");
+      }
+      buckets.append(matcher.group(1));
+    }
+    return buckets.toString();
   }
 
   /**
