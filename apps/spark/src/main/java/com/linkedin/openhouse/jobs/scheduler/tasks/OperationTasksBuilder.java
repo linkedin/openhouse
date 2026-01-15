@@ -9,12 +9,15 @@ import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrat
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.DataLayoutUtil;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -168,6 +171,15 @@ public class OperationTasksBuilder {
       if (optionalOperationTask.isPresent()) {
         taskList.add(optionalOperationTask.get());
       }
+
+      // Publish entity metrics for triggered tasks
+      Attributes taskAttributes =
+          Attributes.of(
+              AttributeKey.stringKey(AppConstants.ENTITY_NAME), metadata.getEntityName(),
+              AttributeKey.stringKey(AppConstants.ENTITY_TYPE),
+                  metadata.getClass().getSimpleName().replace("Metadata", ""),
+              AttributeKey.stringKey(AppConstants.JOB_TYPE), jobType.getValue());
+      otelEmitter.count(METRICS_SCOPE, "maintenance_job_triggered", 1, taskAttributes);
     }
     return taskList;
   }
@@ -183,6 +195,15 @@ public class OperationTasksBuilder {
       task.setOtelEmitter(otelEmitter);
       if (!task.shouldRun()) {
         log.info("Skipping task {}", task);
+
+        // Publish entity metrics for skipped tasks
+        Attributes taskAttributes =
+            Attributes.of(
+                AttributeKey.stringKey(AppConstants.ENTITY_NAME), metadata.getEntityName(),
+                AttributeKey.stringKey(AppConstants.ENTITY_TYPE),
+                    metadata.getClass().getSimpleName().replace("Metadata", ""),
+                AttributeKey.stringKey(AppConstants.JOB_TYPE), task.getType().getValue());
+        otelEmitter.count(METRICS_SCOPE, "maintenance_job_skipped", 1, taskAttributes);
         return Optional.empty();
       } else {
         if (OperationMode.SUBMIT.equals(operationMode)) {
