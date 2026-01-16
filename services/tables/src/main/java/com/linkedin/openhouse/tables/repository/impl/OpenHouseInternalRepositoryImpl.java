@@ -77,7 +77,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired TablesMapper mapper;
 
-  @Autowired PoliciesSpecMapper policiesMapper;
+  @Autowired private PoliciesSpecMapper policiesMapper;
+
+  @Autowired private TablePolicyUpdater tablePolicyUpdater;
 
   @Autowired PartitionSpecMapper partitionSpecMapper;
 
@@ -149,7 +151,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
-          doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+          tablePolicyUpdater.updatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
       boolean sortOrderUpdated =
           doUpdateSortOrderIfNeeded(updateProperties, tableDto, table, writeSchema);
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
@@ -534,32 +536,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableDto.getDatabaseId(),
           tableDto.getTableId());
     }
-  }
-
-  /**
-   * @param updateProperties
-   * @param tableDto
-   * @param existingTableProps
-   * @return Whether there are any policies-updates actually materialized in properties.
-   */
-  private boolean doUpdatePoliciesIfNeeded(
-      UpdateProperties updateProperties,
-      TableDto tableDto,
-      Map<String, String> existingTableProps) {
-    boolean policiesUpdated;
-    String tableDtoPolicyString = policiesMapper.toPoliciesJsonString(tableDto);
-
-    if (!existingTableProps.containsKey(InternalRepositoryUtils.POLICIES_KEY)) {
-      updateProperties.set(InternalRepositoryUtils.POLICIES_KEY, tableDtoPolicyString);
-      policiesUpdated = true;
-    } else {
-      String policiesJsonString = existingTableProps.get(InternalRepositoryUtils.POLICIES_KEY);
-      policiesUpdated =
-          InternalRepositoryUtils.alterPoliciesIfNeeded(
-              updateProperties, tableDtoPolicyString, policiesJsonString);
-    }
-
-    return policiesUpdated;
   }
 
   /**
