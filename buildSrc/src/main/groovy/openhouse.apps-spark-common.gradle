@@ -115,10 +115,6 @@ shadowJar {
   }
 }
 
-// https://github.com/johnrengelman/shadow/issues/335
-// By default shadow doesn't configure the build task to depend on the shadowJar task.
-tasks.build.dependsOn tasks.shadowJar
-
 test {
   if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
     jvmArgs \
