@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
@@ -34,7 +35,8 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   protected void runInner(Operations ops) {
     log.info("Running TableStatsCollectorApp for table {}", fqtn);
 
-    // Run stats collection, commit events collection, and partition events collection in parallel
+    // Run stats collection, commit events collection, partition events collection, and partition
+    // stats collection
     long startTime = System.currentTimeMillis();
 
     IcebergTableStats icebergStats =
@@ -55,11 +57,14 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
             () -> ops.collectCommitEventTablePartitions(fqtn),
             result -> String.format("%s (%d partition events)", fqtn, result.size()));
 
+    List<CommitEventTablePartitionStats> partitionStats =
+        executeWithTiming(
+            "partition stats collection",
+            () -> ops.collectCommitEventTablePartitionStats(fqtn),
+            result -> String.format("%s (%d partition stats)", fqtn, result.size()));
+
     long endTime = System.currentTimeMillis();
-    log.info(
-        "Total collection time for table: {} in {} ms (parallel execution)",
-        fqtn,
-        (endTime - startTime));
+    log.info("Total collection time for table: {} in {} ms", fqtn, (endTime - startTime));
 
     if (icebergStats != null) {
       publishStats(icebergStats);
@@ -83,6 +88,15 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
               + "(unpartitioned table or collection failure or no events)",
           fqtn);
     }
+
+    if (partitionStats != null && !partitionStats.isEmpty()) {
+      publishPartitionStats(partitionStats);
+    } else {
+      log.info(
+          "Skipping partition stats publishing for table: {} "
+              + "(unpartitioned table or collection failure or no stats)",
+          fqtn);
+    }
   }
 
   /**
@@ -96,31 +110,36 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
   }
 
   /**
-   * Publish commit events. Override this method in li-openhouse to send to Kafka.
+   * Publish commit events.
    *
    * @param commitEvents List of commit events to publish
    */
   protected void publishCommitEvents(List<CommitEventTable> commitEvents) {
-    // Set event timestamp at publish time
-    long eventTimestampInEpochMs = System.currentTimeMillis();
-    commitEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
-
     log.info("Publishing commit events for table: {}", fqtn);
     log.info(new Gson().toJson(commitEvents));
   }
 
   /**
-   * Publish partition-level commit events. Override this method in li-openhouse to send to Kafka.
+   * Publish partition-level commit events.
    *
    * @param partitionEvents List of partition events to publish
    */
   protected void publishPartitionEvents(List<CommitEventTablePartitions> partitionEvents) {
-    // Set event timestamp at publish time
-    long eventTimestampInEpochMs = System.currentTimeMillis();
-    partitionEvents.forEach(event -> event.setEventTimestampMs(eventTimestampInEpochMs));
-
     log.info("Publishing partition events for table: {}", fqtn);
     log.info(new Gson().toJson(partitionEvents));
+  }
+
+  /**
+   * Publish partition-level statistics.
+   *
+   * <p>This method publishes one stats record per unique partition, where each partition is
+   * associated with its latest commit and includes aggregated statistics from data_files.
+   *
+   * @param partitionStats List of partition statistics to publish
+   */
+  protected void publishPartitionStats(List<CommitEventTablePartitionStats> partitionStats) {
+    log.info("Publishing partition stats for table: {} ({} stats)", fqtn, partitionStats.size());
+    log.info(new Gson().toJson(partitionStats));
   }
 
   public static void main(String[] args) {

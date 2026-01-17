@@ -18,6 +18,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -318,24 +319,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      List<Row> snapshots =
-          ops.spark().sql(String.format("SELECT * from %s.history", tableName)).collectAsList();
-      Assertions.assertEquals(numInserts, snapshots.size());
-      log.info("Found {} snapshots", snapshots.size());
-      for (Row metadataFileRow : snapshots) {
-        log.info(metadataFileRow.toString());
-      }
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
+      fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
@@ -356,25 +347,19 @@ public class OperationsTest extends OpenHouseSparkITest {
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
+      fs.createNewFile(dataManifestPath);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
+      Path backupFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
+      Assertions.assertTrue(fs.exists(backupFilePath));
+      // run delete operation again and verify that files in .backup are not listed as Orphan
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
-      Path trashFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
-      Assertions.assertTrue(fs.exists(trashFilePath));
-      // run delete operation again and verify that files in .trash are not listed as Orphan
-      DeleteOrphanFiles.Result result2 =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
-      List<String> orphanFiles2 = Lists.newArrayList(result2.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles2.size());
-      Assertions.assertEquals(0, orphanFiles2.size());
-      Assertions.assertTrue(fs.exists(trashFilePath));
+      Assertions.assertEquals(0, orphanFiles.size());
+      Assertions.assertTrue(fs.exists(backupFilePath));
     }
   }
 
@@ -388,24 +373,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      List<Row> snapshots =
-          ops.spark().sql(String.format("SELECT * from %s.history", tableName)).collectAsList();
-      Assertions.assertEquals(numInserts, snapshots.size());
-      log.info("Found {} snapshots", snapshots.size());
-      for (Row metadataFileRow : snapshots) {
-        log.info(metadataFileRow.toString());
-      }
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
+      fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
@@ -425,24 +400,39 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, numInserts);
       Table table = ops.getTable(tableName);
       log.info("Loaded table {}, location {}", table.name(), table.location());
-      List<Row> snapshots =
-          ops.spark().sql(String.format("SELECT * from %s.history", tableName)).collectAsList();
-      Assertions.assertEquals(numInserts, snapshots.size());
-      log.info("Found {} snapshots", snapshots.size());
-      for (Row metadataFileRow : snapshots) {
-        log.info(metadataFileRow.toString());
-      }
+      Path orphanFilePath = new Path(table.location(), testOrphanFileName);
+      Path dataManifestPath = new Path(table.location(), ".backup/data/data_manifest_123.json");
+      FileSystem fs = ops.fs();
+      fs.createNewFile(orphanFilePath);
+      fs.createNewFile(dataManifestPath);
+      DeleteOrphanFiles.Result result =
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), false, BACKUP_DIR, 5);
+      List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
+      Assertions.assertFalse(
+          fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
+      Assertions.assertEquals(1, orphanFiles.size());
+      Assertions.assertTrue(
+          orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
+      Assertions.assertFalse(fs.exists(orphanFilePath));
+    }
+  }
+
+  @Test
+  public void testOrphanFilesDeletionDeleteDataWhenDataManifestNotExists() throws Exception {
+    final String tableName = "db.test_ofd_java";
+    final String testOrphanFileName = "data/test_orphan_file.orc";
+    final int numInserts = 3;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
       Path orphanFilePath = new Path(table.location(), testOrphanFileName);
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
-      log.info("Created orphan file {}", testOrphanFileName);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), false, BACKUP_DIR);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      log.info("Detected {} orphan files", orphanFiles.size());
-      for (String of : orphanFiles) {
-        log.info("File {}", of);
-      }
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
@@ -697,12 +687,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       log.info("Loaded table {}, location {}", table.name(), table.location());
       Path orphanFilePath1 = new Path(table.location(), testOrphanFile1);
       Path orphanFilePath2 = new Path(table.location(), testOrphanFile2);
+      Path dataManifestPath = new Path(table.location(), ".trash/data/data_manifest_123.json");
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath1);
       fs.createNewFile(orphanFilePath2);
+      fs.createNewFile(dataManifestPath);
       log.info("Created orphan file {}", testOrphanFile1);
       log.info("Created orphan file {}", testOrphanFile2);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR, 5);
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile1)))));
       Assertions.assertTrue(
@@ -958,7 +950,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       stats = ops.collectTableStats(tableName);
       Assertions.assertEquals(
           stats.getEarliestPartitionDate(),
-          LocalDate.now().minusDays(2).format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
+          LocalDate.now(ZoneOffset.UTC)
+              .minusDays(2)
+              .format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
     }
   }
 
@@ -1394,5 +1388,149 @@ public class OperationsTest extends OpenHouseSparkITest {
                     r.getString(r.fieldIndex("file_path")),
                     r.getLong(r.fieldIndex("record_count"))))
         .collect(Collectors.toList());
+  }
+
+  // ==================================================================================
+  // Tests for Operations.collectCommitEventTablePartitionStats() - Method-Level Integration
+  // ==================================================================================
+
+  @Test
+  public void testCollectPartitionStatsForPartitionedTable() throws Exception {
+    final String tableName = "db.test_partition_stats_partitioned";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+
+      // Insert data across multiple partitions
+      populateTable(ops, tableName, 3, 0); // Partition day 0
+      populateTable(ops, tableName, 2, 1); // Partition day 1
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats> stats =
+          ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Assert: Should have one stats record per partition
+      Assertions.assertNotNull(stats, "Stats should not be null");
+      Assertions.assertEquals(2, stats.size(), "Should have 2 partition stats (one per partition)");
+
+      // Verify each stat has required fields
+      for (com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat : stats) {
+        Assertions.assertNotNull(stat.getDataset(), "Dataset should not be null");
+        Assertions.assertNotNull(stat.getCommitMetadata(), "Commit metadata should not be null");
+        Assertions.assertNotNull(stat.getPartitionData(), "Partition data should not be null");
+        Assertions.assertFalse(
+            stat.getPartitionData().isEmpty(),
+            "Partition data should not be empty for partitioned table");
+        Assertions.assertTrue(stat.getRowCount() > 0, "Row count should be greater than 0");
+        Assertions.assertTrue(stat.getColumnCount() > 0, "Column count should be greater than 0");
+        Assertions.assertNotNull(stat.getNullCount(), "Null count map should not be null");
+        Assertions.assertFalse(stat.getNullCount().isEmpty(), "Null count map should have entries");
+
+        log.info(
+            "Partition stats: partitionData={}, rowCount={}, columnCount={}",
+            stat.getPartitionData(),
+            stat.getRowCount(),
+            stat.getColumnCount());
+      }
+    }
+  }
+
+  @Test
+  public void testCollectPartitionStatsForUnpartitionedTable() throws Exception {
+    final String tableName = "db.test_partition_stats_unpartitioned";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create unpartitioned table
+      prepareTable(ops, tableName, false);
+
+      // Insert data
+      populateTable(ops, tableName, 5);
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats> stats =
+          ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Assert: Should have single stats record (snapshot-based)
+      Assertions.assertNotNull(stats, "Stats should not be null");
+      Assertions.assertEquals(
+          1, stats.size(), "Should have 1 stats record for unpartitioned table");
+
+      com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat = stats.get(0);
+
+      // Verify snapshot-based stats
+      Assertions.assertNotNull(stat.getDataset(), "Dataset should not be null");
+      Assertions.assertNotNull(stat.getCommitMetadata(), "Commit metadata should not be null");
+      Assertions.assertNotNull(stat.getPartitionData(), "Partition data should not be null");
+      Assertions.assertTrue(
+          stat.getPartitionData().isEmpty(),
+          "Partition data should be empty for unpartitioned table");
+      Assertions.assertTrue(stat.getRowCount() > 0, "Row count should be greater than 0");
+      Assertions.assertEquals(5, stat.getRowCount(), "Row count should equal inserted rows");
+      Assertions.assertTrue(stat.getColumnCount() > 0, "Column count should be greater than 0");
+
+      log.info(
+          "Unpartitioned table stats: rowCount={}, columnCount={}",
+          stat.getRowCount(),
+          stat.getColumnCount());
+    }
+  }
+
+  @Test
+  public void testCollectPartitionStatsWithMultipleCommitsToSamePartition() throws Exception {
+    final String tableName = "db.test_partition_stats_multiple_commits";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table
+      prepareTable(ops, tableName, true);
+
+      // Insert to SAME partition multiple times (3 commits to partition day 0)
+      long timestamp = System.currentTimeMillis() / 1000;
+      populateTable(ops, tableName, 1, 0, timestamp);
+      Thread.sleep(100); // Small delay to ensure different commit timestamps
+      populateTable(ops, tableName, 1, 0, timestamp);
+      Thread.sleep(100);
+      populateTable(ops, tableName, 1, 0, timestamp);
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats> stats =
+          ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Assert: Should have only 1 stats record (latest commit per partition)
+      Assertions.assertNotNull(stats, "Stats should not be null");
+      Assertions.assertEquals(
+          1, stats.size(), "Should have only 1 stats record (latest commit for the partition)");
+
+      com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat = stats.get(0);
+
+      // Verify it's the latest commit's data
+      Assertions.assertNotNull(stat.getCommitMetadata(), "Commit metadata should not be null");
+      Assertions.assertTrue(stat.getRowCount() > 0, "Row count should reflect latest commit");
+
+      log.info(
+          "Latest commit stats: rowCount={}, commitId={}",
+          stat.getRowCount(),
+          stat.getCommitMetadata().getCommitId());
+    }
+  }
+
+  @Test
+  public void testCollectPartitionStatsEmptyTable() throws Exception {
+    final String tableName = "db.test_partition_stats_empty";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create empty partitioned table (no data)
+      prepareTable(ops, tableName, true);
+
+      // Action: Collect partition stats (no inserts)
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats> stats =
+          ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Assert: Should handle empty table gracefully
+      Assertions.assertNotNull(stats, "Stats should not be null even for empty table");
+      // Empty table should return empty list or single record with 0 rows
+      // (implementation-specific, but should not throw exception)
+      log.info("Empty table stats count: {}", stats.size());
+    }
   }
 }

@@ -1,5 +1,6 @@
 def generatedCodeDir = "$buildDir/generated"
-def generatedBinDir = "$buildDir/bin"
+// Use a shared location for the OpenAPI CLI JAR (downloaded once by :client:common:setUp)
+def sharedBinDir = "${rootProject.buildDir}/openapi-cli"
 def commonDir = "${project(':client:common').projectDir}"
 /**
  * Change the service name to produce respective client
@@ -7,19 +8,12 @@ def commonDir = "${project(':client:common').projectDir}"
 def serviceName = project.ext.get("codeGenForService")
 def openApiCliVersion = "5.3.0"
 
-task setUp(type: Exec) {
-  commandLine "sh", "$commonDir/jar_download.sh",
-      "-o", generatedBinDir,
-      "-v", openApiCliVersion
-  outputs.dir(generatedBinDir)
-}
-
-task clientCodeGen(type: Exec, dependsOn: ["$serviceName:openApiOutput", setUp]) {
+task clientCodeGen(type: Exec, dependsOn: ["$serviceName:openApiOutput", ":client:common:setUp"]) {
   def inputSpec = tasks.getByPath("$serviceName:openApiOutput").outputs.files.first()
   commandLine "sh", "$commonDir/client_codegen.sh",
       "-i", tasks.getByPath("$serviceName:openApiOutput").outputs.files.first(), // path to spec
       "-o", generatedCodeDir,  // path to generated code
-      "-j", generatedBinDir,  // path to download cli-jar
+      "-j", sharedBinDir,  // path to shared cli-jar location
       "-n", project(serviceName).name,   // service name to generate packages
       "-v", openApiCliVersion
   // defining the following inputs and outputs ensures this task does not rerun, if input has not changed

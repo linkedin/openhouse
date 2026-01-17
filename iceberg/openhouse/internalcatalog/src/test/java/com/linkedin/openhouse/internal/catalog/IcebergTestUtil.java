@@ -16,6 +16,7 @@ public final class IcebergTestUtil {
   private static final String SNAPSHOTS_FILE = "serialized_snapshots.json";
   private static final String EXTRA_SNAPSHOTS_FILE = "extra_serialized_snapshots.json";
   private static final String WAP_SNAPSHOTS_FILE = "wap_serialized_snapshots.json";
+  private static final String STALE_SNAPSHOT_FILE = "stale_snapshot.json";
 
   private IcebergTestUtil() {}
 
@@ -29,6 +30,10 @@ public final class IcebergTestUtil {
 
   public static List<Snapshot> getWapSnapshots() throws IOException {
     return loadSnapshots(WAP_SNAPSHOTS_FILE);
+  }
+
+  public static List<Snapshot> getStaleSnapshots() throws IOException {
+    return loadSnapshots(STALE_SNAPSHOT_FILE);
   }
 
   private static List<Snapshot> loadSnapshots(String snapshotFile) throws IOException {

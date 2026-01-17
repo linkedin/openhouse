@@ -2,9 +2,12 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
+import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
@@ -18,6 +21,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -97,13 +104,21 @@ public final class Operations implements AutoCloseable {
    * given backup directory if backup is enabled. It moves files older than the provided timestamp.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
-      Table table, long olderThanTimestampMillis, boolean backupEnabled, String backupDir) {
+      Table table,
+      long olderThanTimestampMillis,
+      boolean backupEnabled,
+      String backupDir,
+      int concurrentDeletes) {
 
     DeleteOrphanFiles operation = SparkActions.get(spark).deleteOrphanFiles(table);
     // if time filter is not provided it defaults to 3 days
     if (olderThanTimestampMillis > 0) {
       operation = operation.olderThan(olderThanTimestampMillis);
     }
+    if (concurrentDeletes > 1) {
+      operation = operation.executeDeleteWith(removeFilesService(concurrentDeletes));
+    }
+    Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
     Path backupDirRoot = new Path(table.location(), backupDir);
     Path dataDirRoot = new Path(table.location(), "data");
     operation =
@@ -118,7 +133,9 @@ public final class Operations implements AutoCloseable {
               } else if (file.contains(backupDirRoot.toString())) {
                 // files present in .backup dir should not be considered orphan
                 log.info("Skipped deleting backup file {}", file);
-              } else if (file.contains(dataDirRoot.toString()) && backupEnabled) {
+              } else if (file.contains(dataDirRoot.toString())
+                  && backupEnabled
+                  && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
                 // move data files to backup dir if backup is enabled
                 Path backupFilePath = getTrashPath(table, file, backupDir);
                 log.info("Moving orphan file {} to {}", file, backupFilePath);
@@ -139,6 +156,31 @@ public final class Operations implements AutoCloseable {
               }
             });
     return operation.execute();
+  }
+
+  private ExecutorService removeFilesService(int concurrentDeletes) {
+    return MoreExecutors.getExitingExecutorService(
+        (ThreadPoolExecutor)
+            Executors.newFixedThreadPool(
+                concurrentDeletes,
+                new ThreadFactoryBuilder().setNameFormat("remove-orphans-%d").build()));
+  }
+
+  private boolean isExistBackupDataManifests(
+      Table table, String file, String backupDir, Map<String, Boolean> dataManifestsCache) {
+    try {
+      Path backupPartition = getTrashPath(table, file, backupDir).getParent();
+      if (dataManifestsCache.containsKey(backupPartition.toString())) {
+        return dataManifestsCache.get(backupPartition.toString());
+      }
+      Path pattern = new Path(backupPartition, "data_manifest*");
+      FileStatus[] matches = fs().globStatus(pattern);
+      boolean isExist = matches != null && matches.length > 0;
+      dataManifestsCache.put(backupPartition.toString(), isExist);
+      return isExist;
+    } catch (IOException e) {
+      return false;
+    }
   }
 
   /**
@@ -599,6 +641,46 @@ public final class Operations implements AutoCloseable {
       return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect partition events for table: {}", fqtn, e);
+      return Collections.emptyList();
+    }
+  }
+
+  /**
+   * Collect statistics for a given fully-qualified table name (partitioned or unpartitioned).
+   *
+   * <p><b>For PARTITIONED tables:</b> Returns one record per unique partition with aggregated
+   * statistics. Each partition is associated with its LATEST commit (highest committed_at
+   * timestamp).
+   *
+   * <p><b>For UNPARTITIONED tables:</b> Returns a single record with aggregated statistics from ALL
+   * data_files and current snapshot metadata.
+   *
+   * <p><b>Key differences from collectCommitEventTablePartitions:</b>
+   *
+   * <ul>
+   *   <li>One record per unique partition (or single record for unpartitioned), not per
+   *       commit-partition pair
+   *   <li>Latest commit only (max committed_at or current snapshot)
+   *   <li>Includes aggregated statistics from data_files metadata table
+   * </ul>
+   *
+   * <p>Returns empty list on errors.
+   *
+   * @param fqtn fully-qualified table name
+   * @return List of CommitEventTablePartitionStats objects (event_timestamp_ms will be set at
+   *     publish time)
+   */
+  public List<CommitEventTablePartitionStats> collectCommitEventTablePartitionStats(String fqtn) {
+    Table table = getTable(fqtn);
+
+    try {
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      return tableStatsCollector.collectCommitEventTablePartitionStats();
+    } catch (IOException e) {
+      log.error("Unable to initialize file system for partition stats collection", e);
+      return Collections.emptyList();
+    } catch (Exception e) {
+      log.error("Failed to collect partition stats for table: {}", fqtn, e);
       return Collections.emptyList();
     }
   }

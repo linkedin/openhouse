@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
 import static com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils.*;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
 import com.google.gson.GsonBuilder;
@@ -76,7 +77,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired TablesMapper mapper;
 
-  @Autowired PoliciesSpecMapper policiesMapper;
+  @Autowired private PoliciesSpecMapper policiesMapper;
+
+  @Autowired private TablePolicyUpdater tablePolicyUpdater;
 
   @Autowired PartitionSpecMapper partitionSpecMapper;
 
@@ -148,7 +151,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
-          doUpdatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+          tablePolicyUpdater.updatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
       boolean sortOrderUpdated =
           doUpdateSortOrderIfNeeded(updateProperties, tableDto, table, writeSchema);
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
@@ -354,7 +357,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * @param tableDto
    * @return
    */
-  private Map<String, String> computePropsForTableCreation(TableDto tableDto) {
+  @VisibleForTesting
+  Map<String, String> computePropsForTableCreation(TableDto tableDto) {
     // Populate non-preserved keys, mainly user defined properties.
     Map<String, String> propertiesMap =
         tableDto.getTableProperties().entrySet().stream()
@@ -416,9 +420,20 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
         Boolean.toString(
             clusterProperties.isClusterIcebergWriteMetadataDeleteAfterCommitEnabled()));
-    propertiesMap.put(
-        TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
-        Integer.toString(clusterProperties.getClusterIcebergWriteMetadataPreviousVersionsMax()));
+    if (!propertiesMap.containsKey(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX)) {
+      propertiesMap.put(
+          TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
+          Integer.toString(clusterProperties.getClusterIcebergWriteMetadataPreviousVersionsMax()));
+      log.info(
+          "Setting the table property: {} to default value: {}.",
+          TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
+          Integer.toString(clusterProperties.getClusterIcebergWriteMetadataPreviousVersionsMax()));
+    } else {
+      log.info(
+          "Using the value: {} for table property: {}.",
+          propertiesMap.get(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX),
+          TableProperties.METADATA_PREVIOUS_VERSIONS_MAX);
+    }
     propertiesMap.put(
         TableProperties.FORMAT_VERSION,
         Integer.toString(clusterProperties.getClusterIcebergFormatVersion()));
@@ -521,32 +536,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableDto.getDatabaseId(),
           tableDto.getTableId());
     }
-  }
-
-  /**
-   * @param updateProperties
-   * @param tableDto
-   * @param existingTableProps
-   * @return Whether there are any policies-updates actually materialized in properties.
-   */
-  private boolean doUpdatePoliciesIfNeeded(
-      UpdateProperties updateProperties,
-      TableDto tableDto,
-      Map<String, String> existingTableProps) {
-    boolean policiesUpdated;
-    String tableDtoPolicyString = policiesMapper.toPoliciesJsonString(tableDto);
-
-    if (!existingTableProps.containsKey(InternalRepositoryUtils.POLICIES_KEY)) {
-      updateProperties.set(InternalRepositoryUtils.POLICIES_KEY, tableDtoPolicyString);
-      policiesUpdated = true;
-    } else {
-      String policiesJsonString = existingTableProps.get(InternalRepositoryUtils.POLICIES_KEY);
-      policiesUpdated =
-          InternalRepositoryUtils.alterPoliciesIfNeeded(
-              updateProperties, tableDtoPolicyString, policiesJsonString);
-    }
-
-    return policiesUpdated;
   }
 
   /**

@@ -383,7 +383,13 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             e);
       }
       throw new CommitFailedException(ioe);
-    } catch (InvalidIcebergSnapshotException | IllegalArgumentException | ValidationException e) {
+    } catch (InvalidIcebergSnapshotException | IllegalArgumentException e) {
+      throw new BadRequestException(e, e.getMessage());
+    } catch (ValidationException e) {
+      // Stale snapshot errors are retryable - client should refresh and retry
+      if (isStaleSnapshotError(e)) {
+        throw new CommitFailedException(e);
+      }
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException e) {
       throw e;
@@ -554,6 +560,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // it throw AlreadyExistsException and will not trigger retry.
       metricsReporter.count(InternalCatalogMetricsConstant.MISSING_COMMIT_KEY);
     }
+  }
+
+  /**
+   * Checks if a ValidationException is due to a stale snapshot (sequence number conflict). This
+   * happens during concurrent modifications and should be retryable (409), not a bad request (400).
+   */
+  private boolean isStaleSnapshotError(ValidationException e) {
+    String msg = e.getMessage();
+    return msg != null
+        && msg.contains("Cannot add snapshot with sequence number")
+        && msg.contains("older than last sequence number");
   }
 
   /**
