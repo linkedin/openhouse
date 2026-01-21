@@ -7,6 +7,7 @@ import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -64,6 +65,10 @@ public class JdbcProviderConfiguration {
    * Create HikariCP DataSource with SSL properties configured as DataSource properties. This is
    * cleaner than appending parameters to JDBC URL and follows Spring Boot best practices.
    *
+   * <p>The @ConfigurationProperties annotation ensures that spring.datasource.hikari.* properties
+   * (such as maximum-pool-size, connection-timeout, etc.) are automatically bound to the
+   * HikariDataSource.
+   *
    * <p>When SSL is enabled for MySQL, this method configures certificate-based authentication
    * properties including keystore paths, passwords, and SSL modes. These properties are passed
    * directly to the MySQL JDBC driver via HikariCP.
@@ -73,6 +78,7 @@ public class JdbcProviderConfiguration {
    */
   @Bean
   @Primary
+  @ConfigurationProperties("spring.datasource.hikari")
   public DataSource dataSource(DataSourceProperties dataSourceProperties) {
     HikariDataSource dataSource =
         dataSourceProperties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
