@@ -64,6 +64,25 @@ public class ClusterProperties {
   @Value("${HTS_DB_PASSWORD:}")
   private String clusterHouseTablesDatabasePassword;
 
+  // MySQL SSL/Certificate configuration for certificate-based authentication
+  @Value("${cluster.housetables.database.ssl.enabled:false}")
+  private boolean clusterHouseTablesDatabaseSslEnabled;
+
+  @Value("${cluster.housetables.database.ssl.mode:DISABLED}")
+  private String clusterHouseTablesDatabaseSslMode;
+
+  @Value("${cluster.housetables.database.ssl.client-cert-keystore-url:#{null}}")
+  private String clusterHouseTablesDatabaseSslClientCertKeystoreUrl;
+
+  @Value("${cluster.housetables.database.ssl.client-cert-keystore-password:#{null}}")
+  private String clusterHouseTablesDatabaseSslClientCertKeystorePassword;
+
+  @Value("${cluster.housetables.database.ssl.truststore-url:#{null}}")
+  private String clusterHouseTablesDatabaseSslTruststoreUrl;
+
+  @Value("${cluster.housetables.database.ssl.truststore-password:#{null}}")
+  private String clusterHouseTablesDatabaseSslTruststorePassword;
+
   @Value("${cluster.security.token.interceptor.classname:#{null}}")
   private String clusterSecurityTokenInterceptorClassname;
 
