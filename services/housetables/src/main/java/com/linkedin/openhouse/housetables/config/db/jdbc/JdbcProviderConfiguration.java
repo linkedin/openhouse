@@ -89,37 +89,38 @@ public class JdbcProviderConfiguration {
             clusterProperties.getClusterHouseTablesDatabaseType());
 
     if (dbType == DatabaseConfiguration.SupportedDbTypes.MYSQL
-        && clusterProperties.isClusterHouseTablesDatabaseSslEnabled()) {
+        && clusterProperties.isClusterHouseTablesDatabaseCertBasedAuthEnabled()) {
 
       log.info("Configuring MySQL certificate-based authentication");
 
       // Add MySQL Connector/J specific SSL properties
       dataSource.addDataSourceProperty(
-          "sslMode", clusterProperties.getClusterHouseTablesDatabaseSslMode());
+          "sslMode", clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthSslMode());
 
       if (StringUtils.isNotBlank(
-          clusterProperties.getClusterHouseTablesDatabaseSslClientCertKeystoreUrl())) {
+          clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystoreUrl())) {
         dataSource.addDataSourceProperty(
             "clientCertificateKeyStoreUrl",
-            clusterProperties.getClusterHouseTablesDatabaseSslClientCertKeystoreUrl());
+            clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystoreUrl());
         dataSource.addDataSourceProperty(
             "clientCertificateKeyStorePassword",
-            clusterProperties.getClusterHouseTablesDatabaseSslClientCertKeystorePassword());
+            clusterProperties
+                .getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystorePassword());
       }
 
       if (StringUtils.isNotBlank(
-          clusterProperties.getClusterHouseTablesDatabaseSslTruststoreUrl())) {
+          clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthTruststoreUrl())) {
         dataSource.addDataSourceProperty(
             "trustCertificateKeyStoreUrl",
-            clusterProperties.getClusterHouseTablesDatabaseSslTruststoreUrl());
+            clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthTruststoreUrl());
         dataSource.addDataSourceProperty(
             "trustCertificateKeyStorePassword",
-            clusterProperties.getClusterHouseTablesDatabaseSslTruststorePassword());
+            clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthTruststorePassword());
       }
 
       log.info(
           "MySQL SSL configuration completed successfully (sslMode={}).",
-          clusterProperties.getClusterHouseTablesDatabaseSslMode());
+          clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthSslMode());
     }
 
     return dataSource;
