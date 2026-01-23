@@ -6,24 +6,60 @@
 
 Use this guide to setup local development environment for OpenHouse using docker-compose.
 
-## Build Containers
+## Quick Start (Recommended)
+
+The simplest way to build and run OpenHouse locally:
+
+```bash
+# Build everything and start containers (uses oh-hadoop-spark recipe by default)
+./gradlew dockerUp
+
+# Or choose a specific recipe
+./gradlew dockerUp -Precipe=oh-only           # Lightweight, local filesystem
+./gradlew dockerUp -Precipe=oh-hadoop         # With HDFS
+./gradlew dockerUp -Precipe=oh-hadoop-spark   # Full stack with Spark (default)
+
+# Stop and remove containers
+./gradlew dockerDown -Precipe=oh-only
+```
+
+This single command:
+1. Builds all required JAR files (service bootJars, Spark runtime uber JARs)
+2. Builds Docker images
+3. Starts all containers in detached mode
+
+**Requirements:**
+- Java 17 (`export JAVA_HOME=$(/usr/libexec/java_home -v 17)` on macOS)
+- Docker and Docker Compose
+
+### Available Gradle Docker Tasks
+
+| Task | Description |
+|------|-------------|
+| `./gradlew dockerPrereqs` | Build only the JAR files required by Docker images |
+| `./gradlew dockerBuild -Precipe=<recipe>` | Build JARs and Docker images |
+| `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
+| `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
+
+## Available Recipes
 
 Recipes for setting up OpenHouse in local docker are available [here](infra/recipes/docker-compose)
 
-docker-compose.yml files are provided to build multiple container Docker applications to be able to run a fully functional
-OpenHouse locally on laptop. Script has been tested to work fine on MacOS.
+| Config | Recipe | Notes |
+|--------|--------|-------|
+| Run OpenHouse Services Only | `oh-only` | Stores data on local filesystem within the application container, with in-memory database. Least resource consuming. |
+| Run OpenHouse Services on HDFS | `oh-hadoop` | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database. |
+| Run OpenHouse Services on HDFS with Spark | `oh-hadoop-spark` | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Starts Livy server. |
 
-Multiple recipes are provided for locally bringing up a docker-compose environment that can be used for testing.
+## Manual Docker Compose (Advanced)
 
-Config| docker-compose Directory |Notes
----|--------------------------|---
-Run OpenHouse Services Only | oh-only                  | Stores data on local filesystem within the application container, with in-memory database. Least resource consuming.
-Run OpenHouse Services on HDFS | oh-hadoop                | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database.
-Run OpenHouse Services on HDFS. Also, available Spark | oh-hadoop-spark          | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Spark container might need more memory at time. Starts Livy server.
+If you prefer manual control over the build process:
 
-Before building docker images, you would need to build the openhouse project by running the following command.
+### Build Containers
+
+Before building docker images, build the openhouse project:
 ```
-./gradlew clean build
+./gradlew build
 ```
 
 Pick a config that suits your testing needs. `cd` into the respective docker-compose directory above. And run the following command to build all the necessary containers:
@@ -43,7 +79,7 @@ you can remove them by running
 docker rmi $(docker images -f "dangling=true" -q)
 ```
 
-## Run Containers
+### Run Containers Manually
 
 Choose a recipe that you want to run. `cd` into the respective docker-compose directory above. And run the following
 command to start running all the containers.
@@ -63,6 +99,8 @@ To bring down the containers,
 ```
 docker compose down
 ```
+
+> **Note:** The `./gradlew dockerUp` command handles all of this automatically.
 
 ## Container Exposed Ports
 
