@@ -18,7 +18,7 @@ TODO
 
 ### Prerequisites
 
-1. Python 3.12 or higher
+1. Python 3.8 or higher
 2. uv
 
 ### Setup Steps
