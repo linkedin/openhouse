@@ -9,8 +9,8 @@ services:
       - openhouse-tables
       - openhouse-jobs
     environment:
-      - TABLES_SERVICE_URL=http://openhouse-tables:8080
-      - JOBS_SERVICE_URL=http://openhouse-jobs:8080
+      - NEXT_PUBLIC_TABLES_SERVICE_URL=http://localhost:8000
+      - NEXT_PUBLIC_JOBS_SERVICE_URL=http://localhost:8002
 
   openhouse-tables:
     container_name: local.openhouse-tables

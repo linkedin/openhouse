@@ -1,6 +1,6 @@
 # OpenHouse Spectacle Application
 
-A simple Next.js web application that displays "Hello World" message.
+A Next.js web application for searching and exploring OpenHouse tables.
 
 ## Features
 
@@ -8,6 +8,9 @@ A simple Next.js web application that displays "Hello World" message.
 - TypeScript support
 - Standalone output for Docker deployment
 - Modern, responsive design
+- Search tables by database ID
+- Filter results in real-time
+- Display table metadata (ID, type, creator, last modified time)
 
 ## Development
 
@@ -86,7 +89,18 @@ services/spectacle/
 
 ## Environment Variables
 
-The following environment variables are available in the Docker container:
+The following environment variables are available:
 
-- `TABLES_SERVICE_URL`: URL for the tables service (default: http://openhouse-tables:8080)
-- `JOBS_SERVICE_URL`: URL for the jobs service (default: http://openhouse-jobs:8080)
+- `NEXT_PUBLIC_TABLES_SERVICE_URL`: URL for the tables service API (default: http://localhost:8000)
+- `NEXT_PUBLIC_JOBS_SERVICE_URL`: URL for the jobs service API (default: http://localhost:8002)
+
+**Note:** Environment variables prefixed with `NEXT_PUBLIC_` are exposed to the browser and can be used in client-side code.
+
+## Usage
+
+1. **Start the services** using Docker Compose (see Docker Deployment section above)
+2. **Open the web app** at http://localhost:3000
+3. **Enter a database ID** in the search box (e.g., "my_database")
+4. **Click Search** to fetch all tables in that database
+5. **Use the filter box** to narrow down results by table name or database ID
+6. **View table details** including ID, type, creator, and last modified time
