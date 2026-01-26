@@ -61,8 +61,11 @@ services:
     volumes:
       - ./:/var/config/
     depends_on:
-      - prometheus
-      - mysql
+      prometheus:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    restart: on-failure
     environment:
       - HTS_DB_USER=oh_user
       - HTS_DB_PASSWORD=oh_password
