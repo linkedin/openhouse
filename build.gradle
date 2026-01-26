@@ -146,3 +146,149 @@ tasks.register('CopyGitHooksTask', Copy) {
   from file('scripts/git-hooks')
   into file('.git/hooks/')
 }
+
+// =============================================================================
+// Docker Build Prerequisites
+// =============================================================================
+// These tasks make the implicit JAR dependencies for Docker builds explicit.
+// Run `./gradlew dockerPrereqs` before `docker compose build`.
+//
+// JAR Dependencies by Dockerfile:
+//   tables-service.Dockerfile      -> :services:tables:bootJar
+//   housetables-service.Dockerfile -> :services:housetables:bootJar
+//   jobs-service.Dockerfile        -> :services:jobs:bootJar
+//   jobs-scheduler.Dockerfile      -> :apps:openhouse-spark-apps_2.12:shadowJar (uber JAR)
+//   spark-base-hadoop2.8.dockerfile ->
+//       :integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar (uber JAR)
+//       :apps:openhouse-spark-apps_2.12:shadowJar (uber JAR)
+//       :scripts:java:tools:dummytokens:jar
+//   spark-3.5-base-hadoop3.2.dockerfile ->
+//       :integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12:shadowJar (uber JAR)
+//       :apps:openhouse-spark-apps_2.12:shadowJar (uber JAR)
+//       :scripts:java:tools:dummytokens:jar
+// =============================================================================
+
+tasks.register('dockerPrereqs') {
+  description = 'Builds all JAR files required by Docker images'
+  group = 'docker'
+
+  // Service bootJars (Spring Boot fat JARs)
+  dependsOn ':services:tables:bootJar'
+  dependsOn ':services:housetables:bootJar'
+  dependsOn ':services:jobs:bootJar'
+
+  // Spark runtime uber JARs (shadowJar)
+  dependsOn ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar'
+  dependsOn ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12:shadowJar'
+
+  // Spark apps uber JAR (shadowJar)
+  dependsOn ':apps:openhouse-spark-apps_2.12:shadowJar'
+
+  // Utility JAR
+  dependsOn ':scripts:java:tools:dummytokens:jar'
+
+  doLast {
+    println ''
+    println '============================================================'
+    println 'Docker prerequisites built successfully!'
+    println ''
+    println 'JAR files created:'
+    println '  build/tables/libs/tables.jar'
+    println '  build/housetables/libs/housetables.jar'
+    println '  build/jobs/libs/jobs.jar'
+    println '  build/openhouse-spark-runtime_2.12/libs/openhouse-spark-runtime_2.12-uber.jar'
+    println '  build/openhouse-spark-3.5-runtime_2.12/libs/openhouse-spark-3.5-runtime_2.12-uber.jar'
+    println '  build/openhouse-spark-apps_2.12/libs/openhouse-spark-apps_2.12-uber.jar'
+    println '  build/dummytokens/libs/dummytokens*.jar'
+    println ''
+    println 'Ready for: docker compose build'
+    println '============================================================'
+  }
+}
+
+tasks.register('dockerBuild', Exec) {
+  description = 'Builds Docker images after ensuring all JAR prerequisites are built'
+  group = 'docker'
+
+  dependsOn 'dockerPrereqs'
+
+  def recipe = project.hasProperty('recipe') ? project.property('recipe') : 'oh-hadoop-spark'
+  def recipeDir = "${rootDir}/infra/recipes/docker-compose/${recipe}"
+
+  workingDir recipeDir
+  commandLine 'docker', 'compose', 'build'
+
+  doFirst {
+    if (!file(recipeDir).exists()) {
+      throw new GradleException("Recipe directory not found: ${recipeDir}\n" +
+          "Available recipes: " + file("${rootDir}/infra/recipes/docker-compose")
+              .listFiles()
+              .findAll { it.isDirectory() && it.name != 'common' }
+              .collect { it.name }
+              .join(', '))
+    }
+    println ''
+    println "Building Docker images for recipe: ${recipe}"
+    println "Recipe directory: ${recipeDir}"
+    println ''
+  }
+}
+
+tasks.register('dockerUp', Exec) {
+  description = 'Builds JARs, Docker images, and starts containers'
+  group = 'docker'
+
+  dependsOn 'dockerBuild'
+
+  def recipe = project.hasProperty('recipe') ? project.property('recipe') : 'oh-hadoop-spark'
+  def recipeDir = "${rootDir}/infra/recipes/docker-compose/${recipe}"
+
+  workingDir recipeDir
+  commandLine 'docker', 'compose', 'up', '-d'
+
+  doFirst {
+    println ''
+    println "Starting containers for recipe: ${recipe}"
+    println ''
+  }
+
+  doLast {
+    println ''
+    println '============================================================'
+    println 'OpenHouse containers started successfully!'
+    println ''
+    println 'Services available at:'
+    println '  Tables Service:      http://localhost:8000'
+    println '  HouseTables Service: http://localhost:8001'
+    println '  Jobs Service:        http://localhost:8002'
+    println '  Prometheus:          http://localhost:9090'
+    println ''
+    println 'To stop: ./gradlew dockerDown -Precipe=' + recipe
+    println '============================================================'
+  }
+}
+
+tasks.register('dockerDown', Exec) {
+  description = 'Stops and removes Docker containers'
+  group = 'docker'
+
+  def recipe = project.hasProperty('recipe') ? project.property('recipe') : 'oh-hadoop-spark'
+  def recipeDir = "${rootDir}/infra/recipes/docker-compose/${recipe}"
+
+  workingDir recipeDir
+  commandLine 'docker', 'compose', 'down'
+
+  doFirst {
+    if (!file(recipeDir).exists()) {
+      throw new GradleException("Recipe directory not found: ${recipeDir}\n" +
+          "Available recipes: " + file("${rootDir}/infra/recipes/docker-compose")
+              .listFiles()
+              .findAll { it.isDirectory() && it.name != 'common' }
+              .collect { it.name }
+              .join(', '))
+    }
+    println ''
+    println "Stopping containers for recipe: ${recipe}"
+    println ''
+  }
+}

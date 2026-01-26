@@ -64,8 +64,19 @@ To build OpenHouse, you can use the following command:
 
 ### Running OpenHouse with Docker Compose
 
-To run OpenHouse, we recommend the [SETUP](SETUP.md) guide. You would bring up all the OpenHouse services, MySQL,
-Prometheus, Apache Spark and HDFS.
+The quickest way to run OpenHouse locally:
+```bash
+# Build JARs, Docker images, and start containers (default: oh-hadoop-spark recipe)
+./gradlew dockerUp
+
+# Or use a lighter recipe for faster startup
+./gradlew dockerUp -Precipe=oh-only
+
+# Stop containers
+./gradlew dockerDown
+```
+
+For detailed configuration options and testing instructions, see the [SETUP](SETUP.md) guide.
 
 ### Deploying OpenHouse to Kubernetes
 
