@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBearerToken } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
     const { databaseId } = await request.json();
 
     const tablesServiceUrl = process.env.NEXT_PUBLIC_TABLES_SERVICE_URL || 'http://localhost:8000';
-    const bearerToken = '';
+    const bearerToken = getBearerToken();
 
     const response = await fetch(`${tablesServiceUrl}/v1/databases/${databaseId}/tables/search`, {
       method: 'POST',
