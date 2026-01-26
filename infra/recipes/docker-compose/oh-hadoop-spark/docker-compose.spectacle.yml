@@ -93,6 +93,8 @@ services:
     extends:
       file: ../common/spark-services.yml
       service: spark-master
+    volumes:
+      - ./spark/apps:/opt/spark-apps
 
   spark-worker-a:
     container_name: local.spark-worker-a
