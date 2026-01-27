@@ -2,6 +2,9 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datafusion.context import SessionContext
+from datafusion.dataframe import DataFrame
+from datafusion.plan import LogicalPlan
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -15,42 +18,31 @@ class FileSplit:
 
 
 @dataclass
-class ResolvedTable:
-    """Result of table resolution.
-    
-    If is_view is True, query and dialect fields will be populated.
-    """
-    
-    name: str
-    is_view: bool
-    query: Optional[str] = None
-    dialect: Optional[str] = None
-
-
-@dataclass
 class PlanResult:
     """Result of query planning containing logical plan and file splits."""
     
-    logical_plan: object
+    logical_plan: LogicalPlan
     file_splits: List[FileSplit]
+    select_columns: List[str]
+    # TODO figure out how to format the filters
+    predicate_pushdowns: List[object]
 
 
-class TableResolver(ABC):
-    """Abstract interface for resolving table names.
-    
-    Implementations should resolve table names to either physical tables or views.
-    If the result is a view, the query and dialect fields should be populated.
+class TableModifier(ABC):
+    """Abstract interface for applying additional transformation logic to the data
+    being loaded (e.g. compliance filters).
     """
     
     @abstractmethod
-    def resolve(self, table_name: str) -> ResolvedTable:
-        """Resolve a table name to a ResolvedTable.
+    def modify(self, session_context: SessionContext, table_name: str) -> Optional[DataFrame]:
+        """Applies transformation logic to the base table that is being loaded.
         
         Args:
-            table_name: Name of the table to resolve
+            table_name: Name of the table
             
         Returns:
-            ResolvedTable with name, is_view flag, and optionally query/dialect
+            The DataFrame representing the transformation. This is expected to read from the exact
+            base table pased in as input. If no transformation is required, None is returned.
         """
         pass
 
@@ -60,23 +52,25 @@ class Planner:
     
     def __init__(
         self,
-        table_resolver: Optional[TableResolver] = None,
+        # TODO default implementation that returns none for modify
+        table_modifier: TableModifier = None,
     ):
         """Initialize the planner with optional resolver.
         
         Args:
-            table_resolver: Optional TableResolver implementation
+            table_modifier: TableModifier implementation to apply prerequisite transformations on the table being loaded
         """
-        self.table_resolver = table_resolver
+        self._table_modifier = table_modifier
 
-    def plan(self, table_name: str, columns: List[str]) -> PlanResult:
-        """Create a query plan for the given table and columns.
+    # TODO add filters
+    def create_load_plan(self, table_name: str, columns: List[str]) -> PlanResult:
+        """Create a plan to load the given table.
         
         Args:
-            table_name: Name of the table to query
-            columns: List of column names to project
+            table_name: Name of the table to load
+            columns: List of column names to load from the table
             
         Returns:
-            PlanResult containing the logical plan and file splits
+            The plan for loading this table
         """
-        raise NotImplementedError("plan() method will be implemented later")
+        raise NotImplementedError()
