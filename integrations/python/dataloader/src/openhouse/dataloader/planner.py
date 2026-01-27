@@ -29,13 +29,23 @@ class TableModifier(ABC):
     """Abstract interface for applying additional transformation logic to the data
     being loaded (e.g. compliance filters).
     """
+
+    @abstractmethod
+    def register_udfs(self, session_context: SessionContext) -> None:
+        """Registers UDFs that are needed for the transformation.
+        
+        Args:
+            session_context: The session context to register the UDFs in
+        """
+        pass
     
     @abstractmethod
-    def modify(self, session_context: SessionContext, table_name: str) -> Optional[DataFrame]:
+    def modify(self, session_context: SessionContext, table_name: str, context: Dict[str, str]) -> Optional[DataFrame]:
         """Applies transformation logic to the base table that is being loaded.
         
         Args:
             table_name: Name of the table
+            context: Dictionary of context information (e.g. tenant, environment, etc.)
             
         Returns:
             The DataFrame representing the transformation. This is expected to read from the exact
@@ -60,15 +70,16 @@ class Planner:
         self._table_modifier = table_modifier
 
     # TODO figure out how to represent filters
-    def create_load_plan(self, table_name: str, columns: List[str], filters: List[object]) -> PlanResult:
+    def create_load_plan(self, table_name: str, columns: List[str], filters: List[object], context: Dict[str, str]) -> PlanResult:
         """Create a plan to load the given table.
         
         Args:
             table_name: Name of the table to load
             columns: List of column names to load from the table
             filters: List of filters to apply to the table
+            context: Dictionary of context information (e.g. tenant, environment, etc.)
             
         Returns:
             The plan for loading this table
         """
-        raise NotImplementedError()
+        pass
