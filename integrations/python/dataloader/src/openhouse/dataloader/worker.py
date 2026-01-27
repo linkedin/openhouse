@@ -5,8 +5,8 @@ from pyiceberg.io import FileScanTask
 
 
 class Worker:
-    def __init__(self):
-        pass
+    def __init__(self, table_modifier: TableModifier):
+        self._table_modifier = table_modifier
     
     def load_data(self, plan: LogicalPlan, input: FileScanTask) -> Iterator[RecordBatch]:
         """Loads data from the file with the query plan applied
