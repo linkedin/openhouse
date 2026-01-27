@@ -5,27 +5,24 @@ from dataclasses import dataclass, field
 from datafusion.context import SessionContext
 from datafusion.dataframe import DataFrame
 from datafusion.plan import LogicalPlan
-from typing import Any, Dict, List, Optional, Tuple
-
-
-@dataclass
-class FileSplit:
-    """Represents a file split to read with offset and length."""
-    
-    file_path: str
-    offset: int
-    length: int
+from pyiceberg.io import FileScanTask
+from typing import Dict, List, Optional
 
 
 @dataclass
 class PlanResult:
-    """Result of query planning containing logical plan and file splits."""
+    """Result of query planning containing logical plan and file splits.
     
+    Args:
+        table_properties: Dictionary of table properties (required for UFR metadata)
+        logical_plan: Logical plan for the query to be executed on each file scan task
+        file_scan_tasks: List of file scan tasks to load the table
+    """
+    table_properties: Dict[str, str]
     logical_plan: LogicalPlan
-    file_splits: List[FileSplit]
-    select_columns: List[str]
-    # TODO figure out how to format the filters
-    predicate_pushdowns: List[object]
+    file_scan_tasks: List[FileScanTask]
+
+    # TODO are some serialization helper methods needed for each split to distribute to workers?
 
 
 class TableModifier(ABC):
