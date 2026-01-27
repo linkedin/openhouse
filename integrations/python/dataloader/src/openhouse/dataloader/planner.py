@@ -62,13 +62,14 @@ class Planner:
         """
         self._table_modifier = table_modifier
 
-    # TODO add filters
-    def create_load_plan(self, table_name: str, columns: List[str]) -> PlanResult:
+    # TODO figure out how to represent filters
+    def create_load_plan(self, table_name: str, columns: List[str], filters: List[object]) -> PlanResult:
         """Create a plan to load the given table.
         
         Args:
             table_name: Name of the table to load
             columns: List of column names to load from the table
+            filters: List of filters to apply to the table
             
         Returns:
             The plan for loading this table
