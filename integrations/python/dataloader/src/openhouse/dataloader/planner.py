@@ -11,6 +11,22 @@ from openhouse.dataloader.udf_registry import UDFRegistry
 
 
 @dataclass
+class TableIdentifier:
+    """Identifier for a table in OpenHouse.
+
+    Args:
+        database: Database name
+        table: Table name
+    """
+    database: str
+    table: str
+
+    def __str__(self) -> str:
+        """Return the fully qualified table name."""
+        return f"{self.database}.{self.table}"
+
+
+@dataclass
 class PlanResult:
     """Result of query planning containing logical plan and file splits.
     
@@ -30,15 +46,15 @@ class TableModifier(ABC):
     """Abstract interface for applying additional transformation logic to the data
     being loaded (e.g. compliance filters).
     """
-    
+
     @abstractmethod
-    def modify(self, session_context: SessionContext, table_name: str, context: Dict[str, str]) -> Optional[DataFrame]:
+    def modify(self, session_context: SessionContext, table: TableIdentifier, context: Dict[str, str]) -> Optional[DataFrame]:
         """Applies transformation logic to the base table that is being loaded.
-        
+
         Args:
-            table_name: Name of the table
+            table: Identifier for the table
             context: Dictionary of context information (e.g. tenant, environment, etc.)
-            
+
         Returns:
             The DataFrame representing the transformation. This is expected to read from the exact
             base table pased in as input. If no transformation is required, None is returned.
@@ -65,15 +81,15 @@ class Planner:
         self._udf_registry = udf_registry
 
     # TODO figure out how to represent filters
-    def create_load_plan(self, table_name: str, columns: List[str], filters: List[object], context: Dict[str, str]) -> PlanResult:
+    def create_load_plan(self, table: TableIdentifier, columns: List[str], filters: List[object], context: Dict[str, str]) -> PlanResult:
         """Create a plan to load the given table.
-        
+
         Args:
-            table_name: Name of the table to load
+            table: Identifier for the table to load
             columns: List of column names to load from the table
             filters: List of filters to apply to the table
             context: Dictionary of context information (e.g. tenant, environment, etc.)
-            
+
         Returns:
             The plan for loading this table
         """
