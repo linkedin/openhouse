@@ -15,7 +15,7 @@ class PlanResult:
     """Result of query planning containing logical plan and file splits.
     
     Args:
-        table_properties: Dictionary of table properties (required for UFR metadata)
+        table_properties: Dictionary of table properties
         logical_plan: Logical plan for the query to be executed on each file scan task
         file_scan_tasks: List of file scan tasks to load the table
     """
