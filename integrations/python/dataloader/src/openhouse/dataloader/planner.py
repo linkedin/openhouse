@@ -7,6 +7,7 @@ from datafusion.dataframe import DataFrame
 from datafusion.plan import LogicalPlan
 from pyiceberg.io import FileScanTask
 from typing import Dict, List, Optional
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 
 @dataclass
@@ -29,15 +30,6 @@ class TableModifier(ABC):
     """Abstract interface for applying additional transformation logic to the data
     being loaded (e.g. compliance filters).
     """
-
-    @abstractmethod
-    def register_udfs(self, session_context: SessionContext) -> None:
-        """Registers UDFs that are needed for the transformation.
-        
-        Args:
-            session_context: The session context to register the UDFs in
-        """
-        pass
     
     @abstractmethod
     def modify(self, session_context: SessionContext, table_name: str, context: Dict[str, str]) -> Optional[DataFrame]:
@@ -61,13 +53,16 @@ class Planner:
         self,
         # TODO default implementation that returns none for modify
         table_modifier: TableModifier = None,
+        udf_registry: UDFRegistry = None,
     ):
         """Initialize the planner with optional resolver.
         
         Args:
             table_modifier: TableModifier implementation to apply prerequisite transformations on the table being loaded
+            udf_registry: Data Fusion UDFs to register
         """
         self._table_modifier = table_modifier
+        self._udf_registry = udf_registry
 
     # TODO figure out how to represent filters
     def create_load_plan(self, table_name: str, columns: List[str], filters: List[object], context: Dict[str, str]) -> PlanResult:
