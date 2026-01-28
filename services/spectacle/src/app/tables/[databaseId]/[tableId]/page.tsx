@@ -103,6 +103,13 @@ function TableDetailContent() {
     return new Date(timestampMs).toLocaleString();
   };
 
+  const removeNullValues = (obj: any): any => {
+    if (typeof obj !== 'object' || obj === null) return obj;
+    return Object.fromEntries(
+      Object.entries(obj).filter(([_, value]) => value !== null)
+    );
+  };
+
   if (loading) {
     return (
       <main style={{
@@ -709,14 +716,9 @@ function TableDetailContent() {
                 }}>
                   Policies
                 </h3>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-                  gap: '1rem',
-                  marginTop: '1rem'
-                }}>
-                  <CompactDetailRow 
-                    label="Sharing Enabled" 
+                <div style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
+                  <CompactDetailRow
+                    label="Sharing Enabled"
                     value={
                       <span style={{
                         padding: '0.25rem 0.75rem',
@@ -728,16 +730,16 @@ function TableDetailContent() {
                       }}>
                         {table.policies.sharingEnabled ? 'Yes' : 'No'}
                       </span>
-                    } 
+                    }
                   />
                   {table.policies.retention && (
-                    <CompactDetailRow label="Retention" value={JSON.stringify(table.policies.retention)} />
+                    <CompactDetailRow label="Retention" value={JSON.stringify(removeNullValues(table.policies.retention))} />
                   )}
                   {table.policies.replication && (
-                    <CompactDetailRow label="Replication" value={JSON.stringify(table.policies.replication)} />
+                    <CompactDetailRow label="Replication" value={JSON.stringify(removeNullValues(table.policies.replication))} />
                   )}
                   {table.policies.history && (
-                    <CompactDetailRow label="History" value={JSON.stringify(table.policies.history)} />
+                    <CompactDetailRow label="History" value={JSON.stringify(removeNullValues(table.policies.history))} />
                   )}
                 </div>
               </div>
