@@ -34,6 +34,15 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Install uv
+        run: pip install uv
+
+      - name: Run Data Loader Tests
+        run: |
+          cd integrations/python/dataloader
+          uv sync
+          uv run pytest
+
       - name: Install dependencies
         run: pip install -r scripts/python/requirements.txt
 

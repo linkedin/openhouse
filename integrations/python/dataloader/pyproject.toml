@@ -1,0 +1,7 @@
+[project]
+name = "openhouse-dataloader"
+version = "0.1.0"
+description = "A Python library for distributed data loading of OpenHouse tables"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["datafusion==51.0.0", "pyiceberg==0.10.0"]
