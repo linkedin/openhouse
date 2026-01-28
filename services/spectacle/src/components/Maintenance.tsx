@@ -95,6 +95,7 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
       return acc;
     }, {} as { [key: string]: string })
   );
+  const [activeTab, setActiveTab] = useState<string>(MAINTENANCE_JOBS[0].type);
   const [loading, setLoading] = useState<{ [key: string]: boolean }>({});
   const [results, setResults] = useState<{ [key: string]: { success: boolean; message: string } }>({});
 
@@ -163,102 +164,118 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
       >
         Maintenance Operations
       </h2>
-      <p
+
+      {/* Tab Navigation */}
+      <div
         style={{
-          color: '#6b7280',
-          fontSize: '0.875rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.5rem',
           marginBottom: '1.5rem',
+          borderBottom: '2px solid #e5e7eb',
+          paddingBottom: '0.5rem',
         }}
       >
-        Trigger maintenance jobs for this table. Edit the request body as needed before submitting.
-      </p>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {MAINTENANCE_JOBS.map((job) => (
-          <div
+          <button
             key={job.type}
+            onClick={() => setActiveTab(job.type)}
             style={{
-              border: '1px solid #e5e7eb',
+              padding: '0.5rem 1rem',
+              backgroundColor: activeTab === job.type ? '#3b82f6' : 'transparent',
+              color: activeTab === job.type ? 'white' : '#6b7280',
+              border: activeTab === job.type ? 'none' : '1px solid #e5e7eb',
               borderRadius: '6px',
-              padding: '1rem',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              if (activeTab !== job.type) {
+                e.currentTarget.style.backgroundColor = '#f3f4f6';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeTab !== job.type) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }
             }}
           >
-            {/* Operation Type and Trigger Button */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '0.75rem',
-              }}
-            >
-              <h3
-                style={{
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  color: '#374151',
-                }}
-              >
-                {job.type}
-              </h3>
-
-              {/* Trigger Button */}
-              <button
-                onClick={() => handleTriggerJob(job.type)}
-                disabled={loading[job.type]}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: loading[job.type] ? '#9ca3af' : '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: loading[job.type] ? 'not-allowed' : 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: '500',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {loading[job.type] ? 'Submitting...' : 'Trigger'}
-              </button>
-            </div>
-
-            {/* Request Body Editor */}
-            <textarea
-              value={jobRequests[job.type]}
-              onChange={(e) => handleRequestChange(job.type, e.target.value)}
-              style={{
-                width: '100%',
-                minHeight: '120px',
-                padding: '0.5rem',
-                fontFamily: 'monospace',
-                fontSize: '0.75rem',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                resize: 'vertical',
-                color: '#374151',
-                backgroundColor: '#f9fafb',
-              }}
-              spellCheck={false}
-            />
-
-            {/* Result Message */}
-            {results[job.type] && (
-              <div
-                style={{
-                  marginTop: '0.75rem',
-                  padding: '0.75rem',
-                  borderRadius: '4px',
-                  backgroundColor: results[job.type].success ? '#d1fae5' : '#fee2e2',
-                  color: results[job.type].success ? '#065f46' : '#991b1b',
-                  fontSize: '0.875rem',
-                }}
-              >
-                {results[job.type].message}
-              </div>
-            )}
-          </div>
+            {job.type}
+          </button>
         ))}
       </div>
+
+      {/* Active Tab Content */}
+      {MAINTENANCE_JOBS.filter((job) => job.type === activeTab).map((job) => (
+        <div key={job.type}>
+          <p
+            style={{
+              color: '#6b7280',
+              fontSize: '0.875rem',
+              marginBottom: '1rem',
+            }}
+          >
+            Edit the request body as needed before submitting the job.
+          </p>
+
+          {/* Request Body Editor */}
+          <textarea
+            value={jobRequests[job.type]}
+            onChange={(e) => handleRequestChange(job.type, e.target.value)}
+            style={{
+              width: '100%',
+              minHeight: '200px',
+              padding: '0.75rem',
+              fontFamily: 'monospace',
+              fontSize: '0.75rem',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              resize: 'vertical',
+              color: '#374151',
+              backgroundColor: '#f9fafb',
+              marginBottom: '1rem',
+              boxSizing: 'border-box',
+            }}
+            spellCheck={false}
+          />
+
+          {/* Trigger Button */}
+          <button
+            onClick={() => handleTriggerJob(job.type)}
+            disabled={loading[job.type]}
+            style={{
+              padding: '0.625rem 1.5rem',
+              backgroundColor: loading[job.type] ? '#9ca3af' : '#3b82f6',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: loading[job.type] ? 'not-allowed' : 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              marginBottom: '1rem',
+            }}
+          >
+            {loading[job.type] ? 'Submitting...' : 'Trigger Job'}
+          </button>
+
+          {/* Result Message */}
+          {results[job.type] && (
+            <div
+              style={{
+                padding: '0.75rem',
+                borderRadius: '6px',
+                backgroundColor: results[job.type].success ? '#d1fae5' : '#fee2e2',
+                color: results[job.type].success ? '#065f46' : '#991b1b',
+                fontSize: '0.875rem',
+              }}
+            >
+              {results[job.type].message}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
