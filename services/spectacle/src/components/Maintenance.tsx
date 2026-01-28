@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Table } from '@/types/table';
 
 interface MaintenanceJob {
   type: string;
@@ -10,6 +11,7 @@ interface MaintenanceJob {
 interface MaintenanceProps {
   databaseId: string;
   tableId: string;
+  table: Table | null;
 }
 
 const MAINTENANCE_JOBS: MaintenanceJob[] = [
@@ -25,7 +27,7 @@ const MAINTENANCE_JOBS: MaintenanceJob[] = [
   { type: 'DATA_LAYOUT_STRATEGY_EXECUTION', args: [] },
 ];
 
-export default function Maintenance({ databaseId, tableId }: MaintenanceProps) {
+export default function Maintenance({ databaseId, tableId, table }: MaintenanceProps) {
   const fqtn = `${databaseId}.${tableId}`;
 
   // Jobs that don't need tableName argument
@@ -44,6 +46,38 @@ export default function Maintenance({ databaseId, tableId }: MaintenanceProps) {
         // Jobs that need tableDirectoryPath instead
         // For now, we'll leave this empty as it's not table-specific
         args = [...job.args];
+      } else if (job.type === 'RETENTION' && table?.policies?.retention) {
+        // Populate RETENTION args from policies
+        const retention = table.policies.retention;
+        args = ['--tableName', fqtn];
+
+        if (retention.columnPattern?.columnName) {
+          args.push('--columnName', retention.columnPattern.columnName);
+        }
+        if (retention.columnPattern?.pattern) {
+          args.push('--columnPattern', retention.columnPattern.pattern);
+        }
+        if (retention.granularity) {
+          args.push('--granularity', retention.granularity.toLowerCase());
+        }
+        if (retention.count) {
+          args.push('--count', String(retention.count));
+        }
+        args.push(...job.args); // Add --backupDir
+      } else if (job.type === 'SNAPSHOTS_EXPIRATION' && table?.policies?.history) {
+        // Populate SNAPSHOTS_EXPIRATION args from policies
+        const history = table.policies.history;
+        args = ['--tableName', fqtn];
+
+        if (history.maxAge) {
+          args.push('--maxAge', String(history.maxAge));
+        }
+        if (history.granularity) {
+          args.push('--granularity', history.granularity.toLowerCase());
+        }
+        if (history.versions) {
+          args.push('--versions', String(history.versions));
+        }
       } else {
         // Most jobs need --tableName with fqtn
         args = ['--tableName', fqtn, ...job.args];

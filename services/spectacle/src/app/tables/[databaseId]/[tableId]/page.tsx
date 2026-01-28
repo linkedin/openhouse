@@ -818,7 +818,7 @@ function TableDetailContent() {
         ) : null}
 
         {/* Maintenance Operations */}
-        <Maintenance databaseId={databaseId} tableId={tableId} />
+        <Maintenance databaseId={databaseId} tableId={tableId} table={table} />
       </div>
     </main>
   );
