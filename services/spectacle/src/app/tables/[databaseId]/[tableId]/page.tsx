@@ -512,84 +512,79 @@ function TableDetailContent() {
                 )}
 
                 {/* Metadata History */}
-                {icebergMetadata.metadataHistory && icebergMetadata.metadataHistory.length > 0 && (
-                  <div>
-                    <h3 style={{
-                      fontSize: '1rem',
-                      fontWeight: '600',
-                      marginBottom: '0.75rem',
-                      color: '#374151'
-                    }}>
-                      Metadata History ({icebergMetadata.metadataHistory.length})
-                    </h3>
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead style={{ backgroundColor: '#f9fafb' }}>
-                          <tr>
-                            <th style={{ 
-                              padding: '0.75rem', 
-                              textAlign: 'left', 
-                              fontWeight: '600', 
-                              color: '#374151',
-                              borderBottom: '2px solid #e5e7eb'
-                            }}>
-                              Version
-                            </th>
-                            <th style={{ 
-                              padding: '0.75rem', 
-                              textAlign: 'left', 
-                              fontWeight: '600', 
-                              color: '#374151',
-                              borderBottom: '2px solid #e5e7eb'
-                            }}>
-                              File
-                            </th>
-                            <th style={{ 
-                              padding: '0.75rem', 
-                              textAlign: 'left', 
-                              fontWeight: '600', 
-                              color: '#374151',
-                              borderBottom: '2px solid #e5e7eb'
-                            }}>
-                              Timestamp
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {icebergMetadata.metadataHistory.map((version) => (
-                            <tr key={version.version} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                              <td style={{ 
-                                padding: '0.75rem', 
-                                fontFamily: 'monospace', 
-                                fontSize: '0.875rem',
-                                color: '#374151',
-                                fontWeight: '500'
-                              }}>
-                                v{version.version}
-                              </td>
-                              <td style={{ 
-                                padding: '0.75rem', 
-                                fontFamily: 'monospace', 
-                                fontSize: '0.875rem',
-                                color: '#6b7280',
-                                wordBreak: 'break-all'
-                              }}>
-                                {version.file}
-                              </td>
-                              <td style={{ 
-                                padding: '0.75rem', 
-                                fontSize: '0.875rem',
-                                color: '#6b7280'
-                              }}>
-                                {formatDate(version.timestamp)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                {(() => {
+                  try {
+                    const metadataJson = JSON.parse(icebergMetadata.currentMetadata);
+                    const metadataLog = metadataJson['metadata-log'];
+
+                    if (metadataLog && metadataLog.length > 0) {
+                      return (
+                        <div>
+                          <h3 style={{
+                            fontSize: '1rem',
+                            fontWeight: '600',
+                            marginBottom: '0.75rem',
+                            color: '#374151'
+                          }}>
+                            Metadata History ({metadataLog.length})
+                          </h3>
+                          <div style={{ overflowX: 'auto', maxHeight: '400px', overflowY: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <thead style={{ position: 'sticky', top: 0, backgroundColor: '#f9fafb', zIndex: 1 }}>
+                                <tr>
+                                  <th style={{
+                                    padding: '0.75rem',
+                                    textAlign: 'left',
+                                    fontWeight: '600',
+                                    color: '#374151',
+                                    borderBottom: '2px solid #e5e7eb'
+                                  }}>
+                                    Timestamp
+                                  </th>
+                                  <th style={{
+                                    padding: '0.75rem',
+                                    textAlign: 'left',
+                                    fontWeight: '600',
+                                    color: '#374151',
+                                    borderBottom: '2px solid #e5e7eb'
+                                  }}>
+                                    Metadata File
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {metadataLog.map((entry: any, index: number) => (
+                                  <tr key={index} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                    <td style={{
+                                      padding: '0.75rem',
+                                      fontSize: '0.875rem',
+                                      color: '#6b7280',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {formatDate(entry['timestamp-ms'])}
+                                    </td>
+                                    <td style={{
+                                      padding: '0.75rem',
+                                      fontFamily: 'monospace',
+                                      fontSize: '0.875rem',
+                                      color: '#6b7280',
+                                      wordBreak: 'break-all'
+                                    }}>
+                                      {entry['metadata-file']}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    }
+                  } catch (e) {
+                    console.error('Error parsing metadata log:', e);
+                  }
+                  return null;
+                })()}
 
                 {/* Partitions */}
                 {icebergMetadata.partitions && (
