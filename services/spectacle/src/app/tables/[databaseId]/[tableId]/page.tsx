@@ -3,6 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, Suspense } from 'react';
 import { Table } from '@/types/table';
+import Maintenance from '@/components/Maintenance';
 
 interface IcebergMetadata {
   tableId: string;
@@ -735,13 +736,13 @@ function TableDetailContent() {
                     }
                   />
                   {table.policies.retention && (
-                    <CompactDetailRow label="Retention" value={JSON.stringify(removeNullValues(table.policies.retention))} />
+                    <CompactDetailRow label="Partition Retention" value={JSON.stringify(removeNullValues(table.policies.retention))} />
                   )}
                   {table.policies.replication && (
                     <CompactDetailRow label="Replication" value={JSON.stringify(removeNullValues(table.policies.replication))} />
                   )}
                   {table.policies.history && (
-                    <CompactDetailRow label="History" value={JSON.stringify(removeNullValues(table.policies.history))} />
+                    <CompactDetailRow label="Data Versions History" value={JSON.stringify(removeNullValues(table.policies.history))} />
                   )}
                 </div>
               </div>
@@ -815,6 +816,9 @@ function TableDetailContent() {
             )}
           </div>
         ) : null}
+
+        {/* Maintenance Operations */}
+        <Maintenance databaseId={databaseId} tableId={tableId} />
       </div>
     </main>
   );
