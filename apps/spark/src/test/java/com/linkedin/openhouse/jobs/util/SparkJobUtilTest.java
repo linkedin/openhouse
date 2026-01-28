@@ -11,10 +11,12 @@ public class SparkJobUtilTest {
   @Test
   void testCreateDeleteStatement() {
     ZonedDateTime now = ZonedDateTime.now();
+    String nowUtc =
+        now.withZoneSameInstant(java.time.ZoneId.of("UTC")).toLocalDateTime().toString();
     String expected =
         String.format(
             "DELETE FROM `db`.`table-name` WHERE timestamp < date_trunc('day', timestamp '%s' - INTERVAL 2 days)",
-            now.toLocalDateTime());
+            nowUtc);
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement("db.table-name", "timestamp", "", "day", 2, now));
@@ -30,10 +32,12 @@ public class SparkJobUtilTest {
   @Test
   void testCreateDeleteStatementWithStringColumnPartition() {
     ZonedDateTime now = ZonedDateTime.now();
+    String nowUtc =
+        now.withZoneSameInstant(java.time.ZoneId.of("UTC")).toLocalDateTime().toString();
     String expected =
         String.format(
             "DELETE FROM `db`.`table-name` WHERE string_partition < cast(date_format(timestamp '%s' - INTERVAL 2 DAYs, 'yyyy-MM-dd-HH') as string)",
-            now.toLocalDateTime());
+            nowUtc);
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
