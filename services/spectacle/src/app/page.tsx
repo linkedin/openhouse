@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { Suspense } from 'react';
 import { useTableSearch } from '@/hooks/useTableSearch';
 import PageHeader from '@/components/PageHeader';
 import SearchBar from '@/components/SearchBar';
@@ -11,8 +10,6 @@ import TablesTable from '@/components/TablesTable';
 import EmptyState from '@/components/EmptyState';
 
 function HomeContent() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
   const {
     databaseId,
     setDatabaseId,
@@ -25,30 +22,8 @@ function HomeContent() {
     filteredTables,
   } = useTableSearch();
 
-  // Restore search from URL on mount
-  useEffect(() => {
-    const dbFromUrl = searchParams.get('db');
-    if (dbFromUrl && dbFromUrl !== databaseId) {
-      setDatabaseId(dbFromUrl);
-    }
-  }, [searchParams]);
-
-  // Auto-search when database ID is restored from URL
-  useEffect(() => {
-    const dbFromUrl = searchParams.get('db');
-    if (dbFromUrl && databaseId === dbFromUrl && tables.length === 0 && !loading) {
-      searchTables();
-    }
-  }, [databaseId]);
-
-  // Update URL when database ID changes
   const handleDatabaseIdChange = (value: string) => {
     setDatabaseId(value);
-    if (value) {
-      router.replace(`/?db=${encodeURIComponent(value)}`, { scroll: false });
-    } else {
-      router.replace('/', { scroll: false });
-    }
   };
 
   return (
@@ -56,18 +31,37 @@ function HomeContent() {
       minHeight: '100vh',
       padding: '2rem',
       fontFamily: 'system-ui, -apple-system, sans-serif',
-      backgroundColor: '#f9fafb'
+      backgroundColor: '#f9fafb',
+      position: 'relative',
+      overflow: 'hidden'
     }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      {/* Iceberg Background Overlay */}
+      <div style={{
+        position: 'absolute',
+        top: '400px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '600px',
+        height: '600px',
+        backgroundImage: 'url(/iceberg_bg.png)',
+        backgroundSize: 'contain',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center',
+        opacity: 0.08,
+        pointerEvents: 'none',
+        zIndex: 0
+      }} />
+
+      <div style={{ maxWidth: '1200px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <PageHeader />
-        
+
         <SearchBar
           databaseId={databaseId}
           onDatabaseIdChange={handleDatabaseIdChange}
           onSearch={searchTables}
           loading={loading}
         />
-        
+
         {tables.length > 0 && (
           <TableFilter
             searchFilter={searchFilter}

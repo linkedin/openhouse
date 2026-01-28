@@ -21,7 +21,7 @@ export default function PageHeader() {
           fontSize: '2.5rem',
           fontWeight: 'bold',
           margin: 0,
-          background: 'linear-gradient(to right, #3b82f6, #8b5cf6)',
+          background: 'linear-gradient(to right, #4e8cc9, #8c78d6)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
           backgroundClip: 'text'
