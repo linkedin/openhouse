@@ -17,9 +17,11 @@ class TableIdentifier:
     Args:
         database: Database name
         table: Table name
+        branch: Optional branch name
     """
     database: str
     table: str
+    branch: Optional[str] = None
 
     def __str__(self) -> str:
         """Return the fully qualified table name."""
