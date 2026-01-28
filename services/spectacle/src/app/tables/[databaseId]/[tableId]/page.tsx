@@ -448,7 +448,9 @@ function TableDetailContent() {
                           </tr>
                         </thead>
                         <tbody>
-                          {JSON.parse(icebergMetadata.snapshots).map((snapshot: any) => (
+                          {JSON.parse(icebergMetadata.snapshots)
+                            .sort((a: any, b: any) => b['timestamp-ms'] - a['timestamp-ms'])
+                            .map((snapshot: any) => (
                             <tr key={snapshot['snapshot-id']} style={{ 
                               borderBottom: '1px solid #e5e7eb',
                               backgroundColor: snapshot['snapshot-id'] === icebergMetadata.currentSnapshotId ? '#eff6ff' : 'transparent'
@@ -560,7 +562,7 @@ function TableDetailContent() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {metadataLog.map((entry: any, index: number) => (
+                                {[...metadataLog].reverse().map((entry: any, index: number) => (
                                   <tr key={index} style={{ borderBottom: '1px solid #e5e7eb' }}>
                                     <td style={{
                                       padding: '0.75rem',
