@@ -216,6 +216,9 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
       setJobIds((prev) => ({ ...prev, [jobType]: jobId }));
       setJobStates((prev) => ({ ...prev, [jobType]: data.state || 'QUEUED' }));
 
+      // Refresh recent jobs list immediately with the response
+      fetchRecentJobs(jobType);
+
       // Start polling for job status every 2 seconds
       pollIntervalRefs.current[jobType] = setInterval(() => {
         pollJobStatus(jobType, jobId);
@@ -348,24 +351,19 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
           {/* Trigger Button */}
           <button
             onClick={() => handleTriggerJob(job.type)}
-            disabled={loading[job.type]}
             style={{
               padding: '0.625rem 1.5rem',
-              backgroundColor: loading[job.type] ? '#9ca3af' : '#3b82f6',
+              backgroundColor: '#3b82f6',
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              cursor: loading[job.type] ? 'not-allowed' : 'pointer',
+              cursor: 'pointer',
               fontSize: '0.875rem',
               fontWeight: '600',
               marginBottom: '1rem',
             }}
           >
-            {jobStates[job.type]
-              ? `Job ${jobStates[job.type]}`
-              : loading[job.type]
-              ? 'Submitting...'
-              : 'Trigger Job'}
+            Trigger Job
           </button>
 
           {/* Result Message */}
@@ -436,8 +434,8 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                     {recentJobs[job.type].map((recentJob: any) => {
                       const duration =
                         recentJob.finishTimeMs && recentJob.startTimeMs
-                          ? ((recentJob.finishTimeMs - recentJob.startTimeMs) / 1000).toFixed(1)
-                          : '-';
+                          ? `${((recentJob.finishTimeMs - recentJob.startTimeMs) / 1000).toFixed(1)}s`
+                          : 'N/A';
                       const createdDate = new Date(recentJob.creationTimeMs);
                       const stateColor =
                         recentJob.state === 'SUCCEEDED'
@@ -493,7 +491,7 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                               color: '#6b7280',
                             }}
                           >
-                            {duration}s
+                            {duration}
                           </td>
                         </tr>
                       );

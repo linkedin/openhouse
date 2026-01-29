@@ -1035,7 +1035,7 @@ function TableDetailContent() {
                     <CompactDetailRow label="Replication" value={JSON.stringify(removeNullValues(table.policies.replication))} />
                   )}
                   {table.policies.history && (
-                    <CompactDetailRow label="Data Versions History" value={JSON.stringify(removeNullValues(table.policies.history))} />
+                    <CompactDetailRow label="Data Versions Retention" value={JSON.stringify(removeNullValues(table.policies.history))} />
                   )}
                 </div>
               </div>
