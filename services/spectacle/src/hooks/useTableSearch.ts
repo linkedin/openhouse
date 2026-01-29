@@ -57,8 +57,9 @@ export function useTableSearch() {
 
       // If searching for a specific table, filter the list
       if (specificTableId) {
+        const tableIdToFind = specificTableId.toLowerCase();
         const matchingTable = tableList.find(
-          (table: Table) => table.tableId.toLowerCase() === specificTableId.toLowerCase()
+          (table: Table) => table.tableId.toLowerCase() === tableIdToFind
         );
 
         if (!matchingTable) {

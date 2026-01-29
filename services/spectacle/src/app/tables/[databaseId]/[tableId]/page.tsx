@@ -197,16 +197,16 @@ function SchemaViewer({ currentSchema, metadata }: SchemaViewerProps) {
   }, [metadata]);
 
   const getFieldChanges = (currentSchema: any, previousSchema: any | null) => {
-    if (!previousSchema) return { newFieldIds: new Set() };
+    if (!previousSchema) return { newFieldIds: new Set<number>() };
 
     const currentFields = currentSchema.fields || [];
     const previousFields = previousSchema.fields || [];
     const previousFieldIds = new Set(previousFields.map((f: any) => f.id));
 
-    const newFieldIds = new Set(
+    const newFieldIds = new Set<number>(
       currentFields
         .filter((f: any) => !previousFieldIds.has(f.id))
-        .map((f: any) => f.id)
+        .map((f: any) => f.id as number)
     );
 
     return { newFieldIds };

@@ -8,12 +8,17 @@ export async function POST(request: NextRequest) {
     const tablesServiceUrl = process.env.NEXT_PUBLIC_TABLES_SERVICE_URL || 'http://localhost:8000';
     const bearerToken = getBearerToken();
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (bearerToken) {
+      headers['Authorization'] = `Bearer ${bearerToken}`;
+    }
+
     const response = await fetch(`${tablesServiceUrl}/v1/databases/${databaseId}/tables/search`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${bearerToken}`,
-      },
+      headers,
     });
 
     if (!response.ok) {
