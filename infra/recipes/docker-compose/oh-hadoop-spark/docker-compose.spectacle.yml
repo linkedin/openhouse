@@ -1,5 +1,17 @@
 version: "3.3"
 services:
+  openhouse-spectacle:
+    container_name: local.openhouse-spectacle
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-spectacle
+    depends_on:
+      - openhouse-tables
+      - openhouse-jobs
+    environment:
+      - NEXT_PUBLIC_TABLES_SERVICE_URL=http://localhost:8000
+      - NEXT_PUBLIC_JOBS_SERVICE_URL=http://localhost:8002
+
   openhouse-tables:
     container_name: local.openhouse-tables
     extends:
@@ -49,8 +61,11 @@ services:
     volumes:
       - ./:/var/config/
     depends_on:
-      - prometheus
-      - mysql
+      prometheus:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    restart: on-failure
     environment:
       - HTS_DB_USER=oh_user
       - HTS_DB_PASSWORD=oh_password
@@ -115,3 +130,8 @@ services:
 volumes:
   hadoop_namenode:
   hadoop_datanode:
+
+
+networks:
+  openhouse-network:
+    driver: bridge

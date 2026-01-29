@@ -105,3 +105,6 @@ terraform.rc
 
 # Ignore the spark shell bash file because it contains secrets
 start-spark-shell.sh
+
+# Ignore nextjs env files
+.env*
