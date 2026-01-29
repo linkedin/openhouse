@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.jobs.api.handler.JobsApiHandler;
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.spec.response.JobResponseBody;
+import com.linkedin.openhouse.jobs.api.spec.response.JobSearchResponseBody;
 import io.micrometer.core.annotation.Timed;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,12 +18,41 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Class defining all the REST Endpoints for /jobs endpoint. */
 @RestController
 public class JobsController {
   @Autowired private JobsApiHandler jobsApiHandler;
+
+  @Operation(
+      summary = "Search Jobs",
+      description = "Search for jobs by job name prefix.",
+      tags = {"Job"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Job Search: OK"),
+        @ApiResponse(responseCode = "400", description = "Job Search: BAD_REQUEST")
+      })
+  @GetMapping(
+      value = "/jobs",
+      produces = {"application/json"})
+  @Timed(
+      value = MetricsConstant.REQUEST,
+      extraTags = {"service", MetricsConstant.JOBS_SERVICE, "action", "search"})
+  public ResponseEntity<JobSearchResponseBody> searchJobs(
+      @Parameter(description = "Job name prefix", required = true) @RequestParam
+          String jobNamePrefix,
+      @Parameter(description = "Maximum number of results", required = false)
+          @RequestParam(defaultValue = "10")
+          int limit) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<JobSearchResponseBody> apiResponse =
+        jobsApiHandler.search(jobNamePrefix, limit);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
 
   @Operation(
       summary = "Get Job",

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.jobs.api.handler;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.spec.response.JobResponseBody;
+import com.linkedin.openhouse.jobs.api.spec.response.JobSearchResponseBody;
 
 /**
  * Interface layer between REST and Jobs backend. The implementation is injected into the Service
@@ -32,4 +33,13 @@ public interface JobsApiHandler {
    * @return empty body on successful cancellation
    */
   ApiResponse<Void> cancel(String jobId);
+
+  /**
+   * Function to search for jobs by job name prefix
+   *
+   * @param jobNamePrefix prefix to search for in job names
+   * @param limit maximum number of results to return
+   * @return the search response body containing list of jobs
+   */
+  ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit);
 }

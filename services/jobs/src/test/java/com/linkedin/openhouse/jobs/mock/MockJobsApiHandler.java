@@ -7,6 +7,8 @@ import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.jobs.api.handler.JobsApiHandler;
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.spec.response.JobResponseBody;
+import com.linkedin.openhouse.jobs.api.spec.response.JobSearchResponseBody;
+import java.util.ArrayList;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -61,5 +63,15 @@ public class MockJobsApiHandler implements JobsApiHandler {
       default:
         return null;
     }
+  }
+
+  @Override
+  public ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit) {
+    JobSearchResponseBody responseBody =
+        JobSearchResponseBody.builder().results(new ArrayList<>()).build();
+    return ApiResponse.<JobSearchResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(responseBody)
+        .build();
   }
 }

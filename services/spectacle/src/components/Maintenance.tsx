@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Table } from '@/types/table';
 
 interface MaintenanceJob {
@@ -98,14 +98,101 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
   const [activeTab, setActiveTab] = useState<string>(MAINTENANCE_JOBS[0].type);
   const [loading, setLoading] = useState<{ [key: string]: boolean }>({});
   const [results, setResults] = useState<{ [key: string]: { success: boolean; message: string } }>({});
+  const [jobIds, setJobIds] = useState<{ [key: string]: string }>({});
+  const [jobStates, setJobStates] = useState<{ [key: string]: string }>({});
+  const [recentJobs, setRecentJobs] = useState<{ [key: string]: any[] }>({});
+  const pollIntervalRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
   const handleRequestChange = (jobType: string, value: string) => {
     setJobRequests((prev) => ({ ...prev, [jobType]: value }));
   };
 
+  const fetchRecentJobs = async (jobType: string) => {
+    try {
+      const jobNamePrefix = `${jobType.toLowerCase()}_${tableId}`;
+      const response = await fetch(`/api/jobs?jobNamePrefix=${encodeURIComponent(jobNamePrefix)}&limit=10`);
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      setRecentJobs((prev) => ({ ...prev, [jobType]: data.results || [] }));
+    } catch (err) {
+      // Silently handle errors
+    }
+  };
+
+  const TERMINAL_STATES = ['CANCELLED', 'FAILED', 'SUCCEEDED'];
+
+  const pollJobStatus = async (jobType: string, jobId: string) => {
+    try {
+      const response = await fetch(`/api/jobs/${jobId}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch job status');
+      }
+
+      const data = await response.json();
+      const state = data.state;
+
+      setJobStates((prev) => ({ ...prev, [jobType]: state }));
+
+      // Stop polling if terminal state is reached
+      if (TERMINAL_STATES.includes(state)) {
+        if (pollIntervalRefs.current[jobType]) {
+          clearInterval(pollIntervalRefs.current[jobType]);
+          delete pollIntervalRefs.current[jobType];
+        }
+        setLoading((prev) => ({ ...prev, [jobType]: false }));
+
+        // Update result message with final status
+        const success = state === 'SUCCEEDED';
+        setResults((prev) => ({
+          ...prev,
+          [jobType]: {
+            success,
+            message: `Job ${state.toLowerCase()}! Job ID: ${jobId}`,
+          },
+        }));
+
+        // Refresh recent jobs list
+        fetchRecentJobs(jobType);
+      }
+    } catch (err) {
+      // Silently handle polling errors
+    }
+  };
+
+  // Cleanup polling intervals on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(pollIntervalRefs.current).forEach((interval) => {
+        clearInterval(interval);
+      });
+    };
+  }, []);
+
+  // Fetch recent jobs when active tab changes
+  useEffect(() => {
+    fetchRecentJobs(activeTab);
+  }, [activeTab, tableId]);
+
   const handleTriggerJob = async (jobType: string) => {
+    // Clear any existing polling interval for this job type
+    if (pollIntervalRefs.current[jobType]) {
+      clearInterval(pollIntervalRefs.current[jobType]);
+      delete pollIntervalRefs.current[jobType];
+    }
+
     setLoading((prev) => ({ ...prev, [jobType]: true }));
     setResults((prev) => ({ ...prev, [jobType]: { success: false, message: '' } }));
+    setJobStates((prev) => ({ ...prev, [jobType]: 'SUBMITTING' }));
 
     try {
       const requestBody = JSON.parse(jobRequests[jobType]);
@@ -124,11 +211,24 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
       }
 
       const data = await response.json();
+      const jobId = data.jobId;
+
+      setJobIds((prev) => ({ ...prev, [jobType]: jobId }));
+      setJobStates((prev) => ({ ...prev, [jobType]: data.state || 'QUEUED' }));
+
+      // Start polling for job status every 2 seconds
+      pollIntervalRefs.current[jobType] = setInterval(() => {
+        pollJobStatus(jobType, jobId);
+      }, 2000);
+
+      // Poll immediately once
+      pollJobStatus(jobType, jobId);
+
       setResults((prev) => ({
         ...prev,
         [jobType]: {
           success: true,
-          message: `Job submitted successfully! Job ID: ${data.jobId || 'N/A'}`,
+          message: `Job submitted! Job ID: ${jobId}`,
         },
       }));
     } catch (err) {
@@ -139,8 +239,12 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
           message: err instanceof Error ? err.message : 'An error occurred',
         },
       }));
-    } finally {
       setLoading((prev) => ({ ...prev, [jobType]: false }));
+      setJobStates((prev) => {
+        const newState = { ...prev };
+        delete newState[jobType];
+        return newState;
+      });
     }
   };
 
@@ -257,7 +361,11 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
               marginBottom: '1rem',
             }}
           >
-            {loading[job.type] ? 'Submitting...' : 'Trigger Job'}
+            {jobStates[job.type]
+              ? `Job ${jobStates[job.type]}`
+              : loading[job.type]
+              ? 'Submitting...'
+              : 'Trigger Job'}
           </button>
 
           {/* Result Message */}
@@ -269,9 +377,130 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                 backgroundColor: results[job.type].success ? '#d1fae5' : '#fee2e2',
                 color: results[job.type].success ? '#065f46' : '#991b1b',
                 fontSize: '0.875rem',
+                marginBottom: '1rem',
               }}
             >
               {results[job.type].message}
+            </div>
+          )}
+
+          {/* Recent Jobs */}
+          {recentJobs[job.type] && recentJobs[job.type].length > 0 && (
+            <div
+              style={{
+                marginTop: '1.5rem',
+                borderTop: '1px solid #e5e7eb',
+                paddingTop: '1rem',
+              }}
+            >
+              <h3
+                style={{
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  marginBottom: '0.75rem',
+                  color: '#374151',
+                }}
+              >
+                Recent Jobs
+              </h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table
+                  style={{
+                    width: '100%',
+                    fontSize: '0.75rem',
+                    borderCollapse: 'collapse',
+                  }}
+                >
+                  <thead>
+                    <tr
+                      style={{
+                        backgroundColor: '#f9fafb',
+                        borderBottom: '1px solid #e5e7eb',
+                      }}
+                    >
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
+                        Job ID
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
+                        State
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
+                        Created
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
+                        Duration
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentJobs[job.type].map((recentJob: any) => {
+                      const duration =
+                        recentJob.finishTimeMs && recentJob.startTimeMs
+                          ? ((recentJob.finishTimeMs - recentJob.startTimeMs) / 1000).toFixed(1)
+                          : '-';
+                      const createdDate = new Date(recentJob.creationTimeMs);
+                      const stateColor =
+                        recentJob.state === 'SUCCEEDED'
+                          ? '#10b981'
+                          : recentJob.state === 'FAILED'
+                          ? '#ef4444'
+                          : recentJob.state === 'CANCELLED'
+                          ? '#f59e0b'
+                          : '#6b7280';
+
+                      return (
+                        <tr
+                          key={recentJob.jobId}
+                          style={{
+                            borderBottom: '1px solid #f3f4f6',
+                          }}
+                        >
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#374151',
+                              fontFamily: 'monospace',
+                              fontSize: '0.7rem',
+                              maxWidth: '300px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={recentJob.jobId}
+                          >
+                            {recentJob.jobId}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: stateColor,
+                              fontWeight: '600',
+                            }}
+                          >
+                            {recentJob.state}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#6b7280',
+                            }}
+                          >
+                            {createdDate.toLocaleString()}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#6b7280',
+                            }}
+                          >
+                            {duration}s
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

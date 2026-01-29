@@ -12,9 +12,11 @@ import com.linkedin.openhouse.jobs.model.JobDto;
 import com.linkedin.openhouse.jobs.model.JobDtoPrimaryKey;
 import com.linkedin.openhouse.jobs.repository.JobsInternalRepository;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -94,5 +96,11 @@ public class JobsServiceImpl implements JobsService {
 
   private String generateJobId(String jobName) {
     return jobName + "_" + UUID.randomUUID();
+  }
+
+  @Override
+  public List<JobDto> search(String jobNamePrefix, int limit) {
+    METRICS_REPORTER.count(MetricsConstant.REQUEST_COUNT, MetricsConstant.ACTION_TAG, "search");
+    return repository.findByJobNameStartingWith(jobNamePrefix, PageRequest.of(0, limit));
   }
 }
