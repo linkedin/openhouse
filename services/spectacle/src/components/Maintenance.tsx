@@ -143,6 +143,9 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
 
       setJobStates((prev) => ({ ...prev, [jobType]: state }));
 
+      // Refresh recent jobs list on each poll to show state changes
+      fetchRecentJobs(jobType);
+
       // Stop polling if terminal state is reached
       if (TERMINAL_STATES.includes(state)) {
         if (pollIntervalRefs.current[jobType]) {
@@ -160,9 +163,6 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
             message: `Job ${state.toLowerCase()}! Job ID: ${jobId}`,
           },
         }));
-
-        // Refresh recent jobs list
-        fetchRecentJobs(jobType);
       }
     } catch (err) {
       // Silently handle polling errors
@@ -416,17 +416,32 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                         borderBottom: '1px solid #e5e7eb',
                       }}
                     >
-                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
-                        Job ID
-                      </th>
-                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
                         State
                       </th>
-                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        Execution ID
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        Job ID
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
                         Created
                       </th>
-                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280' }}>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        Started
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        Last Update
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
                         Duration
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        Engine Type
+                      </th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        Cluster ID
                       </th>
                     </tr>
                   </thead>
@@ -437,6 +452,8 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                           ? `${((recentJob.finishTimeMs - recentJob.startTimeMs) / 1000).toFixed(1)}s`
                           : 'N/A';
                       const createdDate = new Date(recentJob.creationTimeMs);
+                      const startedDate = recentJob.startTimeMs ? new Date(recentJob.startTimeMs) : null;
+                      const lastUpdateDate = recentJob.lastUpdateTimeMs ? new Date(recentJob.lastUpdateTimeMs) : null;
                       const stateColor =
                         recentJob.state === 'SUCCEEDED'
                           ? '#10b981'
@@ -444,6 +461,8 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                           ? '#ef4444'
                           : recentJob.state === 'CANCELLED'
                           ? '#f59e0b'
+                          : recentJob.state === 'RUNNING'
+                          ? '#3b82f6'
                           : '#6b7280';
 
                       return (
@@ -456,12 +475,31 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                           <td
                             style={{
                               padding: '0.5rem',
+                              color: stateColor,
+                              fontWeight: '600',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {recentJob.state}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#6b7280',
+                              fontFamily: 'monospace',
+                              fontSize: '0.7rem',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={recentJob.executionId}
+                          >
+                            {recentJob.executionId || 'N/A'}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
                               color: '#374151',
                               fontFamily: 'monospace',
                               fontSize: '0.7rem',
-                              maxWidth: '300px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
                             }}
                             title={recentJob.jobId}
@@ -471,16 +509,8 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                           <td
                             style={{
                               padding: '0.5rem',
-                              color: stateColor,
-                              fontWeight: '600',
-                            }}
-                          >
-                            {recentJob.state}
-                          </td>
-                          <td
-                            style={{
-                              padding: '0.5rem',
                               color: '#6b7280',
+                              whiteSpace: 'nowrap',
                             }}
                           >
                             {createdDate.toLocaleString()}
@@ -489,9 +519,48 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                             style={{
                               padding: '0.5rem',
                               color: '#6b7280',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {startedDate ? startedDate.toLocaleString() : 'N/A'}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#6b7280',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {lastUpdateDate ? lastUpdateDate.toLocaleString() : 'N/A'}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#6b7280',
+                              whiteSpace: 'nowrap',
                             }}
                           >
                             {duration}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#6b7280',
+                              fontSize: '0.75rem',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {recentJob.engineType || 'N/A'}
+                          </td>
+                          <td
+                            style={{
+                              padding: '0.5rem',
+                              color: '#6b7280',
+                              fontSize: '0.75rem',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {recentJob.clusterId || 'N/A'}
                           </td>
                         </tr>
                       );
