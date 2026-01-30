@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SuppressWarnings({"PMD", "checkstyle:hideutilityclassconstructor"})
 @SpringBootApplication(
@@ -17,6 +18,7 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
     })
 @EntityScan(basePackages = {"com.linkedin.openhouse.jobs.model"})
 @EnableAutoConfiguration(exclude = {DataSourceAutoConfiguration.class})
+@EnableScheduling
 public class JobsSpringApplication {
 
   public static void main(String[] args) {
