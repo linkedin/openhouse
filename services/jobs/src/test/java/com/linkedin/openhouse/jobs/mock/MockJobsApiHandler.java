@@ -66,9 +66,14 @@ public class MockJobsApiHandler implements JobsApiHandler {
   }
 
   @Override
-  public ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit) {
+  public ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit, int offset) {
     JobSearchResponseBody responseBody =
-        JobSearchResponseBody.builder().results(new ArrayList<>()).build();
+        JobSearchResponseBody.builder()
+            .results(new ArrayList<>())
+            .totalCount(0L)
+            .offset(offset)
+            .limit(limit)
+            .build();
     return ApiResponse.<JobSearchResponseBody>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(responseBody)

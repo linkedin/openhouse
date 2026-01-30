@@ -99,8 +99,15 @@ public class JobsServiceImpl implements JobsService {
   }
 
   @Override
-  public List<JobDto> search(String jobNamePrefix, int limit) {
+  public List<JobDto> search(String jobNamePrefix, int limit, int offset) {
     METRICS_REPORTER.count(MetricsConstant.REQUEST_COUNT, MetricsConstant.ACTION_TAG, "search");
-    return repository.findByJobNameStartingWith(jobNamePrefix, PageRequest.of(0, limit));
+    return repository.findByJobNameStartingWith(
+        jobNamePrefix, PageRequest.of(offset / limit, limit));
+  }
+
+  @Override
+  public long count(String jobNamePrefix) {
+    METRICS_REPORTER.count(MetricsConstant.REQUEST_COUNT, MetricsConstant.ACTION_TAG, "count");
+    return repository.countByJobNameStartingWith(jobNamePrefix);
   }
 }

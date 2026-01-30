@@ -46,13 +46,20 @@ public class OpenHouseJobsApiHandler implements JobsApiHandler {
   }
 
   @Override
-  public ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit) {
-    List<JobDto> jobs = service.search(jobNamePrefix, limit);
+  public ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit, int offset) {
+    List<JobDto> jobs = service.search(jobNamePrefix, limit, offset);
+    long totalCount = service.count(jobNamePrefix);
     List<JobResponseBody> results =
         jobs.stream().map(mapper::toGetJobResponseBody).collect(Collectors.toList());
     return ApiResponse.<JobSearchResponseBody>builder()
         .httpStatus(HttpStatus.OK)
-        .responseBody(JobSearchResponseBody.builder().results(results).build())
+        .responseBody(
+            JobSearchResponseBody.builder()
+                .results(results)
+                .totalCount(totalCount)
+                .offset(offset)
+                .limit(limit)
+                .build())
         .build();
   }
 }

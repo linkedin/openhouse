@@ -134,11 +134,29 @@ public class JobsInternalRepositoryImpl implements JobsInternalRepository {
                     .map(jobsMapper::toJobDto)
                     .filter(job -> job.getJobName().startsWith(prefix))
                     .sort(Comparator.comparing(JobDto::getCreationTimeMs).reversed())
+                    .skip((long) pageable.getPageNumber() * pageable.getPageSize())
                     .take(pageable.getPageSize())
                     .onErrorResume(this::handleHtsHttpError)
                     .collectList()
                     .blockOptional(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
                     .get());
+  }
+
+  @Override
+  public long countByJobNameStartingWith(String prefix) {
+    return getHtsRetryTemplate()
+        .execute(
+            context ->
+                jobApi
+                    .getAllJobs(ImmutableMap.of())
+                    .map(GetAllEntityResponseBodyJob::getResults)
+                    .flatMapMany(Flux::fromIterable)
+                    .map(jobsMapper::toJobDto)
+                    .filter(job -> job.getJobName().startsWith(prefix))
+                    .count()
+                    .onErrorResume(e -> Mono.just(0L))
+                    .blockOptional(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
+                    .orElse(0L));
   }
 
   private Optional<String> getCurrentVersion(String jobId) {

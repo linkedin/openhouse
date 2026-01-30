@@ -27,6 +27,182 @@ const MAINTENANCE_JOBS: MaintenanceJob[] = [
   { type: 'DATA_LAYOUT_STRATEGY_EXECUTION', args: [] },
 ];
 
+interface PaginationControlsProps {
+  currentPage: number;
+  totalCount: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}
+
+function PaginationControls({ currentPage, totalCount, pageSize, onPageChange }: PaginationControlsProps) {
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  // Don't show pagination if there's only one page or less
+  if (totalPages <= 1) {
+    return null;
+  }
+
+  const canGoPrevious = currentPage > 1;
+  const canGoNext = currentPage < totalPages;
+
+  // Generate page numbers to display (show current, +/- 2 pages, first and last)
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    const maxPagesToShow = 7;
+
+    if (totalPages <= maxPagesToShow) {
+      // Show all pages
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      // Always show first page
+      pages.push(1);
+
+      // Show pages around current page
+      const startPage = Math.max(2, currentPage - 1);
+      const endPage = Math.min(totalPages - 1, currentPage + 1);
+
+      if (startPage > 2) {
+        pages.push('...');
+      }
+
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+
+      if (endPage < totalPages - 1) {
+        pages.push('...');
+      }
+
+      // Always show last page
+      pages.push(totalPages);
+    }
+
+    return pages;
+  };
+
+  const buttonBaseStyle: React.CSSProperties = {
+    padding: '0.5rem 0.75rem',
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    border: '1px solid #e5e7eb',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    backgroundColor: 'white',
+    color: '#374151',
+    transition: 'all 0.2s',
+    minWidth: '2.5rem',
+  };
+
+  const activeButtonStyle: React.CSSProperties = {
+    ...buttonBaseStyle,
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    borderColor: '#3b82f6',
+  };
+
+  const disabledButtonStyle: React.CSSProperties = {
+    ...buttonBaseStyle,
+    cursor: 'not-allowed',
+    opacity: 0.5,
+    backgroundColor: '#f3f4f6',
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginTop: '1rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid #e5e7eb',
+      }}
+    >
+      {/* Page info */}
+      <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+        Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} jobs
+      </div>
+
+      {/* Page controls */}
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        {/* Previous button */}
+        <button
+          onClick={() => canGoPrevious && onPageChange(currentPage - 1)}
+          disabled={!canGoPrevious}
+          style={!canGoPrevious ? disabledButtonStyle : buttonBaseStyle}
+          onMouseEnter={(e) => {
+            if (canGoPrevious) {
+              e.currentTarget.style.backgroundColor = '#f3f4f6';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (canGoPrevious) {
+              e.currentTarget.style.backgroundColor = 'white';
+            }
+          }}
+        >
+          Previous
+        </button>
+
+        {/* Page numbers */}
+        {getPageNumbers().map((page, idx) => {
+          if (page === '...') {
+            return (
+              <span key={`ellipsis-${idx}`} style={{ padding: '0 0.25rem', color: '#6b7280' }}>
+                ...
+              </span>
+            );
+          }
+
+          const pageNum = page as number;
+          const isActive = pageNum === currentPage;
+
+          return (
+            <button
+              key={pageNum}
+              onClick={() => onPageChange(pageNum)}
+              style={isActive ? activeButtonStyle : buttonBaseStyle}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.backgroundColor = 'white';
+                }
+              }}
+            >
+              {pageNum}
+            </button>
+          );
+        })}
+
+        {/* Next button */}
+        <button
+          onClick={() => canGoNext && onPageChange(currentPage + 1)}
+          disabled={!canGoNext}
+          style={!canGoNext ? disabledButtonStyle : buttonBaseStyle}
+          onMouseEnter={(e) => {
+            if (canGoNext) {
+              e.currentTarget.style.backgroundColor = '#f3f4f6';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (canGoNext) {
+              e.currentTarget.style.backgroundColor = 'white';
+            }
+          }}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Maintenance({ databaseId, tableId, table }: MaintenanceProps) {
   const fqtn = `${databaseId}.${tableId}`;
 
@@ -103,14 +279,34 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
   const [recentJobs, setRecentJobs] = useState<{ [key: string]: any[] }>({});
   const pollIntervalRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
+  // Pagination state
+  const [currentPages, setCurrentPages] = useState<{ [key: string]: number }>({});
+  const [totalCounts, setTotalCounts] = useState<{ [key: string]: number }>({});
+  const [pageSize] = useState(10);
+
+  // Use ref to always get the latest page number (avoids stale closure in polling intervals)
+  const currentPagesRef = useRef<{ [key: string]: number }>({});
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    currentPagesRef.current = currentPages;
+  }, [currentPages]);
+
+  const getCurrentPage = (jobType: string) => currentPagesRef.current[jobType] || 1;
+  const getTotalCount = (jobType: string) => totalCounts[jobType] || 0;
+
   const handleRequestChange = (jobType: string, value: string) => {
     setJobRequests((prev) => ({ ...prev, [jobType]: value }));
   };
 
-  const fetchRecentJobs = async (jobType: string) => {
+  const fetchRecentJobs = async (jobType: string, page?: number) => {
     try {
+      const currentPage = page || getCurrentPage(jobType);
+      const offset = (currentPage - 1) * pageSize;
       const jobNamePrefix = `${jobType.toLowerCase()}_${tableId}`;
-      const response = await fetch(`/api/jobs?jobNamePrefix=${encodeURIComponent(jobNamePrefix)}&limit=10`);
+      const response = await fetch(
+        `/api/jobs?jobNamePrefix=${encodeURIComponent(jobNamePrefix)}&limit=${pageSize}&offset=${offset}`
+      );
 
       if (!response.ok) {
         return;
@@ -118,9 +314,17 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
 
       const data = await response.json();
       setRecentJobs((prev) => ({ ...prev, [jobType]: data.results || [] }));
+      if (data.totalCount !== undefined) {
+        setTotalCounts((prev) => ({ ...prev, [jobType]: data.totalCount }));
+      }
     } catch (err) {
       // Silently handle errors
     }
+  };
+
+  const handlePageChange = (jobType: string, page: number) => {
+    setCurrentPages((prev) => ({ ...prev, [jobType]: page }));
+    fetchRecentJobs(jobType, page);
   };
 
   const TERMINAL_STATES = ['CANCELLED', 'FAILED', 'SUCCEEDED'];
@@ -143,8 +347,8 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
 
       setJobStates((prev) => ({ ...prev, [jobType]: state }));
 
-      // Refresh recent jobs list on each poll to show state changes
-      fetchRecentJobs(jobType);
+      // Refresh recent jobs list on each poll to show state changes, maintain current page
+      fetchRecentJobs(jobType, getCurrentPage(jobType));
 
       // Stop polling if terminal state is reached
       if (TERMINAL_STATES.includes(state)) {
@@ -180,6 +384,10 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
 
   // Fetch recent jobs when active tab changes
   useEffect(() => {
+    // Initialize page 1 for new tabs if not set
+    if (!currentPages[activeTab]) {
+      setCurrentPages((prev) => ({ ...prev, [activeTab]: 1 }));
+    }
     fetchRecentJobs(activeTab);
   }, [activeTab, tableId]);
 
@@ -216,8 +424,8 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
       setJobIds((prev) => ({ ...prev, [jobType]: jobId }));
       setJobStates((prev) => ({ ...prev, [jobType]: data.state || 'QUEUED' }));
 
-      // Refresh recent jobs list immediately with the response
-      fetchRecentJobs(jobType);
+      // Refresh recent jobs list immediately, maintaining current page
+      fetchRecentJobs(jobType, getCurrentPage(jobType));
 
       // Start polling for job status every 2 seconds
       pollIntervalRefs.current[jobType] = setInterval(() => {
@@ -568,6 +776,12 @@ export default function Maintenance({ databaseId, tableId, table }: MaintenanceP
                   </tbody>
                 </table>
               </div>
+              <PaginationControls
+                currentPage={getCurrentPage(job.type)}
+                totalCount={getTotalCount(job.type)}
+                pageSize={pageSize}
+                onPageChange={(page) => handlePageChange(job.type, page)}
+              />
             </div>
           )}
         </div>

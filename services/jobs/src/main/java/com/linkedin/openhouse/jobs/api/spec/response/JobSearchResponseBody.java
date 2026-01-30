@@ -17,4 +17,13 @@ import lombok.NoArgsConstructor;
 public class JobSearchResponseBody {
   @Schema(description = "List of jobs matching the search criteria")
   private List<JobResponseBody> results;
+
+  @Schema(description = "Total count of jobs matching the criteria")
+  private Long totalCount;
+
+  @Schema(description = "Number of results skipped")
+  private Integer offset;
+
+  @Schema(description = "Maximum number of results returned")
+  private Integer limit;
 }

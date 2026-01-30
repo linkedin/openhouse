@@ -46,10 +46,13 @@ public class JobsController {
           String jobNamePrefix,
       @Parameter(description = "Maximum number of results", required = false)
           @RequestParam(defaultValue = "10")
-          int limit) {
+          int limit,
+      @Parameter(description = "Number of results to skip", required = false)
+          @RequestParam(defaultValue = "0")
+          int offset) {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<JobSearchResponseBody> apiResponse =
-        jobsApiHandler.search(jobNamePrefix, limit);
+        jobsApiHandler.search(jobNamePrefix, limit, offset);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

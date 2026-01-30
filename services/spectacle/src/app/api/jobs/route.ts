@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const jobNamePrefix = searchParams.get('jobNamePrefix');
     const limit = searchParams.get('limit') || '10';
+    const offset = searchParams.get('offset') || '0';
 
     if (!jobNamePrefix) {
       return NextResponse.json(
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
     const url = new URL(`${jobsServiceUrl}/jobs`);
     url.searchParams.set('jobNamePrefix', jobNamePrefix);
     url.searchParams.set('limit', limit);
+    url.searchParams.set('offset', offset);
 
     const response = await fetch(url.toString(), {
       method: 'GET',

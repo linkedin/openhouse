@@ -35,11 +35,12 @@ public interface JobsApiHandler {
   ApiResponse<Void> cancel(String jobId);
 
   /**
-   * Function to search for jobs by job name prefix
+   * Function to search for jobs by job name prefix with pagination
    *
    * @param jobNamePrefix prefix to search for in job names
    * @param limit maximum number of results to return
-   * @return the search response body containing list of jobs
+   * @param offset number of results to skip
+   * @return the search response body containing list of jobs and pagination metadata
    */
-  ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit);
+  ApiResponse<JobSearchResponseBody> search(String jobNamePrefix, int limit, int offset);
 }

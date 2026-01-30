@@ -10,4 +10,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface JobsInternalRepository extends CrudRepository<JobDto, JobDtoPrimaryKey> {
   List<JobDto> findByJobNameStartingWith(String prefix, Pageable pageable);
+
+  long countByJobNameStartingWith(String prefix);
 }
