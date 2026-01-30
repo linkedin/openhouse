@@ -78,8 +78,8 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
       border: '1px solid #e5e7eb',
       borderRadius: '8px',
       backgroundColor: isCurrent ? '#eff6ff' : 'white',
-      overflow: 'hidden',
-      minHeight: '56px'
+      overflow: 'visible',
+      transition: 'all 0.2s ease-in-out'
     }}>
       {/* Card Header - Always Visible */}
       <div
@@ -136,7 +136,12 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
 
       {/* Expandable Content */}
       {isExpanded && (
-        <div style={{ padding: '1rem', maxHeight: '800px', overflowY: 'auto' }}>
+        <div style={{ 
+          padding: '1rem', 
+          maxHeight: '500px', 
+          overflowY: 'auto',
+          backgroundColor: 'white'
+        }}>
           {/* Data Changes Section */}
           <div style={{ marginBottom: '1.5rem' }}>
             <h4 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -889,7 +894,7 @@ function TableDetailContent() {
                         }}>
                           Snapshots ({snapshots.length})
                         </h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '600px', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                           {snapshots
                             .sort((a: any, b: any) => b['timestamp-ms'] - a['timestamp-ms'])
                             .map((snapshot: any, index: number) => {
