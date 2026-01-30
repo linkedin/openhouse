@@ -780,28 +780,99 @@ function TableDetailContent() {
             {icebergMetadata && !metadataLoading && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {/* Current Snapshot ID */}
-                {icebergMetadata.currentSnapshotId && (
-                  <div>
-                    <h3 style={{
-                      fontSize: '1rem',
-                      fontWeight: '600',
-                      marginBottom: '0.75rem',
-                      color: '#374151'
-                    }}>
-                      Current Snapshot
-                    </h3>
-                    <div style={{
-                      backgroundColor: '#f9fafb',
-                      padding: '0.75rem',
-                      borderRadius: '6px',
-                      fontFamily: 'monospace',
-                      fontSize: '0.875rem',
-                      color: '#374151'
-                    }}>
-                      {icebergMetadata.currentSnapshotId}
+                {icebergMetadata.currentSnapshotId && (() => {
+                  // Find the current snapshot to get its summary data
+                  let currentSnapshotSummary = null;
+                  try {
+                    if (icebergMetadata.snapshots) {
+                      const snapshots = JSON.parse(icebergMetadata.snapshots);
+                      const currentSnapshot = snapshots.find((s: any) => s['snapshot-id'] === icebergMetadata.currentSnapshotId);
+                      if (currentSnapshot && currentSnapshot.summary) {
+                        currentSnapshotSummary = currentSnapshot.summary;
+                      }
+                    }
+                  } catch (e) {
+                    console.error('Error parsing current snapshot:', e);
+                  }
+
+                  const formatValue = (value: string | number) => {
+                    if (value === 'N/A' || value === undefined || value === null) return 'N/A';
+                    return Number(value).toLocaleString();
+                  };
+
+                  const formatBytes = (bytes: string | number) => {
+                    if (bytes === 'N/A' || bytes === undefined || bytes === null) return 'N/A';
+                    const num = Number(bytes);
+                    if (num === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(num) / Math.log(k));
+                    return Math.round((num / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+                  };
+
+                  const totalRecords = currentSnapshotSummary?.['total-records'] || 'N/A';
+                  const totalFiles = currentSnapshotSummary?.['total-data-files'] || 'N/A';
+                  const totalSize = currentSnapshotSummary?.['total-files-size'] || 'N/A';
+
+                  return (
+                    <div>
+                      <h3 style={{
+                        fontSize: '1rem',
+                        fontWeight: '600',
+                        marginBottom: '0.75rem',
+                        color: '#374151'
+                      }}>
+                        Current Snapshot
+                      </h3>
+                      <div style={{
+                        backgroundColor: '#f9fafb',
+                        padding: '0.75rem',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}>
+                        <div style={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.875rem',
+                          color: '#374151',
+                          fontWeight: '600'
+                        }}>
+                          {icebergMetadata.currentSnapshotId}
+                        </div>
+                        {currentSnapshotSummary && (
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: '0.75rem',
+                            marginTop: '0.25rem',
+                            paddingTop: '0.5rem',
+                            borderTop: '1px solid #e5e7eb'
+                          }}>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Records</div>
+                              <div style={{ fontFamily: 'monospace', fontSize: '0.875rem', color: '#374151', fontWeight: '500' }}>
+                                {formatValue(totalRecords)}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Files</div>
+                              <div style={{ fontFamily: 'monospace', fontSize: '0.875rem', color: '#374151', fontWeight: '500' }}>
+                                {formatValue(totalFiles)}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Size</div>
+                              <div style={{ fontFamily: 'monospace', fontSize: '0.875rem', color: '#374151', fontWeight: '500' }}>
+                                {formatBytes(totalSize)}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Snapshots */}
                 {icebergMetadata.snapshots && (() => {
