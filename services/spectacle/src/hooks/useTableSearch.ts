@@ -8,8 +8,10 @@ export function useTableSearch() {
   const [error, setError] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
 
-  const searchTables = async () => {
-    if (!databaseId.trim()) {
+  const searchTables = async (overrideDatabaseId?: string) => {
+    const dbIdToSearch = overrideDatabaseId !== undefined ? overrideDatabaseId : databaseId;
+
+    if (!dbIdToSearch.trim()) {
       setError('Please enter a database ID or database.table format');
       return;
     }
@@ -19,11 +21,11 @@ export function useTableSearch() {
 
     try {
       // Parse input - check if it's in "database.table" format
-      let searchDatabaseId = databaseId.trim();
+      let searchDatabaseId = dbIdToSearch.trim();
       let specificTableId: string | null = null;
 
-      if (databaseId.includes('.')) {
-        const parts = databaseId.split('.');
+      if (dbIdToSearch.includes('.')) {
+        const parts = dbIdToSearch.split('.');
         if (parts.length === 2) {
           searchDatabaseId = parts[0];
           specificTableId = parts[1];

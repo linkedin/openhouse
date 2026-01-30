@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 interface SearchBarProps {
   databaseId: string;
   onDatabaseIdChange: (value: string) => void;
-  onSearch: () => void;
+  onSearch: (overrideDatabaseId?: string) => void;
   loading: boolean;
 }
 
@@ -97,8 +97,8 @@ export default function SearchBar({
   const handleSuggestionClick = (suggestion: string) => {
     onDatabaseIdChange(suggestion);
     setShowSuggestions(false);
-    // Automatically trigger search after selection
-    setTimeout(() => onSearch(), 100);
+    // Automatically trigger search with the selected suggestion value
+    onSearch(suggestion);
   };
 
   const getFilteredSuggestions = () => {
@@ -232,7 +232,7 @@ export default function SearchBar({
         </div>
 
         <button
-          onClick={onSearch}
+          onClick={() => onSearch()}
           disabled={loading}
           style={{
             padding: '0.75rem 2rem',
