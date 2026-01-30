@@ -15,6 +15,9 @@ hs_err_pid*
 *.iws
 .idea
 
+# VS Code
+.vscode/
+
 # LinkedIn / Gradle / Hardware
 .cache
 .gradle
