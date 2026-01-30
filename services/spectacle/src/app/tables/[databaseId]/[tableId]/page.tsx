@@ -4,6 +4,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, Suspense } from 'react';
 import { Table } from '@/types/table';
 import Maintenance from '@/components/Maintenance';
+import Permissions from '@/components/Permissions';
 
 interface IcebergMetadata {
   tableId: string;
@@ -1112,6 +1113,9 @@ function TableDetailContent() {
 
         {/* Maintenance Operations */}
         <Maintenance databaseId={databaseId} tableId={tableId} table={table} />
+
+        {/* Permissions (ACL Policies) */}
+        <Permissions databaseId={databaseId} tableId={tableId} />
       </div>
     </main>
   );
