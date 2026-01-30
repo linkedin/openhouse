@@ -33,6 +33,11 @@ interface SnapshotCardProps {
 function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: SnapshotCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Defensive checks
+  if (snapshotId === undefined || snapshotId === null) {
+    return null;
+  }
+
   const formatValue = (value: string | number) => {
     if (value === 'N/A' || value === undefined || value === null) return 'N/A';
     return Number(value).toLocaleString();
@@ -73,7 +78,8 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
       border: '1px solid #e5e7eb',
       borderRadius: '8px',
       backgroundColor: isCurrent ? '#eff6ff' : 'white',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      minHeight: '56px'
     }}>
       {/* Card Header - Always Visible */}
       <div
@@ -742,9 +748,7 @@ function TableDetailContent() {
             backgroundColor: 'white',
             padding: '1.5rem',
             borderRadius: '8px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            maxHeight: '800px',
-            overflowY: 'auto'
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
           }}>
             <h2 style={{
               fontSize: '1.25rem',
@@ -800,32 +804,57 @@ function TableDetailContent() {
                 )}
 
                 {/* Snapshots */}
-                {icebergMetadata.snapshots && (
-                  <div>
-                    <h3 style={{
-                      fontSize: '1rem',
-                      fontWeight: '600',
-                      marginBottom: '0.75rem',
-                      color: '#374151'
-                    }}>
-                      Snapshots ({JSON.parse(icebergMetadata.snapshots).length})
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '1000px', overflowY: 'auto' }}>
-                      {JSON.parse(icebergMetadata.snapshots)
-                        .sort((a: any, b: any) => b['timestamp-ms'] - a['timestamp-ms'])
-                        .map((snapshot: any) => (
-                          <SnapshotCard
-                            key={snapshot['snapshot-id']}
-                            snapshotId={snapshot['snapshot-id']}
-                            operation={snapshot.operation || snapshot.summary?.operation || 'unknown'}
-                            timestamp={formatDate(snapshot['timestamp-ms'])}
-                            summary={snapshot.summary || {}}
-                            isCurrent={snapshot['snapshot-id'] === icebergMetadata.currentSnapshotId}
-                          />
-                        ))}
-                    </div>
-                  </div>
-                )}
+                {icebergMetadata.snapshots && (() => {
+                  try {
+                    const snapshots = JSON.parse(icebergMetadata.snapshots);
+
+                    return (
+                      <div>
+                        <h3 style={{
+                          fontSize: '1rem',
+                          fontWeight: '600',
+                          marginBottom: '0.75rem',
+                          color: '#374151'
+                        }}>
+                          Snapshots ({snapshots.length})
+                        </h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '600px', overflowY: 'auto' }}>
+                          {snapshots
+                            .sort((a: any, b: any) => b['timestamp-ms'] - a['timestamp-ms'])
+                            .map((snapshot: any, index: number) => {
+                              // Extract operation from various possible locations
+                              const operation = snapshot.operation
+                                || snapshot.summary?.operation
+                                || (snapshot.summary && Object.keys(snapshot.summary).length > 0 ? 'append' : 'unknown');
+
+                              return (
+                                <SnapshotCard
+                                  key={snapshot['snapshot-id'] || index}
+                                  snapshotId={snapshot['snapshot-id']}
+                                  operation={operation}
+                                  timestamp={formatDate(snapshot['timestamp-ms'])}
+                                  summary={snapshot.summary || {}}
+                                  isCurrent={snapshot['snapshot-id'] === icebergMetadata.currentSnapshotId}
+                                />
+                              );
+                            })}
+                        </div>
+                      </div>
+                    );
+                  } catch (e) {
+                    console.error('Error parsing snapshots:', e);
+                    return (
+                      <div style={{
+                        backgroundColor: '#fef2f2',
+                        color: '#991b1b',
+                        padding: '1rem',
+                        borderRadius: '6px'
+                      }}>
+                        Failed to parse snapshots data. Check console for details.
+                      </div>
+                    );
+                  }
+                })()}
 
                 {/* Metadata History */}
                 {(() => {
