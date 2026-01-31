@@ -44,9 +44,9 @@ public class GetIcebergMetadataResponseBody {
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String partitions;
 
-  @Schema(description = "Current snapshot ID")
+  @Schema(description = "Current snapshot ID (as string to preserve precision in JavaScript)")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
-  private Long currentSnapshotId;
+  private String currentSnapshotId;
 
   public String toJson() {
     return new Gson().toJson(this);

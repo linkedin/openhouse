@@ -15,7 +15,7 @@ public class IcebergMetadata {
   String metadataLocation;
   String snapshots;
   String partitions;
-  Long currentSnapshotId;
+  String currentSnapshotId; // String to preserve precision in JavaScript
 
   /** Represents a metadata version entry */
   @Builder

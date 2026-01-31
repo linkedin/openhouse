@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.handler.impl;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.IcebergMetadataApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetIcebergMetadataResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetMetadataDiffResponseBody;
 import com.linkedin.openhouse.tables.dto.mapper.TableMetadataMapper;
 import com.linkedin.openhouse.tables.services.IcebergMetadataService;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,18 @@ public class OpenHouseIcebergMetadataApiHandler implements IcebergMetadataApiHan
         .responseBody(
             tableMetadataMapper.toResponseBody(
                 icebergMetadataService.getIcebergMetadata(databaseId, tableId, actingPrincipal)))
+        .build();
+  }
+
+  @Override
+  public ApiResponse<GetMetadataDiffResponseBody> getMetadataDiff(
+      String databaseId, String tableId, Long snapshotId, String actingPrincipal) {
+    return ApiResponse.<GetMetadataDiffResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            tableMetadataMapper.toMetadataDiffResponseBody(
+                icebergMetadataService.getMetadataDiff(
+                    databaseId, tableId, snapshotId, actingPrincipal)))
         .build();
   }
 }

@@ -29,6 +29,11 @@ export default function TableRow({ table, index }: TableRowProps) {
     router.push(`/tables/${encodeURIComponent(table.databaseId)}/${encodeURIComponent(table.tableId)}?db=${encodeURIComponent(databaseId)}`);
   };
 
+  const handleDatabaseClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent row click
+    router.push(`/databases/${encodeURIComponent(table.databaseId)}`);
+  };
+
   return (
     <tr
       key={`${table.databaseId}-${table.tableId}-${index}`}
@@ -58,8 +63,25 @@ export default function TableRow({ table, index }: TableRowProps) {
           </span>
         )}
       </td>
-      <td style={{ padding: '0.75rem 1.5rem', color: '#6b7280' }}>
-        {table.databaseId}
+      <td style={{ padding: '0.75rem 1.5rem' }}>
+        <span
+          onClick={handleDatabaseClick}
+          style={{
+            color: '#3b82f6',
+            cursor: 'pointer',
+            textDecoration: 'underline',
+            textDecorationColor: 'transparent',
+            transition: 'text-decoration-color 0.2s'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.textDecorationColor = '#3b82f6';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.textDecorationColor = 'transparent';
+          }}
+        >
+          {table.databaseId}
+        </span>
       </td>
       <td style={{ padding: '0.75rem 1.5rem' }}>
         <span style={{

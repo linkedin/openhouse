@@ -5,6 +5,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { Table } from '@/types/table';
 import Maintenance from '@/components/Maintenance';
 import Permissions from '@/components/Permissions';
+import MetadataDiffModal from '@/components/MetadataDiffModal';
 
 interface IcebergMetadata {
   tableId: string;
@@ -19,23 +20,29 @@ interface IcebergMetadata {
   metadataLocation: string;
   snapshots: string | null;
   partitions: string | null;
-  currentSnapshotId: number | null;
+  currentSnapshotId: number | string | null;
 }
 
 interface SnapshotCardProps {
-  snapshotId: number;
+  snapshotId: number | string;
   operation: string;
   timestamp: string;
   summary: Record<string, string>;
   isCurrent: boolean;
+  onViewDiff: (snapshotId: number | string) => void;
 }
 
-function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: SnapshotCardProps) {
+function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, onViewDiff }: SnapshotCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Defensive checks
   if (snapshotId === undefined || snapshotId === null) {
     return null;
+  }
+
+  // Debug log
+  if (isCurrent) {
+    console.log('SnapshotCard: Rendering CURRENT snapshot:', snapshotId);
   }
 
   const formatValue = (value: string | number) => {
@@ -75,11 +82,12 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
 
   return (
     <div style={{
-      border: '1px solid #e5e7eb',
+      border: isCurrent ? '2px solid #3b82f6' : '1px solid #e5e7eb',
       borderRadius: '8px',
       backgroundColor: isCurrent ? '#eff6ff' : 'white',
-      overflow: 'visible',
-      transition: 'all 0.2s ease-in-out'
+      overflow: 'hidden',
+      transition: 'all 0.2s ease-in-out',
+      boxShadow: isCurrent ? '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)' : 'none'
     }}>
       {/* Card Header - Always Visible */}
       <div
@@ -87,18 +95,21 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
         style={{
           padding: '1rem',
           cursor: 'pointer',
-          display: 'flex',
-          justifyContent: 'space-between',
+          display: 'grid',
+          gridTemplateColumns: '1fr 110px 180px 100px 30px',
+          gap: '0.75rem',
           alignItems: 'center',
-          backgroundColor: isCurrent ? '#dbeafe' : '#f9fafb'
+          backgroundColor: isCurrent ? '#dbeafe' : '#f9fafb',
+          borderRadius: '8px 8px 0 0'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {/* Left: Snapshot ID with CURRENT badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <span style={{
             fontFamily: 'monospace',
             fontSize: '0.875rem',
             fontWeight: '600',
-            color: '#374151'
+            color: isCurrent ? '#1e40af' : '#374151'
           }}>
             {snapshotId}
           </span>
@@ -109,29 +120,90 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
               color: 'white',
               borderRadius: '9999px',
               fontSize: '0.75rem',
-              fontWeight: '500'
+              fontWeight: '500',
+              whiteSpace: 'nowrap'
             }}>
               CURRENT
             </span>
           )}
-          <span style={{
-            padding: '0.25rem 0.75rem',
-            backgroundColor: operation === 'append' ? '#d1fae5' : operation === 'overwrite' ? '#fef3c7' : '#e5e7eb',
-            color: operation === 'append' ? '#065f46' : operation === 'overwrite' ? '#92400e' : '#374151',
-            borderRadius: '9999px',
+        </div>
+
+        {/* Operation Badge - Fixed Width */}
+        <span style={{
+          padding: '0.25rem 0.75rem',
+          backgroundColor: operation === 'append' ? '#d1fae5' : operation === 'overwrite' ? '#fef3c7' : '#e5e7eb',
+          color: operation === 'append' ? '#065f46' : operation === 'overwrite' ? '#92400e' : '#374151',
+          borderRadius: '9999px',
+          fontSize: '0.75rem',
+          fontWeight: '500',
+          textTransform: 'uppercase',
+          minWidth: '90px',
+          maxWidth: '130px',
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: 'inline-block'
+        }}>
+          {operation}
+        </span>
+
+        {/* Timestamp */}
+        <span style={{ 
+          fontSize: '0.875rem', 
+          color: '#6b7280', 
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }}>
+          {timestamp}
+        </span>
+
+        {/* View Diff Button - Minimalistic */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onViewDiff(snapshotId);
+          }}
+          style={{
+            padding: '0.375rem 0.75rem',
+            backgroundColor: '#eff6ff',
+            color: '#3b82f6',
+            border: '1px solid #dbeafe',
+            borderRadius: '6px',
             fontSize: '0.75rem',
             fontWeight: '500',
-            textTransform: 'uppercase'
-          }}>
-            {operation}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>{timestamp}</span>
-          <span style={{ fontSize: '0.875rem', color: '#9ca3af', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-            ▼
-          </span>
-        </div>
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            width: '100px',
+            whiteSpace: 'nowrap'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#dbeafe';
+            e.currentTarget.style.borderColor = '#93c5fd';
+            e.currentTarget.style.color = '#2563eb';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#eff6ff';
+            e.currentTarget.style.borderColor = '#dbeafe';
+            e.currentTarget.style.color = '#3b82f6';
+          }}
+        >
+          View Diff
+        </button>
+
+        {/* Expand Arrow */}
+        <span style={{ 
+          fontSize: '0.875rem', 
+          color: '#9ca3af', 
+          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', 
+          transition: 'transform 0.2s',
+          display: 'flex',
+          justifyContent: 'center',
+          width: '20px'
+        }}>
+          ▼
+        </span>
       </div>
 
       {/* Expandable Content */}
@@ -414,6 +486,13 @@ function TableDetailContent() {
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [error, setError] = useState('');
   const [metadataError, setMetadataError] = useState('');
+  const [diffModalOpen, setDiffModalOpen] = useState(false);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | string | null>(null);
+
+  const handleViewDiff = (snapshotId: number | string) => {
+    setSelectedSnapshotId(snapshotId);
+    setDiffModalOpen(true);
+  };
 
   useEffect(() => {
     fetchTableDetails();
@@ -467,7 +546,9 @@ function TableDetailContent() {
         throw new Error(errorData.error || 'Failed to fetch Iceberg metadata');
       }
 
+      // Backend now sends all Long values as strings, so we can safely parse
       const data = await response.json();
+      console.log('Fetched metadata with currentSnapshotId:', data.currentSnapshotId, typeof data.currentSnapshotId);
       setIcebergMetadata(data);
     } catch (err) {
       setMetadataError(err instanceof Error ? err.message : 'Failed to load Iceberg metadata');
@@ -477,9 +558,11 @@ function TableDetailContent() {
     }
   };
 
-  const formatDate = (timestamp: number) => {
+  const formatDate = (timestamp: number | string) => {
+    // Convert string to number if needed
+    const ts = typeof timestamp === 'string' ? parseInt(timestamp) : timestamp;
     // If timestamp is in seconds (less than year 2000 in milliseconds), convert to milliseconds
-    const timestampMs = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+    const timestampMs = ts < 10000000000 ? ts * 1000 : ts;
     return new Date(timestampMs).toLocaleString();
   };
 
@@ -581,23 +664,68 @@ function TableDetailContent() {
       backgroundColor: '#f9fafb'
     }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        {/* Back Button */}
-        <button
-          onClick={() => router.push('/')}
-          style={{
-            padding: '0.5rem 1rem',
-            backgroundColor: '#3b82f6',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            marginBottom: '2rem',
-            fontSize: '1rem',
-            fontWeight: '500'
-          }}
-        >
-          ← Back to Search
-        </button>
+        {/* Breadcrumb Navigation */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginBottom: '2rem',
+          padding: '0.75rem 1rem',
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+          fontSize: '0.875rem'
+        }}>
+          <button
+            onClick={() => router.push('/')}
+            style={{
+              padding: '0.25rem 0.5rem',
+              backgroundColor: 'transparent',
+              color: '#3b82f6',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              transition: 'background-color 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+          >
+            🏠 Home
+          </button>
+          <span style={{ color: '#d1d5db' }}>/</span>
+          <button
+            onClick={() => router.push(`/databases/${encodeURIComponent(databaseId)}`)}
+            style={{
+              padding: '0.25rem 0.5rem',
+              backgroundColor: 'transparent',
+              color: '#3b82f6',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              transition: 'background-color 0.2s',
+              fontFamily: 'monospace'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+          >
+            {databaseId}
+          </button>
+          <span style={{ color: '#d1d5db' }}>/</span>
+          <span style={{
+            color: '#374151',
+            fontWeight: '600',
+            fontFamily: 'monospace',
+            padding: '0.25rem 0.5rem',
+            backgroundColor: '#f3f4f6',
+            borderRadius: '4px'
+          }}>
+            {tableId}
+          </span>
+        </div>
 
         {/* Warning Banner for Partial Data */}
         {isPartialData && (
@@ -683,7 +811,7 @@ function TableDetailContent() {
         {/* Two Column Layout: Basic Info (2/5) and Iceberg Metadata (3/5) */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '2fr 3fr',
+          gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)',
           gap: '1.5rem',
           marginBottom: '1.5rem'
         }}>
@@ -819,8 +947,13 @@ function TableDetailContent() {
                   let currentSnapshotSummary = null;
                   try {
                     if (icebergMetadata.snapshots) {
-                      const snapshots = JSON.parse(icebergMetadata.snapshots);
-                      const currentSnapshot = snapshots.find((s: any) => s['snapshot-id'] === icebergMetadata.currentSnapshotId);
+                      // Replace large integers in snapshot-id fields with quoted strings to preserve precision
+                      const snapshotsStr = icebergMetadata.snapshots.replace(
+                        /"snapshot-id"\s*:\s*(\d+)/g,
+                        (match, number) => `"snapshot-id":"${number}"`
+                      );
+                      const snapshots = JSON.parse(snapshotsStr);
+                      const currentSnapshot = snapshots.find((s: any) => String(s['snapshot-id']) === String(icebergMetadata.currentSnapshotId));
                       if (currentSnapshot && currentSnapshot.summary) {
                         currentSnapshotSummary = currentSnapshot.summary;
                       }
@@ -909,9 +1042,74 @@ function TableDetailContent() {
                 })()}
 
                 {/* Snapshots */}
-                {icebergMetadata.snapshots && (() => {
+                {(() => {
+                  // Check if snapshots data exists
+                  if (!icebergMetadata.snapshots) {
+                    console.warn('No snapshots data available in metadata');
+                    return (
+                      <div>
+                        <h3 style={{
+                          fontSize: '1rem',
+                          fontWeight: '600',
+                          marginBottom: '0.75rem',
+                          color: '#374151'
+                        }}>
+                          Snapshots
+                        </h3>
+                        <div style={{
+                          backgroundColor: '#fef9c3',
+                          color: '#854d0e',
+                          padding: '1rem',
+                          borderRadius: '6px',
+                          border: '1px solid #fde047'
+                        }}>
+                          No snapshot data available for this table.
+                        </div>
+                      </div>
+                    );
+                  }
+
                   try {
+                    // Backend now sends all Long values as strings, so we can safely parse
                     const snapshots = JSON.parse(icebergMetadata.snapshots);
+                    console.log('Parsed snapshots:', snapshots);
+                    console.log('Current snapshot ID from backend:', icebergMetadata.currentSnapshotId, typeof icebergMetadata.currentSnapshotId);
+
+                    // Sort by timestamp (convert string timestamps to numbers for comparison)
+                    const sortedSnapshots = snapshots.sort((a: any, b: any) => {
+                      const timeA = typeof a['timestamp-ms'] === 'string' ? parseInt(a['timestamp-ms']) : a['timestamp-ms'];
+                      const timeB = typeof b['timestamp-ms'] === 'string' ? parseInt(b['timestamp-ms']) : b['timestamp-ms'];
+                      return timeB - timeA;
+                    });
+                    if (sortedSnapshots.length > 0) {
+                      console.log('Most recent snapshot by timestamp:', sortedSnapshots[0]['snapshot-id'], typeof sortedSnapshots[0]['snapshot-id']);
+                    }
+
+                    // Check if snapshots array is empty
+                    if (!Array.isArray(snapshots) || snapshots.length === 0) {
+                      console.warn('Snapshots array is empty');
+                      return (
+                        <div>
+                          <h3 style={{
+                            fontSize: '1rem',
+                            fontWeight: '600',
+                            marginBottom: '0.75rem',
+                            color: '#374151'
+                          }}>
+                            Snapshots
+                          </h3>
+                          <div style={{
+                            backgroundColor: '#fef9c3',
+                            color: '#854d0e',
+                            padding: '1rem',
+                            borderRadius: '6px',
+                            border: '1px solid #fde047'
+                          }}>
+                            This table has no snapshots yet.
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div>
@@ -924,13 +1122,18 @@ function TableDetailContent() {
                           Snapshots ({snapshots.length})
                         </h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                          {snapshots
-                            .sort((a: any, b: any) => b['timestamp-ms'] - a['timestamp-ms'])
+                          {sortedSnapshots
                             .map((snapshot: any, index: number) => {
                               // Extract operation from various possible locations
                               const operation = snapshot.operation
                                 || snapshot.summary?.operation
                                 || (snapshot.summary && Object.keys(snapshot.summary).length > 0 ? 'append' : 'unknown');
+
+                              const snapshotIdStr = String(snapshot['snapshot-id']);
+                              const currentSnapshotIdStr = String(icebergMetadata.currentSnapshotId);
+                              const isCurrent = snapshotIdStr === currentSnapshotIdStr;
+
+                              console.log(`Snapshot ${snapshotIdStr}: isCurrent=${isCurrent} (current=${currentSnapshotIdStr})`);
 
                               return (
                                 <SnapshotCard
@@ -939,7 +1142,8 @@ function TableDetailContent() {
                                   operation={operation}
                                   timestamp={formatDate(snapshot['timestamp-ms'])}
                                   summary={snapshot.summary || {}}
-                                  isCurrent={snapshot['snapshot-id'] === icebergMetadata.currentSnapshotId}
+                                  isCurrent={isCurrent}
+                                  onViewDiff={handleViewDiff}
                                 />
                               );
                             })}
@@ -949,13 +1153,30 @@ function TableDetailContent() {
                   } catch (e) {
                     console.error('Error parsing snapshots:', e);
                     return (
-                      <div style={{
-                        backgroundColor: '#fef2f2',
-                        color: '#991b1b',
-                        padding: '1rem',
-                        borderRadius: '6px'
-                      }}>
-                        Failed to parse snapshots data. Check console for details.
+                      <div>
+                        <h3 style={{
+                          fontSize: '1rem',
+                          fontWeight: '600',
+                          marginBottom: '0.75rem',
+                          color: '#374151'
+                        }}>
+                          Snapshots
+                        </h3>
+                        <div style={{
+                          backgroundColor: '#fef2f2',
+                          color: '#991b1b',
+                          padding: '1rem',
+                          borderRadius: '6px',
+                          border: '1px solid #fca5a5'
+                        }}>
+                          <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>Failed to parse snapshots data</div>
+                          <div style={{ fontSize: '0.875rem' }}>
+                            Error: {e instanceof Error ? e.message : 'Unknown error'}
+                          </div>
+                          <div style={{ fontSize: '0.875rem', marginTop: '0.5rem', opacity: 0.8 }}>
+                            Check browser console for more details.
+                          </div>
+                        </div>
                       </div>
                     );
                   }
@@ -1251,6 +1472,17 @@ function TableDetailContent() {
         {/* Permissions (ACL Policies) */}
         <Permissions databaseId={databaseId} tableId={tableId} />
       </div>
+
+      {/* Metadata Diff Modal */}
+      {selectedSnapshotId && (
+        <MetadataDiffModal
+          isOpen={diffModalOpen}
+          onClose={() => setDiffModalOpen(false)}
+          databaseId={databaseId}
+          tableId={tableId}
+          snapshotId={selectedSnapshotId}
+        />
+      )}
     </main>
   );
 }

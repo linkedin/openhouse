@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 
 import com.linkedin.openhouse.tables.api.handler.IcebergMetadataApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetIcebergMetadataResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetMetadataDiffResponseBody;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -12,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -45,6 +47,37 @@ public class IcebergMetadataController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetIcebergMetadataResponseBody> apiResponse =
         icebergMetadataApiHandler.getIcebergMetadata(
             databaseId, tableId, extractAuthenticatedUserPrincipal());
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Get Metadata Diff for Snapshot (Internal)",
+      description =
+          "Returns the metadata diff between a specific snapshot and its immediate predecessor. "
+              + "Includes both current and previous metadata.json content for client-side diffing. "
+              + "This is an internal endpoint for detailed commit inspection.",
+      tags = {"Internal"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Metadata Diff GET: OK"),
+        @ApiResponse(responseCode = "404", description = "Metadata Diff GET: NOT_FOUND"),
+        @ApiResponse(responseCode = "400", description = "Metadata Diff GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "500", description = "Metadata Diff GET: INTERNAL_ERROR")
+      })
+  @GetMapping(
+      value = {"/internal/tables/{databaseId}/{tableId}/metadata/diff"},
+      produces = {"application/json"})
+  public ResponseEntity<GetMetadataDiffResponseBody> getMetadataDiff(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Snapshot ID to compare", required = true) @RequestParam
+          Long snapshotId) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetMetadataDiffResponseBody> apiResponse =
+        icebergMetadataApiHandler.getMetadataDiff(
+            databaseId, tableId, snapshotId, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
