@@ -184,9 +184,12 @@ export default function SearchBar({
                 borderRadius: '6px',
                 boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
                 maxHeight: '300px',
-                overflowY: 'auto',
-                zIndex: 10
+                overflowY: 'scroll',
+                zIndex: 10,
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#9ca3af #f3f4f6'
               }}
+              className="custom-scrollbar"
             >
               {suggestions.map((suggestion, index) => (
                 <div

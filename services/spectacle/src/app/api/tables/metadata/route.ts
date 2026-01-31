@@ -18,6 +18,14 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
+      // Provide more descriptive error message for 400 (Iceberg metadata issues)
+      if (response.status === 400) {
+        console.warn(`Iceberg metadata unavailable for ${databaseId}.${tableId}: ${errorText}`);
+        return NextResponse.json(
+          { error: 'Iceberg metadata unavailable', details: 'The table exists but Iceberg metadata could not be loaded. This may be due to metadata file corruption or access issues.' },
+          { status: 400 }
+        );
+      }
       return NextResponse.json(
         { error: `API Error: ${response.status} ${response.statusText}`, details: errorText },
         { status: response.status }

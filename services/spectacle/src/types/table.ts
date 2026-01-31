@@ -2,14 +2,14 @@ export interface Table {
   tableId: string;
   databaseId: string;
   clusterId?: string;
-  tableUri: string;
+  tableUri?: string;
   tableUUID?: string;
   tableLocation?: string;
   tableVersion?: string;
-  tableCreator: string;
+  tableCreator?: string;
   schema?: string;
-  lastModifiedTime: number;
-  creationTime: number;
+  lastModifiedTime?: number;
+  creationTime?: number;
   tableProperties?: Record<string, string>;
   timePartitioning?: any;
   clustering?: any;
@@ -21,5 +21,5 @@ export interface Table {
     history?: any;
     lockState?: any;
   };
-  tableType: string;
+  tableType?: string;
 }

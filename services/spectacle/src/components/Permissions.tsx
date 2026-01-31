@@ -112,20 +112,47 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
       )}
 
       {!loading && !error && policies.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
-          <table
+        <>
+          {policies.length > 20 && (
+            <div
+              style={{
+                fontSize: '0.875rem',
+                color: '#6b7280',
+                marginBottom: '0.75rem',
+                padding: '0.5rem',
+                backgroundColor: '#f9fafb',
+                borderRadius: '6px',
+              }}
+            >
+              Showing {policies.length} permissions (scrollable)
+            </div>
+          )}
+          <div
             style={{
-              width: '100%',
-              borderCollapse: 'collapse',
+              overflowX: 'auto',
+              overflowY: policies.length > 20 ? 'scroll' : 'visible',
+              maxHeight: policies.length > 20 ? '600px' : 'none',
+              border: policies.length > 20 ? '1px solid #e5e7eb' : 'none',
+              borderRadius: '6px',
             }}
+            className="custom-scrollbar"
           >
-            <thead>
-              <tr
-                style={{
-                  backgroundColor: '#f9fafb',
-                  borderBottom: '2px solid #e5e7eb',
-                }}
-              >
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    borderBottom: '2px solid #e5e7eb',
+                    position: policies.length > 20 ? 'sticky' : 'static',
+                    top: 0,
+                    zIndex: 1,
+                  }}
+                >
                 <th
                   style={{
                     padding: '0.75rem',
@@ -270,6 +297,7 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

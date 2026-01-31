@@ -22,6 +22,19 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
+      // If backend returns 400 (bad request, often due to Iceberg metadata issues),
+      // return partial table info instead of failing completely
+      if (response.status === 400) {
+        console.warn(`Table details returned 400 for ${databaseId}.${tableId}, returning partial info`);
+        return NextResponse.json({
+          databaseId,
+          tableId,
+          clusterId: 'unknown',
+          _partial: true,
+          _error: 'Iceberg metadata unavailable',
+        });
+      }
+
       const errorText = await response.text();
       return NextResponse.json(
         { error: `API Error: ${response.status} ${response.statusText}`, details: errorText },

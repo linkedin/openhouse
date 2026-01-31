@@ -570,6 +570,9 @@ function TableDetailContent() {
     );
   }
 
+  // Check if this is partial data (Iceberg metadata unavailable)
+  const isPartialData = (table as any)._partial === true;
+
   return (
     <main style={{
       minHeight: '100vh',
@@ -595,6 +598,30 @@ function TableDetailContent() {
         >
           ← Back to Search
         </button>
+
+        {/* Warning Banner for Partial Data */}
+        {isPartialData && (
+          <div style={{
+            backgroundColor: '#fef3c7',
+            border: '1px solid #fbbf24',
+            borderRadius: '8px',
+            padding: '1rem',
+            marginBottom: '2rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem'
+          }}>
+            <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight: '600', color: '#92400e', marginBottom: '0.25rem' }}>
+                Limited Table Information
+              </div>
+              <div style={{ fontSize: '0.875rem', color: '#78350f' }}>
+                {(table as any)._error || 'Iceberg metadata could not be loaded for this table. Showing basic information only.'}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Header */}
         <div style={{
@@ -691,35 +718,37 @@ function TableDetailContent() {
                   fontSize: '0.875rem',
                   fontWeight: '500'
                 }}>
-                  {table.tableType}
+                  {table.tableType || 'Unknown'}
                 </span>
               } />
               <CompactDetailRow label="Creator" value={table.tableCreator || 'N/A'} />
-              <CompactDetailRow label="Created" value={formatDate(table.creationTime)} />
-              <CompactDetailRow label="Last Modified" value={formatDate(table.lastModifiedTime)} />
+              <CompactDetailRow label="Created" value={table.creationTime ? formatDate(table.creationTime) : 'N/A'} />
+              <CompactDetailRow label="Last Modified" value={table.lastModifiedTime ? formatDate(table.lastModifiedTime) : 'N/A'} />
               
               {/* Table URI */}
-              <div style={{ marginTop: '0.5rem' }}>
-                <h3 style={{
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  marginBottom: '0.5rem',
-                  color: '#6b7280'
-                }}>
-                  Table URI
-                </h3>
-                <div style={{
-                  backgroundColor: '#f9fafb',
-                  padding: '0.75rem',
-                  borderRadius: '6px',
-                  fontFamily: 'monospace',
-                  fontSize: '0.75rem',
-                  wordBreak: 'break-all',
-                  color: '#374151'
-                }}>
-                  {table.tableUri}
+              {table.tableUri && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <h3 style={{
+                    fontSize: '0.875rem',
+                    fontWeight: '600',
+                    marginBottom: '0.5rem',
+                    color: '#6b7280'
+                  }}>
+                    Table URI
+                  </h3>
+                  <div style={{
+                    backgroundColor: '#f9fafb',
+                    padding: '0.75rem',
+                    borderRadius: '6px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
+                    wordBreak: 'break-all',
+                    color: '#374151'
+                  }}>
+                    {table.tableUri}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Storage Location */}
               {table.tableLocation && (
