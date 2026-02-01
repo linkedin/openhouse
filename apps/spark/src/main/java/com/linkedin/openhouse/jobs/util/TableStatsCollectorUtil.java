@@ -476,7 +476,11 @@ public final class TableStatsCollectorUtil {
                             .cast("long")
                             .multiply(1000)
                             .as("commitTimestampMs"),
-                        functions.col("summary").getItem("spark.app.id").as("commitAppId"),
+                        functions
+                            .coalesce(
+                                functions.col("summary").getItem("spark.app.id"),
+                                functions.col("summary").getItem("trino_query_id"))
+                            .as("commitAppId"),
                         functions.col("summary").getItem("spark.app.name").as("commitAppName"),
                         functions.upper(functions.col("operation")).as("commitOperation"))
                     .as("commitMetadata"),
