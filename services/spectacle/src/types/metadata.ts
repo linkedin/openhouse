@@ -6,7 +6,7 @@ export interface TableMetadata {
   metadataLocation: string;
   snapshots: string;
   partitions: string | null;
-  currentSnapshotId: number;
+  currentSnapshotId: string;
 }
 
 export interface MetadataVersion {
@@ -17,11 +17,11 @@ export interface MetadataVersion {
 }
 
 export interface Snapshot {
-  'snapshot-id': number;
+  'snapshot-id': string;
   'timestamp-ms': number;
   operation: string;
   summary: Record<string, string>;
-  'parent-snapshot-id'?: number;
+  'parent-snapshot-id'?: string;
 }
 
 export interface Partition {

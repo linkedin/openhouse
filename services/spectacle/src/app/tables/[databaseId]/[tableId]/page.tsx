@@ -40,11 +40,6 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
     return null;
   }
 
-  // Debug log
-  if (isCurrent) {
-    console.log('SnapshotCard: Rendering CURRENT snapshot:', snapshotId);
-  }
-
   const formatValue = (value: string | number) => {
     if (value === 'N/A' || value === undefined || value === null) return 'N/A';
     return Number(value).toLocaleString();
@@ -947,13 +942,10 @@ function TableDetailContent() {
                   let currentSnapshotSummary = null;
                   try {
                     if (icebergMetadata.snapshots) {
-                      // Replace large integers in snapshot-id fields with quoted strings to preserve precision
-                      const snapshotsStr = icebergMetadata.snapshots.replace(
-                        /"snapshot-id"\s*:\s*(\d+)/g,
-                        (match, number) => `"snapshot-id":"${number}"`
+                      const snapshots = JSON.parse(icebergMetadata.snapshots);
+                      const currentSnapshot = snapshots.find((s: any) =>
+                        s['snapshot-id'] === icebergMetadata.currentSnapshotId
                       );
-                      const snapshots = JSON.parse(snapshotsStr);
-                      const currentSnapshot = snapshots.find((s: any) => String(s['snapshot-id']) === String(icebergMetadata.currentSnapshotId));
                       if (currentSnapshot && currentSnapshot.summary) {
                         currentSnapshotSummary = currentSnapshot.summary;
                       }
@@ -1121,7 +1113,7 @@ function TableDetailContent() {
                         }}>
                           Snapshots ({snapshots.length})
                         </h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '600px', overflowY: 'auto' }}>
                           {sortedSnapshots
                             .map((snapshot: any, index: number) => {
                               // Extract operation from various possible locations
@@ -1129,11 +1121,9 @@ function TableDetailContent() {
                                 || snapshot.summary?.operation
                                 || (snapshot.summary && Object.keys(snapshot.summary).length > 0 ? 'append' : 'unknown');
 
-                              const snapshotIdStr = String(snapshot['snapshot-id']);
-                              const currentSnapshotIdStr = String(icebergMetadata.currentSnapshotId);
-                              const isCurrent = snapshotIdStr === currentSnapshotIdStr;
+                              const isCurrent = snapshot['snapshot-id'] === icebergMetadata.currentSnapshotId;
 
-                              console.log(`Snapshot ${snapshotIdStr}: isCurrent=${isCurrent} (current=${currentSnapshotIdStr})`);
+                              console.log(`Snapshot ${snapshot['snapshot-id']}: isCurrent=${isCurrent} (current=${icebergMetadata.currentSnapshotId})`);
 
                               return (
                                 <SnapshotCard
@@ -1308,7 +1298,9 @@ function TableDetailContent() {
                     color: '#374151',
                     margin: '0.5rem 0 0 0'
                   }}>
-                    {JSON.stringify(JSON.parse(icebergMetadata.currentMetadata), null, 2)}
+                    {JSON.stringify(JSON.parse(icebergMetadata.currentMetadata), (key, value) =>
+                      typeof value === 'bigint' ? value.toString() : value
+                    , 2)}
                   </pre>
                 </details>
               </div>
