@@ -8,7 +8,7 @@ from openhouse.dataloader.table_identifier import TableIdentifier
 
 class TableTransformer(ABC):
     """Interface for applying additional transformation logic to the data
-    being loaded (e.g. compliance filters)
+    being loaded (e.g. column masking, row filtering)
     """
 
     @abstractmethod
