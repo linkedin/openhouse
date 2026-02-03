@@ -10,7 +10,7 @@ from openhouse.dataloader import OpenHouseDataLoader, TableIdentifier
 
 table_properties, splits = OpenHouseDataLoader().create_splits(
     table=TableIdentifier("db", "tbl"),
-    columns=["colA", "colB"],
+    columns=["colA", "colB"],  # omit for SELECT *
 )
 
 # Loading can be distributed to compute engines like Ray

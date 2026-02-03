@@ -25,14 +25,14 @@ class OpenHouseDataLoader:
     def create_splits(
         self,
         table: TableIdentifier,
-        columns: Sequence[str],
-        context: Mapping[str, str],
+        columns: Sequence[str] | None = None,
+        context: Mapping[str, str] | None = None,
     ) -> tuple[dict[str, str], DataLoaderSplits]:
         """Create data splits for distributed data loading of the table
 
         Args:
             table: Identifier for the table to load
-            columns: List of column names to load from the table
+            columns: Column names to load, or None to load all columns (SELECT *)
             context: Dictionary of context information (e.g. tenant, environment, etc.)
 
         Returns:
