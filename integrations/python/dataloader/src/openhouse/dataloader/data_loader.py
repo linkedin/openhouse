@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from openhouse.dataloader.data_loader_splits import DataLoaderSplits
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -24,7 +26,7 @@ class OpenHouseDataLoader:
         self,
         table: TableIdentifier,
         columns: set[str],
-        context: dict[str, str] = None,
+        context: Mapping[str, str],
     ) -> tuple[dict[str, str], DataLoaderSplits]:
         """Create data splits for distributed data loading of the table
 

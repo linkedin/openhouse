@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 
 from datafusion.context import SessionContext
 from datafusion.dataframe import DataFrame
@@ -13,7 +14,7 @@ class TableTransformer(ABC):
 
     @abstractmethod
     def transform(
-        self, session_context: SessionContext, table: TableIdentifier, context: dict[str, str]
+        self, session_context: SessionContext, table: TableIdentifier, context: Mapping[str, str]
     ) -> DataFrame | None:
         """Applies transformation logic to the base table that is being loaded.
 
