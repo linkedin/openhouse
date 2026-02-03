@@ -1,6 +1,6 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
-from openhouse.dataloader.data_loader_splits import DataLoaderSplits
+from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
@@ -27,7 +27,7 @@ class OpenHouseDataLoader:
         table: TableIdentifier,
         columns: Sequence[str] | None = None,
         context: Mapping[str, str] | None = None,
-    ) -> tuple[dict[str, str], DataLoaderSplits]:
+    ) -> Iterable[DataLoaderSplit]:
         """Create data splits for distributed data loading of the table
 
         Args:
@@ -36,6 +36,6 @@ class OpenHouseDataLoader:
             context: Dictionary of context information (e.g. tenant, environment, etc.)
 
         Returns:
-            A tuple of (table_properties, data splits) where data splits is an iterable of callable splits
+            Iterable of DataLoaderSplit, each containing table_properties
         """
         raise NotImplementedError
