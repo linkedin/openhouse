@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from openhouse.dataloader.data_loader_splits import DataLoaderSplits
 from openhouse.dataloader.table_identifier import TableIdentifier
@@ -25,7 +25,7 @@ class OpenHouseDataLoader:
     def create_splits(
         self,
         table: TableIdentifier,
-        columns: set[str],
+        columns: Sequence[str],
         context: Mapping[str, str],
     ) -> tuple[dict[str, str], DataLoaderSplits]:
         """Create data splits for distributed data loading of the table
