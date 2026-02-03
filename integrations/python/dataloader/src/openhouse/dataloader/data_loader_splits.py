@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from datafusion.plan import LogicalPlan
@@ -20,7 +20,7 @@ class DataLoaderSplits:
 
     _logical_plan: LogicalPlan
     _udf_registry: UDFRegistry
-    _splits: list[FileScanTask]
+    _splits: Sequence[FileScanTask]
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         for file_scan_task in self._splits:
