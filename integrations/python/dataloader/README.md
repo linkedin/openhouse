@@ -13,9 +13,10 @@ table_properties, splits = OpenHouseDataLoader().create_splits(
     columns={"colA", "colB"},
 )
 
-# Loading can be distributed compute engines like Ray
+# Loading can be distributed to compute engines like Ray
 for split in splits:
-    data_batch = split()
+    for batch in split:
+        process(batch)
 ```
 
 ## Development

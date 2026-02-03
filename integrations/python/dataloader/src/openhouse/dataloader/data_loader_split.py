@@ -15,7 +15,7 @@ class DataLoaderSplit:
         self._file_scan_task = file_scan_task
         self._udf_registry = udf_registry
 
-    def __call__(self) -> Iterator[RecordBatch]:
+    def __iter__(self) -> Iterator[RecordBatch]:
         """Loads the split data after applying, including applying a prerequisite
         table transformation if provided
 
