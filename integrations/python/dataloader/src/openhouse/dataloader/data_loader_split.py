@@ -2,7 +2,7 @@ from collections.abc import Iterator, Mapping
 
 from datafusion.plan import LogicalPlan
 from pyarrow import RecordBatch
-from pyiceberg.io import FileScanTask
+from pyiceberg.table import FileScanTask
 
 from openhouse.dataloader.udf_registry import UDFRegistry
 

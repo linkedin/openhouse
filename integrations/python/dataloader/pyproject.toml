@@ -1,5 +1,5 @@
 [project]
-name = "openhouse-dataloader"
+name = "openhouse.dataloader"
 version = "0.0.1"
 description = "A Python library for distributed data loading of OpenHouse tables"
 readme = "README.md"
