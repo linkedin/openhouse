@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'integrations/python/**'
+
+permissions:
+  contents: write  # For git tagging
 
 jobs:
   build-and-run-tests:
@@ -33,7 +38,11 @@ jobs:
         id: get_tag
         if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          latest_tag=$(git describe --tags --abbrev=0 main)
+          # Get the latest tag that is NOT a python tag
+          latest_tag=$(git tag -l 'v*' --sort=-v:refname | grep -v 'python-' | head -n1)
+          if [ -z "$latest_tag" ]; then
+            latest_tag=$(git describe --tags --abbrev=0 main)
+          fi
           semVer=${latest_tag:1} # Remove the first character ('v')
           echo "semVer=${semVer}" >> "$GITHUB_OUTPUT"
 

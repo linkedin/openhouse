@@ -12,6 +12,9 @@ make check     # Run lint + format checks
 make test      # Run tests
 make all       # Run all checks and tests
 make format    # Auto-format code
+make build     # Build package distributions
+make validate  # Validate built distributions
+make clean     # Clean build artifacts
 ```
 
 ## Workflows
