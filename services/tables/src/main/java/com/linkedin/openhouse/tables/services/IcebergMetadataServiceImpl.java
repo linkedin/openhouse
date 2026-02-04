@@ -10,16 +10,25 @@ import com.google.gson.JsonSerializer;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.model.IcebergMetadata;
+import com.linkedin.openhouse.tables.model.TableData;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.IcebergGenerics;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.types.Types;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -257,12 +266,12 @@ public class IcebergMetadataServiceImpl implements IcebergMetadataService {
 
           // Read the file content directly as bytes, then convert to string
           // This preserves the exact JSON without any parsing/re-serialization
-          byte[] bytes = new byte[(int) inputFile.getLength()];
           try (java.io.InputStream inputStream = inputFile.newStream()) {
-            int bytesRead = inputStream.read(bytes);
-            if (bytesRead > 0) {
-              String jsonContent =
-                  new String(bytes, 0, bytesRead, java.nio.charset.StandardCharsets.UTF_8);
+            // Use readAllBytes() to ensure we read the entire file
+            // (InputStream.read(byte[]) may not read all bytes in one call for large files)
+            byte[] bytes = inputStream.readAllBytes();
+            if (bytes.length > 0) {
+              String jsonContent = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
               // Verify it's valid JSON by checking for basic structure
               if (jsonContent.contains("\"format-version\"")
                   && jsonContent.contains("\"location\"")) {
@@ -609,5 +618,131 @@ public class IcebergMetadataServiceImpl implements IcebergMetadataService {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
     return tableDto.get();
+  }
+
+  @Override
+  public TableData getTableData(
+      String databaseId, String tableId, int limit, String actingPrincipal) {
+    // Validate limit
+    int effectiveLimit = Math.min(Math.max(limit, 1), 1000);
+
+    TableDto tableDto = getTableOrThrow(databaseId, tableId);
+    authorizationUtils.checkTablePrivilege(
+        tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
+
+    // Load the Iceberg table from catalog
+    Table icebergTable = catalog.loadTable(TableIdentifier.of(databaseId, tableId));
+    Schema schema = icebergTable.schema();
+
+    // Check if table has any data (current snapshot)
+    if (icebergTable.currentSnapshot() == null) {
+      // Table exists but has no data yet
+      String schemaJson = org.apache.iceberg.SchemaParser.toJson(schema);
+      return TableData.builder()
+          .tableId(tableId)
+          .databaseId(databaseId)
+          .schema(schemaJson)
+          .rows(new ArrayList<>())
+          .totalRowsFetched(0)
+          .hasMore(false)
+          .build();
+    }
+
+    // Read the first N rows using IcebergGenerics
+    List<Map<String, Object>> rows = new ArrayList<>();
+    boolean hasMore = false;
+
+    try (CloseableIterable<Record> records = IcebergGenerics.read(icebergTable).build()) {
+      int count = 0;
+      for (Record record : records) {
+        // Check if we've reached the limit - if so, there are more rows
+        if (count >= effectiveLimit) {
+          hasMore = true;
+          break;
+        }
+        Map<String, Object> row = new HashMap<>();
+        for (Types.NestedField field : schema.columns()) {
+          Object value = record.getField(field.name());
+          // Convert complex types to string representation for JSON serialization
+          row.put(field.name(), convertValueForJson(value));
+        }
+        rows.add(row);
+        count++;
+      }
+    } catch (IOException e) {
+      System.err.println(
+          "Failed to read data from table " + databaseId + "." + tableId + ": " + e.getMessage());
+      e.printStackTrace();
+      throw new RuntimeException("Failed to read data from table " + databaseId + "." + tableId, e);
+    } catch (Exception e) {
+      System.err.println(
+          "Unexpected error reading table " + databaseId + "." + tableId + ": " + e.getMessage());
+      e.printStackTrace();
+      throw new RuntimeException("Unexpected error reading table " + databaseId + "." + tableId, e);
+    }
+
+    // Convert schema to JSON string
+    String schemaJson = org.apache.iceberg.SchemaParser.toJson(schema);
+
+    return TableData.builder()
+        .tableId(tableId)
+        .databaseId(databaseId)
+        .schema(schemaJson)
+        .rows(rows)
+        .totalRowsFetched(rows.size())
+        .hasMore(hasMore)
+        .build();
+  }
+
+  /**
+   * Convert Iceberg values to JSON-serializable format
+   *
+   * @param value The value from Iceberg record
+   * @return JSON-serializable value
+   */
+  private Object convertValueForJson(Object value) {
+    if (value == null) {
+      return null;
+    }
+    // Handle byte arrays (binary data)
+    if (value instanceof byte[]) {
+      return java.util.Base64.getEncoder().encodeToString((byte[]) value);
+    }
+    // Handle ByteBuffer
+    if (value instanceof java.nio.ByteBuffer) {
+      java.nio.ByteBuffer buffer = (java.nio.ByteBuffer) value;
+      byte[] bytes = new byte[buffer.remaining()];
+      buffer.get(bytes);
+      return java.util.Base64.getEncoder().encodeToString(bytes);
+    }
+    // Handle nested records (structs)
+    if (value instanceof Record) {
+      Record nested = (Record) value;
+      Map<String, Object> nestedMap = new HashMap<>();
+      for (int i = 0; i < nested.size(); i++) {
+        nestedMap.put("field_" + i, convertValueForJson(nested.get(i)));
+      }
+      return nestedMap;
+    }
+    // Handle lists
+    if (value instanceof List) {
+      List<?> list = (List<?>) value;
+      List<Object> converted = new ArrayList<>();
+      for (Object item : list) {
+        converted.add(convertValueForJson(item));
+      }
+      return converted;
+    }
+    // Handle maps
+    if (value instanceof Map) {
+      Map<?, ?> map = (Map<?, ?>) value;
+      Map<String, Object> converted = new HashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        converted.put(String.valueOf(entry.getKey()), convertValueForJson(entry.getValue()));
+      }
+      return converted;
+    }
+    // Primitives and other types are returned as-is
+    return value;
   }
 }

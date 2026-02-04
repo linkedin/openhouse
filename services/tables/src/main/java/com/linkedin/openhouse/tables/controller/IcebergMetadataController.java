@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 import com.linkedin.openhouse.tables.api.handler.IcebergMetadataApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetIcebergMetadataResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetMetadataDiffResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableDataResponseBody;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -78,6 +79,37 @@ public class IcebergMetadataController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetMetadataDiffResponseBody> apiResponse =
         icebergMetadataApiHandler.getMetadataDiff(
             databaseId, tableId, snapshotId, extractAuthenticatedUserPrincipal());
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Get Table Data (Internal)",
+      description =
+          "Returns the first N rows of data from an Iceberg table. "
+              + "This is an internal endpoint for table data preview.",
+      tags = {"Internal"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table Data GET: OK"),
+        @ApiResponse(responseCode = "404", description = "Table Data GET: NOT_FOUND"),
+        @ApiResponse(responseCode = "400", description = "Table Data GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "500", description = "Table Data GET: INTERNAL_ERROR")
+      })
+  @GetMapping(
+      value = {"/internal/tables/{databaseId}/{tableId}/data"},
+      produces = {"application/json"})
+  public ResponseEntity<GetTableDataResponseBody> getTableData(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Maximum number of rows to return (default: 100, max: 1000)")
+          @RequestParam(defaultValue = "100")
+          int limit) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableDataResponseBody> apiResponse =
+        icebergMetadataApiHandler.getTableData(
+            databaseId, tableId, limit, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

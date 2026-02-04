@@ -6,6 +6,7 @@ import { Table } from '@/types/table';
 import Maintenance from '@/components/Maintenance';
 import Permissions from '@/components/Permissions';
 import MetadataDiffModal from '@/components/MetadataDiffModal';
+import DataPreview from '@/components/DataPreview';
 
 interface IcebergMetadata {
   tableId: string;
@@ -1328,6 +1329,9 @@ function TableDetailContent() {
             <SchemaViewer currentSchema={table.schema} metadata={icebergMetadata} />
           </div>
         )}
+
+        {/* Data Preview - Full Width */}
+        <DataPreview databaseId={databaseId} tableId={tableId} />
 
         {/* Table Properties with Policies Section */}
         {(table.tableProperties && Object.keys(table.tableProperties).length > 0) || table.policies ? (

@@ -2,8 +2,10 @@ package com.linkedin.openhouse.tables.dto.mapper;
 
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetIcebergMetadataResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetMetadataDiffResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableDataResponseBody;
 import com.linkedin.openhouse.tables.model.IcebergMetadata;
 import com.linkedin.openhouse.tables.model.IcebergMetadataDiff;
+import com.linkedin.openhouse.tables.model.TableData;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
@@ -82,6 +84,27 @@ public class TableMetadataMapper {
         .file(version.getFile())
         .timestamp(version.getTimestamp())
         .location(version.getLocation())
+        .build();
+  }
+
+  /**
+   * Convert TableData model to GetTableDataResponseBody
+   *
+   * @param tableData TableData model
+   * @return GetTableDataResponseBody
+   */
+  public GetTableDataResponseBody toTableDataResponseBody(TableData tableData) {
+    if (tableData == null) {
+      return null;
+    }
+
+    return GetTableDataResponseBody.builder()
+        .tableId(tableData.getTableId())
+        .databaseId(tableData.getDatabaseId())
+        .schema(tableData.getSchema())
+        .rows(tableData.getRows())
+        .totalRowsFetched(tableData.getTotalRowsFetched())
+        .hasMore(tableData.getHasMore())
         .build();
   }
 }

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.handler;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetIcebergMetadataResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetMetadataDiffResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableDataResponseBody;
 
 /**
  * Interface layer between REST and Iceberg Snapshots backend. The implementation is injected into
@@ -31,4 +32,16 @@ public interface IcebergMetadataApiHandler {
    */
   ApiResponse<GetMetadataDiffResponseBody> getMetadataDiff(
       String databaseId, String tableId, Long snapshotId, String actingPrincipal);
+
+  /**
+   * Get the first N rows of data from an Iceberg table
+   *
+   * @param databaseId Database identifier
+   * @param tableId Table identifier
+   * @param limit Maximum number of rows to return
+   * @param actingPrincipal The authenticated user principal
+   * @return GetTableDataResponseBody containing rows and metadata
+   */
+  ApiResponse<GetTableDataResponseBody> getTableData(
+      String databaseId, String tableId, int limit, String actingPrincipal);
 }

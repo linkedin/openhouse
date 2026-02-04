@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.tables.model.IcebergMetadata;
 import com.linkedin.openhouse.tables.model.IcebergMetadataDiff;
+import com.linkedin.openhouse.tables.model.TableData;
 
 /** Service layer for loading Iceberg metadata provided by client. */
 public interface IcebergMetadataService {
@@ -27,4 +28,15 @@ public interface IcebergMetadataService {
    */
   IcebergMetadataDiff getMetadataDiff(
       String databaseId, String tableId, Long snapshotId, String actingPrincipal);
+
+  /**
+   * Get the first N rows of data from an Iceberg table
+   *
+   * @param databaseId Database identifier
+   * @param tableId Table identifier
+   * @param limit Maximum number of rows to return
+   * @param actingPrincipal The authenticated user principal
+   * @return TableData containing rows and metadata
+   */
+  TableData getTableData(String databaseId, String tableId, int limit, String actingPrincipal);
 }
