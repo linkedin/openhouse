@@ -11,5 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python-lint:
+    uses: ./.github/workflows/python-lint.yml
+
   build-run-tests:
     uses: ./.github/workflows/build-run-tests.yml

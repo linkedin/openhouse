@@ -1,0 +1,30 @@
+name: Python Lint and Format Check
+
+on:
+  workflow_call:
+
+jobs:
+  python-lint:
+    name: Lint Python Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        working-directory: integrations/python/dataloader
+        run: make sync
+
+      - name: Run lint and format checks
+        working-directory: integrations/python/dataloader
+        run: make check
