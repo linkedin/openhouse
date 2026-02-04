@@ -5,17 +5,15 @@ A Python library for distributed data loading of OpenHouse tables
 ## Quickstart
 
 ```python
-from openhouse.dataloader import OpenHouseDataLoader, TableIdentifier
+from openhouse.dataloader import OpenHouseDataLoader
 
+loader = OpenHouseDataLoader("my_database", "my_table")
 
-splits = OpenHouseDataLoader().create_splits(
-    table=TableIdentifier("db", "tbl"),
-    columns=["colA", "colB"],  # omit for SELECT *
-)
+for split in loader:
+    # Get table properties
+    split.table_properties
 
-# Loading can be distributed to compute engines like Ray
-for split in splits:
-    print(split.table_properties)  # available on every split
+    # Load data
     for batch in split:
         process(batch)
 ```
