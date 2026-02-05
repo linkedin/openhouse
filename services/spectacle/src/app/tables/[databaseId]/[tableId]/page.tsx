@@ -12,6 +12,7 @@ interface IcebergMetadata {
   tableId: string;
   databaseId: string;
   currentMetadata: string;
+  metadataLog: string | null;
   metadataHistory: Array<{
     version: number;
     file: string;
@@ -1143,10 +1144,9 @@ function TableDetailContent() {
                 {/* Metadata History */}
                 {(() => {
                   try {
-                    const metadataJson = JSON.parse(icebergMetadata.currentMetadata);
-                    const metadataLog = metadataJson['metadata-log'];
+                    const metadataLog = icebergMetadata.metadataLog ? JSON.parse(icebergMetadata.metadataLog) : [];
 
-                    if (metadataLog && metadataLog.length > 0) {
+                    if (metadataLog.length > 0) {
                       return (
                         <div>
                           <h3 style={{

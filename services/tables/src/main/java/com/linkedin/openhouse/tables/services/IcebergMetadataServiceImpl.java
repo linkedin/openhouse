@@ -103,12 +103,16 @@ public class IcebergMetadataServiceImpl implements IcebergMetadataService {
     // Extract partition specs from metadata (no file scanning)
     String partitionsJson = extractPartitionsJson(icebergTable);
 
+    // Build metadata log including current file
+    String metadataLogJson = buildMetadataLogWithCurrent(metadataObj, icebergTable);
+
     // Build and return metadata model
     // Convert currentSnapshotId to String to preserve precision in JavaScript
     return IcebergMetadata.builder()
         .tableId(tableId)
         .databaseId(databaseId)
         .currentMetadata(currentMetadataJson)
+        .metadataLog(metadataLogJson)
         .metadataHistory(metadataHistory)
         .metadataLocation(icebergTable.location() + "/metadata")
         .snapshots(snapshotsJson)
@@ -322,6 +326,70 @@ public class IcebergMetadataServiceImpl implements IcebergMetadataService {
   }
 
   /**
+   * Get the current metadata file location
+   *
+   * @param table Iceberg table
+   * @return Full path to current metadata.json file, or null if not available
+   */
+  private String getCurrentMetadataFileLocation(Table table) {
+    if (table == null) {
+      return null;
+    }
+
+    try {
+      org.apache.iceberg.TableOperations ops = ((org.apache.iceberg.BaseTable) table).operations();
+      if (ops != null && ops.current() != null) {
+        return ops.current().metadataFileLocation();
+      }
+    } catch (Exception e) {
+      // Ignore and return null
+    }
+    return null;
+  }
+
+  /**
+   * Build metadata log JSON array including the current metadata file. The current file is appended
+   * to the end of the metadata-log array from metadata.json.
+   *
+   * @param metadataObj Parsed metadata JSON object
+   * @param table Iceberg table
+   * @return JSON string of metadata log array including current file
+   */
+  private String buildMetadataLogWithCurrent(JsonObject metadataObj, Table table) {
+    List<java.util.Map<String, Object>> metadataLogList = new ArrayList<>();
+
+    // Add entries from metadata-log in metadata.json
+    if (metadataObj != null && metadataObj.has("metadata-log")) {
+      JsonArray metadataLog = metadataObj.getAsJsonArray("metadata-log");
+      if (metadataLog != null) {
+        for (JsonElement element : metadataLog) {
+          JsonObject entry = element.getAsJsonObject();
+          java.util.Map<String, Object> logEntry = new java.util.HashMap<>();
+          if (entry.has("timestamp-ms")) {
+            logEntry.put("timestamp-ms", entry.get("timestamp-ms").getAsLong());
+          }
+          if (entry.has("metadata-file")) {
+            logEntry.put("metadata-file", entry.get("metadata-file").getAsString());
+          }
+          metadataLogList.add(logEntry);
+        }
+      }
+    }
+
+    // Add current metadata file at the end
+    String currentMetadataFile = getCurrentMetadataFileLocation(table);
+    if (currentMetadataFile != null) {
+      java.util.Map<String, Object> currentEntry = new java.util.HashMap<>();
+      currentEntry.put("metadata-file", currentMetadataFile);
+      // Use current time as timestamp for the current file
+      currentEntry.put("timestamp-ms", System.currentTimeMillis());
+      metadataLogList.add(currentEntry);
+    }
+
+    return GSON.toJson(metadataLogList);
+  }
+
+  /**
    * Extract snapshots directly from Table object (fallback when metadata file can't be parsed)
    *
    * @param table Iceberg table
@@ -480,10 +548,49 @@ public class IcebergMetadataServiceImpl implements IcebergMetadataService {
     String currentMetadataJson = extractCurrentMetadata(icebergTable);
     JsonObject currentMetadataObj = GSON.fromJson(currentMetadataJson, JsonObject.class);
 
+    // Get the current metadata file location
+    String currentMetadataFileLocation = getCurrentMetadataFileLocation(icebergTable);
+
     // Extract metadata-log which contains the history of metadata files
     JsonArray metadataLog = null;
     if (currentMetadataObj != null && currentMetadataObj.has("metadata-log")) {
       metadataLog = currentMetadataObj.getAsJsonArray("metadata-log");
+    }
+
+    // Check if the requested file is the current metadata file (not in metadata-log)
+    boolean isCurrentMetadataFile =
+        currentMetadataFileLocation != null && currentMetadataFileLocation.equals(metadataFile);
+
+    if (isCurrentMetadataFile) {
+      // The requested file is the current metadata file
+      // Previous is the last entry in metadata-log (if any)
+      String previousMetadataFile = null;
+      Long previousTimestamp = null;
+
+      if (metadataLog != null && metadataLog.size() > 0) {
+        JsonObject lastEntry = metadataLog.get(metadataLog.size() - 1).getAsJsonObject();
+        previousMetadataFile =
+            lastEntry.has("metadata-file") ? lastEntry.get("metadata-file").getAsString() : null;
+        previousTimestamp =
+            lastEntry.has("timestamp-ms") ? lastEntry.get("timestamp-ms").getAsLong() : null;
+      }
+
+      boolean isFirstCommit = (previousMetadataFile == null);
+      String currentMetadataContent = currentMetadataJson;
+      String previousMetadataContent =
+          previousMetadataFile != null ? fetchMetadataFile(io, previousMetadataFile) : null;
+
+      return com.linkedin.openhouse.tables.model.IcebergMetadataDiff.builder()
+          .tableId(tableId)
+          .databaseId(databaseId)
+          .currentMetadata(currentMetadataContent)
+          .previousMetadata(previousMetadataContent)
+          .currentMetadataLocation(metadataFile)
+          .previousMetadataLocation(previousMetadataFile)
+          .currentTimestamp(null) // Current file doesn't have a timestamp in the log
+          .previousTimestamp(previousTimestamp)
+          .isFirstCommit(isFirstCommit)
+          .build();
     }
 
     if (metadataLog == null || metadataLog.size() == 0) {

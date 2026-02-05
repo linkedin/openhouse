@@ -11,6 +11,7 @@ public class IcebergMetadata {
   String tableId;
   String databaseId;
   String currentMetadata;
+  String metadataLog; // JSON array of metadata-log entries including current file
   List<MetadataVersion> metadataHistory;
   String metadataLocation;
   String snapshots;

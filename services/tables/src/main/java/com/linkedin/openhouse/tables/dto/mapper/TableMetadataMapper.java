@@ -28,6 +28,7 @@ public class TableMetadataMapper {
         .tableId(metadata.getTableId())
         .databaseId(metadata.getDatabaseId())
         .currentMetadata(metadata.getCurrentMetadata())
+        .metadataLog(metadata.getMetadataLog())
         .metadataHistory(
             metadata.getMetadataHistory() != null
                 ? metadata.getMetadataHistory().stream()

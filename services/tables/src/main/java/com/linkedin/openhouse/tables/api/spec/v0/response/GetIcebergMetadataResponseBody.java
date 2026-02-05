@@ -27,6 +27,12 @@ public class GetIcebergMetadataResponseBody {
   private String currentMetadata;
 
   @Schema(
+      description = "Metadata log including current and all previous metadata files",
+      example = "[{\"timestamp-ms\":1651002318265,\"metadata-file\":\"...\"}]")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private String metadataLog;
+
+  @Schema(
       description = "List of previous metadata.json files with their versions",
       example = "[{\"version\":1,\"file\":\"v1.metadata.json\",\"timestamp\":1651002318265}]")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
