@@ -57,7 +57,6 @@ function HomeContent() {
     <main style={{
       minHeight: '100vh',
       padding: '2rem',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
       backgroundColor: '#f9fafb',
       position: 'relative',
       overflow: 'hidden'
@@ -143,8 +142,7 @@ export default function Home() {
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'system-ui, -apple-system, sans-serif'
+        justifyContent: 'center'
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{

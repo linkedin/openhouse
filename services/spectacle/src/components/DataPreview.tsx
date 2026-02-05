@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { fonts, fontSizes, fontWeights, lineHeights, colors } from '@/lib/theme';
 
 interface TableDataResponse {
   tableId: string;
@@ -178,14 +179,14 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
         marginBottom: '1.5rem'
       }}>
         <h2 style={{
-          fontSize: '1.25rem',
-          fontWeight: '600',
+          fontSize: fontSizes.xl,
+          fontWeight: fontWeights.semibold,
           marginBottom: '1rem',
-          color: '#1f2937'
+          color: colors.text.primary
         }}>
           Data Preview
         </h2>
-        <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+        <div style={{ textAlign: 'center', padding: '2rem', color: colors.text.muted }}>
           Loading data preview...
         </div>
       </div>
@@ -202,10 +203,10 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
         marginBottom: '1.5rem'
       }}>
         <h2 style={{
-          fontSize: '1.25rem',
-          fontWeight: '600',
+          fontSize: fontSizes.xl,
+          fontWeight: fontWeights.semibold,
           marginBottom: '1rem',
-          color: '#1f2937'
+          color: colors.text.primary
         }}>
           Data Preview
         </h2>
@@ -219,10 +220,10 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
           alignItems: 'center',
           gap: '0.75rem'
         }}>
-          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+          <span style={{ fontSize: fontSizes.xl }}>⚠️</span>
           <div>
-            <div style={{ fontWeight: '500' }}>Unable to load data preview</div>
-            <div style={{ fontSize: '0.875rem', marginTop: '0.25rem', opacity: 0.9 }}>
+            <div style={{ fontWeight: fontWeights.medium }}>Unable to load data preview</div>
+            <div style={{ fontSize: fontSizes.sm, marginTop: '0.25rem', opacity: 0.9 }}>
               {error}
             </div>
           </div>
@@ -241,21 +242,21 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
         marginBottom: '1.5rem'
       }}>
         <h2 style={{
-          fontSize: '1.25rem',
-          fontWeight: '600',
+          fontSize: fontSizes.xl,
+          fontWeight: fontWeights.semibold,
           marginBottom: '1rem',
-          color: '#1f2937'
+          color: colors.text.primary
         }}>
           Data Preview
         </h2>
         <div style={{
-          backgroundColor: '#f9fafb',
+          backgroundColor: colors.background.page,
           padding: '2rem',
           borderRadius: '6px',
           textAlign: 'center',
-          color: '#6b7280'
+          color: colors.text.muted
         }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📭</div>
+          <div style={{ fontSize: fontSizes['3xl'], marginBottom: '0.5rem' }}>📭</div>
           <div>This table has no data yet.</div>
         </div>
       </div>
@@ -281,9 +282,9 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
         gap: '0.75rem'
       }}>
         <h2 style={{
-          fontSize: '1.25rem',
-          fontWeight: '600',
-          color: '#1f2937',
+          fontSize: fontSizes.xl,
+          fontWeight: fontWeights.semibold,
+          color: colors.text.primary,
           margin: 0
         }}>
           Data Preview
@@ -295,8 +296,8 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
           flexWrap: 'wrap'
         }}>
           <span style={{
-            fontSize: '0.875rem',
-            color: '#6b7280'
+            fontSize: fontSizes.sm,
+            color: colors.text.muted
           }}>
             Showing {data.totalRowsFetched} row{data.totalRowsFetched !== 1 ? 's' : ''}
             {data.hasMore && ' (more available)'}
@@ -315,11 +316,11 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
               style={{
                 padding: '0.25rem 0.625rem',
                 backgroundColor: viewMode === 'table' ? 'white' : 'transparent',
-                color: viewMode === 'table' ? '#1f2937' : '#6b7280',
+                color: viewMode === 'table' ? colors.text.primary : colors.text.muted,
                 border: 'none',
                 borderRadius: '4px',
-                fontSize: '0.75rem',
-                fontWeight: '500',
+                fontSize: fontSizes.xs,
+                fontWeight: fontWeights.medium,
                 cursor: 'pointer',
                 transition: 'all 0.15s',
                 boxShadow: viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
@@ -332,11 +333,11 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
               style={{
                 padding: '0.25rem 0.625rem',
                 backgroundColor: viewMode === 'json' ? 'white' : 'transparent',
-                color: viewMode === 'json' ? '#1f2937' : '#6b7280',
+                color: viewMode === 'json' ? colors.text.primary : colors.text.muted,
                 border: 'none',
                 borderRadius: '4px',
-                fontSize: '0.75rem',
-                fontWeight: '500',
+                fontSize: fontSizes.xs,
+                fontWeight: fontWeights.medium,
                 cursor: 'pointer',
                 transition: 'all 0.15s',
                 boxShadow: viewMode === 'json' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
@@ -353,11 +354,11 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
               style={{
                 padding: '0.375rem 0.75rem',
                 backgroundColor: '#f0fdf4',
-                color: '#16a34a',
+                color: colors.accent.success,
                 border: '1px solid #bbf7d0',
                 borderRadius: '6px',
-                fontSize: '0.75rem',
-                fontWeight: '500',
+                fontSize: fontSizes.xs,
+                fontWeight: fontWeights.medium,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
                 display: 'flex',
@@ -374,7 +375,7 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
               }}
             >
               Export
-              <span style={{ fontSize: '0.625rem' }}>▼</span>
+              <span style={{ fontSize: fontSizes.xs }}>▼</span>
             </button>
             {exportDropdownOpen && (
               <div style={{
@@ -398,10 +399,10 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
                       width: '100%',
                       padding: '0.5rem 0.75rem',
                       backgroundColor: 'transparent',
-                      color: '#374151',
+                      color: colors.text.secondary,
                       border: 'none',
-                      fontSize: '0.75rem',
-                      fontWeight: '500',
+                      fontSize: fontSizes.xs,
+                      fontWeight: fontWeights.medium,
                       cursor: 'pointer',
                       textAlign: 'left',
                       transition: 'background-color 0.15s'
@@ -425,11 +426,11 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
             style={{
               padding: '0.375rem 0.75rem',
               backgroundColor: '#eff6ff',
-              color: '#3b82f6',
+              color: colors.accent.primary,
               border: '1px solid #dbeafe',
               borderRadius: '6px',
-              fontSize: '0.75rem',
-              fontWeight: '500',
+              fontSize: fontSizes.xs,
+              fontWeight: fontWeights.medium,
               cursor: 'pointer',
               transition: 'all 0.2s'
             }}
@@ -466,14 +467,14 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
                     style={{
                       padding: '0.75rem 1rem',
                       textAlign: 'left',
-                      fontWeight: '600',
-                      color: '#374151',
-                      fontSize: '0.875rem',
-                      borderBottom: '2px solid #e5e7eb',
+                      fontWeight: fontWeights.semibold,
+                      color: colors.text.secondary,
+                      fontSize: fontSizes.sm,
+                      borderBottom: `2px solid ${colors.border.default}`,
                       whiteSpace: 'nowrap',
                       position: 'sticky',
                       top: 0,
-                      backgroundColor: '#f9fafb'
+                      backgroundColor: colors.background.page
                     }}
                   >
                     {column}
@@ -498,9 +499,9 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
                         key={colIndex}
                         style={{
                           padding: '0.75rem 1rem',
-                          fontSize: '0.875rem',
-                          fontFamily: 'monospace',
-                          color: isNull ? '#9ca3af' : '#374151',
+                          fontSize: fontSizes.sm,
+                          fontFamily: fonts.mono,
+                          color: isNull ? colors.text.disabled : colors.text.secondary,
                           fontStyle: isNull ? 'italic' : 'normal',
                           maxWidth: '300px',
                           overflow: 'hidden',
@@ -529,10 +530,10 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
           <pre style={{
             margin: 0,
             padding: '1rem',
-            fontSize: '0.8125rem',
-            fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-            color: '#374151',
-            lineHeight: '1.5',
+            fontSize: fontSizes.sm,
+            fontFamily: fonts.mono,
+            color: colors.text.secondary,
+            lineHeight: lineHeights.normal,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word'
           }}>
@@ -544,8 +545,8 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
       {data.hasMore && (
         <div style={{
           marginTop: '0.75rem',
-          fontSize: '0.875rem',
-          color: '#6b7280',
+          fontSize: fontSizes.sm,
+          color: colors.text.muted,
           textAlign: 'center',
           fontStyle: 'italic'
         }}>

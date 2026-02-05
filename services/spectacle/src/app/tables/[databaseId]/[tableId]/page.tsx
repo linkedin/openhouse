@@ -7,6 +7,7 @@ import Maintenance from '@/components/Maintenance';
 import Permissions from '@/components/Permissions';
 import MetadataDiffModal from '@/components/MetadataDiffModal';
 import DataPreview from '@/components/DataPreview';
+import { fonts, fontSizes, fontWeights, colors } from '@/lib/theme';
 
 interface IcebergMetadata {
   tableId: string;
@@ -70,9 +71,9 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
   const totalEqualityDeletes = summary['total-equality-deletes'] || 'N/A';
 
   const MetricItem = ({ label, value }: { label: string; value: string }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid #f3f4f6' }}>
-      <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>{label}</span>
-      <span style={{ fontSize: '0.875rem', fontWeight: '500', color: '#374151', fontFamily: 'monospace' }}>{value}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: `1px solid ${colors.background.subtle}` }}>
+      <span style={{ fontSize: fontSizes.sm, color: colors.text.muted }}>{label}</span>
+      <span style={{ fontSize: fontSizes.sm, fontWeight: fontWeights.medium, color: colors.text.secondary, fontFamily: fonts.mono }}>{value}</span>
     </div>
   );
 
@@ -102,21 +103,21 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
         {/* Left: Snapshot ID with CURRENT badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <span style={{
-            fontFamily: 'monospace',
-            fontSize: '0.875rem',
-            fontWeight: '600',
-            color: isCurrent ? '#1e40af' : '#374151'
+            fontFamily: fonts.mono,
+            fontSize: fontSizes.sm,
+            fontWeight: fontWeights.semibold,
+            color: isCurrent ? '#1e40af' : colors.text.secondary
           }}>
             {snapshotId || 'Unknown ID'}
           </span>
           {isCurrent && (
             <span style={{
               padding: '0.125rem 0.5rem',
-              backgroundColor: '#3b82f6',
+              backgroundColor: colors.accent.primary,
               color: 'white',
               borderRadius: '9999px',
-              fontSize: '0.75rem',
-              fontWeight: '500',
+              fontSize: fontSizes.xs,
+              fontWeight: fontWeights.medium,
               whiteSpace: 'nowrap'
             }}>
               CURRENT
@@ -127,11 +128,11 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
         {/* Operation Badge - Fixed Width */}
         <span style={{
           padding: '0.25rem 0.75rem',
-          backgroundColor: operation === 'append' ? '#d1fae5' : operation === 'overwrite' ? '#fef3c7' : '#e5e7eb',
-          color: operation === 'append' ? '#065f46' : operation === 'overwrite' ? '#92400e' : '#374151',
+          backgroundColor: operation === 'append' ? '#d1fae5' : operation === 'overwrite' ? '#fef3c7' : colors.border.default,
+          color: operation === 'append' ? '#065f46' : operation === 'overwrite' ? '#92400e' : colors.text.secondary,
           borderRadius: '9999px',
-          fontSize: '0.75rem',
-          fontWeight: '500',
+          fontSize: fontSizes.xs,
+          fontWeight: fontWeights.medium,
           textTransform: 'uppercase',
           minWidth: '90px',
           maxWidth: '130px',
@@ -146,8 +147,8 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
 
         {/* Timestamp */}
         <span style={{
-          fontSize: '0.875rem',
-          color: '#6b7280',
+          fontSize: fontSizes.sm,
+          color: colors.text.muted,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis'
@@ -157,8 +158,8 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
 
         {/* Expand Arrow */}
         <span style={{
-          fontSize: '0.875rem',
-          color: '#9ca3af',
+          fontSize: fontSizes.sm,
+          color: colors.text.disabled,
           transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
           transition: 'transform 0.2s',
           display: 'flex',
@@ -181,7 +182,7 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
         }}>
           {/* Data Changes Section */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <h4 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <h4 style={{ fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, color: colors.text.secondary, marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Data Changes
             </h4>
             <MetricItem label="Added Records" value={formatValue(addedRecords)} />
@@ -192,7 +193,7 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
 
           {/* Total Statistics Section */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <h4 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <h4 style={{ fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, color: colors.text.secondary, marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Total Statistics
             </h4>
             <MetricItem label="Total Records" value={formatValue(totalRecords)} />
@@ -202,7 +203,7 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
 
           {/* Delete Operations Section */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <h4 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <h4 style={{ fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, color: colors.text.secondary, marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Delete Operations
             </h4>
             <MetricItem label="Total Delete Files" value={formatValue(totalDeleteFiles)} />
@@ -212,7 +213,7 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
 
           {/* Execution Details Section */}
           <div>
-            <h4 style={{ fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <h4 style={{ fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, color: colors.text.secondary, marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Execution Details
             </h4>
             <MetricItem label="Spark App ID" value={sparkAppId} />
@@ -543,11 +544,10 @@ function TableDetailContent() {
       <main style={{
         minHeight: '100vh',
         padding: '2rem',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        backgroundColor: '#f9fafb'
+        backgroundColor: colors.background.page
       }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center', paddingTop: '4rem' }}>
-          <p style={{ fontSize: '1.25rem', color: '#6b7280' }}>Loading table details...</p>
+          <p style={{ fontSize: fontSizes.xl, color: colors.text.muted }}>Loading table details...</p>
         </div>
       </main>
     );
@@ -558,8 +558,7 @@ function TableDetailContent() {
       <main style={{
         minHeight: '100vh',
         padding: '2rem',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        backgroundColor: '#f9fafb'
+        backgroundColor: colors.background.page
       }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
           <button
@@ -594,8 +593,7 @@ function TableDetailContent() {
       <main style={{
         minHeight: '100vh',
         padding: '2rem',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        backgroundColor: '#f9fafb'
+        backgroundColor: colors.background.page
       }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
           <button
@@ -625,8 +623,7 @@ function TableDetailContent() {
     <main style={{
       minHeight: '100vh',
       padding: '2rem',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      backgroundColor: '#f9fafb'
+      backgroundColor: colors.background.page
     }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {/* Breadcrumb Navigation */}
@@ -788,10 +785,10 @@ function TableDetailContent() {
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
           }}>
             <h2 style={{
-              fontSize: '1.25rem',
-              fontWeight: '600',
+              fontSize: fontSizes.xl,
+              fontWeight: fontWeights.semibold,
               marginBottom: '1rem',
-              color: '#1f2937'
+              color: colors.text.primary
             }}>
               Basic Information
             </h2>
@@ -878,10 +875,10 @@ function TableDetailContent() {
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
           }}>
             <h2 style={{
-              fontSize: '1.25rem',
-              fontWeight: '600',
+              fontSize: fontSizes.xl,
+              fontWeight: fontWeights.semibold,
               marginBottom: '1rem',
-              color: '#1f2937'
+              color: colors.text.primary
             }}>
               Iceberg Metadata
             </h2>
@@ -1328,10 +1325,10 @@ function TableDetailContent() {
             marginBottom: '1.5rem'
           }}>
             <h2 style={{
-              fontSize: '1.25rem',
-              fontWeight: '600',
+              fontSize: fontSizes.xl,
+              fontWeight: fontWeights.semibold,
               marginBottom: '1rem',
-              color: '#1f2937'
+              color: colors.text.primary
             }}>
               Schema
             </h2>
@@ -1352,10 +1349,10 @@ function TableDetailContent() {
             marginBottom: '1.5rem'
           }}>
             <h2 style={{
-              fontSize: '1.25rem',
-              fontWeight: '600',
+              fontSize: fontSizes.xl,
+              fontWeight: fontWeights.semibold,
               marginBottom: '1rem',
-              color: '#1f2937'
+              color: colors.text.primary
             }}>
               Properties & Policies
             </h2>
@@ -1499,20 +1496,20 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
       gridTemplateColumns: '200px 1fr',
       gap: '1rem',
       paddingBottom: '1rem',
-      borderBottom: '1px solid #e5e7eb'
+      borderBottom: `1px solid ${colors.border.default}`
     }}>
       <dt style={{
-        fontWeight: '600',
-        color: '#374151',
-        fontSize: '0.875rem',
+        fontWeight: fontWeights.semibold,
+        color: colors.text.secondary,
+        fontSize: fontSizes.sm,
         textTransform: 'uppercase',
         letterSpacing: '0.05em'
       }}>
         {label}
       </dt>
       <dd style={{
-        color: '#1f2937',
-        fontSize: '1rem',
+        color: colors.text.primary,
+        fontSize: fontSizes.base,
         margin: 0
       }}>
         {value}
@@ -1528,18 +1525,18 @@ function CompactDetailRow({ label, value }: { label: string; value: React.ReactN
       justifyContent: 'space-between',
       alignItems: 'center',
       paddingBottom: '0.75rem',
-      borderBottom: '1px solid #f3f4f6'
+      borderBottom: `1px solid ${colors.background.subtle}`
     }}>
       <dt style={{
-        fontWeight: '500',
-        color: '#6b7280',
-        fontSize: '0.875rem'
+        fontWeight: fontWeights.medium,
+        color: colors.text.muted,
+        fontSize: fontSizes.sm
       }}>
         {label}
       </dt>
       <dd style={{
-        color: '#1f2937',
-        fontSize: '0.875rem',
+        color: colors.text.primary,
+        fontSize: fontSizes.sm,
         margin: 0,
         textAlign: 'right',
         maxWidth: '60%',
@@ -1558,20 +1555,19 @@ export default function TableDetailPage() {
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'system-ui, -apple-system, sans-serif'
+        justifyContent: 'center'
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{
             width: '50px',
             height: '50px',
-            border: '4px solid #e5e7eb',
-            borderTop: '4px solid #3b82f6',
+            border: `4px solid ${colors.border.default}`,
+            borderTop: `4px solid ${colors.accent.primary}`,
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
             margin: '0 auto 1rem'
           }}></div>
-          <p style={{ color: '#6b7280' }}>Loading table details...</p>
+          <p style={{ color: colors.text.muted }}>Loading table details...</p>
         </div>
       </div>
     }>

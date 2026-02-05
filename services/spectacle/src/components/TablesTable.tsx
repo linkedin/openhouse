@@ -1,5 +1,6 @@
 import { Table } from '@/types/table';
 import TableRow from './TableRow';
+import { fontSizes, fontWeights, colors } from '@/lib/theme';
 
 interface TablesTableProps {
   tables: Table[];
@@ -17,30 +18,30 @@ export default function TablesTable({ tables }: TablesTableProps) {
     }}>
       <div style={{
         padding: '1rem 1.5rem',
-        borderBottom: '1px solid #e5e7eb',
-        backgroundColor: '#f9fafb'
+        borderBottom: `1px solid ${colors.border.default}`,
+        backgroundColor: colors.background.page
       }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: '600', margin: 0 }}>
+        <h2 style={{ fontSize: fontSizes.xl, fontWeight: fontWeights.semibold, margin: 0 }}>
           Found {tables.length} table{tables.length !== 1 ? 's' : ''}
         </h2>
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ backgroundColor: '#f9fafb' }}>
-              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>
+            <tr style={{ backgroundColor: colors.background.page }}>
+              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: fontWeights.semibold, color: colors.text.secondary, fontSize: fontSizes.sm }}>
                 Table ID
               </th>
-              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>
+              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: fontWeights.semibold, color: colors.text.secondary, fontSize: fontSizes.sm }}>
                 Database ID
               </th>
-              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>
+              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: fontWeights.semibold, color: colors.text.secondary, fontSize: fontSizes.sm }}>
                 Type
               </th>
-              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>
+              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: fontWeights.semibold, color: colors.text.secondary, fontSize: fontSizes.sm }}>
                 Creator
               </th>
-              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>
+              <th style={{ padding: '0.75rem 1.5rem', textAlign: 'left', fontWeight: fontWeights.semibold, color: colors.text.secondary, fontSize: fontSizes.sm }}>
                 Last Modified
               </th>
             </tr>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { fonts, fontSizes, fontWeights, colors } from '@/lib/theme';
 
 interface AclPolicy {
   principal: string;
@@ -68,17 +69,17 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
     >
       <h2
         style={{
-          fontSize: '1.25rem',
-          fontWeight: '600',
+          fontSize: fontSizes.xl,
+          fontWeight: fontWeights.semibold,
           marginBottom: '1rem',
-          color: '#1f2937',
+          color: colors.text.primary,
         }}
       >
         Permissions (ACL Policies)
       </h2>
 
       {loading && (
-        <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+        <div style={{ textAlign: 'center', padding: '2rem', color: colors.text.muted }}>
           Loading permissions...
         </div>
       )}
@@ -102,8 +103,8 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
           style={{
             textAlign: 'center',
             padding: '2rem',
-            color: '#6b7280',
-            backgroundColor: '#f9fafb',
+            color: colors.text.muted,
+            backgroundColor: colors.background.page,
             borderRadius: '6px',
           }}
         >
@@ -116,11 +117,11 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
           {policies.length > 20 && (
             <div
               style={{
-                fontSize: '0.875rem',
-                color: '#6b7280',
+                fontSize: fontSizes.sm,
+                color: colors.text.muted,
                 marginBottom: '0.75rem',
                 padding: '0.5rem',
-                backgroundColor: '#f9fafb',
+                backgroundColor: colors.background.page,
                 borderRadius: '6px',
               }}
             >
@@ -157,9 +158,9 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   style={{
                     padding: '0.75rem',
                     textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '0.875rem',
+                    fontWeight: fontWeights.semibold,
+                    color: colors.text.secondary,
+                    fontSize: fontSizes.xs,
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                   }}
@@ -170,9 +171,9 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   style={{
                     padding: '0.75rem',
                     textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '0.875rem',
+                    fontWeight: fontWeights.semibold,
+                    color: colors.text.secondary,
+                    fontSize: fontSizes.xs,
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                   }}
@@ -183,9 +184,9 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   style={{
                     padding: '0.75rem',
                     textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '0.875rem',
+                    fontWeight: fontWeights.semibold,
+                    color: colors.text.secondary,
+                    fontSize: fontSizes.xs,
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                   }}
@@ -196,9 +197,9 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   style={{
                     padding: '0.75rem',
                     textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '0.875rem',
+                    fontWeight: fontWeights.semibold,
+                    color: colors.text.secondary,
+                    fontSize: fontSizes.xs,
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                   }}
@@ -218,9 +219,9 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   <td
                     style={{
                       padding: '0.75rem',
-                      fontSize: '0.875rem',
-                      color: '#374151',
-                      fontFamily: 'monospace',
+                      fontSize: fontSizes.sm,
+                      color: colors.text.secondary,
+                      fontFamily: fonts.mono,
                     }}
                   >
                     {policy.principal}
@@ -228,7 +229,7 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   <td
                     style={{
                       padding: '0.75rem',
-                      fontSize: '0.875rem',
+                      fontSize: fontSizes.sm,
                     }}
                   >
                     <span
@@ -241,7 +242,7 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                             ? '#d1fae5'
                             : policy.role === 'TABLE_VIEWER'
                             ? '#fef3c7'
-                            : '#f3f4f6',
+                            : colors.background.subtle,
                         color:
                           policy.role === 'TABLE_ADMIN'
                             ? '#1e40af'
@@ -249,10 +250,10 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                             ? '#065f46'
                             : policy.role === 'TABLE_VIEWER'
                             ? '#92400e'
-                            : '#374151',
+                            : colors.text.secondary,
                         borderRadius: '9999px',
-                        fontSize: '0.75rem',
-                        fontWeight: '500',
+                        fontSize: fontSizes.xs,
+                        fontWeight: fontWeights.medium,
                         textTransform: 'uppercase',
                       }}
                     >
@@ -262,8 +263,8 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   <td
                     style={{
                       padding: '0.75rem',
-                      fontSize: '0.875rem',
-                      color: '#6b7280',
+                      fontSize: fontSizes.sm,
+                      color: colors.text.muted,
                       whiteSpace: 'nowrap',
                     }}
                   >
@@ -272,16 +273,16 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                   <td
                     style={{
                       padding: '0.75rem',
-                      fontSize: '0.875rem',
-                      color: '#6b7280',
-                      fontFamily: 'monospace',
+                      fontSize: fontSizes.sm,
+                      color: colors.text.muted,
+                      fontFamily: fonts.mono,
                     }}
                   >
                     {policy.properties && Object.keys(policy.properties).length > 0 ? (
                       <pre
                         style={{
                           margin: 0,
-                          fontSize: '0.75rem',
+                          fontSize: fontSizes.xs,
                           maxWidth: '300px',
                           overflow: 'auto',
                         }}
@@ -289,7 +290,7 @@ export default function Permissions({ databaseId, tableId }: PermissionsProps) {
                         {JSON.stringify(policy.properties, null, 2)}
                       </pre>
                     ) : (
-                      <span style={{ color: '#9ca3af' }}>None</span>
+                      <span style={{ color: colors.text.disabled }}>None</span>
                     )}
                   </td>
                 </tr>

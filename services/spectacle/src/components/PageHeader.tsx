@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { fontSizes, fontWeights, colors } from '@/lib/theme';
 
 export default function PageHeader() {
   return (
@@ -18,8 +19,8 @@ export default function PageHeader() {
           style={{ objectFit: 'contain' }}
         />
         <h1 style={{
-          fontSize: '2.5rem',
-          fontWeight: 'bold',
+          fontSize: fontSizes['4xl'],
+          fontWeight: fontWeights.bold,
           margin: 0,
           background: 'linear-gradient(to right, #4e8cc9, #8c78d6)',
           WebkitBackgroundClip: 'text',
@@ -30,8 +31,8 @@ export default function PageHeader() {
         </h1>
       </div>
       <p style={{
-        fontSize: '1rem',
-        color: '#6b7280',
+        fontSize: fontSizes.base,
+        color: colors.text.muted,
         margin: 0
       }}>
         Search and explore OpenHouse tables!

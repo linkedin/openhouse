@@ -1,3 +1,5 @@
+import { fontSizes, colors } from '@/lib/theme';
+
 export default function EmptyState() {
   return (
     <div style={{
@@ -6,10 +8,10 @@ export default function EmptyState() {
       borderRadius: '8px',
       boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
       textAlign: 'center',
-      color: '#6b7280'
+      color: colors.text.muted
     }}>
-      <p style={{ fontSize: '1.125rem', marginBottom: '0.5rem' }}>No tables found</p>
-      <p style={{ fontSize: '0.875rem' }}>Enter a database ID and click Search to get started</p>
+      <p style={{ fontSize: fontSizes.lg, marginBottom: '0.5rem' }}>No tables found</p>
+      <p style={{ fontSize: fontSizes.sm }}>Enter a database ID and click Search to get started</p>
     </div>
   );
 }

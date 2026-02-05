@@ -1,5 +1,6 @@
 import { Table } from '@/types/table';
 import { useRouter } from 'next/navigation';
+import { fontSizes, fontWeights, colors } from '@/lib/theme';
 
 interface TableRowProps {
   table: Table;
@@ -39,15 +40,15 @@ export default function TableRow({ table, index }: TableRowProps) {
       key={`${table.databaseId}-${table.tableId}-${index}`}
       onClick={handleRowClick}
       style={{
-        borderBottom: '1px solid #e5e7eb',
+        borderBottom: `1px solid ${colors.border.default}`,
         transition: 'background-color 0.2s',
         cursor: 'pointer',
         backgroundColor: isPartialData ? '#fef3c7' : 'white'
       }}
-      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isPartialData ? '#fde68a' : '#f9fafb'}
+      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isPartialData ? '#fde68a' : colors.background.page}
       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isPartialData ? '#fef3c7' : 'white'}
     >
-      <td style={{ padding: '0.75rem 1.5rem', color: '#1f2937', fontWeight: '500' }}>
+      <td style={{ padding: '0.75rem 1.5rem', color: colors.text.primary, fontWeight: fontWeights.medium, fontSize: fontSizes.sm }}>
         {table.tableId}
         {isPartialData && (
           <span style={{
@@ -56,25 +57,25 @@ export default function TableRow({ table, index }: TableRowProps) {
             backgroundColor: '#fbbf24',
             color: '#78350f',
             borderRadius: '9999px',
-            fontSize: '0.75rem',
-            fontWeight: '500'
+            fontSize: fontSizes.xs,
+            fontWeight: fontWeights.medium
           }}>
             Limited Info
           </span>
         )}
       </td>
-      <td style={{ padding: '0.75rem 1.5rem' }}>
+      <td style={{ padding: '0.75rem 1.5rem', fontSize: fontSizes.sm }}>
         <span
           onClick={handleDatabaseClick}
           style={{
-            color: '#3b82f6',
+            color: colors.accent.primary,
             cursor: 'pointer',
             textDecoration: 'underline',
             textDecorationColor: 'transparent',
             transition: 'text-decoration-color 0.2s'
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.textDecorationColor = '#3b82f6';
+            e.currentTarget.style.textDecorationColor = colors.accent.primary;
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.textDecorationColor = 'transparent';
@@ -86,19 +87,19 @@ export default function TableRow({ table, index }: TableRowProps) {
       <td style={{ padding: '0.75rem 1.5rem' }}>
         <span style={{
           padding: '0.25rem 0.75rem',
-          backgroundColor: isPartialData ? '#e5e7eb' : '#dbeafe',
-          color: isPartialData ? '#6b7280' : '#1e40af',
+          backgroundColor: isPartialData ? colors.border.default : '#dbeafe',
+          color: isPartialData ? colors.text.muted : '#1e40af',
           borderRadius: '9999px',
-          fontSize: '0.875rem',
-          fontWeight: '500'
+          fontSize: fontSizes.sm,
+          fontWeight: fontWeights.medium
         }}>
           {table.tableType || 'Unknown'}
         </span>
       </td>
-      <td style={{ padding: '0.75rem 1.5rem', color: '#6b7280' }}>
+      <td style={{ padding: '0.75rem 1.5rem', color: colors.text.muted, fontSize: fontSizes.sm }}>
         {table.tableCreator || 'N/A'}
       </td>
-      <td style={{ padding: '0.75rem 1.5rem', color: '#6b7280', fontSize: '0.875rem' }}>
+      <td style={{ padding: '0.75rem 1.5rem', color: colors.text.muted, fontSize: fontSizes.sm }}>
         {formatDate(table.lastModifiedTime)}
       </td>
     </tr>

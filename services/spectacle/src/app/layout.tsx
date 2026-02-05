@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { fonts, fontSizes, lineHeights, colors } from '@/lib/theme'
 
 export const metadata: Metadata = {
   title: 'OpenHouse Spectacle',
@@ -45,7 +46,14 @@ export default function RootLayout({
           }
         `}</style>
       </head>
-      <body style={{ margin: 0, padding: 0 }}>{children}</body>
+      <body style={{
+        margin: 0,
+        padding: 0,
+        fontFamily: fonts.primary,
+        fontSize: fontSizes.base,
+        lineHeight: lineHeights.normal,
+        color: colors.text.primary,
+      }}>{children}</body>
     </html>
   )
 }

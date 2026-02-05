@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { fonts, fontSizes, fontWeights, colors } from '@/lib/theme';
 
 interface SearchBarProps {
   databaseId: string;
@@ -162,9 +163,9 @@ export default function SearchBar({
             style={{
               width: '100%',
               padding: '0.75rem',
-              border: '1px solid #d1d5db',
+              border: `1px solid ${colors.border.strong}`,
               borderRadius: '6px',
-              fontSize: '1rem',
+              fontSize: fontSizes.base,
               outline: 'none'
             }}
           />
@@ -198,33 +199,33 @@ export default function SearchBar({
                   style={{
                     padding: '0.75rem',
                     cursor: 'pointer',
-                    borderBottom: index < suggestions.length - 1 ? '1px solid #f3f4f6' : 'none',
+                    borderBottom: index < suggestions.length - 1 ? `1px solid ${colors.background.subtle}` : 'none',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     transition: 'background-color 0.2s'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f9fafb';
+                    e.currentTarget.style.backgroundColor = colors.background.page;
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'white';
                   }}
                 >
                   <span style={{
-                    fontSize: '0.875rem',
-                    fontFamily: 'monospace',
-                    color: '#374151'
+                    fontSize: fontSizes.sm,
+                    fontFamily: fonts.mono,
+                    color: colors.text.secondary
                   }}>
                     {suggestion.label}
                   </span>
                   <span style={{
-                    fontSize: '0.75rem',
+                    fontSize: fontSizes.xs,
                     padding: '0.125rem 0.5rem',
                     backgroundColor: suggestion.type === 'database' ? '#dbeafe' : '#dcfce7',
                     color: suggestion.type === 'database' ? '#1e40af' : '#065f46',
                     borderRadius: '9999px',
-                    fontWeight: '500'
+                    fontWeight: fontWeights.medium
                   }}>
                     {suggestion.type === 'database' ? 'DATABASE' : 'TABLE'}
                   </span>
@@ -239,12 +240,12 @@ export default function SearchBar({
           disabled={loading}
           style={{
             padding: '0.75rem 2rem',
-            backgroundColor: loading ? '#9ca3af' : '#3b82f6',
+            backgroundColor: loading ? colors.text.disabled : colors.accent.primary,
             color: 'white',
             border: 'none',
             borderRadius: '6px',
-            fontSize: '1rem',
-            fontWeight: '500',
+            fontSize: fontSizes.base,
+            fontWeight: fontWeights.medium,
             cursor: loading ? 'not-allowed' : 'pointer',
             transition: 'background-color 0.2s'
           }}
