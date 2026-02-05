@@ -465,43 +465,13 @@ public class IcebergMetadataServiceImpl implements IcebergMetadataService {
 
   @Override
   public com.linkedin.openhouse.tables.model.IcebergMetadataDiff getMetadataDiff(
-      String databaseId, String tableId, Long snapshotId, String actingPrincipal) {
+      String databaseId, String tableId, String metadataFile, String actingPrincipal) {
     TableDto tableDto = getTableOrThrow(databaseId, tableId);
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
 
     // Load the Iceberg table from catalog
     Table icebergTable = catalog.loadTable(TableIdentifier.of(databaseId, tableId));
-
-    // Get table history to find snapshots in order
-    List<org.apache.iceberg.HistoryEntry> historyEntries = icebergTable.history();
-    if (historyEntries == null || historyEntries.isEmpty()) {
-      throw new IllegalStateException("No snapshot history available for table");
-    }
-
-    // Find the current snapshot and previous snapshot in history
-    org.apache.iceberg.HistoryEntry currentEntry = null;
-    org.apache.iceberg.HistoryEntry previousEntry = null;
-    boolean foundCurrent = false;
-
-    for (int i = 0; i < historyEntries.size(); i++) {
-      if (historyEntries.get(i).snapshotId() == snapshotId) {
-        currentEntry = historyEntries.get(i);
-        foundCurrent = true;
-        // Get previous entry if it exists
-        if (i > 0) {
-          previousEntry = historyEntries.get(i - 1);
-        }
-        break;
-      }
-    }
-
-    if (!foundCurrent) {
-      throw new IllegalArgumentException(
-          "Snapshot ID " + snapshotId + " not found in table history");
-    }
-
-    boolean isFirstCommit = (previousEntry == null);
 
     // Get the FileIO for accessing metadata files
     org.apache.iceberg.io.FileIO io = icebergTable.io();
@@ -516,32 +486,69 @@ public class IcebergMetadataServiceImpl implements IcebergMetadataService {
       metadataLog = currentMetadataObj.getAsJsonArray("metadata-log");
     }
 
-    // Find metadata files for current and previous snapshots
-    String currentMetadataFile = findMetadataFileForSnapshot(metadataLog, currentEntry);
-    String previousMetadataFile =
-        isFirstCommit ? null : findMetadataFileForSnapshot(metadataLog, previousEntry);
+    if (metadataLog == null || metadataLog.size() == 0) {
+      // No metadata log - return empty diff
+      return com.linkedin.openhouse.tables.model.IcebergMetadataDiff.builder()
+          .tableId(tableId)
+          .databaseId(databaseId)
+          .currentMetadata(null)
+          .previousMetadata(null)
+          .currentMetadataLocation(metadataFile)
+          .previousMetadataLocation(null)
+          .isFirstCommit(true)
+          .build();
+    }
+
+    // Find the metadata file in the metadata-log and its predecessor
+    String previousMetadataFile = null;
+    Long currentTimestamp = null;
+    Long previousTimestamp = null;
+    boolean foundCurrent = false;
+
+    for (int i = 0; i < metadataLog.size(); i++) {
+      JsonObject logEntry = metadataLog.get(i).getAsJsonObject();
+      String logFile =
+          logEntry.has("metadata-file") ? logEntry.get("metadata-file").getAsString() : null;
+
+      if (logFile != null && logFile.equals(metadataFile)) {
+        foundCurrent = true;
+        currentTimestamp =
+            logEntry.has("timestamp-ms") ? logEntry.get("timestamp-ms").getAsLong() : null;
+
+        // Get previous entry if it exists
+        if (i > 0) {
+          JsonObject prevEntry = metadataLog.get(i - 1).getAsJsonObject();
+          previousMetadataFile =
+              prevEntry.has("metadata-file") ? prevEntry.get("metadata-file").getAsString() : null;
+          previousTimestamp =
+              prevEntry.has("timestamp-ms") ? prevEntry.get("timestamp-ms").getAsLong() : null;
+        }
+        break;
+      }
+    }
+
+    if (!foundCurrent) {
+      throw new IllegalArgumentException(
+          "Metadata file " + metadataFile + " not found in metadata-log");
+    }
+
+    boolean isFirstCommit = (previousMetadataFile == null);
 
     // Fetch the actual metadata.json contents
-    String currentMetadataContent =
-        currentMetadataFile != null
-            ? fetchMetadataFile(io, currentMetadataFile)
-            : currentMetadataJson;
+    String currentMetadataContent = fetchMetadataFile(io, metadataFile);
     String previousMetadataContent =
         previousMetadataFile != null ? fetchMetadataFile(io, previousMetadataFile) : null;
 
     // Build and return the diff
-    // Convert snapshot IDs to strings to preserve precision in JavaScript
     return com.linkedin.openhouse.tables.model.IcebergMetadataDiff.builder()
         .tableId(tableId)
         .databaseId(databaseId)
         .currentMetadata(currentMetadataContent)
         .previousMetadata(previousMetadataContent)
-        .currentSnapshotId(String.valueOf(currentEntry.snapshotId()))
-        .previousSnapshotId(isFirstCommit ? null : String.valueOf(previousEntry.snapshotId()))
-        .currentTimestamp(currentEntry.timestampMillis())
-        .previousTimestamp(isFirstCommit ? null : previousEntry.timestampMillis())
-        .currentMetadataLocation(currentMetadataFile)
+        .currentMetadataLocation(metadataFile)
         .previousMetadataLocation(previousMetadataFile)
+        .currentTimestamp(currentTimestamp)
+        .previousTimestamp(previousTimestamp)
         .isFirstCommit(isFirstCommit)
         .build();
   }

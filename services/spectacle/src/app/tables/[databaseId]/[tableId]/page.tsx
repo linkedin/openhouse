@@ -30,10 +30,9 @@ interface SnapshotCardProps {
   timestamp: string;
   summary: Record<string, string>;
   isCurrent: boolean;
-  onViewDiff: (snapshotId: number | string) => void;
 }
 
-function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, onViewDiff }: SnapshotCardProps) {
+function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: SnapshotCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Defensive checks
@@ -91,7 +90,7 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
           padding: '1rem',
           cursor: 'pointer',
           display: 'grid',
-          gridTemplateColumns: '1fr 110px 180px 100px 30px',
+          gridTemplateColumns: '1fr 110px 180px 30px',
           gap: '0.75rem',
           alignItems: 'center',
           backgroundColor: isCurrent ? '#dbeafe' : '#f9fafb',
@@ -155,44 +154,11 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
           {timestamp || 'Unknown time'}
         </span>
 
-        {/* View Diff Button - Minimalistic */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onViewDiff(snapshotId);
-          }}
-          style={{
-            padding: '0.375rem 0.75rem',
-            backgroundColor: '#eff6ff',
-            color: '#3b82f6',
-            border: '1px solid #dbeafe',
-            borderRadius: '6px',
-            fontSize: '0.75rem',
-            fontWeight: '500',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            width: '100px',
-            whiteSpace: 'nowrap'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#dbeafe';
-            e.currentTarget.style.borderColor = '#93c5fd';
-            e.currentTarget.style.color = '#2563eb';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#eff6ff';
-            e.currentTarget.style.borderColor = '#dbeafe';
-            e.currentTarget.style.color = '#3b82f6';
-          }}
-        >
-          View Diff
-        </button>
-
         {/* Expand Arrow */}
-        <span style={{ 
-          fontSize: '0.875rem', 
-          color: '#9ca3af', 
-          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', 
+        <span style={{
+          fontSize: '0.875rem',
+          color: '#9ca3af',
+          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
           transition: 'transform 0.2s',
           display: 'flex',
           justifyContent: 'center',
@@ -485,10 +451,10 @@ function TableDetailContent() {
   const [error, setError] = useState('');
   const [metadataError, setMetadataError] = useState('');
   const [diffModalOpen, setDiffModalOpen] = useState(false);
-  const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | string | null>(null);
+  const [selectedMetadataFile, setSelectedMetadataFile] = useState<string | null>(null);
 
-  const handleViewDiff = (snapshotId: number | string) => {
-    setSelectedSnapshotId(snapshotId);
+  const handleViewDiff = (metadataFile: string) => {
+    setSelectedMetadataFile(metadataFile);
     setDiffModalOpen(true);
   };
 
@@ -1136,7 +1102,6 @@ function TableDetailContent() {
                                   timestamp={formatDate(snapshot['timestamp-ms'])}
                                   summary={snapshot.summary || {}}
                                   isCurrent={isCurrent}
-                                  onViewDiff={handleViewDiff}
                                 />
                               );
                             })}
@@ -1214,6 +1179,16 @@ function TableDetailContent() {
                                   }}>
                                     Metadata File
                                   </th>
+                                  <th style={{
+                                    padding: '0.75rem',
+                                    textAlign: 'center',
+                                    fontWeight: '600',
+                                    color: '#374151',
+                                    borderBottom: '2px solid #e5e7eb',
+                                    width: '100px'
+                                  }}>
+                                    Actions
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -1230,11 +1205,43 @@ function TableDetailContent() {
                                     <td style={{
                                       padding: '0.75rem',
                                       fontFamily: 'monospace',
-                                      fontSize: '0.875rem',
+                                      fontSize: '0.75rem',
                                       color: '#6b7280',
                                       wordBreak: 'break-all'
                                     }}>
                                       {entry['metadata-file']}
+                                    </td>
+                                    <td style={{
+                                      padding: '0.75rem',
+                                      textAlign: 'center'
+                                    }}>
+                                      <button
+                                        onClick={() => handleViewDiff(entry['metadata-file'])}
+                                        style={{
+                                          padding: '0.375rem 0.75rem',
+                                          backgroundColor: '#eff6ff',
+                                          color: '#3b82f6',
+                                          border: '1px solid #dbeafe',
+                                          borderRadius: '6px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '500',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.2s',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor = '#dbeafe';
+                                          e.currentTarget.style.borderColor = '#93c5fd';
+                                          e.currentTarget.style.color = '#2563eb';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor = '#eff6ff';
+                                          e.currentTarget.style.borderColor = '#dbeafe';
+                                          e.currentTarget.style.color = '#3b82f6';
+                                        }}
+                                      >
+                                        View Diff
+                                      </button>
                                     </td>
                                   </tr>
                                 ))}
@@ -1472,13 +1479,13 @@ function TableDetailContent() {
       </div>
 
       {/* Metadata Diff Modal */}
-      {selectedSnapshotId && (
+      {selectedMetadataFile && (
         <MetadataDiffModal
           isOpen={diffModalOpen}
           onClose={() => setDiffModalOpen(false)}
           databaseId={databaseId}
           tableId={tableId}
-          snapshotId={selectedSnapshotId}
+          metadataFile={selectedMetadataFile}
         />
       )}
     </main>

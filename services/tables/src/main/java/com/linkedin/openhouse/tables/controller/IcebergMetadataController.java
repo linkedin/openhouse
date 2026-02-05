@@ -54,11 +54,11 @@ public class IcebergMetadataController {
   }
 
   @Operation(
-      summary = "Get Metadata Diff for Snapshot (Internal)",
+      summary = "Get Metadata Diff for Metadata File (Internal)",
       description =
-          "Returns the metadata diff between a specific snapshot and its immediate predecessor. "
+          "Returns the metadata diff between a specific metadata file and its immediate predecessor. "
               + "Includes both current and previous metadata.json content for client-side diffing. "
-              + "This is an internal endpoint for detailed commit inspection.",
+              + "This is an internal endpoint for detailed metadata inspection.",
       tags = {"Internal"})
   @ApiResponses(
       value = {
@@ -73,12 +73,12 @@ public class IcebergMetadataController {
   public ResponseEntity<GetMetadataDiffResponseBody> getMetadataDiff(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
-      @Parameter(description = "Snapshot ID to compare", required = true) @RequestParam
-          Long snapshotId) {
+      @Parameter(description = "Metadata file location to compare", required = true) @RequestParam
+          String metadataFile) {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetMetadataDiffResponseBody> apiResponse =
         icebergMetadataApiHandler.getMetadataDiff(
-            databaseId, tableId, snapshotId, extractAuthenticatedUserPrincipal());
+            databaseId, tableId, metadataFile, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

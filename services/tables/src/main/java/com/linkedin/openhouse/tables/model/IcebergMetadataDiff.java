@@ -13,18 +13,16 @@ public class IcebergMetadataDiff {
   String tableId;
   String databaseId;
 
-  // Current commit metadata
+  // Current metadata
   String currentMetadata;
-  String currentSnapshotId; // String to preserve precision in JavaScript
   Long currentTimestamp;
   String currentMetadataLocation;
 
-  // Previous commit metadata (null if this is the first commit)
+  // Previous metadata (null if this is the first entry in metadata-log)
   String previousMetadata;
-  String previousSnapshotId; // String to preserve precision in JavaScript
   Long previousTimestamp;
   String previousMetadataLocation;
 
-  // Indicates if this is the first commit (no previous metadata)
+  // Indicates if this is the first entry in metadata-log (no previous metadata)
   Boolean isFirstCommit;
 }

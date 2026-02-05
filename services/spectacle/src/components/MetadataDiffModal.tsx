@@ -8,7 +8,7 @@ interface MetadataDiffModalProps {
   onClose: () => void;
   databaseId: string;
   tableId: string;
-  snapshotId: number | string;
+  metadataFile: string;
 }
 
 export default function MetadataDiffModal({
@@ -16,7 +16,7 @@ export default function MetadataDiffModal({
   onClose,
   databaseId,
   tableId,
-  snapshotId,
+  metadataFile,
 }: MetadataDiffModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -24,10 +24,10 @@ export default function MetadataDiffModal({
   const [diffData, setDiffData] = useState<any>(null);
 
   useEffect(() => {
-    if (isOpen && snapshotId) {
+    if (isOpen && metadataFile) {
       fetchDiff();
     }
-  }, [isOpen, snapshotId]);
+  }, [isOpen, metadataFile]);
 
   const fetchDiff = async () => {
     setLoading(true);
@@ -35,14 +35,10 @@ export default function MetadataDiffModal({
     setDiff(null);
 
     try {
-      console.log('Fetching diff for:', { databaseId, tableId, snapshotId, type: typeof snapshotId });
-      
-      // Keep snapshotId as string to preserve precision for large numbers
-      const cleanSnapshotId = String(snapshotId);
-      console.log('Clean snapshot ID (as string):', cleanSnapshotId);
-      
+      console.log('Fetching diff for:', { databaseId, tableId, metadataFile });
+
       const response = await fetch(
-        `/api/tables/metadata-diff?databaseId=${encodeURIComponent(databaseId)}&tableId=${encodeURIComponent(tableId)}&snapshotId=${cleanSnapshotId}`
+        `/api/tables/metadata-diff?databaseId=${encodeURIComponent(databaseId)}&tableId=${encodeURIComponent(tableId)}&metadataFile=${encodeURIComponent(metadataFile)}`
       );
 
       console.log('Response status:', response.status);
@@ -124,7 +120,7 @@ export default function MetadataDiffModal({
           }}
         >
           <h2 style={{ fontSize: '1.5rem', fontWeight: '600', color: '#111827', margin: 0 }}>
-            Metadata Diff - Snapshot {snapshotId}
+            Metadata Diff
           </h2>
           <button
             onClick={onClose}
@@ -186,10 +182,10 @@ export default function MetadataDiffModal({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div>
                     <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>
-                      Current Snapshot
+                      Current Metadata
                     </div>
-                    <div style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: '600' }}>
-                      {diffData.currentSnapshotId}
+                    <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: '600', wordBreak: 'break-all' }}>
+                      {diffData.currentMetadataLocation?.split('/').pop() || 'N/A'}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
                       {formatTimestamp(diffData.currentTimestamp)}
@@ -197,10 +193,10 @@ export default function MetadataDiffModal({
                   </div>
                   <div>
                     <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>
-                      Previous Snapshot
+                      Previous Metadata
                     </div>
-                    <div style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: '600' }}>
-                      {diffData.isFirstCommit ? 'N/A (First Commit)' : diffData.previousSnapshotId}
+                    <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: '600', wordBreak: 'break-all' }}>
+                      {diffData.isFirstCommit ? 'N/A (First Entry)' : (diffData.previousMetadataLocation?.split('/').pop() || 'N/A')}
                     </div>
                     {!diffData.isFirstCommit && (
                       <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
@@ -290,7 +286,7 @@ export default function MetadataDiffModal({
                     textAlign: 'center',
                   }}
                 >
-                  This is the first commit - no previous metadata to compare
+                  This is the first metadata entry - no previous metadata to compare
                 </div>
               )}
 
@@ -485,7 +481,7 @@ export default function MetadataDiffModal({
                       fontSize: '0.875rem',
                     }}
                   >
-                    No semantic changes detected between these snapshots
+                    No semantic changes detected between these metadata versions
                   </div>
                 )}
             </div>

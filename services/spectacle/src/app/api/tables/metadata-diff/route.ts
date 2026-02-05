@@ -6,21 +6,21 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const databaseId = searchParams.get('databaseId');
     const tableId = searchParams.get('tableId');
-    const snapshotId = searchParams.get('snapshotId');
+    const metadataFile = searchParams.get('metadataFile');
 
-    console.log('[metadata-diff] Request params:', { databaseId, tableId, snapshotId });
+    console.log('[metadata-diff] Request params:', { databaseId, tableId, metadataFile });
 
-    if (!databaseId || !tableId || !snapshotId) {
+    if (!databaseId || !tableId || !metadataFile) {
       console.error('[metadata-diff] Missing parameters');
       return NextResponse.json(
-        { error: 'Missing required parameters: databaseId, tableId, snapshotId' },
+        { error: 'Missing required parameters: databaseId, tableId, metadataFile' },
         { status: 400 }
       );
     }
 
     const tablesServiceUrl = process.env.NEXT_PUBLIC_TABLES_SERVICE_URL || 'http://localhost:8000';
     const bearerToken = getBearerToken();
-    const backendUrl = `${tablesServiceUrl}/internal/tables/${databaseId}/${tableId}/metadata/diff?snapshotId=${snapshotId}`;
+    const backendUrl = `${tablesServiceUrl}/internal/tables/${databaseId}/${tableId}/metadata/diff?metadataFile=${encodeURIComponent(metadataFile)}`;
 
     console.log('[metadata-diff] Calling backend:', backendUrl);
 
@@ -38,10 +38,10 @@ export async function GET(request: NextRequest) {
       const errorText = await response.text();
       console.error('[metadata-diff] Backend error:', errorText);
       return NextResponse.json(
-        { 
-          error: `API Error: ${response.status} ${response.statusText}`, 
+        {
+          error: `API Error: ${response.status} ${response.statusText}`,
           details: errorText,
-          backendUrl 
+          backendUrl
         },
         { status: response.status }
       );
@@ -53,8 +53,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[metadata-diff] API route error:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch metadata diff', 
+      {
+        error: 'Failed to fetch metadata diff',
         details: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined
       },

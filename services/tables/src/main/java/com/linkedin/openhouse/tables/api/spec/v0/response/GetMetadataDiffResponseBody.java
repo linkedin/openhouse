@@ -27,11 +27,7 @@ public class GetMetadataDiffResponseBody {
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String currentMetadata;
 
-  @Schema(description = "Current snapshot ID (as string to preserve precision in JavaScript)")
-  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
-  private String currentSnapshotId;
-
-  @Schema(description = "Current snapshot timestamp in milliseconds")
+  @Schema(description = "Current metadata timestamp in milliseconds")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Long currentTimestamp;
 
@@ -40,26 +36,21 @@ public class GetMetadataDiffResponseBody {
   private String currentMetadataLocation;
 
   @Schema(
-      description = "Previous metadata.json content (null if first commit)",
+      description = "Previous metadata.json content (null if first entry in metadata-log)",
       example = "{\"format-version\":2,\"table-uuid\":\"...\",\"location\":\"...\"}")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String previousMetadata;
 
-  @Schema(
-      description =
-          "Previous snapshot ID (null if first commit, as string to preserve precision in JavaScript)")
-  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
-  private String previousSnapshotId;
-
-  @Schema(description = "Previous snapshot timestamp in milliseconds (null if first commit)")
+  @Schema(description = "Previous metadata timestamp in milliseconds (null if first entry)")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Long previousTimestamp;
 
-  @Schema(description = "Previous metadata file location (null if first commit)")
+  @Schema(description = "Previous metadata file location (null if first entry)")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String previousMetadataLocation;
 
-  @Schema(description = "Indicates if this is the first commit (no previous metadata)")
+  @Schema(
+      description = "Indicates if this is the first entry in metadata-log (no previous metadata)")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Boolean isFirstCommit;
 

@@ -37,13 +37,13 @@ public class OpenHouseIcebergMetadataApiHandler implements IcebergMetadataApiHan
 
   @Override
   public ApiResponse<GetMetadataDiffResponseBody> getMetadataDiff(
-      String databaseId, String tableId, Long snapshotId, String actingPrincipal) {
+      String databaseId, String tableId, String metadataFile, String actingPrincipal) {
     return ApiResponse.<GetMetadataDiffResponseBody>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
             tableMetadataMapper.toMetadataDiffResponseBody(
                 icebergMetadataService.getMetadataDiff(
-                    databaseId, tableId, snapshotId, actingPrincipal)))
+                    databaseId, tableId, metadataFile, actingPrincipal)))
         .build();
   }
 

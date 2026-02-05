@@ -52,7 +52,7 @@ public class MockIcebergMetadataApiHandler implements IcebergMetadataApiHandler 
 
   @Override
   public ApiResponse<GetMetadataDiffResponseBody> getMetadataDiff(
-      String databaseId, String tableId, Long snapshotId, String actingPrincipal) {
+      String databaseId, String tableId, String metadataFile, String actingPrincipal) {
     switch (databaseId) {
       case "d200":
         return ApiResponse.<GetMetadataDiffResponseBody>builder()
@@ -63,12 +63,10 @@ public class MockIcebergMetadataApiHandler implements IcebergMetadataApiHandler 
                     .databaseId(databaseId)
                     .currentMetadata(
                         "{\"format-version\":2,\"table-uuid\":\"test-uuid\",\"current-snapshot-id\":2}")
-                    .currentSnapshotId(String.valueOf(snapshotId))
                     .currentTimestamp(1651002318265L)
-                    .currentMetadataLocation("s3://bucket/metadata/v2.metadata.json")
+                    .currentMetadataLocation(metadataFile)
                     .previousMetadata(
                         "{\"format-version\":2,\"table-uuid\":\"test-uuid\",\"current-snapshot-id\":1}")
-                    .previousSnapshotId("1")
                     .previousTimestamp(1651002218265L)
                     .previousMetadataLocation("s3://bucket/metadata/v1.metadata.json")
                     .isFirstCommit(false)

@@ -22,16 +22,16 @@ public interface IcebergMetadataApiHandler {
       String databaseId, String tableId, String actingPrincipal);
 
   /**
-   * Get metadata diff between a specific snapshot and its immediate predecessor
+   * Get metadata diff between a specific metadata file and its immediate predecessor
    *
    * @param databaseId Database identifier
    * @param tableId Table identifier
-   * @param snapshotId The snapshot ID to compare (current)
+   * @param metadataFile The metadata file location to compare
    * @param actingPrincipal The authenticated user principal
    * @return GetMetadataDiffResponseBody containing current and previous metadata
    */
   ApiResponse<GetMetadataDiffResponseBody> getMetadataDiff(
-      String databaseId, String tableId, Long snapshotId, String actingPrincipal);
+      String databaseId, String tableId, String metadataFile, String actingPrincipal);
 
   /**
    * Get the first N rows of data from an Iceberg table
