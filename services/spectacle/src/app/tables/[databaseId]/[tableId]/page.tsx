@@ -81,7 +81,6 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
       border: isCurrent ? '2px solid #3b82f6' : '1px solid #e5e7eb',
       borderRadius: '8px',
       backgroundColor: isCurrent ? '#eff6ff' : 'white',
-      overflow: 'hidden',
       transition: 'all 0.2s ease-in-out',
       boxShadow: isCurrent ? '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)' : 'none'
     }}>
@@ -96,7 +95,8 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
           gap: '0.75rem',
           alignItems: 'center',
           backgroundColor: isCurrent ? '#dbeafe' : '#f9fafb',
-          borderRadius: '8px 8px 0 0'
+          borderRadius: isExpanded ? '8px 8px 0 0' : '8px',
+          minHeight: '56px'
         }}
       >
         {/* Left: Snapshot ID with CURRENT badge */}
@@ -107,7 +107,7 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
             fontWeight: '600',
             color: isCurrent ? '#1e40af' : '#374151'
           }}>
-            {snapshotId}
+            {snapshotId || 'Unknown ID'}
           </span>
           {isCurrent && (
             <span style={{
@@ -141,18 +141,18 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
           textOverflow: 'ellipsis',
           display: 'inline-block'
         }}>
-          {operation}
+          {operation || 'unknown'}
         </span>
 
         {/* Timestamp */}
-        <span style={{ 
-          fontSize: '0.875rem', 
-          color: '#6b7280', 
+        <span style={{
+          fontSize: '0.875rem',
+          color: '#6b7280',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis'
         }}>
-          {timestamp}
+          {timestamp || 'Unknown time'}
         </span>
 
         {/* View Diff Button - Minimalistic */}
@@ -204,11 +204,13 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent, on
 
       {/* Expandable Content */}
       {isExpanded && (
-        <div style={{ 
-          padding: '1rem', 
-          maxHeight: '500px', 
+        <div style={{
+          padding: '1.25rem',
+          maxHeight: '500px',
           overflowY: 'auto',
-          backgroundColor: 'white'
+          backgroundColor: 'white',
+          borderTop: '1px solid #e5e7eb',
+          borderRadius: '0 0 8px 8px'
         }}>
           {/* Data Changes Section */}
           <div style={{ marginBottom: '1.5rem' }}>
@@ -1114,7 +1116,7 @@ function TableDetailContent() {
                         }}>
                           Snapshots ({snapshots.length})
                         </h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '600px', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '600px', overflowY: 'auto' }}>
                           {sortedSnapshots
                             .map((snapshot: any, index: number) => {
                               // Extract operation from various possible locations

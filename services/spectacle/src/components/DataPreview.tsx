@@ -522,7 +522,7 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
         <div style={{
           borderRadius: '6px',
           border: '1px solid #e5e7eb',
-          backgroundColor: '#1e1e1e',
+          backgroundColor: '#f9fafb',
           overflow: 'auto',
           maxHeight: '500px'
         }}>
@@ -531,7 +531,7 @@ export default function DataPreview({ databaseId, tableId }: DataPreviewProps) {
             padding: '1rem',
             fontSize: '0.8125rem',
             fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-            color: '#d4d4d4',
+            color: '#374151',
             lineHeight: '1.5',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word'
