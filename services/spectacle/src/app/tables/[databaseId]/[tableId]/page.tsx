@@ -88,15 +88,15 @@ function SnapshotCard({ snapshotId, operation, timestamp, summary, isCurrent }: 
       <div
         onClick={() => setIsExpanded(!isExpanded)}
         style={{
-          padding: '1rem',
+          padding: '0.7rem',
           cursor: 'pointer',
           display: 'grid',
           gridTemplateColumns: '1fr 110px 180px 30px',
-          gap: '0.75rem',
+          gap: '0.5rem',
           alignItems: 'center',
           backgroundColor: isCurrent ? '#dbeafe' : '#f9fafb',
           borderRadius: isExpanded ? '8px 8px 0 0' : '8px',
-          minHeight: '56px'
+          minHeight: '39px'
         }}
       >
         {/* Left: Snapshot ID with CURRENT badge */}
