@@ -29,6 +29,17 @@ export default function MetadataDiffModal({
     }
   }, [isOpen, metadataFile]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const fetchDiff = async () => {
     setLoading(true);
     setError('');
