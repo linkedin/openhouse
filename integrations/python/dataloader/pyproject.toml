@@ -1,5 +1,9 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "openhouse-dataloader"
+name = "openhouse.dataloader"
 version = "0.0.1"
 description = "A Python library for distributed data loading of OpenHouse tables"
 readme = "README.md"
@@ -8,6 +12,9 @@ dependencies = ["datafusion==51.0.0", "pyiceberg==0.10.0"]
 
 [project.optional-dependencies]
 dev = ["ruff>=0.9.0", "pytest>=8.0.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openhouse"]
 
 [tool.ruff]
 line-length = 120
