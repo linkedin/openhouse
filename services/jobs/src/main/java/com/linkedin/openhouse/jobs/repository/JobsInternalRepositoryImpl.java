@@ -16,9 +16,12 @@ import com.linkedin.openhouse.jobs.repository.exception.JobsTableCallerException
 import com.linkedin.openhouse.jobs.repository.exception.JobsTableConcurrentUpdateException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
 import java.time.Duration;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.retry.support.RetryTemplateBuilder;
 import org.springframework.stereotype.Component;
@@ -117,6 +120,43 @@ public class JobsInternalRepositoryImpl implements JobsInternalRepository {
                     .collectList()
                     .blockOptional(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
                     .get());
+  }
+
+  @Override
+  public List<JobDto> findByJobNameStartingWith(String prefix, Pageable pageable) {
+    return getHtsRetryTemplate()
+        .execute(
+            context ->
+                jobApi
+                    .getAllJobs(ImmutableMap.of())
+                    .map(GetAllEntityResponseBodyJob::getResults)
+                    .flatMapMany(Flux::fromIterable)
+                    .map(jobsMapper::toJobDto)
+                    .filter(job -> job.getJobName().startsWith(prefix))
+                    .sort(Comparator.comparing(JobDto::getCreationTimeMs).reversed())
+                    .skip((long) pageable.getPageNumber() * pageable.getPageSize())
+                    .take(pageable.getPageSize())
+                    .onErrorResume(this::handleHtsHttpError)
+                    .collectList()
+                    .blockOptional(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
+                    .get());
+  }
+
+  @Override
+  public long countByJobNameStartingWith(String prefix) {
+    return getHtsRetryTemplate()
+        .execute(
+            context ->
+                jobApi
+                    .getAllJobs(ImmutableMap.of())
+                    .map(GetAllEntityResponseBodyJob::getResults)
+                    .flatMapMany(Flux::fromIterable)
+                    .map(jobsMapper::toJobDto)
+                    .filter(job -> job.getJobName().startsWith(prefix))
+                    .count()
+                    .onErrorResume(e -> Mono.just(0L))
+                    .blockOptional(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
+                    .orElse(0L));
   }
 
   private Optional<String> getCurrentVersion(String jobId) {
