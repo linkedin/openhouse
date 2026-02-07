@@ -38,7 +38,6 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
-import org.apache.iceberg.ExpireSnapshots;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
@@ -46,6 +45,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
+import org.apache.iceberg.actions.ExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -249,7 +249,13 @@ public final class Operations implements AutoCloseable {
 
   /** Expire snapshots on a given fully-qualified table name. */
   public void expireSnapshots(String fqtn, int maxAge, String granularity, int versions) {
-    expireSnapshots(getTable(fqtn), maxAge, granularity, versions);
+    expireSnapshots(fqtn, maxAge, granularity, versions, false);
+  }
+
+  /** Expire snapshots on a given fully-qualified table name with deleteFiles parameter. */
+  public ExpireSnapshots.Result expireSnapshots(
+      String fqtn, int maxAge, String granularity, int versions, boolean deleteFiles) {
+    return expireSnapshots(getTable(fqtn), maxAge, granularity, versions, deleteFiles);
   }
 
   /**
@@ -259,8 +265,19 @@ public final class Operations implements AutoCloseable {
    * number of snapshots younger than the maxAge
    */
   public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
-    ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
+    // Call the Result-returning version but ignore the result for backward compatibility
+    expireSnapshots(table, maxAge, granularity, versions, false);
+  }
 
+  /**
+   * Expire snapshots on a given {@link Table} with deleteFiles parameter. If maxAge is provided, it
+   * will expire snapshots older than maxAge in granularity timeunit. If versions is provided, it
+   * will retain the last versions snapshots. If both are provided, it will prioritize maxAge; only
+   * retain up to versions number of snapshots younger than the maxAge. Returns {@link
+   * ExpireSnapshots.Result} containing metrics about deleted files.
+   */
+  public ExpireSnapshots.Result expireSnapshots(
+      Table table, int maxAge, String granularity, int versions, boolean deleteFiles) {
     // maxAge will always be defined
     ChronoUnit timeUnitGranularity =
         ChronoUnit.valueOf(
@@ -268,18 +285,42 @@ public final class Operations implements AutoCloseable {
     long expireBeforeTimestampMs =
         System.currentTimeMillis()
             - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
-    log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
-    expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
+    log.info(
+        "Expiring snapshots for table: {} older than {}ms with deleteFiles={}",
+        table,
+        expireBeforeTimestampMs,
+        deleteFiles);
+
+    // Create action with appropriate delete behavior
+    ExpireSnapshots expireSnapshotsAction;
+    if (deleteFiles) {
+      // Use default file deletion (no custom delete function)
+      expireSnapshotsAction = SparkActions.get(spark).expireSnapshots(table);
+    } else {
+      expireSnapshotsAction = SparkActions.get(spark).expireSnapshots(table).deleteWith(s -> {});
+    }
+
+    ExpireSnapshots.Result result =
+        expireSnapshotsAction.expireOlderThan(expireBeforeTimestampMs).execute();
 
     if (versions > 0 && Iterators.size(table.snapshots().iterator()) > versions) {
       log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
       // Note: retainLast keeps the last N snapshots that WOULD be expired, hence expireOlderThan
       // currentTime
-      expireSnapshotsCommand
-          .expireOlderThan(System.currentTimeMillis())
-          .retainLast(versions)
-          .commit();
+      // Create a new action since actions are single-use
+      if (deleteFiles) {
+        expireSnapshotsAction = SparkActions.get(spark).expireSnapshots(table);
+      } else {
+        expireSnapshotsAction = SparkActions.get(spark).expireSnapshots(table).deleteWith(s -> {});
+      }
+      result =
+          expireSnapshotsAction
+              .expireOlderThan(System.currentTimeMillis())
+              .retainLast(versions)
+              .execute();
     }
+
+    return result;
   }
 
   /**

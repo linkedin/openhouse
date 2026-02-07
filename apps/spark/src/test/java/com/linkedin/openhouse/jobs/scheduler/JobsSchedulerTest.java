@@ -92,7 +92,7 @@ public class JobsSchedulerTest {
   private JobsScheduler createJobsScheduler(JobConf.JobTypeEnum jobType) {
     OperationTaskFactory<? extends OperationTask<?>> taskFactory =
         new OperationTaskFactory<>(
-            jobTypeToClassMap.get(jobType), jobsClient, tablesClient, 1000L, 2000L, 3000L);
+            jobTypeToClassMap.get(jobType), jobsClient, tablesClient, 1000L, 2000L, 3000L, false);
     OperationTaskManager operationTaskManager = new OperationTaskManager(jobType);
     JobInfoManager jobInfoManager = new JobInfoManager(jobType);
     OperationTasksBuilder operationTasksBuilder =

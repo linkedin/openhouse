@@ -104,4 +104,122 @@ public class SnapshotExpirationTaskTest {
             .collect(Collectors.toList());
     Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
   }
+
+  @Test
+  void testSnapshotExpirationWithDeleteFilesDisabled() {
+    TableSnapshotsExpirationTask tableRetentionTask =
+        new TableSnapshotsExpirationTask(jobsClient, tablesClient, tableMetadata, false);
+
+    List<String> expectedArgs =
+        Stream.of("--tableName", tableMetadata.fqtn()).collect(Collectors.toList());
+    Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
+  }
+
+  @Test
+  void testSnapshotExpirationWithDeleteFilesEnabled() {
+    TableSnapshotsExpirationTask tableRetentionTask =
+        new TableSnapshotsExpirationTask(jobsClient, tablesClient, tableMetadata, true);
+
+    List<String> expectedArgs =
+        Stream.of("--tableName", tableMetadata.fqtn(), "--deleteFiles")
+            .collect(Collectors.toList());
+    Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
+  }
+
+  @Test
+  void testSnapshotExpirationWithDeleteFilesAndMaxAgeConfig() {
+    TableSnapshotsExpirationTask tableRetentionTask =
+        new TableSnapshotsExpirationTask(jobsClient, tablesClient, tableMetadata, true);
+
+    HistoryConfig historyConfigMock = Mockito.mock(HistoryConfig.class);
+    int maxAge = 1;
+    History.GranularityEnum granularity = History.GranularityEnum.DAY;
+
+    Mockito.when(tableMetadata.getHistoryConfig()).thenReturn(historyConfigMock);
+    Mockito.when(historyConfigMock.getMaxAge()).thenReturn(maxAge);
+    Mockito.when(historyConfigMock.getGranularity()).thenReturn(granularity);
+    List<String> expectedArgs =
+        Stream.of(
+                "--tableName",
+                tableMetadata.fqtn(),
+                "--maxAge",
+                String.valueOf(maxAge),
+                "--granularity",
+                granularity.getValue(),
+                "--deleteFiles")
+            .collect(Collectors.toList());
+    Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
+  }
+
+  @Test
+  void testSnapshotExpirationWithDeleteFilesAndVersionsConfig() {
+    TableSnapshotsExpirationTask tableRetentionTask =
+        new TableSnapshotsExpirationTask(jobsClient, tablesClient, tableMetadata, true);
+
+    HistoryConfig historyConfigMock = Mockito.mock(HistoryConfig.class);
+    int versions = 3;
+
+    Mockito.when(tableMetadata.getHistoryConfig()).thenReturn(historyConfigMock);
+    Mockito.when(historyConfigMock.getVersions()).thenReturn(versions);
+    List<String> expectedArgs =
+        Stream.of(
+                "--tableName",
+                tableMetadata.fqtn(),
+                "--versions",
+                String.valueOf(versions),
+                "--deleteFiles")
+            .collect(Collectors.toList());
+    Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
+  }
+
+  @Test
+  void testSnapshotExpirationWithDeleteFilesAndFullConfig() {
+    TableSnapshotsExpirationTask tableRetentionTask =
+        new TableSnapshotsExpirationTask(jobsClient, tablesClient, tableMetadata, true);
+
+    HistoryConfig historyConfigMock = Mockito.mock(HistoryConfig.class);
+    int maxAge = 3;
+    History.GranularityEnum granularity = History.GranularityEnum.DAY;
+    int versions = 3;
+
+    Mockito.when(tableMetadata.getHistoryConfig()).thenReturn(historyConfigMock);
+    Mockito.when(historyConfigMock.getMaxAge()).thenReturn(maxAge);
+    Mockito.when(historyConfigMock.getGranularity()).thenReturn(granularity);
+    Mockito.when(historyConfigMock.getVersions()).thenReturn(versions);
+
+    List<String> expectedArgs =
+        Stream.of(
+                "--tableName",
+                tableMetadata.fqtn(),
+                "--maxAge",
+                String.valueOf(maxAge),
+                "--granularity",
+                granularity.getValue(),
+                "--versions",
+                String.valueOf(versions),
+                "--deleteFiles")
+            .collect(Collectors.toList());
+    Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
+  }
+
+  @Test
+  void testSnapshotExpirationWithTimeoutsAndDeleteFiles() {
+    long pollIntervalMs = 1000L;
+    long queuedTimeoutMs = 5000L;
+    long taskTimeoutMs = 10000L;
+    TableSnapshotsExpirationTask tableRetentionTask =
+        new TableSnapshotsExpirationTask(
+            jobsClient,
+            tablesClient,
+            tableMetadata,
+            pollIntervalMs,
+            queuedTimeoutMs,
+            taskTimeoutMs,
+            true);
+
+    List<String> expectedArgs =
+        Stream.of("--tableName", tableMetadata.fqtn(), "--deleteFiles")
+            .collect(Collectors.toList());
+    Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
+  }
 }

@@ -19,6 +19,30 @@ import java.util.Objects;
 public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetadata> {
   public static final JobConf.JobTypeEnum OPERATION_TYPE = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
 
+  private final boolean deleteFiles;
+
+  public TableSnapshotsExpirationTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      long pollIntervalMs,
+      long queuedTimeoutMs,
+      long taskTimeoutMs,
+      boolean deleteFiles) {
+    super(jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs);
+    this.deleteFiles = deleteFiles;
+  }
+
+  public TableSnapshotsExpirationTask(
+      JobsClient jobsClient,
+      TablesClient tablesClient,
+      TableMetadata metadata,
+      boolean deleteFiles) {
+    super(jobsClient, tablesClient, metadata);
+    this.deleteFiles = deleteFiles;
+  }
+
+  // Backward compatibility constructor
   public TableSnapshotsExpirationTask(
       JobsClient jobsClient,
       TablesClient tablesClient,
@@ -26,12 +50,13 @@ public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetada
       long pollIntervalMs,
       long queuedTimeoutMs,
       long taskTimeoutMs) {
-    super(jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs);
+    this(jobsClient, tablesClient, metadata, pollIntervalMs, queuedTimeoutMs, taskTimeoutMs, false);
   }
 
+  // Backward compatibility constructor
   public TableSnapshotsExpirationTask(
       JobsClient jobsClient, TablesClient tablesClient, TableMetadata metadata) {
-    super(jobsClient, tablesClient, metadata);
+    this(jobsClient, tablesClient, metadata, false);
   }
 
   @Override
@@ -55,6 +80,10 @@ public class TableSnapshotsExpirationTask extends TableOperationTask<TableMetada
       if (config.getVersions() > 0) {
         jobArgs.addAll(Arrays.asList("--versions", Objects.toString(config.getVersions())));
       }
+    }
+    // Add deleteFiles flag if enabled
+    if (deleteFiles) {
+      jobArgs.add("--deleteFiles");
     }
     return jobArgs;
   }

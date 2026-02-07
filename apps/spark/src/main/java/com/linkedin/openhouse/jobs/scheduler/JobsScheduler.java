@@ -180,7 +180,8 @@ public class JobsScheduler {
             tablesClient,
             getTaskPollIntervalMs(cmdLine),
             getTaskQueuedTimeoutMs(cmdLine),
-            getTaskTimeoutMs(cmdLine));
+            getTaskTimeoutMs(cmdLine),
+            isDeleteFiles(cmdLine));
     ThreadPoolExecutor jobExecutors = null;
     ThreadPoolExecutor statusExecutors = null;
     if (isMultiOperationMode(cmdLine)) {
@@ -603,6 +604,13 @@ public class JobsScheduler {
             .hasArg()
             .longOpt("statusOperationPreSlaGracePeriodInMinutes")
             .desc("Pre sla grace period in minutes to stop submitting new status check jobs")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg(false)
+            .longOpt("deleteFiles")
+            .desc("Delete expired snapshot files (data, manifests, manifest lists)")
             .build());
     CommandLineParser parser = new BasicParser();
     try {
@@ -1033,6 +1041,10 @@ public class JobsScheduler {
       return Long.parseLong(cmdLine.getOptionValue("taskTimeoutMs"));
     }
     return OperationTask.TASK_TIMEOUT_MS_DEFAULT;
+  }
+
+  protected static boolean isDeleteFiles(CommandLine cmdLine) {
+    return cmdLine.hasOption("deleteFiles");
   }
 
   private void updateJobStateFromTaskFutures(
