@@ -36,7 +36,11 @@ class DataLoaderSplit:
         return self._scan_context.table_metadata.properties
 
     def __iter__(self) -> Iterator[RecordBatch]:
-        """Reads the file scan task and yields Arrow RecordBatches.
+        """Reads the file scan task, applies transformations, and yields Arrow RecordBatches."""
+        yield from self._transform(self._read_batches())
+
+    def _read_batches(self) -> Iterator[RecordBatch]:
+        """Reads the file scan task and yields raw Arrow RecordBatches.
 
         Uses PyIceberg's ArrowScan to handle format dispatch, schema resolution,
         delete files, and partition spec lookups.
@@ -49,3 +53,12 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
         yield from arrow_scan.to_record_batches([self._file_scan_task])
+
+    def _transform(self, batches: Iterator[RecordBatch]) -> Iterator[RecordBatch]:
+        """Apply transformations to record batches.
+
+        Currently a pass-through. Will be extended to apply DataFusion
+        micro-batch transforms (column masking, row filtering) using the
+        stored LogicalPlan and UDFRegistry.
+        """
+        yield from batches
