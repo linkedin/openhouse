@@ -9,3 +9,8 @@ def test_package_imports():
     assert DataLoaderSplit is not None
     assert isinstance(__version__, str)
     assert len(__version__) > 0
+
+
+def test_data_loader():
+    """Test placeholder until real tests are added"""
+    pass
