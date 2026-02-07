@@ -675,6 +675,112 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testSnapshotsExpirationWithFilesDeletion() throws Exception {
+    final String tableName = "db.test_es_delete_files";
+    final int numInserts = 5;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      // Expire snapshots with deleteFiles=true
+      org.apache.iceberg.actions.ExpireSnapshots.Result resultWithDeletion =
+          ops.expireSnapshots(table, maxAge, timeGranularity, 0, true);
+
+      // Verify that the result object is returned properly
+      log.info(
+          "Snapshot expiration with deleteFiles=true: deleted {} data files, {} equality delete files, {} position delete files, {} manifests, {} manifest lists",
+          resultWithDeletion.deletedDataFilesCount(),
+          resultWithDeletion.deletedEqualityDeleteFilesCount(),
+          resultWithDeletion.deletedPositionDeleteFilesCount(),
+          resultWithDeletion.deletedManifestsCount(),
+          resultWithDeletion.deletedManifestListsCount());
+
+      // Verify result is not null and has the expected structure
+      Assertions.assertNotNull(resultWithDeletion, "Result should not be null");
+
+      // When deleteFiles=true, manifests and manifest lists should be deleted
+      // Data files may or may not be deleted depending on whether they're still referenced
+      Assertions.assertTrue(
+          resultWithDeletion.deletedManifestsCount() > 0
+              || resultWithDeletion.deletedManifestListsCount() > 0,
+          "Should have deleted manifests or manifest lists from expired snapshots");
+
+      // Only retain the last snapshot
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationWithoutFilesDeletion() throws Exception {
+    final String tableName = "db.test_es_no_delete_files";
+    final int numInserts = 5;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      // Expire snapshots with deleteFiles=false (default behavior)
+      org.apache.iceberg.actions.ExpireSnapshots.Result resultWithoutDeletion =
+          ops.expireSnapshots(table, maxAge, timeGranularity, 0, false);
+
+      // Verify that no files were deleted (custom delete function prevents deletion)
+      log.info(
+          "Snapshot expiration with deleteFiles=false: deleted {} data files, {} manifests, {} manifest lists",
+          resultWithoutDeletion.deletedDataFilesCount(),
+          resultWithoutDeletion.deletedManifestsCount(),
+          resultWithoutDeletion.deletedManifestListsCount());
+
+      // With deleteFiles=false, no files should be physically deleted
+      Assertions.assertEquals(
+          0,
+          resultWithoutDeletion.deletedDataFilesCount(),
+          "Should not delete data files when deleteFiles=false");
+      Assertions.assertEquals(
+          0,
+          resultWithoutDeletion.deletedManifestsCount(),
+          "Should not delete manifest files when deleteFiles=false");
+
+      // Only retain the last snapshot
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+  }
+
+  @Test
   public void testStagedFilesDelete() throws Exception {
     final String tableName = "db.test_staged_delete";
     final int numInserts = 3;
