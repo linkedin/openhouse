@@ -30,7 +30,7 @@ jobs:
 
       - name: Test openhouse.dataloader package
         working-directory: integrations/python/dataloader
-        run: make sync all
+        run: make sync verify
 
   tag-python-release:
     name: Tag Python Release
@@ -45,6 +45,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get base version from pyproject.toml
+        id: base_version
+        working-directory: integrations/python/dataloader
+        run: |
+          version=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Base version from pyproject.toml: ${version}"
+
       - name: Bump version and push tag
         uses: anothrNick/github-tag-action@1.69.0
         env:
@@ -52,7 +60,7 @@ jobs:
           WITH_V: true
           DEFAULT_BUMP: patch
           DRY_RUN: false
-          INITIAL_VERSION: 0.1.0
+          INITIAL_VERSION: ${{ steps.base_version.outputs.version }}
           TAG_CONTEXT: branch
           PRERELEASE: false
           # Use custom tag prefix for Python releases

@@ -10,7 +10,7 @@ Python library for distributed data loading of OpenHouse tables. Uses DataFusion
 make sync      # Install dependencies
 make check     # Run lint + format checks
 make test      # Run tests
-make all       # Run all checks and tests
+make verify    # Run all checks and tests
 make format    # Auto-format code
 make build     # Build package distributions
 make validate  # Validate built distributions
@@ -18,7 +18,7 @@ make clean     # Clean build artifacts
 ```
 
 ## Workflows
-When making a change run `make all` to ensure all tests and checks pass
+When making a change run `make verify` to ensure all tests and checks pass
 
 ## Project Structure
 

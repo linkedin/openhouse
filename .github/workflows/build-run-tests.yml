@@ -41,7 +41,7 @@ jobs:
 
       - name: Run Data Loader Tests
         working-directory: integrations/python/dataloader
-        run: make sync all
+        run: make sync verify
 
       - name: Install dependencies
         run: pip install -r scripts/python/requirements.txt

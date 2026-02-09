@@ -1,4 +1,4 @@
-.PHONY: help sync clean lint format format-check check test all build validate
+.PHONY: help sync clean lint format format-check check test verify build validate
 
 help:
 	@echo "Available commands:"
@@ -7,7 +7,7 @@ help:
 	@echo "  make format   - Format code with ruff"
 	@echo "  make check    - Run all checks (lint + format check)"
 	@echo "  make test     - Run tests with pytest"
-	@echo "  make all      - Run all checks and tests"
+	@echo "  make verify   - Run all checks and tests"
 	@echo "  make build    - Build package distributions"
 	@echo "  make validate - Validate built distributions"
 	@echo "  make clean    - Clean build artifacts"
@@ -29,7 +29,7 @@ check: lint format-check
 test:
 	uv run pytest
 
-all: check test
+verify: check test
 
 build:
 	uv build
