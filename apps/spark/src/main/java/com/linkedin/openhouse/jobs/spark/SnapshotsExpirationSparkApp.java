@@ -12,6 +12,7 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.ExpireSnapshots;
 
 /**
@@ -27,6 +28,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   private final int maxAge;
   private final int versions;
   private final boolean deleteFiles;
+  private final String backupDir;
 
   public static class DEFAULT_CONFIGURATION {
     public static final int MAX_AGE = 3;
@@ -43,6 +45,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
       String granularity,
       int versions,
       boolean deleteFiles,
+      String backupDir,
       OtelEmitter otelEmitter) {
     super(jobId, stateManager, fqtn, otelEmitter);
     // By default, always enforce a time to live for snapshots even if unconfigured
@@ -55,21 +58,30 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
     }
     this.versions = versions;
     this.deleteFiles = deleteFiles;
+    this.backupDir = backupDir;
   }
 
   @Override
   protected void runInner(Operations ops) {
+    Table table = ops.getTable(fqtn);
+    boolean backupEnabled =
+        Boolean.parseBoolean(
+            table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
+
     log.info(
-        "Snapshot expiration app start for table {}, expiring older than {} {}s or with more than {} versions, deleteFiles={}",
+        "Snapshot expiration app start for table {}, expiring older than {} {}s or with more than {} versions, deleteFiles={}, backupEnabled={}, backupDir={}",
         fqtn,
         maxAge,
         granularity,
         versions,
-        deleteFiles);
+        deleteFiles,
+        backupEnabled,
+        backupDir);
 
     long startTime = System.currentTimeMillis();
     ExpireSnapshots.Result result =
-        ops.expireSnapshots(fqtn, maxAge, granularity, versions, deleteFiles);
+        ops.expireSnapshots(
+            fqtn, maxAge, granularity, versions, deleteFiles, backupEnabled, backupDir);
     long duration = System.currentTimeMillis() - startTime;
 
     // Log results
@@ -120,6 +132,8 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
             "deleteFiles",
             false,
             "Delete expired snapshot files (data, manifests, manifest lists)"));
+    extraOptions.add(
+        new Option("b", "backupDir", true, "Backup directory for data files (default: .backup)"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new SnapshotsExpirationSparkApp(
         getJobId(cmdLine),
@@ -129,6 +143,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
         cmdLine.getOptionValue("granularity", ""),
         Integer.parseInt(cmdLine.getOptionValue("versions", "0")),
         cmdLine.hasOption("deleteFiles"),
+        cmdLine.getOptionValue("backupDir", ".backup"),
         otelEmitter);
   }
 }
