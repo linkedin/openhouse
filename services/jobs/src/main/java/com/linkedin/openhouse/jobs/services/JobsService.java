@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.services;
 
 import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.model.JobDto;
+import java.util.List;
 
 /** Service interface for implementing /jobs endpoint. */
 public interface JobsService {
@@ -28,4 +29,22 @@ public interface JobsService {
    * @param jobId unique job identifier
    */
   void cancel(String jobId);
+
+  /**
+   * Search for jobs by job name prefix with pagination.
+   *
+   * @param jobNamePrefix prefix to search for in job names
+   * @param limit maximum number of results to return
+   * @param offset number of results to skip
+   * @return List of JobDto objects matching the prefix
+   */
+  List<JobDto> search(String jobNamePrefix, int limit, int offset);
+
+  /**
+   * Count total jobs matching the job name prefix.
+   *
+   * @param jobNamePrefix prefix to search for in job names
+   * @return total count of matching jobs
+   */
+  long count(String jobNamePrefix);
 }
