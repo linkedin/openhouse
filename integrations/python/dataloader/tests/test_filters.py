@@ -1,3 +1,6 @@
+import pytest
+from pyiceberg import expressions as ice
+
 from openhouse.dataloader import Filter, col
 from openhouse.dataloader.filters import (
     And,
@@ -19,6 +22,7 @@ from openhouse.dataloader.filters import (
     NotStartsWith,
     Or,
     StartsWith,
+    _to_pyiceberg,
 )
 
 
@@ -194,3 +198,115 @@ class TestRepr:
     def test_and_repr(self):
         f = (col("x") > 1) & (col("y") < 2)
         assert repr(f) == "(col('x') > 1 & col('y') < 2)"
+
+
+# --- PyIceberg conversion tests ---
+
+
+class TestPyIcebergComparisonConversion:
+    def test_equal_to(self):
+        result = _to_pyiceberg(col("x") == 5)
+        assert isinstance(result, ice.EqualTo)
+        assert result.term.name == "x"
+
+    def test_not_equal_to(self):
+        result = _to_pyiceberg(col("x") != 5)
+        assert isinstance(result, ice.NotEqualTo)
+
+    def test_greater_than(self):
+        result = _to_pyiceberg(col("x") > 5)
+        assert isinstance(result, ice.GreaterThan)
+
+    def test_greater_than_or_equal(self):
+        result = _to_pyiceberg(col("x") >= 5)
+        assert isinstance(result, ice.GreaterThanOrEqual)
+
+    def test_less_than(self):
+        result = _to_pyiceberg(col("x") < 5)
+        assert isinstance(result, ice.LessThan)
+
+    def test_less_than_or_equal(self):
+        result = _to_pyiceberg(col("x") <= 5)
+        assert isinstance(result, ice.LessThanOrEqual)
+
+
+class TestPyIcebergNullNanConversion:
+    def test_is_null(self):
+        result = _to_pyiceberg(col("x").is_null())
+        assert isinstance(result, ice.IsNull)
+
+    def test_is_not_null(self):
+        result = _to_pyiceberg(col("x").is_not_null())
+        assert isinstance(result, ice.NotNull)
+
+    def test_is_nan(self):
+        result = _to_pyiceberg(col("x").is_nan())
+        assert isinstance(result, ice.IsNaN)
+
+    def test_is_not_nan(self):
+        result = _to_pyiceberg(col("x").is_not_nan())
+        assert isinstance(result, ice.NotNaN)
+
+
+class TestPyIcebergSetConversion:
+    def test_in(self):
+        result = _to_pyiceberg(col("x").is_in([1, 2, 3]))
+        assert isinstance(result, ice.In)
+
+    def test_not_in(self):
+        result = _to_pyiceberg(col("x").is_not_in([1, 2, 3]))
+        assert isinstance(result, ice.NotIn)
+
+    def test_in_single_value_becomes_equal(self):
+        # PyIceberg optimizes single-element In to EqualTo
+        result = _to_pyiceberg(col("x").is_in([1]))
+        assert isinstance(result, ice.EqualTo)
+
+
+class TestPyIcebergStringPrefixConversion:
+    def test_starts_with(self):
+        result = _to_pyiceberg(col("x").starts_with("abc"))
+        assert isinstance(result, ice.StartsWith)
+
+    def test_not_starts_with(self):
+        result = _to_pyiceberg(col("x").not_starts_with("abc"))
+        assert isinstance(result, ice.NotStartsWith)
+
+
+class TestPyIcebergBetweenConversion:
+    def test_between_decomposes_to_and(self):
+        result = _to_pyiceberg(col("x").between(1, 10))
+        assert isinstance(result, ice.And)
+        assert isinstance(result.left, ice.GreaterThanOrEqual)
+        assert isinstance(result.right, ice.LessThanOrEqual)
+
+
+class TestPyIcebergLogicalConversion:
+    def test_and(self):
+        result = _to_pyiceberg((col("x") > 5) & (col("y") == "a"))
+        assert isinstance(result, ice.And)
+
+    def test_or(self):
+        result = _to_pyiceberg((col("x") > 5) | (col("y") == "a"))
+        assert isinstance(result, ice.Or)
+
+    def test_not(self):
+        result = _to_pyiceberg(~col("x").is_null())
+        assert isinstance(result, ice.Not)
+
+    def test_complex_composition(self):
+        expr = (col("x") > 5) & (col("y") == "a") | ~col("z").is_null()
+        result = _to_pyiceberg(expr)
+        assert isinstance(result, ice.Or)
+        assert isinstance(result.left, ice.And)
+        assert isinstance(result.right, ice.Not)
+
+
+class TestPyIcebergUnsupportedType:
+    def test_raises_on_unknown_filter(self):
+        class CustomFilter(Filter):
+            def __repr__(self) -> str:
+                return "custom"
+
+        with pytest.raises(TypeError, match="Unsupported filter type"):
+            _to_pyiceberg(CustomFilter())

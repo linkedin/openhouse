@@ -17,6 +17,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from pyiceberg import expressions as ice
+
 
 class Filter(ABC):
     """Abstract base for all filter expressions.
@@ -282,3 +284,61 @@ class Not(Filter):
 
     def __repr__(self) -> str:
         return f"~{self.operand!r}"
+
+
+def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:
+    """Convert a Filter expression tree to a PyIceberg BooleanExpression.
+
+    This is an internal helper and not part of the public API.
+    """
+    match expr:
+        # Comparison
+        case EqualTo(column, value):
+            return ice.EqualTo(column, value)
+        case NotEqualTo(column, value):
+            return ice.NotEqualTo(column, value)
+        case GreaterThan(column, value):
+            return ice.GreaterThan(column, value)
+        case GreaterThanOrEqual(column, value):
+            return ice.GreaterThanOrEqual(column, value)
+        case LessThan(column, value):
+            return ice.LessThan(column, value)
+        case LessThanOrEqual(column, value):
+            return ice.LessThanOrEqual(column, value)
+
+        # Null / NaN
+        case IsNull(column):
+            return ice.IsNull(column)
+        case IsNotNull(column):
+            return ice.NotNull(column)
+        case IsNaN(column):
+            return ice.IsNaN(column)
+        case IsNotNaN(column):
+            return ice.NotNaN(column)
+
+        # Set membership
+        case In(column, values):
+            return ice.In(column, values)
+        case NotIn(column, values):
+            return ice.NotIn(column, values)
+
+        # String prefix
+        case StartsWith(column, prefix):
+            return ice.StartsWith(column, prefix)
+        case NotStartsWith(column, prefix):
+            return ice.NotStartsWith(column, prefix)
+
+        # Range — no native PyIceberg Between; decompose
+        case Between(column, lower, upper):
+            return ice.And(ice.GreaterThanOrEqual(column, lower), ice.LessThanOrEqual(column, upper))
+
+        # Logical combinators
+        case And(left, right):
+            return ice.And(_to_pyiceberg(left), _to_pyiceberg(right))
+        case Or(left, right):
+            return ice.Or(_to_pyiceberg(left), _to_pyiceberg(right))
+        case Not(operand):
+            return ice.Not(_to_pyiceberg(operand))
+
+        case _:
+            raise TypeError(f"Unsupported filter type: {type(expr).__name__}")
