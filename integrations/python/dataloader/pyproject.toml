@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openhouse.dataloader"
+# Placeholder version for local builds. CI pipeline overrides this with the git tag version.
 version = "0.0.1"
 description = "A Python library for distributed data loading of OpenHouse tables"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "BSD-2-Clause"}
-keywords = ["openhouse", "data", "lakehouse", "iceberg", "datafusion"]
+keywords = ["openhouse", "data-loader", "lakehouse", "iceberg", "datafusion"]
 dependencies = ["datafusion==51.0.0", "pyiceberg==0.10.0"]
 
 [project.optional-dependencies]

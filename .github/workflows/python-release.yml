@@ -134,7 +134,7 @@ jobs:
 
       - name: Validate package with twine
         working-directory: ${{ matrix.package_dir }}
-        run: make validate
+        run: make package-check
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
