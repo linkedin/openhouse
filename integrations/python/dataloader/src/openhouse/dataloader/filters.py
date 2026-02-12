@@ -288,8 +288,6 @@ class Not(Filter):
 
 def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:
     """Convert a Filter expression tree to a PyIceberg BooleanExpression.
-
-    This is an internal helper and not part of the public API.
     """
     match expr:
         # Comparison

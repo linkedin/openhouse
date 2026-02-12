@@ -1,12 +1,13 @@
 import pytest
 from pyiceberg import expressions as ice
 
-from openhouse.dataloader import Filter, col
+from openhouse.dataloader import col
 from openhouse.dataloader.filters import (
     And,
     Between,
     Column,
     EqualTo,
+    Filter,
     GreaterThan,
     GreaterThanOrEqual,
     In,
