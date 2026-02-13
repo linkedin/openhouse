@@ -37,6 +37,7 @@ class OpenHouseCatalog(Catalog):
             raise ValueError("OpenHouse Table Service URI is required")
 
         self._uri = uri.rstrip("/")
+        logger.info("Initializing OpenHouseCatalog for service at %s", self._uri)
         self._session = requests.Session()
         self._session.headers["Content-Type"] = "application/json"
 
@@ -51,7 +52,7 @@ class OpenHouseCatalog(Catalog):
     def load_table(self, identifier: str | Identifier) -> Table:
         database, table = self.identifier_to_database_and_table(identifier)
         url = f"{self._uri}/v1/databases/{database}/tables/{table}"
-        logger.info("Loading table '%s.%s' from %s", database, table, url)
+        logger.info("Calling load_table for table: %s.%s", database, table)
 
         response = self._session.get(url)
         if not response.ok:
@@ -77,6 +78,7 @@ class OpenHouseCatalog(Catalog):
                 f"Failed to read table metadata for {database}.{table} from {metadata_location}"
             ) from e
 
+        logger.debug("Calling load_table succeeded")
         return Table(
             identifier=(database, table),
             metadata=metadata,
