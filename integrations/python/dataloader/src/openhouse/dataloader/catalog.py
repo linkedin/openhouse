@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 
 _AUTH_TOKEN = "auth-token"
 _TRUST_STORE = "trust-store"
+_TABLE_LOCATION = "tableLocation"
+
+
+class OpenHouseCatalogError(Exception):
+    """Error raised when the OpenHouse catalog fails to load a table."""
 
 
 class OpenHouseCatalog(Catalog):
@@ -49,14 +54,28 @@ class OpenHouseCatalog(Catalog):
         logger.info("Loading table '%s.%s' from %s", database, table, url)
 
         response = self._session.get(url)
-        response.raise_for_status()
+        if not response.ok:
+            if response.status_code == 404:
+                raise OpenHouseCatalogError(f"Table {database}.{table} does not exist")
+            raise OpenHouseCatalogError(
+                f"Failed to load table {database}.{table}: HTTP {response.status_code}. Response: {response.text}"
+            )
 
         table_response = response.json()
-        metadata_location = table_response["tableLocation"]
+        metadata_location = table_response.get(_TABLE_LOCATION)
+        if not metadata_location:
+            raise OpenHouseCatalogError(
+                f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. Response: {table_response}"
+            )
 
         file_io = PyArrowFileIO()
         metadata_file = file_io.new_input(metadata_location)
-        metadata = FromInputFile.table_metadata(metadata_file)
+        try:
+            metadata = FromInputFile.table_metadata(metadata_file)
+        except Exception as e:
+            raise OpenHouseCatalogError(
+                f"Failed to read table metadata for {database}.{table} from {metadata_location}"
+            ) from e
 
         return Table(
             identifier=(database, table),
