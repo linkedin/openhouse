@@ -50,8 +50,8 @@ public class OpenHouseSparkITest {
    * @return configured SparkSession
    * @throws Exception if session creation fails
    */
-  protected SparkSession getSparkSession(
-      String overrideCatalogName, Map<String, String> overrides) throws Exception {
+  protected SparkSession getSparkSession(String overrideCatalogName, Map<String, String> overrides)
+      throws Exception {
     SparkSession.Builder builder = getBuilder();
     TestSparkSessionUtil.configureCatalogs(
         builder, overrideCatalogName, getOpenHouseLocalServerURI());
