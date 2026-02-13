@@ -18,16 +18,8 @@ from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
 from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, StringType
 
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext
-from openhouse.dataloader.udf_registry import UDFRegistry
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
-
-
-class NoOpRegistry(UDFRegistry):
-    """No-op UDF registry for testing."""
-
-    def register_udfs(self, session_context):
-        pass
 
 
 def _create_test_split(
@@ -90,7 +82,6 @@ def _create_test_split(
     return DataLoaderSplit(
         plan=plan,
         file_scan_task=task,
-        udf_registry=NoOpRegistry(),
         scan_context=scan_context,
     )
 

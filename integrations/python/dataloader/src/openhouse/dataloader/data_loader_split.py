@@ -12,7 +12,7 @@ from openhouse.dataloader._table_scan_context import TableScanContext
 if TYPE_CHECKING:
     from datafusion.plan import LogicalPlan
 
-    from openhouse.dataloader.udf_registry import UDFRegistry
+from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 
 class DataLoaderSplit:
@@ -22,12 +22,12 @@ class DataLoaderSplit:
         self,
         plan: LogicalPlan,
         file_scan_task: FileScanTask,
-        udf_registry: UDFRegistry,
         scan_context: TableScanContext,
+        udf_registry: UDFRegistry | None = None,
     ):
         self._plan = plan
         self._file_scan_task = file_scan_task
-        self._udf_registry = udf_registry
+        self._udf_registry = udf_registry or NoOpRegistry()
         self._scan_context = scan_context
 
     @property
