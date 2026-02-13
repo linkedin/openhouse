@@ -59,13 +59,21 @@ class TestOpenHouseCatalogLoadTable:
     def test_load_table_with_tuple(self):
         catalog = self._make_catalog_with_mock_session()
 
-        with patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input:
-            mock_from_input.table_metadata.return_value = MagicMock()
+        with (
+            patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input,
+            patch("openhouse.dataloader.catalog.PyArrowFileIO") as mock_file_io_cls,
+        ):
+            mock_metadata = MagicMock()
+            mock_from_input.table_metadata.return_value = mock_metadata
+            mock_file_io = mock_file_io_cls.return_value
             table = catalog.load_table(("my_db", "my_table"))
 
         catalog._session.get.assert_called_once_with("http://localhost:8080/v1/databases/my_db/tables/my_table")
         assert table.name() == ("my_db", "my_table")
+        assert table.metadata == mock_metadata
         assert table.metadata_location == "file:///tmp/test-metadata.json"
+        assert table.io == mock_file_io
+        assert table.catalog == catalog
 
     def test_load_table_with_string(self):
         catalog = self._make_catalog_with_mock_session()
