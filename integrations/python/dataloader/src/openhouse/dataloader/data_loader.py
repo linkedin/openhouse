@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.filters import Filter, always_true
+from openhouse.dataloader.openhouse_table_catalog import TableCatalog
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
@@ -31,6 +32,7 @@ class OpenHouseDataLoader:
 
     def __init__(
         self,
+        catalog: TableCatalog,
         database: str,
         table: str,
         branch: str | None = None,
@@ -40,6 +42,7 @@ class OpenHouseDataLoader:
     ):
         """
         Args:
+            catalog: Catalog for loading table metadata
             database: Database name
             table: Table name
             branch: Optional branch name
@@ -47,6 +50,7 @@ class OpenHouseDataLoader:
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
         """
+        self._catalog = catalog
         self._table = TableIdentifier(database, table, branch)
         self._columns = columns
         self._filters = filters if filters is not None else always_true()
