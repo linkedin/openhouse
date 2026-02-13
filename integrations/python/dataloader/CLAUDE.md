@@ -12,9 +12,9 @@ make check     # Run lint + format checks
 make test      # Run tests
 make verify    # Run all checks and tests
 make format    # Auto-format code
-make build     # Build package distributions
-make validate  # Validate built distributions
-make clean     # Clean build artifacts
+make build          # Build package distributions
+make package-check  # Validate built distributions with twine
+make clean          # Clean build artifacts
 ```
 
 ## Workflows

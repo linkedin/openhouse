@@ -12,11 +12,10 @@ jobs:
   build-and-run-tests:
     uses: ./.github/workflows/build-run-tests.yml
 
-  tag:
-    name: Tag release
+  tag-publish-gradle:
+    name: Build tagged commit
     runs-on: ubuntu-latest
     needs: build-and-run-tests
-    if: success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse'
     outputs:
       semVer: ${{ steps.get_tag.outputs.semVer }}
     steps:
@@ -26,6 +25,7 @@ jobs:
           fetch-depth: 0
 
       - name: Bump version and push tag
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         uses: anothrNick/github-tag-action@1.69.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -36,29 +36,21 @@ jobs:
 
       - name: Get the latest tag
         id: get_tag
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          latest_tag=$(git tag -l 'v*' --sort=-v:refname | head -n1)
-          if [ -z "$latest_tag" ]; then
-            latest_tag=$(git describe --tags --abbrev=0 main)
-          fi
+          latest_tag=$(git describe --tags --abbrev=0 main)
           semVer=${latest_tag:1} # Remove the first character ('v')
           echo "semVer=${semVer}" >> "$GITHUB_OUTPUT"
 
-  publish-gradle-and-docker:
-    name: Publish Gradle and Docker
-    runs-on: ubuntu-latest
-    needs: tag
-    steps:
-      - name: Checkout project sources
-        uses: actions/checkout@v6
-
       - name: Publish with Gradle
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         env:
           JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
           JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
-        run: ./gradlew publish -Pversion=${{ needs.tag.outputs.semVer }}
+        run: ./gradlew publish -Pversion=${{ steps.get_tag.outputs.semVer }}
 
       - name: Login to LinkedIn Jfrog Docker artifactory
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         uses: docker/login-action@v3
         with:
           registry: linkedin-openhouse-docker.jfrog.io
@@ -66,29 +58,33 @@ jobs:
           password: ${{ secrets.JFROG_DOCKER_PASSWORD }}
 
       - name: Build and push Docker image for Tables Service
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ needs.tag.outputs.semVer }} -f tables-service.Dockerfile .
-          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ needs.tag.outputs.semVer }}
+          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ steps.get_tag.outputs.semVer }} -f tables-service.Dockerfile .
+          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for House Tables Service
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ needs.tag.outputs.semVer }} -f housetables-service.Dockerfile .
-          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ needs.tag.outputs.semVer }}
+          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }} -f housetables-service.Dockerfile .
+          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for Jobs Service
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ needs.tag.outputs.semVer }} -f jobs-service.Dockerfile .
-          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ needs.tag.outputs.semVer }}
+          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ steps.get_tag.outputs.semVer }} -f jobs-service.Dockerfile .
+          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for Jobs Scheduler
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ needs.tag.outputs.semVer }} -f jobs-scheduler.Dockerfile .
-          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ needs.tag.outputs.semVer }}
+          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ steps.get_tag.outputs.semVer }} -f jobs-scheduler.Dockerfile .
+          docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ steps.get_tag.outputs.semVer }}
 
   build-publish-python:
     name: Build and Publish Python
     runs-on: ubuntu-latest
-    needs: tag
+    needs: tag-publish-gradle
     steps:
       - name: Checkout project sources
         uses: actions/checkout@v6
@@ -106,9 +102,9 @@ jobs:
       - name: Update version in pyproject.toml
         working-directory: integrations/python/dataloader
         run: |
-          sed -i.bak 's/^version = .*/version = "${{ needs.tag.outputs.semVer }}"/' pyproject.toml
+          sed -i.bak 's/^version = .*/version = "${{ needs.tag-publish-gradle.outputs.semVer }}"/' pyproject.toml
           rm -f pyproject.toml.bak
-          echo "Updated version to ${{ needs.tag.outputs.semVer }}"
+          echo "Updated version to ${{ needs.tag-publish-gradle.outputs.semVer }}"
 
       - name: Sync dependencies
         working-directory: integrations/python/dataloader
