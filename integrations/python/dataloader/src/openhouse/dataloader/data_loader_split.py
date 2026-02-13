@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from typing import TYPE_CHECKING
 
+from datafusion.plan import LogicalPlan
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
-
-if TYPE_CHECKING:
-    from datafusion.plan import LogicalPlan
-
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 
