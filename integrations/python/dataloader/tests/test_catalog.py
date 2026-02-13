@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pyiceberg.catalog import Catalog
 
-from openhouse.dataloader.table_catalog import OpenHouseCatalog
+from openhouse.dataloader.catalog import OpenHouseCatalog
 
 
 class TestOpenHouseCatalogIsACatalog:
@@ -59,7 +59,7 @@ class TestOpenHouseCatalogLoadTable:
     def test_load_table_with_tuple(self):
         catalog = self._make_catalog_with_mock_session()
 
-        with patch("openhouse.dataloader.table_catalog.FromInputFile") as mock_from_input:
+        with patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input:
             mock_from_input.table_metadata.return_value = MagicMock()
             table = catalog.load_table(("my_db", "my_table"))
 
@@ -70,7 +70,7 @@ class TestOpenHouseCatalogLoadTable:
     def test_load_table_with_string(self):
         catalog = self._make_catalog_with_mock_session()
 
-        with patch("openhouse.dataloader.table_catalog.FromInputFile") as mock_from_input:
+        with patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input:
             mock_from_input.table_metadata.return_value = MagicMock()
             catalog.load_table("my_db.my_table")
 
