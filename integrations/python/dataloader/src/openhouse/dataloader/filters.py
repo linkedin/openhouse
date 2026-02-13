@@ -1,16 +1,3 @@
-"""Public filter API for OpenHouseDataLoader.
-
-Provides a pandas/PySpark-style operator-overloading interface for building
-row filter expressions.
-
-Usage::
-
-    from openhouse.dataloader import col
-
-    filters = (col("age") > 21) & (col("country") == "US")
-    loader = OpenHouseDataLoader("db", "table", filters=filters)
-"""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -41,13 +28,27 @@ class Filter(ABC):
 
 
 def col(name: str) -> Column:
-    """Create a column reference for building filter expressions.
+    """Create a column reference for building row filter expressions.
+
+    Example::
+
+        # Comparisons: ==, !=, >, >=, <, <=
+        col("age") > 21
+        col("country") == "US"
+
+        # Predicates
+        col("email").is_null()
+        col("email").is_not_null()
+        col("value").is_nan()
+        col("status").is_in(["active", "pending"])
+        col("name").starts_with("John")
+        col("score").between(0.5, 1.0)
+
+        # Combine with & (AND), | (OR), ~ (NOT)
+        (col("age") > 21) & (col("country") == "US") | ~col("email").is_null()
 
     Args:
-        name: The column name.
-
-    Returns:
-        A Column object that supports comparison operators.
+        name: The column name to filter on.
     """
     return Column(name)
 
@@ -287,8 +288,7 @@ class Not(Filter):
 
 
 def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:
-    """Convert a Filter expression tree to a PyIceberg BooleanExpression.
-    """
+    """Convert a Filter expression tree to a PyIceberg BooleanExpression."""
     match expr:
         # Comparison
         case EqualTo(column, value):
