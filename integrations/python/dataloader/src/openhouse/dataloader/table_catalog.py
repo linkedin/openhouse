@@ -14,11 +14,10 @@ _AUTH_TOKEN = "auth-token"
 _TRUST_STORE = "trust-store"
 
 
-class OpenHouseTableCatalog(Catalog):
-    """Catalog for loading Iceberg table metadata from the OpenHouse Tables Service.
+class OpenHouseCatalog(Catalog):
+    """Client-side catalog implementation for Iceberg tables in OpenHouse.
 
-    Follows the same authentication pattern as the Java OpenHouseCatalog:
-    optional Bearer token auth and optional SSL trust store configuration.
+    Leverages the OpenHouse Tables Service REST API to load table metadata.
 
     Properties:
         uri: OpenHouse Tables Service base URL (required)
