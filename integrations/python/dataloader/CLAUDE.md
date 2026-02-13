@@ -52,6 +52,7 @@ Internal modules (TableTransformer, UDFRegistry) can be imported directly if nee
 
 ## Versioning
 
-- Version is in `pyproject.toml` (single source of truth)
+- Version is derived from git tags via `hatch-vcs` (no hardcoded version in `pyproject.toml`)
 - `__version__` in `__init__.py` reads from package metadata at runtime
-- Major.minor aligns with OpenHouse monorepo, patch is independent
+- CI sets `SETUPTOOLS_SCM_PRETEND_VERSION` to inject the monorepo semVer tag at build time
+- For local builds, use `SETUPTOOLS_SCM_PRETEND_VERSION=x.y.z make build` to override

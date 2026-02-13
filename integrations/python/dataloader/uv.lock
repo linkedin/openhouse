@@ -447,7 +447,6 @@ wheels = [
 
 [[package]]
 name = "openhouse-dataloader"
-version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "datafusion" },

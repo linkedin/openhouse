@@ -99,19 +99,14 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Update version in pyproject.toml
-        working-directory: integrations/python/dataloader
-        run: |
-          sed -i.bak 's/^version = .*/version = "${{ needs.tag-publish-gradle.outputs.semVer }}"/' pyproject.toml
-          rm -f pyproject.toml.bak
-          echo "Updated version to ${{ needs.tag-publish-gradle.outputs.semVer }}"
-
       - name: Sync dependencies
         working-directory: integrations/python/dataloader
         run: make sync
 
       - name: Build package
         working-directory: integrations/python/dataloader
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ needs.tag-publish-gradle.outputs.semVer }}
         run: make build
 
       - name: Validate package

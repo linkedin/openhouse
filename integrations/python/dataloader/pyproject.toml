@@ -1,11 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "openhouse.dataloader"
-# Placeholder version for local builds. CI pipeline overrides this with the git tag version.
-version = "0.0.1"
+dynamic = ["version"]
 description = "A Python library for distributed data loading of OpenHouse tables"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,6 +14,10 @@ dependencies = ["datafusion==51.0.0", "pyiceberg==0.10.0"]
 
 [project.optional-dependencies]
 dev = ["ruff>=0.9.0", "pytest>=8.0.0", "twine>=6.0.0"]
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../../.." }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openhouse"]
