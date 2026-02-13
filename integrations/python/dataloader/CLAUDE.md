@@ -10,12 +10,15 @@ Python library for distributed data loading of OpenHouse tables. Uses DataFusion
 make sync      # Install dependencies
 make check     # Run lint + format checks
 make test      # Run tests
-make all       # Run all checks and tests
+make verify    # Run all checks and tests
 make format    # Auto-format code
+make build          # Build package distributions
+make package-check  # Validate built distributions with twine
+make clean          # Clean build artifacts
 ```
 
 ## Workflows
-When making a change run `make all` to ensure all tests and checks pass
+When making a change run `make verify` to ensure all tests and checks pass
 
 ## Project Structure
 
@@ -49,6 +52,7 @@ Internal modules (TableTransformer, UDFRegistry) can be imported directly if nee
 
 ## Versioning
 
-- Version is in `pyproject.toml` (single source of truth)
+- Version is derived from git tags via `hatch-vcs` (no hardcoded version in `pyproject.toml`)
 - `__version__` in `__init__.py` reads from package metadata at runtime
-- Major.minor aligns with OpenHouse monorepo, patch is independent
+- CI sets `SETUPTOOLS_SCM_PRETEND_VERSION` to inject the monorepo semVer tag at build time
+- For local builds, use `SETUPTOOLS_SCM_PRETEND_VERSION=x.y.z make build` to override

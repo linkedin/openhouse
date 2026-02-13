@@ -1,14 +1,16 @@
-.PHONY: help sync clean lint format format-check check test all
+.PHONY: help sync clean lint format format-check check test verify build package-check
 
 help:
 	@echo "Available commands:"
-	@echo "  make sync   - Sync dependencies using uv"
-	@echo "  make lint   - Run ruff linter"
-	@echo "  make format - Format code with ruff"
-	@echo "  make check  - Run all checks (lint + format check)"
-	@echo "  make test   - Run tests with pytest"
-	@echo "  make all    - Run all checks and tests"
-	@echo "  make clean  - Clean build artifacts"
+	@echo "  make sync          - Sync dependencies using uv"
+	@echo "  make lint          - Run ruff linter"
+	@echo "  make format        - Format code with ruff"
+	@echo "  make check         - Run all checks (lint + format check)"
+	@echo "  make test          - Run tests with pytest"
+	@echo "  make verify        - Run all checks and tests"
+	@echo "  make build         - Build package distributions"
+	@echo "  make package-check - Validate built distributions with twine"
+	@echo "  make clean         - Clean build artifacts"
 
 sync:
 	uv sync --all-extras
@@ -27,7 +29,13 @@ check: lint format-check
 test:
 	uv run pytest
 
-all: check test
+verify: check test
+
+build:
+	uv build
+
+package-check:
+	uv run twine check dist/*
 
 clean:
 	rm -rf build/
