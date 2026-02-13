@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "BSD-2-Clause"}
 keywords = ["openhouse", "data-loader", "lakehouse", "iceberg", "datafusion"]
-dependencies = ["datafusion==51.0.0", "pyiceberg==0.10.0"]
+dependencies = ["datafusion==51.0.0", "pyiceberg~=0.11.0"]
 
 [project.optional-dependencies]
 dev = ["ruff>=0.9.0", "pytest>=8.0.0", "twine>=6.0.0"]
