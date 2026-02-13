@@ -120,6 +120,8 @@ def test_split_iteration_returns_all_rows_with_correct_values(tmp_path, file_for
     assert total_rows == len(expected_data["id"]), f"Expected {len(expected_data['id'])} rows, got {total_rows}"
 
     result = pa.Table.from_batches(batches)
+    # Sort by ID to ensure deterministic comparison (row order is not guaranteed)
+    result = result.sort_by("id")
     assert result.column("id").to_pylist() == expected_data["id"], "ID column values mismatch"
     assert result.column("name").to_pylist() == expected_data["name"], "Name column values mismatch"
     assert result.column("value").to_pylist() == expected_data["value"], "Value column values mismatch"
