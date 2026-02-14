@@ -242,7 +242,13 @@ public class OperationTasksBuilderTest {
   private OperationTasksBuilder createOperationTasksBuilder(JobConf.JobTypeEnum jobType) {
     OperationTaskFactory<? extends OperationTask<?>> tasksFactory =
         new OperationTaskFactory<>(
-            jobTypeToClassMap.get(jobType), jobsClient, tablesClient, 60000L, 60000L, 120000L);
+            jobTypeToClassMap.get(jobType),
+            jobsClient,
+            tablesClient,
+            60000L,
+            60000L,
+            120000L,
+            false);
     return new OperationTasksBuilder(
         tasksFactory,
         tablesClient,

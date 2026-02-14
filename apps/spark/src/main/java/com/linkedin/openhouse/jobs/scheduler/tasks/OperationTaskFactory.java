@@ -15,10 +15,31 @@ public class OperationTaskFactory<T extends OperationTask<?>> {
   private long pollIntervalMs;
   private long queuedTimeoutMs;
   private long taskTimeoutMs;
+  private boolean deleteFiles;
 
   public <S extends Metadata> T create(S metadata)
       throws NoSuchMethodException, InvocationTargetException, InstantiationException,
           IllegalAccessException, IllegalStateException {
+    // Check if this is TableSnapshotsExpirationTask and use constructor with deleteFiles
+    if (cls.equals(TableSnapshotsExpirationTask.class)) {
+      return cls.getDeclaredConstructor(
+              JobsClient.class,
+              TablesClient.class,
+              metadata.getClass(),
+              long.class,
+              long.class,
+              long.class,
+              boolean.class)
+          .newInstance(
+              jobsClient,
+              tablesClient,
+              metadata,
+              pollIntervalMs,
+              queuedTimeoutMs,
+              taskTimeoutMs,
+              deleteFiles);
+    }
+    // For other tasks, use the existing constructor
     return cls.getDeclaredConstructor(
             JobsClient.class,
             TablesClient.class,
