@@ -1,18 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pyiceberg.catalog import Catalog
 
 from openhouse.dataloader.catalog import OpenHouseCatalog, OpenHouseCatalogError
-
-
-class TestOpenHouseCatalogIsACatalog:
-    def test_inherits_from_catalog(self):
-        assert issubclass(OpenHouseCatalog, Catalog)
-
-    def test_instantiates_as_catalog(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        assert isinstance(catalog, Catalog)
 
 
 class TestOpenHouseCatalogInit:
@@ -42,17 +32,23 @@ class TestOpenHouseCatalogInit:
         catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080/")
         assert catalog._uri == "http://localhost:8080"
 
+    def test_content_type_header_set(self):
+        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
+        assert catalog._session.headers["Content-Type"] == "application/json"
+
 
 class TestOpenHouseCatalogLoadTable:
-    def _make_catalog_with_mock_session(self):
+    def _make_catalog_with_mock_session(self, **response_overrides):
         catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080", **{"auth-token": "test-token"})
         mock_response = MagicMock()
+        mock_response.ok = True
         mock_response.json.return_value = {
             "databaseId": "my_db",
             "tableId": "my_table",
             "tableLocation": "file:///tmp/test-metadata.json",
         }
-        mock_response.raise_for_status = MagicMock()
+        for key, value in response_overrides.items():
+            setattr(mock_response, key, value)
         catalog._session.get = MagicMock(return_value=mock_response)
         return catalog
 
@@ -78,7 +74,10 @@ class TestOpenHouseCatalogLoadTable:
     def test_load_table_with_string(self):
         catalog = self._make_catalog_with_mock_session()
 
-        with patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input:
+        with (
+            patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input,
+            patch("openhouse.dataloader.catalog.PyArrowFileIO"),
+        ):
             mock_from_input.table_metadata.return_value = MagicMock()
             catalog.load_table("my_db.my_table")
 
@@ -94,46 +93,42 @@ class TestOpenHouseCatalogLoadTable:
             catalog.load_table(("a", "b", "c"))
 
     def test_load_table_404_raises_catalog_error(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        mock_response = MagicMock()
-        mock_response.ok = False
-        mock_response.status_code = 404
-        catalog._session.get = MagicMock(return_value=mock_response)
+        catalog = self._make_catalog_with_mock_session(ok=False, status_code=404)
 
         with pytest.raises(OpenHouseCatalogError, match="my_db.my_table does not exist"):
             catalog.load_table(("my_db", "my_table"))
 
     def test_load_table_500_raises_catalog_error(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        mock_response = MagicMock()
-        mock_response.ok = False
-        mock_response.status_code = 500
-        mock_response.text = "Internal Server Error"
-        catalog._session.get = MagicMock(return_value=mock_response)
+        catalog = self._make_catalog_with_mock_session(ok=False, status_code=500, text="Internal Server Error")
 
         with pytest.raises(OpenHouseCatalogError, match="HTTP 500"):
             catalog.load_table(("my_db", "my_table"))
 
     def test_load_table_missing_table_location(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        mock_response = MagicMock()
-        mock_response.ok = True
-        mock_response.json.return_value = {"databaseId": "my_db", "tableId": "my_table"}
-        catalog._session.get = MagicMock(return_value=mock_response)
+        catalog = self._make_catalog_with_mock_session()
+        catalog._session.get.return_value.json.return_value = {"databaseId": "my_db", "tableId": "my_table"}
 
         with pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"):
             catalog.load_table(("my_db", "my_table"))
 
-    def test_load_table_bad_metadata_raises_catalog_error(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        mock_response = MagicMock()
-        mock_response.ok = True
-        mock_response.json.return_value = {
+    def test_load_table_empty_table_location(self):
+        catalog = self._make_catalog_with_mock_session()
+        catalog._session.get.return_value.json.return_value = {
+            "databaseId": "my_db",
+            "tableId": "my_table",
+            "tableLocation": "",
+        }
+
+        with pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"):
+            catalog.load_table(("my_db", "my_table"))
+
+    def test_load_table_unreadable_metadata_raises_catalog_error(self):
+        catalog = self._make_catalog_with_mock_session()
+        catalog._session.get.return_value.json.return_value = {
             "databaseId": "my_db",
             "tableId": "my_table",
             "tableLocation": "file:///nonexistent/metadata.json",
         }
-        catalog._session.get = MagicMock(return_value=mock_response)
 
         with pytest.raises(OpenHouseCatalogError, match="Failed to read table metadata"):
             catalog.load_table(("my_db", "my_table"))
