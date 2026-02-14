@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -451,6 +451,7 @@ source = { editable = "." }
 dependencies = [
     { name = "datafusion" },
     { name = "pyiceberg" },
+    { name = "requests" },
 ]
 
 [package.optional-dependencies]
@@ -465,6 +466,7 @@ requires-dist = [
     { name = "datafusion", specifier = "==51.0.0" },
     { name = "pyiceberg", specifier = "~=0.11.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "requests", specifier = ">=2.31.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=6.0.0" },
 ]
