@@ -1446,6 +1446,86 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
     }
   }
 
+  /**
+   * Verify that commitTimestampMs is in milliseconds (not seconds) for both partitioned and
+   * unpartitioned tables. Regression test for a bug where partitioned tables received committed_at
+   * in epoch seconds (Spark TimestampType→Long cast) without the *1000 conversion, while
+   * unpartitioned tables correctly used snapshot.timestampMillis().
+   */
+  @Test
+  public void testPartitionStatsCommitTimestampIsMilliseconds() throws Exception {
+    final String partitionedTable = "db.test_ts_millis_partitioned";
+    final String unpartitionedTable = "db.test_ts_millis_unpartitioned";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      long beforeMs = System.currentTimeMillis();
+
+      // Setup: Create and populate both table types
+      prepareTable(ops, partitionedTable, true);
+      populateTable(ops, partitionedTable, 1);
+
+      prepareTable(ops, unpartitionedTable, false);
+      populateTable(ops, unpartitionedTable, 1);
+
+      long afterMs = System.currentTimeMillis();
+
+      // Partitioned tables lose sub-second precision: Spark casts committed_at (TimestampType)
+      // to Long as epoch seconds, then we multiply by 1000. This truncates to second boundary.
+      // Widen the range by 1 second on each side to account for this truncation.
+      long toleranceMs = 1000L;
+
+      // Action: Collect partition stats for both
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionedStats = ops.collectCommitEventTablePartitionStats(partitionedTable);
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          unpartitionedStats = ops.collectCommitEventTablePartitionStats(unpartitionedTable);
+
+      Assertions.assertFalse(partitionedStats.isEmpty(), "Partitioned stats should not be empty");
+      Assertions.assertFalse(
+          unpartitionedStats.isEmpty(), "Unpartitioned stats should not be empty");
+
+      // Verify: commitTimestampMs for PARTITIONED table is in milliseconds range
+      // Allow tolerance for sub-second truncation from seconds-based conversion
+      long partitionedTs = partitionedStats.get(0).getCommitMetadata().getCommitTimestampMs();
+      Assertions.assertTrue(
+          partitionedTs >= (beforeMs - toleranceMs) && partitionedTs <= (afterMs + toleranceMs),
+          String.format(
+              "Partitioned commitTimestampMs should be in milliseconds range "
+                  + "[%d, %d], got %d (if value < 1e12 it was likely in seconds)",
+              beforeMs - toleranceMs, afterMs + toleranceMs, partitionedTs));
+
+      // Verify: commitTimestampMs for UNPARTITIONED table is in milliseconds
+      // Unpartitioned uses snapshot.timestampMillis() directly, so no truncation
+      long unpartitionedTs = unpartitionedStats.get(0).getCommitMetadata().getCommitTimestampMs();
+      Assertions.assertTrue(
+          unpartitionedTs >= beforeMs && unpartitionedTs <= afterMs,
+          String.format(
+              "Unpartitioned commitTimestampMs should be in milliseconds range "
+                  + "[%d, %d], got %d",
+              beforeMs, afterMs, unpartitionedTs));
+
+      // Verify: Both timestamps are in the same order of magnitude (milliseconds)
+      // A seconds-based timestamp would be ~1.7e9, milliseconds ~1.7e12
+      Assertions.assertTrue(
+          partitionedTs > 1_000_000_000_000L,
+          String.format(
+              "Partitioned commitTimestampMs=%d appears to be in seconds, not milliseconds",
+              partitionedTs));
+      Assertions.assertTrue(
+          unpartitionedTs > 1_000_000_000_000L,
+          String.format(
+              "Unpartitioned commitTimestampMs=%d appears to be in seconds, not milliseconds",
+              unpartitionedTs));
+
+      log.info(
+          "Timestamp millis validation passed: partitioned={}, unpartitioned={}, range=[{}, {}]",
+          partitionedTs,
+          unpartitionedTs,
+          beforeMs,
+          afterMs);
+    }
+  }
+
   private static void populateTable(
       Operations ops, String tableName, int numRows, int dayLag, long timestampSeconds) {
     String timestampEntry =
