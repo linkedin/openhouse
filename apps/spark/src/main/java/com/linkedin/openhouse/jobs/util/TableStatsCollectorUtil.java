@@ -1366,12 +1366,13 @@ public final class TableStatsCollectorUtil {
 
         // Extract commit metadata
         Long snapshotId = row.getAs("snapshot_id");
-        Long committedAt = row.getAs("committed_at");
+        Long committedAtSeconds = row.getAs("committed_at");
+        Long committedAtMs = committedAtSeconds != null ? committedAtSeconds * 1000L : null;
         String operation = row.getAs("operation");
         scala.collection.Map<String, String> scalaMap = row.getMap(row.fieldIndex("summary"));
         Map<String, String> summary = scala.collection.JavaConverters.mapAsJavaMap(scalaMap);
         CommitMetadata commitMetadata =
-            buildCommitMetadata(snapshotId, committedAt, operation, summary);
+            buildCommitMetadata(snapshotId, committedAtMs, operation, summary);
 
         // Extract table-level stats
         Long rowCount = row.getAs("total_row_count");
