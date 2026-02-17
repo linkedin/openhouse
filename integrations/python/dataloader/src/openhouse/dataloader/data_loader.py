@@ -35,7 +35,7 @@ class OpenHouseDataLoader:
         table: str,
         branch: str | None = None,
         columns: Sequence[str] | None = None,
-        filters: Filter = always_true(),
+        filters: Filter | None = None,
         context: DataLoaderContext | None = None,
     ):
         """
@@ -49,7 +49,7 @@ class OpenHouseDataLoader:
         """
         self._table = TableIdentifier(database, table, branch)
         self._columns = columns
-        self._filters = filters
+        self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
 
     def __iter__(self) -> Iterable[DataLoaderSplit]:
