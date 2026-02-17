@@ -31,6 +31,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 @Execution(ExecutionMode.SAME_THREAD)
 public class BranchTestSpark3_5 extends OpenHouseSparkITest {
 
+  private static final String DATABASE = "d1_branch_spark";
   private static final String BRANCH_TEST_PREFIX = "branch_test_";
   private static final String WAP_ID_TEST_PREFIX = "wap_id_test_";
   private static final String WAP_BRANCH_TEST_PREFIX = "wap_branch_test_";
@@ -50,10 +51,10 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
 
       // Drop all test tables to ensure clean state for next test
       try {
-        List<Row> tables = spark.sql("SHOW TABLES IN openhouse.d1").collectAsList();
+        List<Row> tables = spark.sql("SHOW TABLES IN openhouse." + DATABASE).collectAsList();
         for (Row table : tables) {
           String tableName = table.getString(1); // table name is in second column
-          String fullTableName = "openhouse.d1." + tableName;
+          String fullTableName = "openhouse." + DATABASE + "." + tableName;
           spark.sql("DROP TABLE IF EXISTS " + fullTableName);
         }
       } catch (Exception e) {
@@ -70,7 +71,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
             }) {
           for (int i = 0; i < 10; i++) { // Try a few recent timestamps
             long timestamp = System.currentTimeMillis() - (i * 1000);
-            String tableName = "openhouse.d1." + pattern + timestamp;
+            String tableName = "openhouse." + DATABASE + "." + pattern + timestamp;
             try {
               spark.sql("DROP TABLE IF EXISTS " + tableName);
             } catch (Exception ignored) {
@@ -91,7 +92,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testBasicBranchOperations() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
@@ -131,7 +132,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testWapStagingWithBranches() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -185,7 +186,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testWapIdAfterCreateTable() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_ID_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       // Create table without any data (no snapshots exist)
       spark.sql("CREATE TABLE " + tableName + " (name string)");
@@ -395,7 +396,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testBranchAfterCreateTable() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       // Create table without any data (no snapshots exist)
       spark.sql("CREATE TABLE " + tableName + " (name string)");
@@ -643,7 +644,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testWapBranchAfterCreateTable() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       // Create table without any data (no snapshots exist)
       spark.sql("CREATE TABLE " + tableName + " (name string)");
@@ -892,7 +893,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testWapBranchCommitWithMultipleBranches() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_MULTI_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       // Create table and enable WAP
       spark.sql("CREATE TABLE " + tableName + " (name string)");
@@ -1078,7 +1079,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testRegularCommitWithMultipleBranches() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = REGULAR_MULTI_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       // Create table (no WAP needed for this test)
       spark.sql("CREATE TABLE " + tableName + " (name string)");
@@ -1303,7 +1304,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testCherryPickToMainWithFeatureBranch() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -1368,7 +1369,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testFastForwardMergeToMain() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
@@ -1423,7 +1424,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testFastForwardMergeToFeature() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
@@ -1479,7 +1480,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testFastForwardFeatureToMainAndWapId() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -1546,7 +1547,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testFastForwardMergeBetweenTwoFeatureBranches() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
@@ -1616,7 +1617,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testFastForwardMergeIncompatibleLineage() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
@@ -1679,7 +1680,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testSnapshotExpirationFromFeatureBranch() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -1775,7 +1776,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testWapSnapshotExpirationWithMultipleBranches() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -1844,7 +1845,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testWapIdOnFeatureBranchAndMainBranch() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -1988,7 +1989,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testBackwardCompatibilityMainBranchOnly() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -2038,7 +2039,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testStagedChangesVisibleViaConf() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -2067,7 +2068,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testStagedChangesHidden() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -2145,7 +2146,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testPublishWapBranch() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -2201,7 +2202,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testWapIdAndWapBranchIncompatible() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -2228,7 +2229,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testCannotWriteToBothBranches() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = WAP_BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (id int, data string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");
@@ -2257,7 +2258,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testErrorInsertToNonExistentBranch() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
 
@@ -2307,7 +2308,7 @@ public class BranchTestSpark3_5 extends OpenHouseSparkITest {
   public void testErrorCherryPickNonExistentWapId() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String tableId = BRANCH_TEST_PREFIX + System.currentTimeMillis();
-      String tableName = "openhouse.d1." + tableId;
+      String tableName = "openhouse." + DATABASE + "." + tableId;
 
       spark.sql("CREATE TABLE " + tableName + " (name string)");
       spark.sql("ALTER TABLE " + tableName + " SET TBLPROPERTIES ('write.wap.enabled'='true')");

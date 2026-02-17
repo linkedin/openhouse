@@ -10,6 +10,9 @@ import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Test;
 
 public class PartitionTestSpark3_5 extends OpenHouseSparkITest {
+
+  private static final String DATABASE = "d1_partition_spark";
+
   @Test
   public void testCreateTablePartitionedWithNestedColumn2() throws Exception {
     try (SparkSession spark = getSparkSession()) {
@@ -27,16 +30,19 @@ public class PartitionTestSpark3_5 extends OpenHouseSparkITest {
                 .replaceAll(", ", "_");
         spark.sql(
             String.format(
-                "CREATE TABLE openhouse.d1.%s (time timestamp, header struct<time:long, name:string>) partitioned by (%s)",
-                tableName, transform));
+                "CREATE TABLE openhouse."
+                    + DATABASE
+                    + ".%s (time timestamp, header struct<time:long, name:string>) partitioned by (%s)",
+                tableName,
+                transform));
         // verify that partition spec is correct
         List<String> description =
-            spark.sql(String.format("DESCRIBE TABLE openhouse.d1.%s", tableName))
+            spark.sql(String.format("DESCRIBE TABLE openhouse." + DATABASE + ".%s", tableName))
                 .select("data_type").collectAsList().stream()
                 .map(row -> row.getString(0))
                 .collect(Collectors.toList());
         assertTrue(description.contains(expectedResult.get(i)));
-        spark.sql(String.format("DROP TABLE openhouse.d1.%s", tableName));
+        spark.sql(String.format("DROP TABLE openhouse." + DATABASE + ".%s", tableName));
       }
     }
   }
