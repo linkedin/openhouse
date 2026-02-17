@@ -21,7 +21,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,10 +64,11 @@ public class IcebergRestCatalogControllerTest {
 
   @Test
   public void testListTables() throws Exception {
-    when(openHouseInternalCatalog.listTables(Namespace.of("db")))
+    when(tablesService.searchTables(eq("db"), anyString()))
         .thenReturn(
             Arrays.asList(
-                TableIdentifier.of("db", "tb1"), TableIdentifier.of("db", "tb2")));
+                TableDto.builder().databaseId("db").tableId("tb1").build(),
+                TableDto.builder().databaseId("db").tableId("tb2").build()));
 
     mvc.perform(MockMvcRequestBuilders.get("/v1/namespaces/db/tables"))
         .andExpect(status().isOk())

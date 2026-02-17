@@ -33,6 +33,15 @@ public interface TablesService {
   List<TableDto> searchTables(String databaseId);
 
   /**
+   * Given a databaseId, prepare list of {@link TableDto}s if actingPrincipal has list permission.
+   *
+   * @param databaseId
+   * @param actingPrincipal
+   * @return list of {@link TableDto}
+   */
+  List<TableDto> searchTables(String databaseId, String actingPrincipal);
+
+  /**
    * Given a databaseId, prepare list of {@link TableDto}s.
    *
    * @param databaseId

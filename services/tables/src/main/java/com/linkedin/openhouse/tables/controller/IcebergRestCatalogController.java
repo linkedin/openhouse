@@ -7,6 +7,8 @@ import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.tables.generated.iceberg.api.IcebergReadOnlyApi;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.services.TablesService;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
@@ -16,7 +18,6 @@ import org.apache.iceberg.rest.RESTUtil;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,11 +31,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class IcebergRestCatalogController implements IcebergReadOnlyApi {
 
-  @Autowired private OpenHouseInternalCatalog openHouseInternalCatalog;
+  private final OpenHouseInternalCatalog openHouseInternalCatalog;
 
-  @Autowired private TablesService tablesService;
+  private final TablesService tablesService;
 
-  @Autowired private TablesApiValidator tablesApiValidator;
+  private final TablesApiValidator tablesApiValidator;
+
+  public IcebergRestCatalogController(
+      OpenHouseInternalCatalog openHouseInternalCatalog,
+      TablesService tablesService,
+      TablesApiValidator tablesApiValidator) {
+    this.openHouseInternalCatalog = openHouseInternalCatalog;
+    this.tablesService = tablesService;
+    this.tablesApiValidator = tablesApiValidator;
+  }
 
   @Override
   public ResponseEntity<String> getConfig(String warehouse) {
@@ -50,8 +60,11 @@ public class IcebergRestCatalogController implements IcebergReadOnlyApi {
     String databaseId = icebergNamespace.level(0);
     tablesApiValidator.validateSearchTables(databaseId);
 
-    ListTablesResponse response =
-        CatalogHandlers.listTables(openHouseInternalCatalog, icebergNamespace);
+    List<TableIdentifier> tableIdentifiers =
+        tablesService.searchTables(databaseId, extractAuthenticatedUserPrincipal()).stream()
+            .map(table -> TableIdentifier.of(icebergNamespace, table.getTableId()))
+            .collect(Collectors.toList());
+    ListTablesResponse response = ListTablesResponse.builder().addAll(tableIdentifiers).build();
     return ResponseEntity.ok()
         .contentType(MediaType.APPLICATION_JSON)
         .body(IcebergRestSerde.toJson(response));
