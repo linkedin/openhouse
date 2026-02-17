@@ -62,7 +62,12 @@ class OpenHouseCatalog(Catalog):
                 f"Failed to load table {database}.{table}: HTTP {response.status_code}. Response: {response.text}"
             )
 
-        table_response = response.json()
+        try:
+            table_response = response.json()
+        except ValueError as e:
+            raise OpenHouseCatalogError(
+                f"Response for table {database}.{table} is not valid JSON. Response: {response.text}"
+            ) from e
         metadata_location = table_response.get(_TABLE_LOCATION)
         if not metadata_location:
             raise OpenHouseCatalogError(

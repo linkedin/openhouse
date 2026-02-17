@@ -129,6 +129,14 @@ class TestOpenHouseCatalogLoadTable:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
     @responses.activate
+    def test_load_table_malformed_json_raises_catalog_error(self):
+        responses.get(TABLE_URL, body="not valid json", status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
+
+        with pytest.raises(OpenHouseCatalogError, match="not valid JSON"):
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+    @responses.activate
     def test_load_table_unreadable_metadata_raises_catalog_error(self, tmp_path):
         # File I/O is NOT mocked here — uses a real nonexistent path to trigger the error.
         nonexistent = f"file://{tmp_path}/nonexistent/metadata.json"
