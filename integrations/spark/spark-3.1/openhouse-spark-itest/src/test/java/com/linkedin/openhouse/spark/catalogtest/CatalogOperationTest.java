@@ -34,20 +34,29 @@ import org.junit.jupiter.api.Test;
 import scala.collection.JavaConverters;
 
 public class CatalogOperationTest extends OpenHouseSparkITest {
+
+  private static final String DATABASE = "d1_catalog";
+
   @Test
   public void testCasingWithCTAS() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       // creating a casing preserving table using backtick
-      spark.sql("CREATE TABLE openhouse.d1.`tT1` (name string)");
+      spark.sql("CREATE TABLE openhouse." + DATABASE + ".`tT1` (name string)");
       // testing writing behavior, note the casing of tt1 is intentionally changed.
-      spark.sql("INSERT INTO openhouse.d1.Tt1 VALUES ('foo')");
+      spark.sql("INSERT INTO openhouse." + DATABASE + ".Tt1 VALUES ('foo')");
 
       // Verifying by querying with all lower-cased name
       Assertions.assertEquals(
-          1, spark.sql("SELECT * from openhouse.d1.tt1").collectAsList().size());
+          1, spark.sql("SELECT * from openhouse." + DATABASE + ".tt1").collectAsList().size());
       // ctas but referring with lower-cased name
-      spark.sql("CREATE TABLE openhouse.d1.t2 AS SELECT * from openhouse.d1.tt1");
-      Assertions.assertEquals(1, spark.sql("SELECT * FROM openhouse.d1.t2").collectAsList().size());
+      spark.sql(
+          "CREATE TABLE openhouse."
+              + DATABASE
+              + ".t2 AS SELECT * from openhouse."
+              + DATABASE
+              + ".tt1");
+      Assertions.assertEquals(
+          1, spark.sql("SELECT * FROM openhouse." + DATABASE + ".t2").collectAsList().size());
     }
   }
 
@@ -55,7 +64,7 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   public void testCreateTablePartitionedByDate() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       // creating a casing preserving table using backtick
-      String quotedFqtn = "openhouse.d1.tpartionedbydate";
+      String quotedFqtn = "openhouse." + DATABASE + ".tpartionedbydate";
       spark.sql(
           String.format(
               "CREATE TABLE %s (data string) PARTITIONED BY (datefield DATE)", quotedFqtn));
@@ -140,13 +149,17 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
   public void testAlterTableUnsetReplicationPolicy() throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      spark.sql("CREATE TABLE openhouse.d1.`ttt1` (name string)");
-      spark.sql("INSERT INTO openhouse.d1.ttt1 VALUES ('foo')");
+      spark.sql("CREATE TABLE openhouse." + DATABASE + ".`ttt1` (name string)");
+      spark.sql("INSERT INTO openhouse." + DATABASE + ".ttt1 VALUES ('foo')");
       spark.sql(
-          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (REPLICATION=({destination:'WAR', interval:12h}))");
+          "ALTER TABLE openhouse."
+              + DATABASE
+              + ".ttt1 SET POLICY (REPLICATION=({destination:'WAR', interval:12h}))");
       spark.sql(
-          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (RETENTION= 30d on column name where pattern='yyyy-MM-dd')");
-      Policies policies = getPoliciesObj("openhouse.d1.ttt1", spark);
+          "ALTER TABLE openhouse."
+              + DATABASE
+              + ".ttt1 SET POLICY (RETENTION= 30d on column name where pattern='yyyy-MM-dd')");
+      Policies policies = getPoliciesObj("openhouse." + DATABASE + ".ttt1", spark);
       Assertions.assertNotNull(policies);
       Assertions.assertEquals(
           "'WAR'", policies.getReplication().getConfig().get(0).getDestination());
@@ -155,8 +168,8 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
           "'yyyy-MM-dd'", policies.getRetention().getColumnPattern().getPattern());
 
       // unset replication policy
-      spark.sql("ALTER TABLE openhouse.d1.ttt1 UNSET POLICY (REPLICATION)");
-      Policies updatedPolicy = getPoliciesObj("openhouse.d1.ttt1", spark);
+      spark.sql("ALTER TABLE openhouse." + DATABASE + ".ttt1 UNSET POLICY (REPLICATION)");
+      Policies updatedPolicy = getPoliciesObj("openhouse." + DATABASE + ".ttt1", spark);
       Assertions.assertEquals(updatedPolicy.getReplication().getConfig().size(), 0);
       // assert that other policies, retention is not modified after unsetting replication
       Assertions.assertNotNull(updatedPolicy.getRetention());
@@ -165,8 +178,10 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
 
       // assert retention can be set after unsetting replication
       spark.sql(
-          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (RETENTION = 30D on COLUMN name WHERE pattern = 'yyyy')");
-      Policies policyWithRetention = getPoliciesObj("openhouse.d1.ttt1", spark);
+          "ALTER TABLE openhouse."
+              + DATABASE
+              + ".ttt1 SET POLICY (RETENTION = 30D on COLUMN name WHERE pattern = 'yyyy')");
+      Policies policyWithRetention = getPoliciesObj("openhouse." + DATABASE + ".ttt1", spark);
       Assertions.assertNotNull(policyWithRetention);
       Assertions.assertEquals(
           "'yyyy'", policyWithRetention.getRetention().getColumnPattern().getPattern());
@@ -174,17 +189,19 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
 
       // assert replication can be set again after retention policy
       spark.sql(
-          "ALTER TABLE openhouse.d1.ttt1 SET POLICY (REPLICATION=({destination:'WAR', interval:12h}))");
-      Policies policyWithReplication = getPoliciesObj("openhouse.d1.ttt1", spark);
+          "ALTER TABLE openhouse."
+              + DATABASE
+              + ".ttt1 SET POLICY (REPLICATION=({destination:'WAR', interval:12h}))");
+      Policies policyWithReplication = getPoliciesObj("openhouse." + DATABASE + ".ttt1", spark);
       Assertions.assertNotNull(policyWithReplication);
       Assertions.assertEquals(
           "'WAR'", policyWithReplication.getReplication().getConfig().get(0).getDestination());
 
       // UNSET policy for table without replication
-      spark.sql("CREATE TABLE openhouse.d1.`tttest1` (name string)");
-      spark.sql("INSERT INTO openhouse.d1.tttest1 VALUES ('foo')");
-      spark.sql("ALTER TABLE openhouse.d1.tttest1 UNSET POLICY (REPLICATION)");
-      Policies policytttest1 = getPoliciesObj("openhouse.d1.tttest1", spark);
+      spark.sql("CREATE TABLE openhouse." + DATABASE + ".`tttest1` (name string)");
+      spark.sql("INSERT INTO openhouse." + DATABASE + ".tttest1 VALUES ('foo')");
+      spark.sql("ALTER TABLE openhouse." + DATABASE + ".tttest1 UNSET POLICY (REPLICATION)");
+      Policies policytttest1 = getPoliciesObj("openhouse." + DATABASE + ".tttest1", spark);
       Assertions.assertEquals(0, policytttest1.getReplication().getConfig().size());
     }
   }

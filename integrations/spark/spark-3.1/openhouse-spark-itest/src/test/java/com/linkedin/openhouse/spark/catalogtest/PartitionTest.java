@@ -10,6 +10,9 @@ import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Test;
 
 public class PartitionTest extends OpenHouseSparkITest {
+
+  private static final String DATABASE = "d1_partition";
+
   @Test
   public void testCreateTablePartitionedWithNestedColumn() throws Exception {
     try (SparkSession spark = getSparkSession()) {
@@ -27,16 +30,19 @@ public class PartitionTest extends OpenHouseSparkITest {
                 .replaceAll(", ", "_");
         spark.sql(
             String.format(
-                "CREATE TABLE openhouse.d1.%s (time timestamp, header struct<time:long, name:string>) partitioned by (%s)",
-                tableName, transform));
+                "CREATE TABLE openhouse."
+                    + DATABASE
+                    + ".%s (time timestamp, header struct<time:long, name:string>) partitioned by (%s)",
+                tableName,
+                transform));
         // verify that partition spec is correct
         List<String> description =
-            spark.sql(String.format("DESCRIBE TABLE openhouse.d1.%s", tableName))
+            spark.sql(String.format("DESCRIBE TABLE openhouse." + DATABASE + ".%s", tableName))
                 .select("data_type").collectAsList().stream()
                 .map(row -> row.getString(0))
                 .collect(Collectors.toList());
         assertTrue(description.contains(expectedResult.get(i)));
-        spark.sql(String.format("DROP TABLE openhouse.d1.%s", tableName));
+        spark.sql(String.format("DROP TABLE openhouse." + DATABASE + ".%s", tableName));
       }
     }
   }
@@ -58,22 +64,29 @@ public class PartitionTest extends OpenHouseSparkITest {
                 .replaceAll(", ", "_");
         spark.sql(
             String.format(
-                "CREATE TABLE openhouse.d1.%s (id string, name string, category string, timestamp timestamp) partitioned by (%s)",
-                tableName, transform));
+                "CREATE TABLE openhouse."
+                    + DATABASE
+                    + ".%s (id string, name string, category string, timestamp timestamp) partitioned by (%s)",
+                tableName,
+                transform));
 
         // Insert some test data to verify bucketing works
         spark.sql(
             String.format(
-                "INSERT INTO openhouse.d1.%s VALUES ('1', 'alice', 'A', current_timestamp())",
+                "INSERT INTO openhouse."
+                    + DATABASE
+                    + ".%s VALUES ('1', 'alice', 'A', current_timestamp())",
                 tableName));
         spark.sql(
             String.format(
-                "INSERT INTO openhouse.d1.%s VALUES ('2', 'bob', 'B', current_timestamp())",
+                "INSERT INTO openhouse."
+                    + DATABASE
+                    + ".%s VALUES ('2', 'bob', 'B', current_timestamp())",
                 tableName));
 
         // Verify that partition spec is correct
         List<String> description =
-            spark.sql(String.format("DESCRIBE TABLE openhouse.d1.%s", tableName))
+            spark.sql(String.format("DESCRIBE TABLE openhouse." + DATABASE + ".%s", tableName))
                 .select("data_type").collectAsList().stream()
                 .map(row -> row.getString(0))
                 .collect(Collectors.toList());
@@ -81,9 +94,12 @@ public class PartitionTest extends OpenHouseSparkITest {
 
         // Verify data was inserted successfully
         assertEquals(
-            2, spark.sql(String.format("SELECT * FROM openhouse.d1.%s", tableName)).count());
+            2,
+            spark
+                .sql(String.format("SELECT * FROM openhouse." + DATABASE + ".%s", tableName))
+                .count());
 
-        spark.sql(String.format("DROP TABLE openhouse.d1.%s", tableName));
+        spark.sql(String.format("DROP TABLE openhouse." + DATABASE + ".%s", tableName));
       }
     }
   }
@@ -102,25 +118,37 @@ public class PartitionTest extends OpenHouseSparkITest {
         // Create table with bucket partitioning
         spark.sql(
             String.format(
-                "CREATE TABLE openhouse.d1.%s (id int, name string, value double) partitioned by (%s)",
-                tableName, transform));
+                "CREATE TABLE openhouse."
+                    + DATABASE
+                    + ".%s (id int, name string, value double) partitioned by (%s)",
+                tableName,
+                transform));
 
         // Insert values from 0 to N
         for (int i = 0; i < numValuesToInsert; i++) {
           spark.sql(
               String.format(
-                  "INSERT INTO openhouse.d1.%s VALUES (%d, 'name_%d', %f)",
-                  tableName, i, i, i * 1.5));
+                  "INSERT INTO openhouse." + DATABASE + ".%s VALUES (%d, 'name_%d', %f)",
+                  tableName,
+                  i,
+                  i,
+                  i * 1.5));
         }
 
         // Verify all data was inserted
         assertEquals(
             numValuesToInsert,
-            spark.sql(String.format("SELECT * FROM openhouse.d1.%s", tableName)).count());
+            spark
+                .sql(String.format("SELECT * FROM openhouse." + DATABASE + ".%s", tableName))
+                .count());
 
         // Check that we have exactly bucketCount partitions
         long partitionCount =
-            spark.sql(String.format("SELECT * FROM openhouse.d1.%s.partitions", tableName)).count();
+            spark
+                .sql(
+                    String.format(
+                        "SELECT * FROM openhouse." + DATABASE + ".%s.partitions", tableName))
+                .count();
         assertEquals(
             bucketCount,
             partitionCount,
@@ -130,7 +158,11 @@ public class PartitionTest extends OpenHouseSparkITest {
 
         // Verify that each partition has some data (since we inserted enough values)
         List<Integer> partitionFileCounts =
-            spark.sql(String.format("SELECT file_count FROM openhouse.d1.%s.partitions", tableName))
+            spark
+                .sql(
+                    String.format(
+                        "SELECT file_count FROM openhouse." + DATABASE + ".%s.partitions",
+                        tableName))
                 .select("file_count").collectAsList().stream()
                 .map(row -> row.getInt(0))
                 .collect(Collectors.toList());
@@ -141,7 +173,7 @@ public class PartitionTest extends OpenHouseSparkITest {
             String.format(
                 "All partitions should have files, but found counts: %s", partitionFileCounts));
 
-        spark.sql(String.format("DROP TABLE openhouse.d1.%s", tableName));
+        spark.sql(String.format("DROP TABLE openhouse." + DATABASE + ".%s", tableName));
       }
     }
   }
