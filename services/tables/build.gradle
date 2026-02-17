@@ -30,6 +30,12 @@ openApi {
   apiDocsUrl.set("http://localhost:8000/v3/api-docs")
 }
 
+def canonicalIcebergRestSpec = "${rootDir}/spec/openhouse-iceberg-rest-readonly-v1.yaml"
+def openApiCliVersion = "7.12.0"
+def openApiCliDir = "${buildDir}/openapi-cli"
+def openApiCliJar = "${openApiCliDir}/openapi-generator-cli-${openApiCliVersion}.jar"
+def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server"
+
 dependencies {
   implementation project(':services:common')
   implementation project(':iceberg:openhouse:internalcatalog')
@@ -40,10 +46,52 @@ dependencies {
   implementation 'org.springframework.security:spring-security-config:5.7.2'
   implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
   implementation 'com.cronutils:cron-utils:9.2.0'
+  implementation 'org.openapitools:jackson-databind-nullable:0.2.1'
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
   testImplementation(testFixtures(project(':services:common')))
   testImplementation (project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
     exclude group: 'com.linkedin.iceberg'
   }
+}
+
+tasks.register('setUpOpenApiCliForIcebergRest', Exec) {
+  commandLine "sh", "${project(':client:common').projectDir}/jar_download.sh",
+      "-o", openApiCliDir,
+      "-v", openApiCliVersion
+  outputs.file(openApiCliJar)
+}
+
+tasks.register('validateIcebergRestOpenApiSpec', Exec) {
+  dependsOn tasks.named('setUpOpenApiCliForIcebergRest')
+  commandLine "java", "-jar", openApiCliJar, "validate", "-i", canonicalIcebergRestSpec
+  inputs.file(canonicalIcebergRestSpec)
+  inputs.file(openApiCliJar)
+}
+
+tasks.register('generateIcebergRestOpenApiServer', Exec) {
+  dependsOn tasks.named('validateIcebergRestOpenApiSpec')
+  doFirst {
+    delete generatedIcebergRestDir
+  }
+  commandLine "java", "-jar", openApiCliJar, "generate",
+      "-g", "spring",
+      "-i", canonicalIcebergRestSpec,
+      "-o", generatedIcebergRestDir,
+      "--api-package", "com.linkedin.openhouse.tables.generated.iceberg.api",
+      "--model-package", "com.linkedin.openhouse.tables.generated.iceberg.model",
+      "--global-property", "apis,models,apiTests=false,apiDocs=false,modelTests=false,modelDocs=false,supportingFiles=",
+      "--additional-properties", "interfaceOnly=true,useTags=true,skipDefaultInterface=true,hideGenerationTimestamp=true,useSpringBoot3=false"
+  inputs.file(canonicalIcebergRestSpec)
+  inputs.file(openApiCliJar)
+  outputs.dir(generatedIcebergRestDir)
+}
+
+tasks.named('compileJava') {
+  dependsOn tasks.named('generateIcebergRestOpenApiServer')
+  source "${generatedIcebergRestDir}/src/main/java"
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('validateIcebergRestOpenApiSpec')
 }
