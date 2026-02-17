@@ -113,10 +113,11 @@ jobs:
         working-directory: integrations/python/dataloader
         run: make package-check
 
-      - name: Publish to PyPI
+      - name: Publish to JFrog Artifactory PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: integrations/python/dataloader/dist/
-          user: ${{ secrets.JFROG_PYPI_USERNAME }}
-          password: ${{ secrets.JFROG_PYPI_PASSWORD }}
+          repository-url: https://linkedin.jfrog.io/artifactory/api/pypi/openhouse
+          user: __token__
+          password: ${{ secrets.JFROG_PYPI_API_TOKEN }}
           verbose: true
