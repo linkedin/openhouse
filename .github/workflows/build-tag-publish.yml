@@ -118,6 +118,6 @@ jobs:
         with:
           packages-dir: integrations/python/dataloader/dist/
           repository-url: https://linkedin.jfrog.io/artifactory/api/pypi/openhouse
-          user: __token__
+          user: ${{ secrets.JFROG_USERNAME }}
           password: ${{ secrets.JFROG_PYPI_API_TOKEN }}
           verbose: true
