@@ -3,6 +3,7 @@ from pyiceberg import expressions as ice
 
 from openhouse.dataloader import col
 from openhouse.dataloader.filters import (
+    AlwaysTrue,
     And,
     Between,
     Column,
@@ -24,6 +25,7 @@ from openhouse.dataloader.filters import (
     Or,
     StartsWith,
     _to_pyiceberg,
+    always_true,
 )
 
 
@@ -35,6 +37,17 @@ class TestColumnCreation:
 
     def test_col_is_not_a_filter(self):
         assert not isinstance(col("x"), Filter)
+
+
+class TestAlwaysTrue:
+    def test_always_true_is_a_filter(self):
+        assert isinstance(always_true(), Filter)
+
+    def test_always_true_returns_always_true(self):
+        assert isinstance(always_true(), AlwaysTrue)
+
+    def test_always_true_repr(self):
+        assert repr(always_true()) == "always_true()"
 
 
 class TestComparisonOperators:
@@ -202,6 +215,12 @@ class TestRepr:
 
 
 # --- PyIceberg conversion tests ---
+
+
+class TestPyIcebergAlwaysTrueConversion:
+    def test_always_true(self):
+        result = _to_pyiceberg(always_true())
+        assert isinstance(result, ice.AlwaysTrue)
 
 
 class TestPyIcebergComparisonConversion:

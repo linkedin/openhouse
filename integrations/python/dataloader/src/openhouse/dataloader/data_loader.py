@@ -2,7 +2,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
-from openhouse.dataloader.filters import Filter
+from openhouse.dataloader.filters import Filter, always_true
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
@@ -35,7 +35,7 @@ class OpenHouseDataLoader:
         table: str,
         branch: str | None = None,
         columns: Sequence[str] | None = None,
-        filters: Filter | None = None,
+        filters: Filter = always_true(),
         context: DataLoaderContext | None = None,
     ):
         """
@@ -44,7 +44,7 @@ class OpenHouseDataLoader:
             table: Table name
             branch: Optional branch name
             columns: Column names to load, or None to load all columns
-            filters: Row filter expression
+            filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
         """
         self._table = TableIdentifier(database, table, branch)

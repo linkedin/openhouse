@@ -27,6 +27,18 @@ class Filter(ABC):
         return Not(self)
 
 
+class AlwaysTrue(Filter):
+    """A filter that matches all rows."""
+
+    def __repr__(self) -> str:
+        return "always_true()"
+
+
+def always_true() -> AlwaysTrue:
+    """Create a filter that matches all rows."""
+    return AlwaysTrue()
+
+
 def col(name: str) -> Column:
     """Create a column reference for building row filter expressions.
 
@@ -297,6 +309,9 @@ class Not(Filter):
 def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:
     """Convert a Filter expression tree to a PyIceberg BooleanExpression."""
     match expr:
+        case AlwaysTrue():
+            return ice.AlwaysTrue()
+
         # Comparison
         case EqualTo(column, value):
             return ice.EqualTo(column, value)
