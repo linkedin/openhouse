@@ -33,8 +33,8 @@ class TestColumnCreation:
         assert isinstance(c, Column)
         assert c.name == "x"
 
-    def test_col_is_a_filter(self):
-        assert isinstance(col("x"), Filter)
+    def test_col_is_not_a_filter(self):
+        assert not isinstance(col("x"), Filter)
 
 
 class TestComparisonOperators:

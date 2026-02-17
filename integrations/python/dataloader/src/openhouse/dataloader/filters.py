@@ -54,8 +54,15 @@ def col(name: str) -> Column:
 
 
 @dataclass(frozen=True)
-class Column(Filter):
-    """A column reference that supports comparison and predicate operators."""
+class Column:
+    """A column reference that supports comparison and predicate operators.
+
+    ``__eq__`` and ``__ne__`` are overridden to return Filter objects
+    instead of bool, enabling the ``col("x") == value`` syntax for
+    building filter expressions. As a side effect, Column instances
+    should not be used in sets or as dict keys expecting equality
+    semantics.
+    """
 
     name: str
 
