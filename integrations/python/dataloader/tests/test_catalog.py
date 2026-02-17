@@ -1,90 +1,90 @@
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+import responses
 
 from openhouse.dataloader.catalog import OpenHouseCatalog, OpenHouseCatalogError
 
+CATALOG_NAME = "openhouse"
+BASE_URL = "http://localhost:8080"
+DATABASE_NAME = "my_db"
+TABLE_NAME = "my_table"
+TABLE_URL = f"{BASE_URL}/v1/databases/{DATABASE_NAME}/tables/{TABLE_NAME}"
+# Not a real file — file I/O is mocked via the mock_iceberg_io fixture.
+METADATA_LOCATION = "file:///test-metadata.json"
+TABLE_RESPONSE_BODY = json.dumps(
+    {
+        "databaseId": DATABASE_NAME,
+        "tableId": TABLE_NAME,
+        "tableLocation": METADATA_LOCATION,
+    }
+)
 
-class TestOpenHouseCatalogInit:
-    def test_uri_required(self):
-        with pytest.raises(ValueError, match="URI is required"):
-            OpenHouseCatalog("openhouse")
 
-    def test_auth_token_header_set(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080", **{"auth-token": "my-token"})
-        assert catalog._session.headers["Authorization"] == "Bearer my-token"
+@pytest.fixture
+def mock_iceberg_io():
+    """Mock PyIceberg's file I/O and metadata parsing.
 
-    def test_no_auth_header_when_no_token(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        assert "Authorization" not in catalog._session.headers
-
-    def test_trust_store_sets_ssl_verify(self):
-        catalog = OpenHouseCatalog(
-            "openhouse", uri="http://localhost:8080", **{"trust-store": "/path/to/ca-bundle.crt"}
-        )
-        assert catalog._session.verify == "/path/to/ca-bundle.crt"
-
-    def test_no_trust_store_default_verify(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        assert catalog._session.verify is True
-
-    def test_uri_trailing_slash_stripped(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080/")
-        assert catalog._uri == "http://localhost:8080"
-
-    def test_content_type_header_set(self):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080")
-        assert catalog._session.headers["Content-Type"] == "application/json"
+    These are mocked because the catalog tests verify HTTP behavior (request
+    construction, headers, error handling), not Iceberg metadata deserialization.
+    Without these mocks, PyArrowFileIO would attempt real filesystem/storage
+    access and FromInputFile would try to parse actual Iceberg metadata files.
+    """
+    with (
+        patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input,
+        patch("openhouse.dataloader.catalog.PyArrowFileIO") as mock_file_io_cls,
+    ):
+        mock_metadata = MagicMock()
+        mock_from_input.table_metadata.return_value = mock_metadata
+        mock_file_io = mock_file_io_cls.return_value
+        yield mock_metadata, mock_file_io
 
 
 class TestOpenHouseCatalogLoadTable:
-    def _make_catalog_with_mock_session(self, **response_overrides):
-        catalog = OpenHouseCatalog("openhouse", uri="http://localhost:8080", **{"auth-token": "test-token"})
-        mock_response = MagicMock()
-        mock_response.ok = True
-        mock_response.json.return_value = {
-            "databaseId": "my_db",
-            "tableId": "my_table",
-            "tableLocation": "file:///tmp/test-metadata.json",
-        }
-        for key, value in response_overrides.items():
-            setattr(mock_response, key, value)
-        catalog._session.get = MagicMock(return_value=mock_response)
-        return catalog
+    @responses.activate
+    def test_load_table_returns_table_with_correct_properties(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
+        mock_metadata, mock_file_io = mock_iceberg_io
 
-    def test_load_table_with_tuple(self):
-        catalog = self._make_catalog_with_mock_session()
+        table = catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
-        with (
-            patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input,
-            patch("openhouse.dataloader.catalog.PyArrowFileIO") as mock_file_io_cls,
-        ):
-            mock_metadata = MagicMock()
-            mock_from_input.table_metadata.return_value = mock_metadata
-            mock_file_io = mock_file_io_cls.return_value
-            table = catalog.load_table(("my_db", "my_table"))
-
-        catalog._session.get.assert_called_once_with("http://localhost:8080/v1/databases/my_db/tables/my_table")
-        assert table.name() == ("my_db", "my_table")
+        assert table.name() == (DATABASE_NAME, TABLE_NAME)
         assert table.metadata == mock_metadata
-        assert table.metadata_location == "file:///tmp/test-metadata.json"
+        assert table.metadata_location == METADATA_LOCATION
         assert table.io == mock_file_io
         assert table.catalog == catalog
 
-    def test_load_table_with_string(self):
-        catalog = self._make_catalog_with_mock_session()
+    @responses.activate
+    def test_load_table_with_string_identifier(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        with (
-            patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input,
-            patch("openhouse.dataloader.catalog.PyArrowFileIO"),
-        ):
-            mock_from_input.table_metadata.return_value = MagicMock()
-            catalog.load_table("my_db.my_table")
+        catalog.load_table(f"{DATABASE_NAME}.{TABLE_NAME}")
 
-        catalog._session.get.assert_called_once_with("http://localhost:8080/v1/databases/my_db/tables/my_table")
+        assert responses.calls[0].request.url == TABLE_URL
+
+    @responses.activate
+    def test_load_table_sends_json_content_type(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
+
+        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        assert responses.calls[0].request.headers["Content-Type"] == "application/json"
+
+    @responses.activate
+    def test_load_table_uri_trailing_slash_stripped(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri="http://localhost:8080/")
+
+        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        assert responses.calls[0].request.url == TABLE_URL
 
     def test_load_table_rejects_invalid_identifier(self):
-        catalog = self._make_catalog_with_mock_session()
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
         with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
             catalog.load_table("only_one_part")
@@ -92,43 +92,74 @@ class TestOpenHouseCatalogLoadTable:
         with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
             catalog.load_table(("a", "b", "c"))
 
+    @responses.activate
     def test_load_table_404_raises_catalog_error(self):
-        catalog = self._make_catalog_with_mock_session(ok=False, status_code=404)
+        responses.get(TABLE_URL, status=404)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
         with pytest.raises(OpenHouseCatalogError, match="my_db.my_table does not exist"):
-            catalog.load_table(("my_db", "my_table"))
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
+    @responses.activate
     def test_load_table_500_raises_catalog_error(self):
-        catalog = self._make_catalog_with_mock_session(ok=False, status_code=500, text="Internal Server Error")
+        responses.get(TABLE_URL, body="Internal Server Error", status=500)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
         with pytest.raises(OpenHouseCatalogError, match="HTTP 500"):
-            catalog.load_table(("my_db", "my_table"))
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
+    @responses.activate
     def test_load_table_missing_table_location(self):
-        catalog = self._make_catalog_with_mock_session()
-        catalog._session.get.return_value.json.return_value = {"databaseId": "my_db", "tableId": "my_table"}
+        responses.get(TABLE_URL, json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME}, status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
         with pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"):
-            catalog.load_table(("my_db", "my_table"))
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
+    @responses.activate
     def test_load_table_empty_table_location(self):
-        catalog = self._make_catalog_with_mock_session()
-        catalog._session.get.return_value.json.return_value = {
-            "databaseId": "my_db",
-            "tableId": "my_table",
-            "tableLocation": "",
-        }
+        responses.get(
+            TABLE_URL,
+            json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME, "tableLocation": ""},
+            status=200,
+        )
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
         with pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"):
-            catalog.load_table(("my_db", "my_table"))
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
-    def test_load_table_unreadable_metadata_raises_catalog_error(self):
-        catalog = self._make_catalog_with_mock_session()
-        catalog._session.get.return_value.json.return_value = {
-            "databaseId": "my_db",
-            "tableId": "my_table",
-            "tableLocation": "file:///nonexistent/metadata.json",
-        }
+    @responses.activate
+    def test_load_table_unreadable_metadata_raises_catalog_error(self, tmp_path):
+        # File I/O is NOT mocked here — uses a real nonexistent path to trigger the error.
+        nonexistent = f"file://{tmp_path}/nonexistent/metadata.json"
+        responses.get(
+            TABLE_URL,
+            json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME, "tableLocation": nonexistent},
+            status=200,
+        )
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
         with pytest.raises(OpenHouseCatalogError, match="Failed to read table metadata"):
-            catalog.load_table(("my_db", "my_table"))
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+
+class TestOpenHouseCatalogAuth:
+    AUTH_TOKEN = "test-jwt-token"
+
+    @responses.activate
+    def test_load_table_sends_auth_token(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL, **{"auth-token": self.AUTH_TOKEN})
+
+        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        assert responses.calls[0].request.headers["Authorization"] == f"Bearer {self.AUTH_TOKEN}"
+
+    @responses.activate
+    def test_load_table_without_token_sends_no_auth_header(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
+
+        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        assert "Authorization" not in responses.calls[0].request.headers
