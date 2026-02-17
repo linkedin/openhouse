@@ -322,6 +322,18 @@ class TestPyIcebergLogicalConversion:
         assert isinstance(result.right, ice.Not)
 
 
+class TestNamespacedImport:
+    """Verify the ``import filters as F`` convention works."""
+
+    def test_f_col_builds_filter(self):
+        from openhouse.dataloader import filters as F
+
+        f = (F.col("age") > 21) & (F.col("country") == "US")
+        assert isinstance(f, And)
+        assert isinstance(f.left, GreaterThan)
+        assert isinstance(f.right, EqualTo)
+
+
 class TestPyIcebergUnsupportedType:
     def test_raises_on_unknown_filter(self):
         class CustomFilter(Filter):
