@@ -117,7 +117,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: integrations/python/dataloader/dist/
-          repository-url: https://linkedin.jfrog.io/artifactory/api/pypi/openhouse
+          repository-url: https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi
           user: ${{ secrets.JFROG_USERNAME }}
           password: ${{ secrets.JFROG_PYPI_API_TOKEN }}
           verbose: true
