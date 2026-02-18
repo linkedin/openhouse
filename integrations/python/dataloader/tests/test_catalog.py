@@ -102,12 +102,12 @@ class TestOpenHouseCatalogLoadTable:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
     @responses.activate
-    def test_load_table_500_raises_catalog_error(self):
+    def test_load_table_500_raises_os_error(self):
         responses.get(TABLE_URL, body="Internal Server Error", status=500)
 
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="HTTP 500"),
+            pytest.raises(OSError, match="HTTP 500"),
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
@@ -132,32 +132,6 @@ class TestOpenHouseCatalogLoadTable:
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
             pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"),
-        ):
-            catalog.load_table((DATABASE_NAME, TABLE_NAME))
-
-    @responses.activate
-    def test_load_table_malformed_json_raises_catalog_error(self):
-        responses.get(TABLE_URL, body="not valid json", status=200)
-
-        with (
-            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="not valid JSON"),
-        ):
-            catalog.load_table((DATABASE_NAME, TABLE_NAME))
-
-    @responses.activate
-    def test_load_table_unreadable_metadata_raises_catalog_error(self, tmp_path):
-        # File I/O is NOT mocked here — uses a real nonexistent path to trigger the error.
-        nonexistent = f"file://{tmp_path}/nonexistent/metadata.json"
-        responses.get(
-            TABLE_URL,
-            json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME, "tableLocation": nonexistent},
-            status=200,
-        )
-
-        with (
-            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="Failed to read table metadata"),
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 

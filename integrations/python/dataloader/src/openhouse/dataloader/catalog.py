@@ -76,16 +76,11 @@ class OpenHouseCatalog(Catalog):
         if not response.ok:
             if response.status_code == 404:
                 raise OpenHouseCatalogError(f"Table {table_id} does not exist")
-            raise OpenHouseCatalogError(
+            raise OSError(
                 f"Failed to load table {table_id}: HTTP {response.status_code}. Response: {_truncate(response.text)}"
             )
 
-        try:
-            table_response = response.json()
-        except ValueError as e:
-            raise OpenHouseCatalogError(
-                f"Response for table {table_id} is not valid JSON. Response: {_truncate(response.text)}"
-            ) from e
+        table_response = response.json()
         metadata_location = table_response.get(_TABLE_LOCATION)
         if not metadata_location:
             raise OpenHouseCatalogError(
@@ -94,10 +89,7 @@ class OpenHouseCatalog(Catalog):
 
         file_io = PyArrowFileIO()
         metadata_file = file_io.new_input(metadata_location)
-        try:
-            metadata = FromInputFile.table_metadata(metadata_file)
-        except OSError as e:
-            raise OpenHouseCatalogError(f"Failed to read table metadata for {table_id} from {metadata_location}") from e
+        metadata = FromInputFile.table_metadata(metadata_file)
 
         logger.debug("Calling load_table succeeded")
         return Table(
