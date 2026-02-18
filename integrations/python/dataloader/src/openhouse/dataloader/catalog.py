@@ -21,8 +21,7 @@ _MAX_RESPONSE_LENGTH = 500
 def _truncate(text: str) -> str:
     if len(text) <= _MAX_RESPONSE_LENGTH:
         return text
-    logger.debug("Truncating response text from %d to %d characters", len(text), _MAX_RESPONSE_LENGTH)
-    return text[:_MAX_RESPONSE_LENGTH] + "..."
+    return f"{text[:_MAX_RESPONSE_LENGTH]}... (truncated, showing {_MAX_RESPONSE_LENGTH}/{len(text)} characters)"
 
 
 class OpenHouseCatalogError(Exception):
