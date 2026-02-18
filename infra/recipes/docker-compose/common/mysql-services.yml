@@ -9,3 +9,9 @@ services:
       - MYSQL_PASSWORD=oh_password
       - MYSQL_USER=oh_user
       - MYSQL_DATABASE=oh_db
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-poh_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s

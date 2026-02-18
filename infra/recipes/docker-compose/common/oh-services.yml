@@ -1,5 +1,11 @@
 version: "3.3"
 services:
+  openhouse-spectacle:
+    build:
+      context: ../../../..
+      dockerfile: spectacle-service.Dockerfile
+    ports:
+      - 8003:3000
   openhouse-tables:
     build:
       context: ../../../..

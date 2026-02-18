@@ -38,6 +38,9 @@ dependencies {
   implementation project(':cluster:storage')
   implementation project(':cluster:metrics')
   implementation 'org.springframework.security:spring-security-config:5.7.2'
+  // Iceberg file format readers for IcebergGenerics.read() data preview
+  implementation('com.linkedin.iceberg:iceberg-orc:' + icebergVersion)
+  implementation('com.linkedin.iceberg:iceberg-parquet:' + icebergVersion)
   implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
   implementation 'com.cronutils:cron-utils:9.2.0'
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
