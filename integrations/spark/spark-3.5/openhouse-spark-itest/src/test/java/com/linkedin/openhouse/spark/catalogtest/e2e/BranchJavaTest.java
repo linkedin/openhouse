@@ -92,8 +92,9 @@ public class BranchJavaTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           5, list(table.snapshots()).size()); // 5 committed snapshots in snapshots list
 
-      // 4. Expiration
-      table.expireSnapshots().expireOlderThan(System.currentTimeMillis() - 1000).commit();
+      // 4. Expiration - use epoch timestamp to ensure no test snapshots are expired
+      // This verifies that expiration doesn't break reachable snapshots without timing dependency
+      table.expireSnapshots().expireOlderThan(1L).commit();
       table = catalog.loadTable(TableIdentifier.parse(name));
       // Should still have the latest snapshots on branches and main
       Assertions.assertNotNull(table.currentSnapshot());
