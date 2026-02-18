@@ -8,6 +8,8 @@ from pyiceberg.serializers import FromInputFile
 from pyiceberg.table import Table
 from pyiceberg.typedef import Identifier
 
+from openhouse.dataloader.table_identifier import TableIdentifier
+
 logger = logging.getLogger(__name__)
 
 _AUTH_TOKEN = "auth-token"
@@ -50,28 +52,28 @@ class OpenHouseCatalog(Catalog):
             self._session.verify = trust_store
 
     def load_table(self, identifier: str | Identifier) -> Table:
-        database, table = self.identifier_to_database_and_table(identifier)
-        url = f"{self._uri}/v1/databases/{database}/tables/{table}"
-        logger.info("Calling load_table for table: %s.%s", database, table)
+        table_id = self._parse_identifier(identifier)
+        url = f"{self._uri}/v1/databases/{table_id.database}/tables/{table_id.table}"
+        logger.info("Calling load_table for table: %s", table_id)
 
         response = self._session.get(url)
         if not response.ok:
             if response.status_code == 404:
-                raise OpenHouseCatalogError(f"Table {database}.{table} does not exist")
+                raise OpenHouseCatalogError(f"Table {table_id} does not exist")
             raise OpenHouseCatalogError(
-                f"Failed to load table {database}.{table}: HTTP {response.status_code}. Response: {response.text}"
+                f"Failed to load table {table_id}: HTTP {response.status_code}. Response: {response.text}"
             )
 
         try:
             table_response = response.json()
         except ValueError as e:
             raise OpenHouseCatalogError(
-                f"Response for table {database}.{table} is not valid JSON. Response: {response.text}"
+                f"Response for table {table_id} is not valid JSON. Response: {response.text}"
             ) from e
         metadata_location = table_response.get(_TABLE_LOCATION)
         if not metadata_location:
             raise OpenHouseCatalogError(
-                f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. Response: {table_response}"
+                f"Response for table {table_id} is missing '{_TABLE_LOCATION}'. Response: {table_response}"
             )
 
         file_io = PyArrowFileIO()
@@ -79,13 +81,11 @@ class OpenHouseCatalog(Catalog):
         try:
             metadata = FromInputFile.table_metadata(metadata_file)
         except Exception as e:
-            raise OpenHouseCatalogError(
-                f"Failed to read table metadata for {database}.{table} from {metadata_location}"
-            ) from e
+            raise OpenHouseCatalogError(f"Failed to read table metadata for {table_id} from {metadata_location}") from e
 
         logger.debug("Calling load_table succeeded")
         return Table(
-            identifier=(database, table),
+            identifier=(table_id.database, table_id.table),
             metadata=metadata,
             metadata_location=metadata_location,
             io=file_io,
@@ -93,11 +93,11 @@ class OpenHouseCatalog(Catalog):
         )
 
     @staticmethod
-    def identifier_to_database_and_table(identifier: str | Identifier) -> tuple[str, str]:
+    def _parse_identifier(identifier: str | Identifier) -> TableIdentifier:
         parts = identifier.split(".") if isinstance(identifier, str) else list(identifier)
         if len(parts) != 2:
             raise ValueError(f"Expected identifier with 2 parts (database, table), got {len(parts)}: {identifier}")
-        return parts[0], parts[1]
+        return TableIdentifier(database=parts[0], table=parts[1])
 
     # -- Unsupported operations --
     # Required by the Catalog ABC but not needed for read-only table loading.
