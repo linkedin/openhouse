@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 _AUTH_TOKEN = "auth-token"
 _TRUST_STORE = "trust-store"
 _TABLE_LOCATION = "tableLocation"
+_MAX_RESPONSE_LENGTH = 500
+
+
+def _truncate(text: str) -> str:
+    if len(text) <= _MAX_RESPONSE_LENGTH:
+        return text
+    logger.debug("Truncating response text from %d to %d characters", len(text), _MAX_RESPONSE_LENGTH)
+    return text[:_MAX_RESPONSE_LENGTH] + "..."
 
 
 class OpenHouseCatalogError(Exception):
@@ -51,6 +59,15 @@ class OpenHouseCatalog(Catalog):
         if trust_store is not None:
             self._session.verify = trust_store
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_: Any):
+        self.close()
+
+    def close(self):
+        self._session.close()
+
     def load_table(self, identifier: str | Identifier) -> Table:
         table_id = self._parse_identifier(identifier)
         url = f"{self._uri}/v1/databases/{table_id.database}/tables/{table_id.table}"
@@ -61,14 +78,14 @@ class OpenHouseCatalog(Catalog):
             if response.status_code == 404:
                 raise OpenHouseCatalogError(f"Table {table_id} does not exist")
             raise OpenHouseCatalogError(
-                f"Failed to load table {table_id}: HTTP {response.status_code}. Response: {response.text}"
+                f"Failed to load table {table_id}: HTTP {response.status_code}. Response: {_truncate(response.text)}"
             )
 
         try:
             table_response = response.json()
         except ValueError as e:
             raise OpenHouseCatalogError(
-                f"Response for table {table_id} is not valid JSON. Response: {response.text}"
+                f"Response for table {table_id} is not valid JSON. Response: {_truncate(response.text)}"
             ) from e
         metadata_location = table_response.get(_TABLE_LOCATION)
         if not metadata_location:
@@ -80,7 +97,7 @@ class OpenHouseCatalog(Catalog):
         metadata_file = file_io.new_input(metadata_location)
         try:
             metadata = FromInputFile.table_metadata(metadata_file)
-        except Exception as e:
+        except OSError as e:
             raise OpenHouseCatalogError(f"Failed to read table metadata for {table_id} from {metadata_location}") from e
 
         logger.debug("Calling load_table succeeded")

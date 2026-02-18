@@ -45,10 +45,10 @@ class TestOpenHouseCatalogLoadTable:
     @responses.activate
     def test_load_table_returns_table_with_correct_properties(self, mock_iceberg_io):
         responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
         mock_metadata, mock_file_io = mock_iceberg_io
 
-        table = catalog.load_table((DATABASE_NAME, TABLE_NAME))
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
+            table = catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         assert table.name() == (DATABASE_NAME, TABLE_NAME)
         assert table.metadata == mock_metadata
@@ -59,61 +59,66 @@ class TestOpenHouseCatalogLoadTable:
     @responses.activate
     def test_load_table_with_string_identifier(self, mock_iceberg_io):
         responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        catalog.load_table(f"{DATABASE_NAME}.{TABLE_NAME}")
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
+            catalog.load_table(f"{DATABASE_NAME}.{TABLE_NAME}")
 
         assert responses.calls[0].request.url == TABLE_URL
 
     @responses.activate
     def test_load_table_sends_json_content_type(self, mock_iceberg_io):
         responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         assert responses.calls[0].request.headers["Content-Type"] == "application/json"
 
     @responses.activate
     def test_load_table_uri_trailing_slash_stripped(self, mock_iceberg_io):
         responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri="http://localhost:8080/")
 
-        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+        with OpenHouseCatalog(CATALOG_NAME, uri=f"{BASE_URL}/") as catalog:
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         assert responses.calls[0].request.url == TABLE_URL
 
     def test_load_table_rejects_invalid_identifier(self):
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
+            with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
+                catalog.load_table("only_one_part")
 
-        with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
-            catalog.load_table("only_one_part")
-
-        with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
-            catalog.load_table(("a", "b", "c"))
+            with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
+                catalog.load_table(("a", "b", "c"))
 
     @responses.activate
     def test_load_table_404_raises_catalog_error(self):
         responses.get(TABLE_URL, status=404)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        with pytest.raises(OpenHouseCatalogError, match="my_db.my_table does not exist"):
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseCatalogError, match=f"{DATABASE_NAME}.{TABLE_NAME} does not exist"),
+        ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
     @responses.activate
     def test_load_table_500_raises_catalog_error(self):
         responses.get(TABLE_URL, body="Internal Server Error", status=500)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        with pytest.raises(OpenHouseCatalogError, match="HTTP 500"):
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseCatalogError, match="HTTP 500"),
+        ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
     @responses.activate
     def test_load_table_missing_table_location(self):
         responses.get(TABLE_URL, json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME}, status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        with pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"):
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"),
+        ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
     @responses.activate
@@ -123,17 +128,21 @@ class TestOpenHouseCatalogLoadTable:
             json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME, "tableLocation": ""},
             status=200,
         )
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        with pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"):
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"),
+        ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
     @responses.activate
     def test_load_table_malformed_json_raises_catalog_error(self):
         responses.get(TABLE_URL, body="not valid json", status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        with pytest.raises(OpenHouseCatalogError, match="not valid JSON"):
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseCatalogError, match="not valid JSON"),
+        ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
     @responses.activate
@@ -145,9 +154,11 @@ class TestOpenHouseCatalogLoadTable:
             json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME, "tableLocation": nonexistent},
             status=200,
         )
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        with pytest.raises(OpenHouseCatalogError, match="Failed to read table metadata"):
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseCatalogError, match="Failed to read table metadata"),
+        ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
 
@@ -157,17 +168,17 @@ class TestOpenHouseCatalogAuth:
     @responses.activate
     def test_load_table_sends_auth_token(self, mock_iceberg_io):
         responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL, **{"auth-token": self.AUTH_TOKEN})
 
-        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL, **{"auth-token": self.AUTH_TOKEN}) as catalog:
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         assert responses.calls[0].request.headers["Authorization"] == f"Bearer {self.AUTH_TOKEN}"
 
     @responses.activate
     def test_load_table_without_token_sends_no_auth_header(self, mock_iceberg_io):
         responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
-        catalog = OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL)
 
-        catalog.load_table((DATABASE_NAME, TABLE_NAME))
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         assert "Authorization" not in responses.calls[0].request.headers
