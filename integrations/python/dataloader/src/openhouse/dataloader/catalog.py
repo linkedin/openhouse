@@ -15,13 +15,6 @@ logger = logging.getLogger(__name__)
 _AUTH_TOKEN = "auth-token"
 _TRUST_STORE = "trust-store"
 _TABLE_LOCATION = "tableLocation"
-_MAX_RESPONSE_LENGTH = 500
-
-
-def _truncate(text: str) -> str:
-    if len(text) <= _MAX_RESPONSE_LENGTH:
-        return text
-    return f"{text[:_MAX_RESPONSE_LENGTH]}... (truncated, showing {_MAX_RESPONSE_LENGTH}/{len(text)} characters)"
 
 
 class OpenHouseCatalogError(Exception):
@@ -76,9 +69,7 @@ class OpenHouseCatalog(Catalog):
         if not response.ok:
             if response.status_code == 404:
                 raise OpenHouseCatalogError(f"Table {table_id} does not exist")
-            raise OSError(
-                f"Failed to load table {table_id}: HTTP {response.status_code}. Response: {_truncate(response.text)}"
-            )
+            raise OSError(f"Failed to load table {table_id}: HTTP {response.status_code}. Response: {response.text}")
 
         table_response = response.json()
         metadata_location = table_response.get(_TABLE_LOCATION)
