@@ -1065,8 +1065,14 @@ public class JobsScheduler {
       long remainingTimeMillis =
           TimeUnit.HOURS.toMillis(tasksWaitHours) - (System.currentTimeMillis() - startTimeMillis);
       if (remainingTimeMillis <= 0) {
-        cancelRemainingFutures(
-            jobType, executors, taskFutures, pending, tasksWaitHours, skipStateCountUpdate);
+        drainRemainingFutures(
+            jobType,
+            executors,
+            taskList,
+            taskFutures,
+            pending,
+            tasksWaitHours,
+            skipStateCountUpdate);
         break;
       }
 
@@ -1097,9 +1103,10 @@ public class JobsScheduler {
     log.info("Completed collecting jobs state on futures for job type {}", jobType);
   }
 
-  private void cancelRemainingFutures(
+  private void drainRemainingFutures(
       JobConf.JobTypeEnum jobType,
       ThreadPoolExecutor executors,
+      List<OperationTask<?>> taskList,
       List<Future<Optional<JobState>>> taskFutures,
       LinkedList<Integer> pending,
       int tasksWaitHours,
@@ -1110,9 +1117,34 @@ public class JobsScheduler {
         pending.size(),
         jobType);
     for (int remainingIdx : pending) {
-      taskFutures.get(remainingIdx).cancel(true);
-      if (!skipStateCountUpdate) {
-        jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
+      Future<Optional<JobState>> future = taskFutures.get(remainingIdx);
+      if (future.isDone()) {
+        try {
+          Optional<JobState> jobState = future.get();
+          JobState state = jobState.orElse(JobState.SKIPPED);
+          log.info(
+              "Collected job state for task {}: {} (completed at SLA timeout)",
+              taskList.get(remainingIdx).getJobId(),
+              state);
+          if (!skipStateCountUpdate) {
+            jobStateCountMap.put(state, jobStateCountMap.get(state) + 1);
+          }
+        } catch (ExecutionException e) {
+          log.error(
+              String.format("Operation for %s failed with exception", taskList.get(remainingIdx)),
+              e);
+          if (!skipStateCountUpdate) {
+            jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      } else {
+        future.cancel(true);
+        log.warn("Cancelled task for {} due to SLA timeout", taskList.get(remainingIdx));
+        if (!skipStateCountUpdate) {
+          jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
+        }
       }
     }
     if (!executors.getQueue().isEmpty()) {
