@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -286,6 +288,71 @@ public class JobsSchedulerTest {
       Assertions.assertEquals(7, jobsScheduler.getJobStateCountMap().size());
       shutDownJobScheduler(jobsScheduler);
     }
+  }
+
+  @Test
+  public void testSlaTimeoutCancelsRemainingFutures() {
+    JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
+    JobsScheduler scheduler = createJobsScheduler(jobType);
+    // Initialize jobStateCountMap via run's init logic
+    Arrays.stream(JobState.values()).forEach(s -> scheduler.getJobStateCountMap().put(s, 0));
+
+    List<OperationTask<?>> tasks = new ArrayList<>();
+    List<Future<Optional<JobState>>> futures = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      OperationTask<?> task = Mockito.mock(OperationTask.class);
+      Mockito.when(task.getJobId()).thenReturn("job-" + i);
+      tasks.add(task);
+      futures.add(new CompletableFuture<>()); // never completed
+    }
+
+    // tasksWaitHours=0 triggers immediate SLA timeout
+    scheduler.updateJobStateFromTaskFutures(
+        jobType, scheduler.getJobExecutors(), tasks, futures, System.currentTimeMillis(), 0, false);
+
+    Assertions.assertEquals(3, scheduler.getJobStateCountMap().get(JobState.CANCELLED));
+    for (Future<Optional<JobState>> f : futures) {
+      Assertions.assertTrue(f.isCancelled());
+    }
+    shutDownJobScheduler(scheduler);
+  }
+
+  @Test
+  public void testOutOfOrderFutureCompletion() {
+    JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
+    JobsScheduler scheduler = createJobsScheduler(jobType);
+    Arrays.stream(JobState.values()).forEach(s -> scheduler.getJobStateCountMap().put(s, 0));
+
+    List<OperationTask<?>> tasks = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      OperationTask<?> task = Mockito.mock(OperationTask.class);
+      Mockito.when(task.getJobId()).thenReturn("job-" + i);
+      tasks.add(task);
+    }
+
+    // Future 0 completes after 2s; futures 1 and 2 are already done
+    CompletableFuture<Optional<JobState>> slowFuture = new CompletableFuture<>();
+    new Thread(
+            () -> {
+              try {
+                Thread.sleep(2000);
+              } catch (InterruptedException ignored) {
+              }
+              slowFuture.complete(Optional.of(JobState.SUCCEEDED));
+            })
+        .start();
+
+    List<Future<Optional<JobState>>> futures =
+        Arrays.asList(
+            slowFuture,
+            CompletableFuture.completedFuture(Optional.of(JobState.SUCCEEDED)),
+            CompletableFuture.completedFuture(Optional.of(JobState.SUCCEEDED)));
+
+    scheduler.updateJobStateFromTaskFutures(
+        jobType, scheduler.getJobExecutors(), tasks, futures, System.currentTimeMillis(), 1, false);
+
+    Assertions.assertEquals(3, scheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+    shutDownJobScheduler(scheduler);
   }
 
   @Test

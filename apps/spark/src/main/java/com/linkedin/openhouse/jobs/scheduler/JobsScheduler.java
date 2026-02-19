@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.scheduler;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
 import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
@@ -34,6 +35,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +49,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -1035,7 +1039,15 @@ public class JobsScheduler {
     return OperationTask.TASK_TIMEOUT_MS_DEFAULT;
   }
 
-  private void updateJobStateFromTaskFutures(
+  private static final long FUTURE_POLL_INTERVAL_MS = 1000;
+
+  /**
+   * Collects job states from submitted task futures using a round-robin polling approach. Futures
+   * are polled with short timeouts so completed ones are collected promptly regardless of
+   * submission order. Remaining futures are cancelled if the SLA deadline is exceeded.
+   */
+  @VisibleForTesting
+  void updateJobStateFromTaskFutures(
       JobConf.JobTypeEnum jobType,
       ThreadPoolExecutor executors,
       List<OperationTask<?>> taskList,
@@ -1043,54 +1055,106 @@ public class JobsScheduler {
       long startTimeMillis,
       int tasksWaitHours,
       boolean skipStateCountUpdate) {
-    for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
-      Optional<JobState> jobState = Optional.empty();
-      OperationTask<?> task = taskList.get(taskIndex);
-      Future<Optional<JobState>> taskFuture = taskFutures.get(taskIndex);
+    // Queue of indices — poll from front, put back at end if not done yet
+    LinkedList<Integer> pending =
+        IntStream.range(0, taskFutures.size())
+            .boxed()
+            .collect(Collectors.toCollection(LinkedList::new));
+
+    while (!pending.isEmpty()) {
+      long remainingTimeMillis =
+          TimeUnit.HOURS.toMillis(tasksWaitHours) - (System.currentTimeMillis() - startTimeMillis);
+      if (remainingTimeMillis <= 0) {
+        drainRemainingFutures(
+            jobType,
+            executors,
+            taskList,
+            taskFutures,
+            pending,
+            tasksWaitHours,
+            skipStateCountUpdate);
+        break;
+      }
+
+      int idx = pending.remove();
+      OperationTask<?> task = taskList.get(idx);
+      Future<Optional<JobState>> future = taskFutures.get(idx);
       try {
-        long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        long remainingTimeMillis = TimeUnit.HOURS.toMillis(tasksWaitHours) - passedTimeMillis;
-        log.info("Task {} has remainingTimeMillis={}", task.getJobId(), remainingTimeMillis);
-        jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
-        log.info(
-            "Successfully get job state for task {}: {}",
-            task.getJobId(),
-            jobState.orElse(JobState.SKIPPED));
+        Optional<JobState> jobState = future.get(FUTURE_POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        // Success — update state count
+        JobState state = jobState.orElse(JobState.SKIPPED);
+        log.info("Collected job state for task {}: {}", task.getJobId(), state);
+        if (!skipStateCountUpdate) {
+          jobStateCountMap.put(state, jobStateCountMap.get(state) + 1);
+        }
+      } catch (TimeoutException e) {
+        // SLA not expired — put back for retry
+        pending.add(idx);
       } catch (ExecutionException e) {
         log.error(String.format("Operation for %s failed with exception", task), e);
-        jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
-      } catch (InterruptedException e) {
-        throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
-      } catch (TimeoutException e) {
-        // Clear queue to stop internal tasks submission
-        if (!executors.getQueue().isEmpty()) {
-          log.warn(
-              "Drops {} tasks for job type {} from wait queue due to timeout",
-              executors.getQueue().size(),
-              jobType);
-          executors.getQueue().clear();
-        }
-        log.warn(
-            "Attempting to cancel task for {} because of timeout of {} hours",
-            task,
-            tasksWaitHours);
-        if (taskFuture.cancel(true)) {
-          log.warn("Cancelled task for {} because of timeout of {} hours", task, tasksWaitHours);
-        }
-      } finally {
         if (!skipStateCountUpdate) {
-          if (jobState.isPresent()) {
-            jobStateCountMap.put(jobState.get(), jobStateCountMap.get(jobState.get()) + 1);
-          } else if (taskFuture.isCancelled()) {
-            // Even though the jobs are reported as cancelled, they might be queued or running.
-            jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
-          } else {
-            // Jobs that are skipped due to replica or missing retention policy, etc.
-            jobStateCountMap.put(JobState.SKIPPED, jobStateCountMap.get(JobState.SKIPPED) + 1);
-          }
+          jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
         }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
       }
     }
     log.info("Completed collecting jobs state on futures for job type {}", jobType);
+  }
+
+  private void drainRemainingFutures(
+      JobConf.JobTypeEnum jobType,
+      ThreadPoolExecutor executors,
+      List<OperationTask<?>> taskList,
+      List<Future<Optional<JobState>>> taskFutures,
+      LinkedList<Integer> pending,
+      int tasksWaitHours,
+      boolean skipStateCountUpdate) {
+    log.warn(
+        "SLA timeout of {} hours reached, cancelling {} remaining futures for job type: {}",
+        tasksWaitHours,
+        pending.size(),
+        jobType);
+    // Clear queue first to prevent threads from picking up queued tasks
+    // and causing a burst of submissions while we cancel remaining futures
+    if (!executors.getQueue().isEmpty()) {
+      log.warn(
+          "Drops {} tasks for job type {} from wait queue due to timeout",
+          executors.getQueue().size(),
+          jobType);
+      executors.getQueue().clear();
+    }
+    for (int remainingIdx : pending) {
+      Future<Optional<JobState>> future = taskFutures.get(remainingIdx);
+      if (future.isDone()) {
+        try {
+          Optional<JobState> jobState = future.get();
+          JobState state = jobState.orElse(JobState.SKIPPED);
+          log.info(
+              "Collected job state for task {}: {} (completed at SLA timeout)",
+              taskList.get(remainingIdx).getJobId(),
+              state);
+          if (!skipStateCountUpdate) {
+            jobStateCountMap.put(state, jobStateCountMap.get(state) + 1);
+          }
+        } catch (ExecutionException e) {
+          log.error(
+              String.format("Operation for %s failed with exception", taskList.get(remainingIdx)),
+              e);
+          if (!skipStateCountUpdate) {
+            jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      } else {
+        future.cancel(true);
+        log.warn("Cancelled task for {} due to SLA timeout", taskList.get(remainingIdx));
+        if (!skipStateCountUpdate) {
+          jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
+        }
+      }
+    }
   }
 }
