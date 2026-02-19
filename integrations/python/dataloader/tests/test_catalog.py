@@ -33,11 +33,11 @@ def mock_iceberg_io():
     """
     with (
         patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input,
-        patch("openhouse.dataloader.catalog.PyArrowFileIO") as mock_file_io_cls,
+        patch.object(OpenHouseCatalog, "_load_file_io") as mock_load_file_io,
     ):
         mock_metadata = MagicMock()
         mock_from_input.table_metadata.return_value = mock_metadata
-        mock_file_io = mock_file_io_cls.return_value
+        mock_file_io = mock_load_file_io.return_value
         yield mock_metadata, mock_file_io
 
 
