@@ -85,10 +85,10 @@ class TestOpenHouseCatalogLoadTable:
 
     def test_load_table_rejects_invalid_identifier(self):
         with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
-            with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
+            with pytest.raises(ValueError, match="hierarchical namespaces are not supported"):
                 catalog.load_table("only_one_part")
 
-            with pytest.raises(ValueError, match="Expected identifier with 2 parts"):
+            with pytest.raises(ValueError, match="hierarchical namespaces are not supported"):
                 catalog.load_table(("a", "b", "c"))
 
     @responses.activate
