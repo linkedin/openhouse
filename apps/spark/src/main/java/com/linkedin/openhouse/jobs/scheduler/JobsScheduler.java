@@ -1116,6 +1116,15 @@ public class JobsScheduler {
         tasksWaitHours,
         pending.size(),
         jobType);
+    // Clear queue first to prevent threads from picking up queued tasks
+    // and causing a burst of submissions while we cancel remaining futures
+    if (!executors.getQueue().isEmpty()) {
+      log.warn(
+          "Drops {} tasks for job type {} from wait queue due to timeout",
+          executors.getQueue().size(),
+          jobType);
+      executors.getQueue().clear();
+    }
     for (int remainingIdx : pending) {
       Future<Optional<JobState>> future = taskFutures.get(remainingIdx);
       if (future.isDone()) {
@@ -1146,13 +1155,6 @@ public class JobsScheduler {
           jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
         }
       }
-    }
-    if (!executors.getQueue().isEmpty()) {
-      log.warn(
-          "Drops {} tasks for job type {} from wait queue due to timeout",
-          executors.getQueue().size(),
-          jobType);
-      executors.getQueue().clear();
     }
   }
 }
