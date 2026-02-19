@@ -143,7 +143,7 @@ class TestOpenHouseCatalogAuth:
     def test_load_table_sends_auth_token(self, mock_iceberg_io):
         responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
 
-        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL, **{"auth-token": self.AUTH_TOKEN}) as catalog:
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL, auth_token=self.AUTH_TOKEN) as catalog:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         assert responses.calls[0].request.headers["Authorization"] == f"Bearer {self.AUTH_TOKEN}"

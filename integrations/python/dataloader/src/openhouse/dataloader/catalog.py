@@ -10,8 +10,6 @@ from pyiceberg.typedef import Identifier
 
 logger = logging.getLogger(__name__)
 
-_AUTH_TOKEN = "auth-token"
-_TRUST_STORE = "trust-store"
 _TABLE_LOCATION = "tableLocation"
 
 
@@ -24,28 +22,32 @@ class OpenHouseCatalog(Catalog):
 
     Leverages the OpenHouse Tables Service REST API to load table metadata.
 
-    Properties:
-        uri: OpenHouse Tables Service base URL (required)
-        auth-token: JWT Bearer token for authentication (optional)
-        trust-store: Path to CA cert bundle for SSL verification (optional)
+    Args:
+        name: Catalog name
+        uri: OpenHouse Tables Service base URL
+        auth_token: JWT Bearer token for authentication
+        trust_store: Path to CA cert bundle for SSL verification
+        timeout_seconds: HTTP request timeout in seconds
     """
 
-    def __init__(self, name: str, **properties: str):
-        super().__init__(name, **properties)
-        uri = properties.get("uri")
-        if uri is None:
-            raise ValueError("OpenHouse Table Service URI is required")
-
+    def __init__(
+        self,
+        name: str,
+        uri: str,
+        auth_token: str | None = None,
+        trust_store: str | None = None,
+        timeout_seconds: float = 30,
+    ):
+        super().__init__(name, uri=uri)
         self._uri = uri.rstrip("/")
+        self._timeout = timeout_seconds
         logger.info("Initializing OpenHouseCatalog for service at %s", self._uri)
         self._session = requests.Session()
         self._session.headers["Content-Type"] = "application/json"
 
-        token = properties.get(_AUTH_TOKEN)
-        if token is not None:
-            self._session.headers["Authorization"] = f"Bearer {token}"
+        if auth_token is not None:
+            self._session.headers["Authorization"] = f"Bearer {auth_token}"
 
-        trust_store = properties.get(_TRUST_STORE)
         if trust_store is not None:
             self._session.verify = trust_store
 
@@ -63,7 +65,7 @@ class OpenHouseCatalog(Catalog):
         url = f"{self._uri}/v1/databases/{database}/tables/{table}"
         logger.info("Calling load_table for table: %s.%s", database, table)
 
-        response = self._session.get(url)
+        response = self._session.get(url, timeout=self._timeout)
         if not response.ok:
             if response.status_code == 404:
                 raise OpenHouseCatalogError(f"Table {database}.{table} does not exist")
