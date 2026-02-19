@@ -21,7 +21,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v5
 
       - name: Build with Gradle
-        run: ./gradlew clean build
+        run: ./gradlew clean build :services:tables:check
 
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
@@ -42,6 +42,10 @@ jobs:
       - name: Run Data Loader Tests
         working-directory: integrations/python/dataloader
         run: make sync verify
+
+      - name: Run Iceberg REST Catalog Smoke Test (PyIceberg)
+        working-directory: integrations/python/dataloader
+        run: uv run python scripts/iceberg_rest_catalog_smoke.py ../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
 
       - name: Install dependencies
         run: pip install -r scripts/python/requirements.txt

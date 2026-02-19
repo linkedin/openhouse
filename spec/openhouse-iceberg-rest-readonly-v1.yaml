@@ -1,0 +1,124 @@
+openapi: 3.0.3
+info:
+  title: OpenHouse Iceberg REST Catalog (Read-only subset)
+  version: 1.0.0
+  description: |
+    Canonical OpenAPI contract for the phase-1 Iceberg REST read-only subset
+    implemented by OpenHouse tables service.
+tags:
+  - name: IcebergReadOnly
+    description: Iceberg REST read-only endpoints required by standard clients.
+paths:
+  /v1/config:
+    get:
+      tags:
+        - IcebergReadOnly
+      operationId: getConfig
+      parameters:
+        - name: warehouse
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Catalog configuration
+          content:
+            application/json:
+              schema:
+                type: string
+  /v1/namespaces/{namespace}/tables:
+    get:
+      tags:
+        - IcebergReadOnly
+      operationId: listTables
+      parameters:
+        - $ref: '#/components/parameters/namespace'
+      responses:
+        '200':
+          description: List tables response
+          content:
+            application/json:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/namespaces/{namespace}/tables/{table}:
+    get:
+      tags:
+        - IcebergReadOnly
+      operationId: loadTable
+      parameters:
+        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/table'
+        - $ref: '#/components/parameters/snapshots'
+      responses:
+        '200':
+          description: Table metadata
+          content:
+            application/json:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    head:
+      tags:
+        - IcebergReadOnly
+      operationId: headTable
+      parameters:
+        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/table'
+      responses:
+        '204':
+          description: Table exists
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+components:
+  parameters:
+    namespace:
+      name: namespace
+      in: path
+      required: true
+      schema:
+        type: string
+    table:
+      name: table
+      in: path
+      required: true
+      schema:
+        type: string
+    snapshots:
+      name: snapshots
+      in: query
+      required: false
+      schema:
+        type: string
+  responses:
+    NotFoundError:
+      description: Namespace or table not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IcebergErrorEnvelope'
+  schemas:
+    IcebergErrorEnvelope:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/IcebergError'
+    IcebergError:
+      type: object
+      required:
+        - code
+        - message
+        - type
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string
+        type:
+          type: string
