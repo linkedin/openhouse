@@ -3,6 +3,7 @@ from typing import Any
 
 import requests
 from pyiceberg.catalog import Catalog
+from pyiceberg.io import load_file_io
 from pyiceberg.serializers import FromInputFile
 from pyiceberg.table import Table
 from pyiceberg.typedef import Identifier
@@ -77,7 +78,7 @@ class OpenHouseCatalog(Catalog):
                 f"Response for table {table_id} is missing '{_TABLE_LOCATION}'. Response: {table_response}"
             )
 
-        file_io = self._load_file_io(location=metadata_location)
+        file_io = load_file_io(properties=self.properties, location=metadata_location)
         metadata_file = file_io.new_input(metadata_location)
         metadata = FromInputFile.table_metadata(metadata_file)
 
