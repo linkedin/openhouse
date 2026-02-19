@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import responses
+from pyiceberg.exceptions import NoSuchTableError
 
 from openhouse.dataloader.catalog import OpenHouseCatalog, OpenHouseCatalogError
 
@@ -92,12 +93,12 @@ class TestOpenHouseCatalogLoadTable:
                 catalog.load_table(("a", "b", "c"))
 
     @responses.activate
-    def test_load_table_404_raises_catalog_error(self):
+    def test_load_table_404_raises_no_such_table_error(self):
         responses.get(TABLE_URL, status=404)
 
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match=f"{DATABASE_NAME}.{TABLE_NAME} does not exist"),
+            pytest.raises(NoSuchTableError, match=f"{DATABASE_NAME}.{TABLE_NAME} does not exist"),
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 

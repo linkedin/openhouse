@@ -12,7 +12,9 @@ import sys
 
 import requests
 
-from openhouse.dataloader import OpenHouseCatalog, OpenHouseCatalogError
+from pyiceberg.exceptions import NoSuchTableError
+
+from openhouse.dataloader import OpenHouseCatalog
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -82,15 +84,15 @@ def test_load_table():
 
 
 def test_load_nonexistent_table():
-    """Test that loading a nonexistent table raises OpenHouseCatalogError."""
+    """Test that loading a nonexistent table raises NoSuchTableError."""
     print("\nTesting load of nonexistent table...")
     with OpenHouseCatalog("test", uri=SERVICE_URL, auth_token=DUMMY_TOKEN) as catalog:
         try:
             catalog.load_table("no_db.no_table")
-            print("  FAIL: Expected OpenHouseCatalogError")
+            print("  FAIL: Expected NoSuchTableError")
             sys.exit(1)
-        except OpenHouseCatalogError as e:
-            print(f"  Correctly raised OpenHouseCatalogError: {e}")
+        except NoSuchTableError as e:
+            print(f"  Correctly raised NoSuchTableError: {e}")
 
 
 def cleanup_table():

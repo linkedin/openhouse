@@ -3,6 +3,7 @@ from typing import Any
 
 import requests
 from pyiceberg.catalog import Catalog
+from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.io import load_file_io
 from pyiceberg.serializers import FromInputFile
 from pyiceberg.table import Table
@@ -68,7 +69,7 @@ class OpenHouseCatalog(Catalog):
         response = self._session.get(url, timeout=self._timeout)
         if not response.ok:
             if response.status_code == 404:
-                raise OpenHouseCatalogError(f"Table {database}.{table} does not exist")
+                raise NoSuchTableError(f"Table {database}.{table} does not exist")
             raise OSError(
                 f"Failed to load table {database}.{table}: HTTP {response.status_code}. Response: {response.text}"
             )
