@@ -29,6 +29,8 @@ class OpenHouseCatalog(Catalog):
         auth_token: JWT Bearer token for authentication
         ssl_ca_cert: Path to CA cert bundle for SSL verification
         timeout_seconds: HTTP request timeout in seconds
+        properties: Additional properties forwarded to the PyIceberg Catalog base class
+            (e.g., ``py-io-impl`` for custom FileIO)
     """
 
     def __init__(
@@ -38,8 +40,9 @@ class OpenHouseCatalog(Catalog):
         auth_token: str | None = None,
         ssl_ca_cert: str | None = None,
         timeout_seconds: float = 30,
+        properties: dict[str, str] | None = None,
     ):
-        super().__init__(name, uri=uri)
+        super().__init__(name, uri=uri, **(properties or {}))
         self._uri = uri.rstrip("/")
         self._timeout = timeout_seconds
         logger.info("Initializing OpenHouseCatalog for service at %s", self._uri)
