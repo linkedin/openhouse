@@ -27,7 +27,7 @@ class OpenHouseCatalog(Catalog):
         name: Catalog name
         uri: OpenHouse Tables Service base URL
         auth_token: JWT Bearer token for authentication
-        trust_store: Path to CA cert bundle for SSL verification
+        ssl_ca_cert: Path to CA cert bundle for SSL verification
         timeout_seconds: HTTP request timeout in seconds
     """
 
@@ -36,7 +36,7 @@ class OpenHouseCatalog(Catalog):
         name: str,
         uri: str,
         auth_token: str | None = None,
-        trust_store: str | None = None,
+        ssl_ca_cert: str | None = None,
         timeout_seconds: float = 30,
     ):
         super().__init__(name, uri=uri)
@@ -49,8 +49,8 @@ class OpenHouseCatalog(Catalog):
         if auth_token is not None:
             self._session.headers["Authorization"] = f"Bearer {auth_token}"
 
-        if trust_store is not None:
-            self._session.verify = trust_store
+        if ssl_ca_cert is not None:
+            self._session.verify = ssl_ca_cert
 
     def __enter__(self):
         return self
