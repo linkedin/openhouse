@@ -54,9 +54,28 @@ filters = (col("age") >= 18) & (col("country").is_in(["US", "CA"])) & ~col("emai
 # Set up environment
 make sync
 
-# Run tests
-make test
+# Run all checks and unit tests
+make verify
 
 # See all available commands
 make help
+```
+
+### Integration Tests
+
+Integration tests run the data loader end to end against an instance of OpenHouse running in Docker.
+
+**Prerequisites:** Docker and a Gradle build of OpenHouse.
+
+```bash
+# Create docker OpenHouse instance from repo root
+./gradlew clean build
+docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
+
+# Run integration tests
+make -C integrations/python/dataloader sync
+make -C integrations/python/dataloader integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
+
+# Stop docker
+docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
 ```
