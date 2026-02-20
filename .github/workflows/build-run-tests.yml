@@ -43,6 +43,10 @@ jobs:
         working-directory: integrations/python/dataloader
         run: make sync verify
 
+      - name: Run Data Loader Integration Tests
+        working-directory: integrations/python/dataloader
+        run: make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
+
       - name: Install dependencies
         run: pip install -r scripts/python/requirements.txt
 
