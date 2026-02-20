@@ -137,6 +137,50 @@ class TestOpenHouseCatalogLoadTable:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
 
+class TestOpenHouseCatalogProperties:
+    @responses.activate
+    def test_schemeless_metadata_location_reads_using_default_scheme(self):
+        """Verify that a schemeless metadata location is read using the hdfs scheme."""
+        # Simulate an API response with a schemeless tableLocation
+        schemeless_location = "/warehouse/db/table/metadata.json"
+        table_response = json.dumps(
+            {
+                "databaseId": DATABASE_NAME,
+                "tableId": TABLE_NAME,
+                "tableLocation": schemeless_location,
+            }
+        )
+        responses.get(TABLE_URL, body=table_response, status=200)
+
+        # Wrap load_file_io: let it create a real PyArrowFileIO with the catalog's properties,
+        # but mock fs_by_scheme so it doesn't try to connect to a real HDFS cluster.
+        from pyiceberg.io import load_file_io as real_load_file_io
+
+        mock_fs = MagicMock()
+        captured_file_io = None
+
+        def patched_load_file_io(**kwargs):
+            nonlocal captured_file_io
+            captured_file_io = real_load_file_io(**kwargs)
+            captured_file_io.fs_by_scheme = MagicMock(return_value=mock_fs)
+            return captured_file_io
+
+        with (
+            patch("openhouse.dataloader.catalog.FromInputFile") as mock_from_input,
+            patch("openhouse.dataloader.catalog.load_file_io", side_effect=patched_load_file_io),
+            OpenHouseCatalog(
+                CATALOG_NAME,
+                uri=BASE_URL,
+                properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "namenode.example.com:9000"},
+            ) as catalog,
+        ):
+            mock_from_input.table_metadata.return_value = MagicMock()
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        # Verify the schemeless path was resolved to hdfs using the catalog's properties
+        captured_file_io.fs_by_scheme.assert_called_once_with("hdfs", "namenode.example.com:9000")
+
+
 class TestOpenHouseCatalogAuth:
     AUTH_TOKEN = "test-jwt-token"
 
