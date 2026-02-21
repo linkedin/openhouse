@@ -32,6 +32,25 @@ ext {
   junit_version = "5.11.0"
   iceberg_1_2_version = "1.2.0.6"
   iceberg_1_5_version = "1.5.2.7"
+  otel_agent_version = "2.12.0" // Bundles OTel SDK 1.47.0
+}
+
+// OpenTelemetry Java Agent for distributed tracing.
+// The agent JAR is not a compile dependency; it is attached at JVM startup via -javaagent.
+configurations {
+  otelAgent
+}
+
+dependencies {
+  otelAgent "io.opentelemetry.javaagent:opentelemetry-javaagent:${otel_agent_version}"
+}
+
+tasks.register('downloadOtelAgent', Copy) {
+  description = 'Downloads the OpenTelemetry Java Agent JAR for distributed tracing'
+  group = 'observability'
+  from configurations.otelAgent
+  into "${rootProject.buildDir}/otel"
+  rename { 'opentelemetry-javaagent.jar' }
 }
 
 group = 'com.linkedin.openhouse'
@@ -187,6 +206,9 @@ tasks.register('dockerPrereqs') {
   // Utility JAR
   dependsOn ':scripts:java:tools:dummytokens:jar'
 
+  // OpenTelemetry Java Agent
+  dependsOn 'downloadOtelAgent'
+
   doLast {
     println ''
     println '============================================================'
@@ -200,6 +222,7 @@ tasks.register('dockerPrereqs') {
     println '  build/openhouse-spark-3.5-runtime_2.12/libs/openhouse-spark-3.5-runtime_2.12-uber.jar'
     println '  build/openhouse-spark-apps_2.12/libs/openhouse-spark-apps_2.12-uber.jar'
     println '  build/dummytokens/libs/dummytokens*.jar'
+    println '  build/otel/opentelemetry-javaagent.jar'
     println ''
     println 'Ready for: docker compose build'
     println '============================================================'
@@ -262,6 +285,7 @@ tasks.register('dockerUp', Exec) {
     println '  HouseTables Service: http://localhost:8001'
     println '  Jobs Service:        http://localhost:8002'
     println '  Prometheus:          http://localhost:9090'
+    println '  Jaeger UI (traces):  http://localhost:16686'
     println ''
     println 'To stop: ./gradlew dockerDown -Precipe=' + recipe
     println '============================================================'
