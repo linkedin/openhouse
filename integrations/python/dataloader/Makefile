@@ -1,4 +1,4 @@
-.PHONY: help sync clean lint format format-check check test verify build package-check
+.PHONY: help sync clean lint format format-check check test verify build package-check integration-tests
 
 help:
 	@echo "Available commands:"
@@ -36,6 +36,9 @@ build:
 
 package-check:
 	uv run twine check dist/*
+
+integration-tests:
+	uv run python tests/integration_test_catalog.py $(TOKEN_FILE)
 
 clean:
 	rm -rf build/
