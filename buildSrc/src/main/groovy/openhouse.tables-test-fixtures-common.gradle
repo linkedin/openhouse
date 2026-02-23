@@ -69,14 +69,8 @@ shadowJar {
   append 'META-INF/spring.handlers'
   append 'META-INF/spring.schemas'
   append 'META-INF/spring.tooling'
-//  transform(PropertiesFileTransformer) {
-//    paths = ['META-INF/spring.factories' ]
-//    mergeStrategy = "merge"
-//  }
 
   dependencies {
-//    exclude(dependency('com.fasterxml.jackson.module::'))
-//    exclude(dependency('com.fasterxml.jackson.core::'))
 
     relocate('com.google', 'openhouse.relocated.com.google')
     relocate('com.jayway', 'openhouse.relocated.com.jayway')
@@ -129,12 +123,7 @@ shadowJar {
     relocate('org.HdrHistogram', 'openhouse.relocated.org.HdrHistogram')
 
 
-    relocate('com.fasterxml', 'openhouse.relocated.com.fasterxml') {
-//      exclude 'com.fasterxml.jackson.databind.**'
-//      exclude 'com.fasterxml.jackson.core.**'
-//      exclude 'com.fasterxml.jackson.module.**'
-//      exclude 'com.fasterxml.jackson.annotation.**'
-    }
+    relocate('com.fasterxml', 'openhouse.relocated.com.fasterxml')
 
     relocate('reactor', 'openhouse.relocated.reactor')
 
