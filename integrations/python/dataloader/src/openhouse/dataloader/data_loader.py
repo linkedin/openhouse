@@ -34,8 +34,8 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(exc, OSError)
 
 
-def _retry[T](fn: Callable[[], T]) -> T:
-    """Call *fn* with retry logic.
+def _retry[T](fn: Callable[[], T], label: str) -> T:
+    """Call *fn* with retry logic, logging duration of each attempt.
 
     Retries on ``OSError`` (transient network/storage I/O failures),
     except ``HTTPError`` which is only retried for 5xx status codes.
@@ -49,7 +49,8 @@ def _retry[T](fn: Callable[[], T]) -> T:
         reraise=True,
     ):
         with attempt:
-            return fn()
+            with log_duration(logger, "%s (attempt %d)", label, attempt.retry_state.attempt_number):
+                return fn()
     raise AssertionError("unreachable")  # pragma: no cover
 
 
@@ -106,8 +107,10 @@ class OpenHouseDataLoader:
         Yields:
             DataLoaderSplit for each file scan task in the table
         """
-        with log_duration(logger, "Loaded table %s (including retries)", self._table):
-            table = _retry(lambda: self._catalog.load_table((self._table.database, self._table.table)))
+        table = _retry(
+            lambda: self._catalog.load_table((self._table.database, self._table.table)),
+            label=f"load_table {self._table}",
+        )
 
         row_filter = _to_pyiceberg(self._filters)
 
@@ -126,8 +129,7 @@ class OpenHouseDataLoader:
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
         # Manifests are read in parallel with one thread per manifest
-        with log_duration(logger, "Planned scan tasks for %s (including retries)", self._table):
-            scan_tasks = _retry(lambda: scan.plan_files())
+        scan_tasks = _retry(lambda: scan.plan_files(), label=f"plan_files {self._table}")
 
         for scan_task in scan_tasks:
             yield DataLoaderSplit(
