@@ -47,15 +47,3 @@ dependencies {
     exclude group: 'com.linkedin.iceberg'
   }
 }
-
-bootJar {
-  // Exclude OTEL SDK and exporters from the fat JAR. When the OTEL Java Agent is
-  // attached (-javaagent), it provides its own SDK. Having the SDK on the application
-  // classpath prevents the agent from bridging the API to its internal SDK, causing
-  // manual spans (@WithSpan and programmatic) to be silently dropped as no-ops.
-  // Only opentelemetry-api, opentelemetry-context, and opentelemetry-instrumentation-annotations
-  // should remain — these are the application-facing APIs that the agent bridges.
-  // See: https://opentelemetry.io/docs/zero-code/java/agent/
-  exclude '**/opentelemetry-sdk*.jar'
-  exclude '**/opentelemetry-exporter*.jar'
-}
