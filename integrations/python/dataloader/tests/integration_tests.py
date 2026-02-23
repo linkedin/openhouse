@@ -7,6 +7,7 @@ import sys
 import requests
 from pyiceberg.exceptions import NoSuchTableError
 
+from openhouse.dataloader import OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 
 BASE_URL = "http://localhost:8000"
@@ -32,7 +33,7 @@ def create_table(token: str) -> dict:
         ),
         "timePartitioning": {"columnName": "ts", "granularity": "HOUR"},
         "clustering": [{"columnName": "name"}],
-        "tableProperties": {"key": "value"},
+        "tableProperties": {"key": "value", "myProp": "hello"},
     }
     response = requests.post(url, json=payload, headers=headers)
     assert response.status_code == 201, f"Failed to create table: {response.status_code} {response.text}"
@@ -91,6 +92,26 @@ def test_load_nonexistent_table(catalog: OpenHouseCatalog) -> None:
         print("load_table correctly raised NoSuchTableError for nonexistent table")
 
 
+def test_data_loader_empty_table(catalog: OpenHouseCatalog) -> None:
+    """Verify DataLoader yields no splits for an empty table."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
+    splits = list(loader)
+    assert splits == [], f"Expected no splits, got {len(splits)}"
+    print("DataLoader correctly yielded no splits for empty table")
+
+
+def test_table_properties(catalog: OpenHouseCatalog) -> None:
+    """Verify table properties set during creation are accessible."""
+    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID}")
+    assert table.metadata.properties.get("key") == "value", (
+        f"Expected property key='value', got {table.metadata.properties}"
+    )
+    assert table.metadata.properties.get("myProp") == "hello", (
+        f"Expected property myProp='hello', got {table.metadata.properties}"
+    )
+    print(f"Table properties verified: {table.metadata.properties}")
+
+
 def read_token(path: str) -> str:
     try:
         with open(path) as f:
@@ -102,7 +123,7 @@ def read_token(path: str) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python integration_test_catalog.py <token_file>")
+        print("Usage: python integration_tests.py <token_file>")
         sys.exit(1)
 
     token_str = read_token(sys.argv[1])
@@ -113,10 +134,12 @@ if __name__ == "__main__":
         copy_metadata_from_container(token_str)
         test_load_table(catalog)
         test_load_nonexistent_table(catalog)
+        test_data_loader_empty_table(catalog)
+        test_table_properties(catalog)
     finally:
         try:
             delete_table(token_str)
         except Exception as e:
             print(f"Warning: cleanup failed: {e}")
 
-    print("All integration catalog tests passed")
+    print("All integration tests passed")
