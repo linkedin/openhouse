@@ -6,10 +6,10 @@ plugins {
 
 
 dependencies {
-    implementation project(':client:tableclient')
-    implementation project(':client:jobsclient')
-    implementation project(':client:hts')
-    implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
+    api project(':client:tableclient')
+    api project(':client:jobsclient')
+    api project(':client:hts')
+    api 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
     testImplementation 'io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64'
     testImplementation 'org.junit.jupiter:junit-jupiter-api:' + junit_version
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:' + junit_version

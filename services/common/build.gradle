@@ -8,20 +8,20 @@ plugins {
 
 // Some additional dependencies needed for common classes, on top of vanilla Java conventions.
 dependencies {
-  implementation project(':cluster:configs')
-  implementation project(':cluster:storage')
-  implementation project(':cluster:metrics')
+  api project(':cluster:configs')
+  api project(':cluster:storage')
+  api project(':cluster:metrics')
 
-  implementation 'com.fasterxml.jackson.core:jackson-annotations:2.13.1'
-  implementation 'io.swagger.core.v3:swagger-annotations:2.1.11'
-  implementation 'jakarta.validation:jakarta.validation-api:2.0.2'
-  implementation 'org.springframework:spring-web:' + '5.3.18'
-  implementation 'org.springframework:spring-webmvc:' + '5.3.18'
-  implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
-  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
-  implementation 'org.springframework.security:spring-security-core:' + '5.7.3'
-  implementation 'io.jsonwebtoken:jjwt:' + '0.9.1'
-  implementation 'org.aspectj:aspectjrt:' + '1.9.19'
+  api 'com.fasterxml.jackson.core:jackson-annotations:2.13.1'
+  api 'io.swagger.core.v3:swagger-annotations:2.1.11'
+  api 'jakarta.validation:jakarta.validation-api:2.0.2'
+  api 'org.springframework:spring-web:' + '5.3.18'
+  api 'org.springframework:spring-webmvc:' + '5.3.18'
+  api 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
+  api 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
+  api 'org.springframework.security:spring-security-core:' + '5.7.3'
+  api 'io.jsonwebtoken:jjwt:' + '0.9.1'
+  api 'org.aspectj:aspectjrt:' + '1.9.19'
 
   // open telemetry related classed. Latest Okhttp version is 4.10.0, pinning to 4.9.3 to avoid dependency issues
   implementation 'com.squareup.okhttp3:okhttp:' + ok_http3_version

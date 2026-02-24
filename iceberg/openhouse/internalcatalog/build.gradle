@@ -11,12 +11,12 @@ plugins {
 
 dependencies {
   implementation 'com.github.spotbugs:spotbugs-annotations:4.8.1'
-  implementation 'org.springframework.retry:spring-retry:1.3.3'
-  implementation project(':client:hts')
-  implementation project(':cluster:storage')
-  implementation project(':cluster:metrics')
-  implementation project(':iceberg:azure')
-  implementation project(':services:common')
+  api 'org.springframework.retry:spring-retry:1.3.3'
+  api project(':client:hts')
+  api project(':cluster:storage')
+  api project(':cluster:metrics')
+  api project(':iceberg:azure')
+  api project(':services:common')
   // Needed for testing against manually bootstrapped HTS server through bootRun task.
   testImplementation "io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64"
   // Needed for testing against mock HTS server along with other constructs in /tables module.
