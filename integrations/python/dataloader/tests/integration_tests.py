@@ -202,9 +202,7 @@ def test_table_with_data(catalog: OpenHouseCatalog) -> None:
 
 def test_table_with_data_row_filter(catalog: OpenHouseCatalog) -> None:
     """Load a table with data and apply a row filter."""
-    loader = OpenHouseDataLoader(
-        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, filters=col(COL_ID) > 1
-    )
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, filters=col(COL_ID) > 1)
 
     batches = [batch for split in loader for batch in split]
     assert len(batches) > 0, "Expected at least one batch"
@@ -221,9 +219,7 @@ def test_table_with_data_row_filter(catalog: OpenHouseCatalog) -> None:
 
 def test_table_with_data_selected_columns(catalog: OpenHouseCatalog) -> None:
     """Load a table with data and select only specific columns."""
-    loader = OpenHouseDataLoader(
-        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, columns=[COL_ID, COL_NAME]
-    )
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, columns=[COL_ID, COL_NAME])
 
     batches = [batch for split in loader for batch in split]
     assert len(batches) > 0, "Expected at least one batch"
@@ -247,7 +243,7 @@ def test_empty_table(catalog: OpenHouseCatalog) -> None:
 
     table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_EMPTY}")
     assert table.metadata.properties.get("myProp") == "hello"
-    print(f"Table property verified: myProp=hello")
+    print("Table property verified: myProp=hello")
 
 
 def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:
