@@ -1,7 +1,17 @@
+import os
 from unittest.mock import MagicMock
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
-from pyiceberg.expressions import AlwaysTrue, EqualTo
+from pyiceberg.io import load_file_io
+from pyiceberg.manifest import DataFile, FileFormat
+from pyiceberg.partitioning import UNPARTITIONED_PARTITION_SPEC
+from pyiceberg.schema import Schema
+from pyiceberg.table import FileScanTask
+from pyiceberg.table.metadata import new_table_metadata
+from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
+from pyiceberg.types import DoubleType, LongType, NestedField, StringType
 from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
@@ -17,6 +27,76 @@ def test_package_imports():
     assert DataLoaderSplit is not None
     assert isinstance(__version__, str)
     assert len(__version__) > 0
+
+
+COL_ID = "id"
+COL_NAME = "name"
+COL_VALUE = "value"
+
+TEST_SCHEMA = Schema(
+    NestedField(field_id=1, name=COL_ID, field_type=LongType(), required=False),
+    NestedField(field_id=2, name=COL_NAME, field_type=StringType(), required=False),
+    NestedField(field_id=3, name=COL_VALUE, field_type=DoubleType(), required=False),
+)
+
+TEST_DATA = {
+    COL_ID: [1, 2, 3],
+    COL_NAME: ["alice", "bob", "charlie"],
+    COL_VALUE: [1.1, 2.2, 3.3],
+}
+
+
+def _write_parquet(tmp_path, data: dict) -> str:
+    """Write a Parquet file with Iceberg field IDs in column metadata."""
+    file_path = str(tmp_path / "test.parquet")
+    table = pa.table(data)
+    fields = [field.with_metadata({b"PARQUET:field_id": str(i + 1).encode()}) for i, field in enumerate(table.schema)]
+    pq.write_table(table.cast(pa.schema(fields)), file_path)
+    return file_path
+
+
+def _make_real_catalog(tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema = TEST_SCHEMA):
+    """Create a mock catalog backed by real Parquet data.
+
+    The catalog mock only stubs the catalog boundary. The table's metadata, io,
+    and file scan tasks are real, so DataLoaderSplits can be materialized.
+    """
+    file_path = _write_parquet(tmp_path, data)
+
+    metadata = new_table_metadata(
+        schema=iceberg_schema,
+        partition_spec=UNPARTITIONED_PARTITION_SPEC,
+        sort_order=UNSORTED_SORT_ORDER,
+        location=str(tmp_path),
+    )
+    io = load_file_io(properties={}, location=file_path)
+
+    data_file = DataFile.from_args(
+        file_path=file_path,
+        file_format=FileFormat.PARQUET,
+        record_count=len(next(iter(data.values()))),
+        file_size_in_bytes=os.path.getsize(file_path),
+    )
+    data_file._spec_id = 0
+    task = FileScanTask(data_file=data_file)
+
+    def fake_scan(**kwargs):
+        selected = kwargs.get("selected_fields")
+        projected = Schema(*[f for f in iceberg_schema.fields if f.name in selected]) if selected else iceberg_schema
+
+        scan = MagicMock()
+        scan.projection.return_value = projected
+        scan.plan_files.return_value = [task]
+        return scan
+
+    mock_table = MagicMock()
+    mock_table.metadata = metadata
+    mock_table.io = io
+    mock_table.scan.side_effect = fake_scan
+
+    catalog = MagicMock()
+    catalog.load_table.return_value = mock_table
+    return catalog
 
 
 def _make_mock_table(num_tasks=2):
@@ -42,6 +122,12 @@ def _make_mock_catalog(table):
     return catalog
 
 
+def _materialize(loader: OpenHouseDataLoader) -> pa.Table:
+    """Iterate the loader and concatenate all splits into a single Arrow table."""
+    batches = [batch for split in loader for batch in split]
+    return pa.Table.from_batches(batches) if batches else pa.table({})
+
+
 def test_iter_yields_splits_per_file_scan_task():
     table, scan, file_scan_tasks = _make_mock_table(num_tasks=3)
     catalog = _make_mock_catalog(table)
@@ -53,53 +139,57 @@ def test_iter_yields_splits_per_file_scan_task():
     for split in splits:
         assert isinstance(split, DataLoaderSplit)
 
-    catalog.load_table.assert_called_once_with(("db", "tbl"))
 
-
-def test_iter_does_not_pass_selected_fields_when_no_columns():
-    table, scan, _ = _make_mock_table(num_tasks=1)
-    catalog = _make_mock_catalog(table)
+def test_iter_returns_all_columns_when_no_selection(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    list(loader)
+    result = _materialize(loader)
 
-    table.scan.assert_called_once()
-    call_kwargs = table.scan.call_args.kwargs
-    assert "selected_fields" not in call_kwargs
-
-
-def test_iter_passes_selected_columns():
-    table, scan, _ = _make_mock_table(num_tasks=1)
-    catalog = _make_mock_catalog(table)
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", columns=["a", "b"])
-    list(loader)
-
-    call_kwargs = table.scan.call_args.kwargs
-    assert call_kwargs["selected_fields"] == ("a", "b")
+    assert set(result.column_names) == {COL_ID, COL_NAME, COL_VALUE}
+    assert result.num_rows == 3
+    result = result.sort_by(COL_ID)
+    assert result.column(COL_ID).to_pylist() == TEST_DATA[COL_ID]
+    assert result.column(COL_NAME).to_pylist() == TEST_DATA[COL_NAME]
+    assert result.column(COL_VALUE).to_pylist() == TEST_DATA[COL_VALUE]
 
 
-def test_iter_converts_filters_to_pyiceberg():
-    table, scan, _ = _make_mock_table(num_tasks=1)
-    catalog = _make_mock_catalog(table)
+def test_iter_returns_only_selected_columns(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
 
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", filters=col("x") == 1)
-    list(loader)
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", columns=[COL_ID, COL_NAME])
+    result = _materialize(loader)
 
-    call_kwargs = table.scan.call_args.kwargs
-    assert isinstance(call_kwargs["row_filter"], EqualTo)
-    assert call_kwargs["row_filter"] == EqualTo("x", 1)
+    assert set(result.column_names) == {COL_ID, COL_NAME}
+    assert COL_VALUE not in result.column_names
+    assert result.num_rows == 3
+    result = result.sort_by(COL_ID)
+    assert result.column(COL_ID).to_pylist() == TEST_DATA[COL_ID]
+    assert result.column(COL_NAME).to_pylist() == TEST_DATA[COL_NAME]
 
 
-def test_iter_default_filter_is_always_true():
-    table, scan, _ = _make_mock_table(num_tasks=1)
-    catalog = _make_mock_catalog(table)
+def test_iter_with_filter_returns_matching_rows(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", filters=col(COL_ID) == 1)
+    result = _materialize(loader)
+
+    assert result.num_rows == 1
+    assert result.column(COL_ID).to_pylist() == [1]
+    assert result.column(COL_NAME).to_pylist() == ["alice"]
+
+
+def test_iter_without_filter_returns_all_rows(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    list(loader)
+    result = _materialize(loader)
 
-    call_kwargs = table.scan.call_args.kwargs
-    assert isinstance(call_kwargs["row_filter"], AlwaysTrue)
+    assert result.num_rows == 3
+    result = result.sort_by(COL_ID)
+    assert result.column(COL_ID).to_pylist() == TEST_DATA[COL_ID]
+    assert result.column(COL_NAME).to_pylist() == TEST_DATA[COL_NAME]
+    assert result.column(COL_VALUE).to_pylist() == TEST_DATA[COL_VALUE]
 
 
 def test_iter_empty_plan_files_yields_nothing():
