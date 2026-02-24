@@ -1,4 +1,13 @@
-"""Integration test for OpenHouseCatalog against a running OpenHouse instance."""
+"""Integration tests for OpenHouseCatalog against a running OpenHouse instance.
+
+Tables are created via the OpenHouse REST API. For tests that need data,
+we use PyIceberg to write Parquet files to the table's location on the
+host filesystem. Since there is no real Iceberg catalog running locally,
+we use a _LocalCommitCatalog that applies metadata updates in memory so
+PyIceberg's table.append() can write data files and manifests. The updated
+metadata is then written to the path that OpenHouseCatalog reads from.
+Only Parquet is tested because PyIceberg does not support ORC writes.
+"""
 
 import os
 import shutil
