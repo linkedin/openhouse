@@ -23,26 +23,23 @@ TABLE_ID_EMPTY = "t_empty"
 TABLE_ID_DATA = "t_data"
 CONTAINER_NAME = "oh-only-openhouse-tables-1"
 
-EMPTY_TABLE_SCHEMA = (
-    '{"type": "struct", "fields": ['
-    '{"id": 1, "required": true, "name": "id", "type": "string"},'
-    '{"id": 2, "required": true, "name": "name", "type": "string"}'
-    "]}"
-)
+COL_ID = "id"
+COL_NAME = "name"
+COL_SCORE = "score"
 
-DATA_TABLE_SCHEMA = (
+TABLE_SCHEMA = (
     '{"type": "struct", "fields": ['
-    '{"id": 1, "required": false, "name": "id", "type": "long"},'
-    '{"id": 2, "required": false, "name": "name", "type": "string"},'
-    '{"id": 3, "required": false, "name": "score", "type": "double"}'
+    f'{{"id": 1, "required": false, "name": "{COL_ID}", "type": "long"}},'
+    f'{{"id": 2, "required": false, "name": "{COL_NAME}", "type": "string"}},'
+    f'{{"id": 3, "required": false, "name": "{COL_SCORE}", "type": "double"}}'
     "]}"
 )
 
 EXPECTED_DATA = pa.table(
     {
-        "id": pa.array([1, 2, 3], type=pa.int64()),
-        "name": pa.array(["alice", "bob", "charlie"], type=pa.string()),
-        "score": pa.array([1.1, 2.2, 3.3], type=pa.float64()),
+        COL_ID: pa.array([1, 2, 3], type=pa.int64()),
+        COL_NAME: pa.array(["alice", "bob", "charlie"], type=pa.string()),
+        COL_SCORE: pa.array([1.1, 2.2, 3.3], type=pa.float64()),
     }
 )
 
@@ -181,54 +178,54 @@ def test_table_with_data(catalog: OpenHouseCatalog) -> None:
     assert len(batches) > 0, "Expected at least one batch"
 
     result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
-    result = result.sort_by("id")
+    result = result.sort_by(COL_ID)
 
     assert result.num_rows == EXPECTED_DATA.num_rows, f"Expected {EXPECTED_DATA.num_rows} rows, got {result.num_rows}"
-    assert result.column("id").to_pylist() == EXPECTED_DATA.column("id").to_pylist()
-    assert result.column("name").to_pylist() == EXPECTED_DATA.column("name").to_pylist()
-    assert result.column("score").to_pylist() == EXPECTED_DATA.column("score").to_pylist()
+    assert result.column(COL_ID).to_pylist() == EXPECTED_DATA.column(COL_ID).to_pylist()
+    assert result.column(COL_NAME).to_pylist() == EXPECTED_DATA.column(COL_NAME).to_pylist()
+    assert result.column(COL_SCORE).to_pylist() == EXPECTED_DATA.column(COL_SCORE).to_pylist()
     print(f"DataLoader read {result.num_rows} rows with correct values")
 
     table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_DATA}")
     assert table.metadata.properties.get("write.format.default") == "parquet"
-    print(f"Table property verified: write.format.default=parquet")
+    print("Table property verified: write.format.default=parquet")
 
 
 def test_table_with_data_row_filter(catalog: OpenHouseCatalog) -> None:
     """Load a table with data and apply a row filter."""
     loader = OpenHouseDataLoader(
-        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, filters=col("id") > 1
+        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, filters=col(COL_ID) > 1
     )
 
     batches = [batch for split in loader for batch in split]
     assert len(batches) > 0, "Expected at least one batch"
 
     result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
-    result = result.sort_by("id")
+    result = result.sort_by(COL_ID)
 
     assert result.num_rows == 2, f"Expected 2 rows, got {result.num_rows}"
-    assert result.column("id").to_pylist() == [2, 3]
-    assert result.column("name").to_pylist() == ["bob", "charlie"]
-    assert result.column("score").to_pylist() == [2.2, 3.3]
+    assert result.column(COL_ID).to_pylist() == [2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["bob", "charlie"]
+    assert result.column(COL_SCORE).to_pylist() == [2.2, 3.3]
     print(f"DataLoader read {result.num_rows} filtered rows")
 
 
 def test_table_with_data_selected_columns(catalog: OpenHouseCatalog) -> None:
     """Load a table with data and select only specific columns."""
     loader = OpenHouseDataLoader(
-        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, columns=["id", "name"]
+        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, columns=[COL_ID, COL_NAME]
     )
 
     batches = [batch for split in loader for batch in split]
     assert len(batches) > 0, "Expected at least one batch"
 
     result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
-    result = result.sort_by("id")
+    result = result.sort_by(COL_ID)
 
-    assert result.column_names == ["id", "name"], f"Expected [id, name], got {result.column_names}"
+    assert result.column_names == [COL_ID, COL_NAME], f"Expected [{COL_ID}, {COL_NAME}], got {result.column_names}"
     assert result.num_rows == 3, f"Expected 3 rows, got {result.num_rows}"
-    assert result.column("id").to_pylist() == [1, 2, 3]
-    assert result.column("name").to_pylist() == ["alice", "bob", "charlie"]
+    assert result.column(COL_ID).to_pylist() == [1, 2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
     print(f"DataLoader read {result.num_rows} rows with selected columns {result.column_names}")
 
 
@@ -276,7 +273,7 @@ if __name__ == "__main__":
         _create_table(
             token_str,
             TABLE_ID_DATA,
-            DATA_TABLE_SCHEMA,
+            TABLE_SCHEMA,
             tableProperties={"write.format.default": "parquet"},
         )
         data_metadata_path = _append_data(token_str, TABLE_ID_DATA, EXPECTED_DATA)
@@ -291,7 +288,7 @@ if __name__ == "__main__":
         _create_table(
             token_str,
             TABLE_ID_EMPTY,
-            EMPTY_TABLE_SCHEMA,
+            TABLE_SCHEMA,
             tableProperties={"myProp": "hello"},
         )
         _copy_metadata_from_container(token_str, TABLE_ID_EMPTY)
