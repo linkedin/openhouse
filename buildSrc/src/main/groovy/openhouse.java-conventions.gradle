@@ -11,8 +11,8 @@ dependencies {
   implementation 'com.google.code.gson:gson:' + gsonVersion
   testImplementation 'com.google.code.gson:gson:' + gsonVersion
 
-  implementation 'io.micrometer:micrometer-core:' + micrometerVersion
-  implementation 'io.micrometer:micrometer-registry-prometheus:' + micrometerVersion
+  api 'io.micrometer:micrometer-core:' + micrometerVersion
+  api 'io.micrometer:micrometer-registry-prometheus:' + micrometerVersion
   implementation 'commons-cli:commons-cli:1.5.0'
 
 }

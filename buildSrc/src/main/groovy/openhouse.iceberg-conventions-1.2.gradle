@@ -3,9 +3,9 @@ ext {
 }
 
 dependencies {
-  implementation('com.linkedin.iceberg:iceberg-bundled-guava:' + icebergVersion + "!!")
-  implementation('com.linkedin.iceberg:iceberg-data:' + icebergVersion + "!!")
-  implementation('com.linkedin.iceberg:iceberg-core:' + icebergVersion + "!!")
-  implementation('com.linkedin.iceberg:iceberg-common:' + icebergVersion + "!!")
+  api('com.linkedin.iceberg:iceberg-bundled-guava:' + icebergVersion + "!!")
+  api('com.linkedin.iceberg:iceberg-data:' + icebergVersion + "!!")
+  api('com.linkedin.iceberg:iceberg-core:' + icebergVersion + "!!")
+  api('com.linkedin.iceberg:iceberg-common:' + icebergVersion + "!!")
   implementation('org.testcontainers:testcontainers:1.19.8')
 }

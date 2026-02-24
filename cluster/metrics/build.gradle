@@ -4,5 +4,5 @@ plugins {
 }
 
 dependencies {
-  implementation project(':cluster:configs')
+  api project(':cluster:configs')
 }

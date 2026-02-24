@@ -31,14 +31,14 @@ openApi {
 }
 
 dependencies {
-  implementation project(':services:common')
-  implementation project(':iceberg:openhouse:internalcatalog')
-  implementation project(':client:hts')
-  implementation project(':cluster:configs')
-  implementation project(':cluster:storage')
-  implementation project(':cluster:metrics')
-  implementation 'org.springframework.security:spring-security-config:5.7.2'
-  implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
+  api project(':services:common')
+  api project(':iceberg:openhouse:internalcatalog')
+  api project(':client:hts')
+  api project(':cluster:configs')
+  api project(':cluster:storage')
+  api project(':cluster:metrics')
+  api 'org.springframework.security:spring-security-config:5.7.2'
+  api 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
   implementation 'com.cronutils:cron-utils:9.2.0'
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
