@@ -48,9 +48,8 @@ def _retry[T](fn: Callable[[], T], label: str) -> T:
         before_sleep=_log_retry,
         reraise=True,
     ):
-        with attempt:
-            with log_duration(logger, "%s (attempt %d)", label, attempt.retry_state.attempt_number):
-                return fn()
+        with attempt, log_duration(logger, "%s (attempt %d)", label, attempt.retry_state.attempt_number):
+            return fn()
     raise AssertionError("unreachable")  # pragma: no cover
 
 
