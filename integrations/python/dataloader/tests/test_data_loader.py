@@ -45,6 +45,12 @@ TEST_DATA = {
     COL_VALUE: [1.1, 2.2, 3.3],
 }
 
+EMPTY_DATA = {
+    COL_ID: pa.array([], type=pa.int64()),
+    COL_NAME: pa.array([], type=pa.string()),
+    COL_VALUE: pa.array([], type=pa.float64()),
+}
+
 
 def _write_parquet(tmp_path, data: dict) -> str:
     """Write a Parquet file with Iceberg field IDs in column metadata."""
@@ -99,45 +105,10 @@ def _make_real_catalog(tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema 
     return catalog
 
 
-def _make_mock_table(num_tasks=2):
-    """Create a mock PyIceberg Table with scan support."""
-    table = MagicMock()
-    table.metadata = MagicMock()
-    table.io = MagicMock()
-
-    scan = MagicMock()
-    scan.projection.return_value = MagicMock()
-
-    file_scan_tasks = [MagicMock() for _ in range(num_tasks)]
-    scan.plan_files.return_value = file_scan_tasks
-
-    table.scan.return_value = scan
-    return table, scan, file_scan_tasks
-
-
-def _make_mock_catalog(table):
-    """Create a mock catalog that returns the given table."""
-    catalog = MagicMock()
-    catalog.load_table.return_value = table
-    return catalog
-
-
 def _materialize(loader: OpenHouseDataLoader) -> pa.Table:
     """Iterate the loader and concatenate all splits into a single Arrow table."""
     batches = [batch for split in loader for batch in split]
     return pa.Table.from_batches(batches) if batches else pa.table({})
-
-
-def test_iter_yields_splits_per_file_scan_task():
-    table, scan, file_scan_tasks = _make_mock_table(num_tasks=3)
-    catalog = _make_mock_catalog(table)
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
-
-    assert len(splits) == 3
-    for split in splits:
-        assert isinstance(split, DataLoaderSplit)
 
 
 def test_iter_returns_all_columns_when_no_selection(tmp_path):
@@ -179,27 +150,13 @@ def test_iter_with_filter_returns_matching_rows(tmp_path):
     assert result.column(COL_NAME).to_pylist() == ["alice"]
 
 
-def test_iter_without_filter_returns_all_rows(tmp_path):
-    catalog = _make_real_catalog(tmp_path)
+def test_iter_empty_table_yields_nothing(tmp_path):
+    catalog = _make_real_catalog(tmp_path, data=EMPTY_DATA)
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
     result = _materialize(loader)
 
-    assert result.num_rows == 3
-    result = result.sort_by(COL_ID)
-    assert result.column(COL_ID).to_pylist() == TEST_DATA[COL_ID]
-    assert result.column(COL_NAME).to_pylist() == TEST_DATA[COL_NAME]
-    assert result.column(COL_VALUE).to_pylist() == TEST_DATA[COL_VALUE]
-
-
-def test_iter_empty_plan_files_yields_nothing():
-    table, scan, _ = _make_mock_table(num_tasks=0)
-    catalog = _make_mock_catalog(table)
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
-
-    assert splits == []
+    assert result.num_rows == 0
 
 
 # --- Retry tests ---
@@ -212,55 +169,26 @@ def _make_http_error(status_code: int) -> HTTPError:
     return HTTPError(response=response)
 
 
-def test_load_table_retries_on_os_error():
-    """load_table retries on OSError and succeeds on the second attempt."""
-    table, _, _ = _make_mock_table(num_tasks=1)
-    catalog = MagicMock()
-    catalog.load_table.side_effect = [OSError("connection reset"), table]
+@pytest.mark.parametrize(
+    "error",
+    [
+        OSError("connection reset"),
+        RequestsConnectionError("refused"),
+        Timeout("timed out"),
+        _make_http_error(503),
+    ],
+    ids=["OSError", "ConnectionError", "Timeout", "5xx"],
+)
+def test_load_table_retries_on_transient_error(tmp_path, error):
+    """load_table retries on transient errors and succeeds on the second attempt."""
+    catalog = _make_real_catalog(tmp_path)
+    real_table = catalog.load_table.return_value
+    catalog.load_table.side_effect = [error, real_table]
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
+    result = _materialize(loader)
 
-    assert len(splits) == 1
-    assert catalog.load_table.call_count == 2
-
-
-def test_load_table_retries_on_connection_error():
-    """load_table retries on requests ConnectionError."""
-    table, _, _ = _make_mock_table(num_tasks=1)
-    catalog = MagicMock()
-    catalog.load_table.side_effect = [RequestsConnectionError("refused"), table]
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
-
-    assert len(splits) == 1
-    assert catalog.load_table.call_count == 2
-
-
-def test_load_table_retries_on_timeout():
-    """load_table retries on requests Timeout."""
-    table, _, _ = _make_mock_table(num_tasks=1)
-    catalog = MagicMock()
-    catalog.load_table.side_effect = [Timeout("timed out"), table]
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
-
-    assert len(splits) == 1
-    assert catalog.load_table.call_count == 2
-
-
-def test_load_table_retries_on_5xx_http_error():
-    """load_table retries on 5xx HTTPError."""
-    table, _, _ = _make_mock_table(num_tasks=1)
-    catalog = MagicMock()
-    catalog.load_table.side_effect = [_make_http_error(503), table]
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
-
-    assert len(splits) == 1
+    assert result.num_rows == 3
     assert catalog.load_table.call_count == 2
 
 
@@ -290,19 +218,27 @@ def test_does_not_retry_non_transient_error():
     catalog.load_table.assert_called_once()
 
 
-def test_plan_files_retries_on_transient_error():
+def test_plan_files_retries_on_transient_error(tmp_path):
     """plan_files retries on OSError and succeeds on the second attempt."""
-    table, scan, _ = _make_mock_table(num_tasks=1)
-    catalog = _make_mock_catalog(table)
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+    original_scan_side_effect = mock_table.scan.side_effect
 
-    file_scan_tasks = [MagicMock()]
-    scan.plan_files.side_effect = [OSError("read timeout"), file_scan_tasks]
+    # Capture the real scan's plan_files result, then inject a failure before it
+    real_scan = original_scan_side_effect()
+    real_tasks = real_scan.plan_files.return_value
+
+    def failing_then_real_scan(**kwargs):
+        scan = original_scan_side_effect(**kwargs)
+        scan.plan_files.side_effect = [OSError("read timeout"), real_tasks]
+        return scan
+
+    mock_table.scan.side_effect = failing_then_real_scan
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
+    result = _materialize(loader)
 
-    assert len(splits) == 1
-    assert scan.plan_files.call_count == 2
+    assert result.num_rows == 3
 
 
 def test_retries_exhausted_reraises():
