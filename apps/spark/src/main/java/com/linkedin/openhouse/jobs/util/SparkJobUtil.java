@@ -63,6 +63,9 @@ public final class SparkJobUtil {
       String granularity,
       int count,
       ZonedDateTime now) {
+    // Convert to UTC to match Spark SQL's timestamp interpretation
+    String nowUtc =
+        now.withZoneSameInstant(java.time.ZoneId.of("UTC")).toLocalDateTime().toString();
     if (!StringUtils.isBlank(columnPattern)) {
       String query =
           String.format(
@@ -71,7 +74,7 @@ public final class SparkJobUtil {
               String.format(
                   RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
                   columnName,
-                  now.toLocalDateTime(),
+                  nowUtc,
                   count,
                   granularity,
                   columnPattern));
@@ -92,7 +95,7 @@ public final class SparkJobUtil {
                   RETENTION_CONDITION_TEMPLATE,
                   columnName,
                   granularity,
-                  now.toLocalDateTime(),
+                  nowUtc,
                   count,
                   granularity));
       log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
