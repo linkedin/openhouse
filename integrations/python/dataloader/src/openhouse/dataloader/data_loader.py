@@ -24,16 +24,16 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(exc, OSError)
 
 
-def _retry[T](fn: Callable[[], T], label: str) -> T:
+def _retry[T](fn: Callable[[], T], label: str, max_attempts: int) -> T:
     """Call *fn* with retry logic, logging duration of each attempt.
 
     Retries on ``OSError`` (transient network/storage I/O failures),
     except ``HTTPError`` which is only retried for 5xx status codes.
-    Uses exponential backoff with up to 3 attempts total.
+    Uses exponential backoff with up to *max_attempts* total attempts.
     """
     for attempt in Retrying(
         retry=retry_if_exception(_is_transient),
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(max_attempts),
         wait=wait_exponential(),
         reraise=True,
     ):
@@ -72,6 +72,7 @@ class OpenHouseDataLoader:
         columns: Sequence[str] | None = None,
         filters: Filter | None = None,
         context: DataLoaderContext | None = None,
+        max_attempts: int = 3,
     ):
         """
         Args:
@@ -82,12 +83,14 @@ class OpenHouseDataLoader:
             columns: Column names to load, or None to load all columns
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
+            max_attempts: Total number of attempts including the initial try (default 3)
         """
         self._catalog = catalog
         self._table = TableIdentifier(database, table, branch)
         self._columns = columns
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
+        self._max_attempts = max_attempts
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -98,6 +101,7 @@ class OpenHouseDataLoader:
         table = _retry(
             lambda: self._catalog.load_table((self._table.database, self._table.table)),
             label=f"load_table {self._table}",
+            max_retries=self._max_retries,
         )
 
         row_filter = _to_pyiceberg(self._filters)
@@ -117,7 +121,7 @@ class OpenHouseDataLoader:
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
         # Manifests are read in parallel with one thread per manifest
-        scan_tasks = _retry(lambda: scan.plan_files(), label=f"plan_files {self._table}")
+        scan_tasks = _retry(lambda: scan.plan_files(), label=f"plan_files {self._table}", max_retries=self._max_retries)
 
         for scan_task in scan_tasks:
             yield DataLoaderSplit(
