@@ -16,9 +16,9 @@ class DataLoaderSplit:
 
     def __init__(
         self,
-        plan: LogicalPlan,
         file_scan_task: FileScanTask,
         scan_context: TableScanContext,
+        plan: LogicalPlan | None = None,
         udf_registry: UDFRegistry | None = None,
     ):
         self._plan = plan

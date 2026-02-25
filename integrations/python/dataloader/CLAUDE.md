@@ -15,10 +15,24 @@ make format    # Auto-format code
 make build          # Build package distributions
 make package-check  # Validate built distributions with twine
 make clean          # Clean build artifacts
+make integration-tests TOKEN_FILE=<path>  # Run integration tests against Docker OpenHouse
 ```
 
 ## Workflows
 When making a change run `make verify` to ensure all tests and checks pass
+
+## Integration Tests
+
+Integration tests run against an OpenHouse instance in Docker. To run them:
+
+1. Start the Docker services from the repo root:
+   ```bash
+   docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d
+   ```
+2. Run the tests with the dummy token (uses `DummyTokenInterceptor`, no real auth needed):
+   ```bash
+   make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
+   ```
 
 ## Project Structure
 

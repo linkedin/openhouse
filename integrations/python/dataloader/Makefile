@@ -38,7 +38,7 @@ package-check:
 	uv run twine check dist/*
 
 integration-tests:
-	uv run python tests/integration_test_catalog.py $(TOKEN_FILE)
+	uv run python tests/integration_tests.py $(TOKEN_FILE)
 
 clean:
 	rm -rf build/

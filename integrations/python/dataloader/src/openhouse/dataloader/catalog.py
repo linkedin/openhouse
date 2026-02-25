@@ -67,7 +67,6 @@ class OpenHouseCatalog(Catalog):
     def load_table(self, identifier: str | Identifier) -> Table:
         database, table = self.identifier_to_database_and_table(identifier)
         url = f"{self._uri}/v1/databases/{database}/tables/{table}"
-        logger.info("Calling load_table for table: %s.%s", database, table)
 
         response = self._session.get(url, timeout=self._timeout)
         if not response.ok:
@@ -88,7 +87,6 @@ class OpenHouseCatalog(Catalog):
         metadata_file = file_io.new_input(metadata_location)
         metadata = FromInputFile.table_metadata(metadata_file)
 
-        logger.debug("Calling load_table succeeded")
         return Table(
             identifier=(database, table),
             metadata=metadata,
