@@ -21,7 +21,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v5
 
       - name: Build with Gradle
-        run: ./gradlew clean build
+        run: ./gradlew clean build downloadOtelAgent
 
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
