@@ -601,7 +601,7 @@ public class TablesServiceTest {
 
     Mockito.when(
             authorizationHandler.checkAccessDecision(
-                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
+                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
         .thenReturn(false);
     Assertions.assertThrows(
         AccessDeniedException.class,
@@ -610,7 +610,7 @@ public class TablesServiceTest {
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
     Mockito.when(
             authorizationHandler.checkAccessDecision(
-                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
+                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
         .thenReturn(true);
     tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }

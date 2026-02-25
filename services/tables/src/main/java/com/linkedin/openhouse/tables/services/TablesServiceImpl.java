@@ -205,7 +205,7 @@ public class TablesServiceImpl implements TablesService {
     if (!tableDto.isPresent()) {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
-    authorizationUtils.checkTableWritePathPrivileges(
+    authorizationUtils.checkTableDropPrivilege(
         tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
 
     openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
