@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from pyiceberg.catalog import Catalog
 from requests import HTTPError
-from tenacity import RetryCallState, Retrying, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
@@ -15,16 +15,6 @@ from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
 
 logger = logging.getLogger(__name__)
-
-
-def _log_retry(retry_state: RetryCallState) -> None:
-    """Log a warning before each retry sleep."""
-    logger.warning(
-        "Retry attempt %d failed; retrying after error: %s",
-        retry_state.attempt_number,
-        retry_state.outcome.exception(),
-        exc_info=retry_state.outcome.exception(),
-    )
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -45,7 +35,6 @@ def _retry[T](fn: Callable[[], T], label: str) -> T:
         retry=retry_if_exception(_is_transient),
         stop=stop_after_attempt(3),
         wait=wait_exponential(),
-        before_sleep=_log_retry,
         reraise=True,
     ):
         with attempt, log_duration(logger, "%s (attempt %d)", label, attempt.retry_state.attempt_number):
