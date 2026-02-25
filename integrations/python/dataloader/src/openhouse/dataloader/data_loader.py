@@ -101,7 +101,7 @@ class OpenHouseDataLoader:
         table = _retry(
             lambda: self._catalog.load_table((self._table.database, self._table.table)),
             label=f"load_table {self._table}",
-            max_retries=self._max_retries,
+            max_attempts=self._max_attempts,
         )
 
         row_filter = _to_pyiceberg(self._filters)
@@ -121,7 +121,9 @@ class OpenHouseDataLoader:
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
         # Manifests are read in parallel with one thread per manifest
-        scan_tasks = _retry(lambda: scan.plan_files(), label=f"plan_files {self._table}", max_retries=self._max_retries)
+        scan_tasks = _retry(
+            lambda: scan.plan_files(), label=f"plan_files {self._table}", max_attempts=self._max_attempts
+        )
 
         for scan_task in scan_tasks:
             yield DataLoaderSplit(
