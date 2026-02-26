@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
@@ -224,17 +225,31 @@ public final class TableStatsCollectorUtil {
     long numOfObjectsInDirectory = 0;
     Path tableRootPath = new Path(table.location());
     try {
+      // Pre-compute hidden directory prefixes to avoid per-file parent traversal
+      List<String> hiddenDirPrefixes = new ArrayList<>();
+      for (FileStatus child : fs.listStatus(tableRootPath)) {
+        if (child.isDirectory() && child.getPath().getName().startsWith(".")) {
+          hiddenDirPrefixes.add(child.getPath().toString() + "/");
+        }
+      }
+
       RemoteIterator<LocatedFileStatus> it = fs.listFiles(tableRootPath, true);
       while (it.hasNext()) {
         LocatedFileStatus status = it.next();
         // Skip files under hidden directories (starting with '.') at the table root level,
         // e.g. .backup, .trash
-        Path child = status.getPath();
-        while (child.getParent() != null && !child.getParent().equals(tableRootPath)) {
-          child = child.getParent();
-        }
-        if (child.getName().startsWith(".")) {
-          continue;
+        if (!hiddenDirPrefixes.isEmpty()) {
+          String filePath = status.getPath().toString();
+          boolean isUnderHiddenDir = false;
+          for (String prefix : hiddenDirPrefixes) {
+            if (filePath.startsWith(prefix)) {
+              isUnderHiddenDir = true;
+              break;
+            }
+          }
+          if (isUnderHiddenDir) {
+            continue;
+          }
         }
         numOfObjectsInDirectory++;
         sumOfTotalDirectorySizeInBytes += status.getLen();
