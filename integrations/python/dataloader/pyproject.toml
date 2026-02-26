@@ -13,7 +13,7 @@ keywords = ["openhouse", "data-loader", "lakehouse", "iceberg", "datafusion"]
 dependencies = ["datafusion==51.0.0", "pyiceberg~=0.11.0", "requests>=2.31.0", "tenacity>=8.0.0"]
 
 [project.optional-dependencies]
-dev = ["responses>=0.25.0", "ruff>=0.9.0", "pytest>=8.0.0", "twine>=6.0.0"]
+dev = ["responses>=0.25.0", "ruff>=0.9.0", "pytest>=8.0.0", "twine>=6.0.0", "mypy>=1.14.0", "types-requests>=2.31.0"]
 
 [tool.hatch.version]
 source = "vcs"
@@ -21,6 +21,16 @@ raw-options = { root = "../../.." }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openhouse"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["datafusion.*", "pyiceberg.*", "pyarrow.*", "tenacity.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120
