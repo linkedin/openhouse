@@ -30,6 +30,7 @@ BASE_URL = "http://localhost:8000"
 DATABASE_ID = "d_e2e"
 TABLE_ID_EMPTY = "t_empty"
 TABLE_ID_DATA = "t_data"
+TABLE_ID_SNAPSHOT = "t_snapshot"
 CONTAINER_NAME = "oh-only-openhouse-tables-1"
 
 COL_ID = "id"
@@ -49,6 +50,22 @@ EXPECTED_DATA = pa.table(
         COL_ID: pa.array([1, 2, 3], type=pa.int64()),
         COL_NAME: pa.array(["alice", "bob", "charlie"], type=pa.string()),
         COL_SCORE: pa.array([1.1, 2.2, 3.3], type=pa.float64()),
+    }
+)
+
+SNAPSHOT_BATCH_1 = pa.table(
+    {
+        COL_ID: pa.array([1, 2], type=pa.int64()),
+        COL_NAME: pa.array(["alice", "bob"], type=pa.string()),
+        COL_SCORE: pa.array([1.1, 2.2], type=pa.float64()),
+    }
+)
+
+SNAPSHOT_BATCH_2 = pa.table(
+    {
+        COL_ID: pa.array([3, 4], type=pa.int64()),
+        COL_NAME: pa.array(["charlie", "diana"], type=pa.string()),
+        COL_SCORE: pa.array([3.3, 4.4], type=pa.float64()),
     }
 )
 
@@ -124,13 +141,13 @@ class _LocalCommitCatalog(NoopCatalog):
         return CommitTableResponse(metadata=new_metadata, metadata_location=table.metadata_location)
 
 
-def _append_data(token: str, table_id: str, df: pa.Table) -> str:
+def _append_data(token: str, table_id: str, df: pa.Table, metadata_path: str | None = None) -> str:
     """Write data to an OpenHouse table using PyIceberg.
 
-    Fetches the table metadata from the Docker container, writes Parquet
-    data files and manifests to the host via PyIceberg's append API, then
-    writes the updated metadata (with the new snapshot) to the host path
-    that the OpenHouseCatalog will read.
+    On the first call, fetches table metadata from the Docker container.
+    On subsequent calls, pass the *metadata_path* returned by the previous
+    call so the function reads the already-updated host metadata (which
+    contains prior snapshots the container doesn't know about).
 
     Returns the host filesystem path to the metadata file.
     """
@@ -138,19 +155,24 @@ def _append_data(token: str, table_id: str, df: pa.Table) -> str:
     host_metadata_dir = os.path.dirname(container_metadata_path)
     os.makedirs(host_metadata_dir, exist_ok=True)
 
-    # Copy metadata from container to a temp file (not the final path)
-    tmp_metadata = container_metadata_path + ".tmp"
-    container_name = os.environ.get("OH_CONTAINER", CONTAINER_NAME)
-    result = subprocess.run(
-        ["docker", "cp", f"{container_name}:{container_metadata_path}", tmp_metadata],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, f"docker cp failed: {result.stderr}"
+    if metadata_path and os.path.exists(metadata_path):
+        # Re-use the host metadata written by a previous _append_data call
+        io = load_file_io(properties={}, location=metadata_path)
+        metadata = FromInputFile.table_metadata(io.new_input(metadata_path))
+    else:
+        # First append: copy metadata from the Docker container
+        tmp_metadata = container_metadata_path + ".tmp"
+        container_name = os.environ.get("OH_CONTAINER", CONTAINER_NAME)
+        result = subprocess.run(
+            ["docker", "cp", f"{container_name}:{container_metadata_path}", tmp_metadata],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"docker cp failed: {result.stderr}"
 
-    io = load_file_io(properties={}, location=tmp_metadata)
-    metadata = FromInputFile.table_metadata(io.new_input(tmp_metadata))
-    os.remove(tmp_metadata)
+        io = load_file_io(properties={}, location=tmp_metadata)
+        metadata = FromInputFile.table_metadata(io.new_input(tmp_metadata))
+        os.remove(tmp_metadata)
 
     table_io = load_file_io({**metadata.properties}, location=metadata.location)
     table = Table(
@@ -163,7 +185,7 @@ def _append_data(token: str, table_id: str, df: pa.Table) -> str:
     table.append(df)
 
     # Write the updated metadata (with snapshot) to the path the OpenHouseCatalog expects
-    ToOutputFile.table_metadata(table.metadata, table_io.new_output(container_metadata_path))
+    ToOutputFile.table_metadata(table.metadata, table_io.new_output(container_metadata_path), overwrite=True)
     print(f"Wrote {df.num_rows} rows and updated metadata at {container_metadata_path}")
     return container_metadata_path
 
@@ -246,6 +268,46 @@ def test_empty_table(catalog: OpenHouseCatalog) -> None:
     print("Table property verified: myProp=hello")
 
 
+def _load_rows(catalog: OpenHouseCatalog, table_id: str, **kwargs) -> pa.Table:
+    """Load all rows from a table and return a sorted Arrow table."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=table_id, **kwargs)
+    batches = [batch for split in loader for batch in split]
+    if not batches:
+        return pa.table({})
+    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
+    return result.sort_by(COL_ID)
+
+
+def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: int, snap2: int) -> None:
+    """Load with snapshot_id=snap1 returns only the first batch of data."""
+    result = _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=snap1)
+    assert result.num_rows == 2, f"Expected 2 rows at snapshot 1, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [1, 2]
+    print(f"snapshot_id={snap1} correctly returned {result.num_rows} rows (batch 1 only)")
+
+    result = _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=snap2)
+    assert result.num_rows == 4, f"Expected 4 rows at snapshot 2, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
+    print(f"snapshot_id={snap2} correctly returned {result.num_rows} rows (both batches)")
+
+
+def test_snapshot_id_with_filters(catalog: OpenHouseCatalog, snap2: int) -> None:
+    """snapshot_id works alongside row filters."""
+    result = _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=snap2, filters=col(COL_ID) > 2)
+    assert result.num_rows == 2, f"Expected 2 filtered rows at snapshot 2, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [3, 4]
+    print(f"snapshot_id={snap2} with filter correctly returned {result.num_rows} rows")
+
+
+def test_snapshot_id_invalid(catalog: OpenHouseCatalog) -> None:
+    """Loading with a non-existent snapshot_id raises an error."""
+    try:
+        _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=-1)
+        raise AssertionError("Expected an error for invalid snapshot_id")
+    except Exception as e:
+        print(f"Invalid snapshot_id correctly raised {type(e).__name__}: {e}")
+
+
 def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:
     """Check that loading a nonexistent table raises NoSuchTableError."""
     try:
@@ -287,6 +349,34 @@ if __name__ == "__main__":
         test_table_with_data_selected_columns(catalog)
     finally:
         _cleanup_table(token_str, TABLE_ID_DATA, data_metadata_path)
+
+    # --- Snapshot ID ---
+    snapshot_metadata_path = None
+    try:
+        _create_table(
+            token_str,
+            TABLE_ID_SNAPSHOT,
+            TABLE_SCHEMA,
+            tableProperties={"write.format.default": "parquet"},
+        )
+        snapshot_metadata_path = _append_data(token_str, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_1)
+        table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
+        snap1 = table.metadata.current_snapshot_id
+
+        snapshot_metadata_path = _append_data(
+            token_str, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_2, metadata_path=snapshot_metadata_path
+        )
+        table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
+        snap2 = table.metadata.current_snapshot_id
+
+        assert snap1 != snap2, f"Expected different snapshot IDs, got {snap1} for both"
+        print(f"Snapshot IDs: snap1={snap1}, snap2={snap2}")
+
+        test_snapshot_id_returns_data_at_snapshot(catalog, snap1, snap2)
+        test_snapshot_id_with_filters(catalog, snap2)
+        test_snapshot_id_invalid(catalog)
+    finally:
+        _cleanup_table(token_str, TABLE_ID_SNAPSHOT, snapshot_metadata_path)
 
     # --- Empty table ---
     try:
