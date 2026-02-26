@@ -32,6 +32,7 @@ seamlessly define Tables, their schemas, and associated metadata declaratively w
 OpenHouse reconciles the observed state of Tables with the desired state by orchestrating various
 data services.
 
+
 <html>
   <div align="center">
     <img src="docs/images/openhouse-controlplane.jpeg">
