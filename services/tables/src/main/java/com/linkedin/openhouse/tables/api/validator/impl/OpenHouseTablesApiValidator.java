@@ -14,8 +14,11 @@ import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
@@ -28,6 +31,25 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class OpenHouseTablesApiValidator implements TablesApiValidator {
+
+  private static final Set<String> MEMBER_ID_CONTAINS_PATTERNS =
+      Collections.unmodifiableSet(
+          new HashSet<>(
+              Arrays.asList(
+                  "actorid",
+                  "customerid",
+                  "destid",
+                  "entityid",
+                  "memberid",
+                  "profileid",
+                  "recipientid",
+                  "recommenderid",
+                  "reporterid",
+                  "senderid",
+                  "sourceid",
+                  "viewerid")));
+
+  private static final Set<String> MEMBER_ID_EXACT_PATTERNS = Collections.singleton("mid");
 
   @Autowired private Validator validator;
 
@@ -106,6 +128,9 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     validationFailures.addAll(validateUUIDForReplicaTable(createUpdateTableRequestBody));
     validationFailures.addAll(
         validateUpdateTimestampForReplicatedTable(createUpdateTableRequestBody));
+    if (createUpdateTableRequestBody.getSchema() != null) {
+      validateMemberIdColumnTypes(createUpdateTableRequestBody.getSchema(), validationFailures);
+    }
 
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
@@ -257,6 +282,9 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
         createUpdateTableRequestBody.getSortOrder(),
         createUpdateTableRequestBody.getSchema(),
         validationFailures);
+    if (createUpdateTableRequestBody.getSchema() != null) {
+      validateMemberIdColumnTypes(createUpdateTableRequestBody.getSchema(), validationFailures);
+    }
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
@@ -402,6 +430,41 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
         validationFailures.add(
             String.format("sortOrder : provided %s is not a valid sort order", sortOrder));
       }
+    }
+  }
+
+  /**
+   * Validates that Iceberg table schemas do not use INTEGER type for member identity columns.
+   * Member IDs will exceed 32-bit int max — all must use LONG. See go/project-2b.
+   */
+  private void validateMemberIdColumnTypes(String schemaJson, List<String> validationFailures) {
+    try {
+      Schema icebergSchema = getSchemaFromSchemaJson(schemaJson);
+      for (org.apache.iceberg.types.Types.NestedField column : icebergSchema.columns()) {
+        if (column.type().typeId() == org.apache.iceberg.types.Type.TypeID.INTEGER) {
+          String normalized = column.name().toLowerCase().replace("_", "");
+          if (MEMBER_ID_EXACT_PATTERNS.contains(normalized)) {
+            validationFailures.add(
+                String.format(
+                    "schema : column '%s' uses INTEGER type for a member identity field. "
+                        + "Use LONG instead to avoid overflow. See go/project-2b for details.",
+                    column.name()));
+          } else {
+            for (String pattern : MEMBER_ID_CONTAINS_PATTERNS) {
+              if (normalized.contains(pattern)) {
+                validationFailures.add(
+                    String.format(
+                        "schema : column '%s' uses INTEGER type for a member identity field. "
+                            + "Use LONG instead to avoid overflow. See go/project-2b for details.",
+                        column.name()));
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      // Schema parsing is already validated elsewhere; skip member ID check if unparseable
     }
   }
 }
