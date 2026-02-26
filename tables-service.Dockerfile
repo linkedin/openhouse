@@ -35,8 +35,9 @@ RUN ls $APP_NAME.jar
 
 COPY run.sh .
 
-# OpenTelemetry Java Agent for distributed tracing (copied after JAR rename to avoid collision)
-COPY build/otel/opentelemetry-javaagent.jar otel/opentelemetry-javaagent.jar
+# OpenTelemetry Java Agent for distributed tracing (optional; run.sh attaches it only if present).
+# The [r] glob trick makes COPY a no-op when the file is absent, avoiding a hard build failure.
+COPY build/otel/opentelemetry-javaagent.ja[r] otel/
 
 # Ensure that everything in $USER_HOME is owned by openhouse user
 RUN chown -R openhouse:openhouse $USER_HOME
