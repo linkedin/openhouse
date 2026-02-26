@@ -9,10 +9,13 @@ metadata is then written to the path that OpenHouseCatalog reads from.
 Only Parquet is tested because PyIceberg does not support ORC writes.
 """
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 import pyarrow as pa
 import requests

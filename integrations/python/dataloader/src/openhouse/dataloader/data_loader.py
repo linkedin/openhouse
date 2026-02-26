@@ -117,6 +117,10 @@ class OpenHouseDataLoader:
 
         scan = table.scan(**scan_kwargs)
 
+        snapshot = scan.snapshot()
+        if snapshot:
+            logger.info("Using snapshot %d for table %s", snapshot.snapshot_id, self._table)
+
         scan_context = TableScanContext(
             table_metadata=table.metadata,
             io=table.io,
@@ -127,7 +131,7 @@ class OpenHouseDataLoader:
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
         # Manifests are read in parallel with one thread per manifest
         scan_tasks = _retry(
-            lambda: scan.plan_files(), label=f"plan_files {self._table}", max_attempts=self._max_attempts
+            lambda: scan.plan_files(), label=f"plan_files for table {self._table}", max_attempts=self._max_attempts
         )
 
         for scan_task in scan_tasks:
