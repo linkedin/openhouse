@@ -252,3 +252,54 @@ def test_retries_exhausted_reraises():
         list(loader)
 
     assert catalog.load_table.call_count == 3
+
+
+# --- snapshot_id tests ---
+
+
+def test_snapshot_id_passed_to_scan(tmp_path):
+    """snapshot_id is forwarded to table.scan() when provided."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", snapshot_id=42)
+    list(loader)
+
+    mock_table.scan.assert_called_once()
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert scan_kwargs["snapshot_id"] == 42
+
+
+def test_snapshot_id_not_passed_when_none(tmp_path):
+    """snapshot_id is omitted from scan kwargs when not provided."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    list(loader)
+
+    mock_table.scan.assert_called_once()
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert "snapshot_id" not in scan_kwargs
+
+
+def test_snapshot_id_with_columns_and_filters(tmp_path):
+    """snapshot_id works alongside columns and filters."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        snapshot_id=99,
+        columns=[COL_ID],
+        filters=col(COL_ID) == 1,
+    )
+    list(loader)
+
+    mock_table.scan.assert_called_once()
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert scan_kwargs["snapshot_id"] == 99
+    assert scan_kwargs["selected_fields"] == (COL_ID,)
+    assert "row_filter" in scan_kwargs

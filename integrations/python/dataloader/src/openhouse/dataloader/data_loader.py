@@ -69,6 +69,7 @@ class OpenHouseDataLoader:
         database: str,
         table: str,
         branch: str | None = None,
+        snapshot_id: int | None = None,
         columns: Sequence[str] | None = None,
         filters: Filter | None = None,
         context: DataLoaderContext | None = None,
@@ -80,6 +81,7 @@ class OpenHouseDataLoader:
             database: Database name
             table: Table name
             branch: Optional branch name
+            snapshot_id: Optional snapshot ID for time-travel reads
             columns: Column names to load, or None to load all columns
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
@@ -87,6 +89,7 @@ class OpenHouseDataLoader:
         """
         self._catalog = catalog
         self._table = TableIdentifier(database, table, branch)
+        self._snapshot_id = snapshot_id
         self._columns = columns
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
@@ -107,6 +110,8 @@ class OpenHouseDataLoader:
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
+        if self._snapshot_id is not None:
+            scan_kwargs["snapshot_id"] = self._snapshot_id
         if self._columns:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
