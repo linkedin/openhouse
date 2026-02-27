@@ -356,6 +356,41 @@ public class JobsSchedulerTest {
   }
 
   @Test
+  public void testGracefulShutdownDrainsRemainingFutures() {
+    JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
+    JobsScheduler scheduler = createJobsScheduler(jobType);
+    Arrays.stream(JobState.values()).forEach(s -> scheduler.getJobStateCountMap().put(s, 0));
+
+    List<OperationTask<?>> tasks = new ArrayList<>();
+    List<Future<Optional<JobState>>> futures = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      OperationTask<?> task = Mockito.mock(OperationTask.class);
+      Mockito.when(task.getJobId()).thenReturn("job-" + i);
+      tasks.add(task);
+      futures.add(new CompletableFuture<>()); // never completed
+    }
+
+    // Initiate graceful shutdown before polling futures
+    scheduler.initiateGracefulShutdown();
+
+    // updateJobStateFromTaskFutures should detect shutdown and drain/cancel futures
+    scheduler.updateJobStateFromTaskFutures(
+        jobType,
+        scheduler.getJobExecutors(),
+        tasks,
+        futures,
+        System.currentTimeMillis(),
+        12,
+        false);
+
+    Assertions.assertEquals(3, scheduler.getJobStateCountMap().get(JobState.CANCELLED));
+    for (Future<Optional<JobState>> f : futures) {
+      Assertions.assertTrue(f.isCancelled());
+    }
+    shutDownJobScheduler(scheduler);
+  }
+
+  @Test
   void testRegistryIsInitialized() {
     // This test is designed to fail if the JobsScheduler class cannot be initialized.
     // The static initializer block in JobsScheduler performs a reflective scan of OperationTask
