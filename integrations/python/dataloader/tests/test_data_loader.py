@@ -111,6 +111,22 @@ def _materialize(loader: OpenHouseDataLoader) -> pa.Table:
     return pa.Table.from_batches(batches) if batches else pa.table({})
 
 
+def test_table_properties_returns_metadata_properties(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    assert loader.table_properties == catalog.load_table.return_value.metadata.properties
+
+
+def test_snapshot_id_returns_current_snapshot_id(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    assert loader.snapshot_id == catalog.load_table.return_value.metadata.current_snapshot_id
+
+
 def test_iter_returns_all_columns_when_no_selection(tmp_path):
     catalog = _make_real_catalog(tmp_path)
 
@@ -197,10 +213,8 @@ def test_load_table_does_not_retry_on_4xx_http_error():
     catalog = MagicMock()
     catalog.load_table.side_effect = _make_http_error(404)
 
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-
     with pytest.raises(HTTPError):
-        list(loader)
+        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
 
     catalog.load_table.assert_called_once()
 
@@ -210,10 +224,8 @@ def test_does_not_retry_non_transient_error():
     catalog = MagicMock()
     catalog.load_table.side_effect = ValueError("bad argument")
 
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-
     with pytest.raises(ValueError, match="bad argument"):
-        list(loader)
+        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
 
     catalog.load_table.assert_called_once()
 
@@ -246,9 +258,7 @@ def test_retries_exhausted_reraises():
     catalog = MagicMock()
     catalog.load_table.side_effect = OSError("persistent failure")
 
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-
     with pytest.raises(OSError, match="persistent failure"):
-        list(loader)
+        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
 
     assert catalog.load_table.call_count == 3
