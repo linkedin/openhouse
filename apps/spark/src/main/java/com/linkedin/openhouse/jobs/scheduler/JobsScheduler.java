@@ -249,12 +249,19 @@ public class JobsScheduler {
             jobInfoManager,
             tasksBuilder,
             otelEmitter);
+    Thread mainThread = Thread.currentThread();
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(
                 () -> {
                   log.info("SIGTERM received, initiating graceful shutdown of scheduler...");
                   app.initiateGracefulShutdown();
+                  try {
+                    mainThread.join(120_000);
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                  }
+                  log.info("Shutdown hook completed.");
                 }));
     app.run(
         operationType,
