@@ -15,8 +15,6 @@ import shutil
 import subprocess
 import sys
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-
 import pyarrow as pa
 import requests
 from pyiceberg.catalog.noop import NoopCatalog
@@ -28,6 +26,8 @@ from pyiceberg.table import CommitTableResponse, Table, update_table_metadata
 from openhouse.dataloader import OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.filters import col
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 BASE_URL = "http://localhost:8000"
 DATABASE_ID = "d_e2e"
@@ -271,24 +271,18 @@ def test_empty_table(catalog: OpenHouseCatalog) -> None:
     print("Table property verified: myProp=hello")
 
 
-def _load_rows(catalog: OpenHouseCatalog, table_id: str, **kwargs) -> pa.Table:
-    """Load all rows from a table and return a sorted Arrow table."""
-    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=table_id, **kwargs)
-    batches = [batch for split in loader for batch in split]
-    if not batches:
-        return pa.table({})
-    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
-    return result.sort_by(COL_ID)
-
-
 def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: int, snap2: int) -> None:
     """Load with snapshot_id=snap1 returns only the first batch of data."""
-    result = _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=snap1)
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap1)
+    batches = [batch for split in loader for batch in split]
+    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
     assert result.num_rows == 2, f"Expected 2 rows at snapshot 1, got {result.num_rows}"
     assert result.column(COL_ID).to_pylist() == [1, 2]
     print(f"snapshot_id={snap1} correctly returned {result.num_rows} rows (batch 1 only)")
 
-    result = _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=snap2)
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2)
+    batches = [batch for split in loader for batch in split]
+    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
     assert result.num_rows == 4, f"Expected 4 rows at snapshot 2, got {result.num_rows}"
     assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
     print(f"snapshot_id={snap2} correctly returned {result.num_rows} rows (both batches)")
@@ -296,7 +290,11 @@ def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: 
 
 def test_snapshot_id_with_filters(catalog: OpenHouseCatalog, snap2: int) -> None:
     """snapshot_id works alongside row filters."""
-    result = _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=snap2, filters=col(COL_ID) > 2)
+    loader = OpenHouseDataLoader(
+        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2, filters=col(COL_ID) > 2
+    )
+    batches = [batch for split in loader for batch in split]
+    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
     assert result.num_rows == 2, f"Expected 2 filtered rows at snapshot 2, got {result.num_rows}"
     assert result.column(COL_ID).to_pylist() == [3, 4]
     print(f"snapshot_id={snap2} with filter correctly returned {result.num_rows} rows")
@@ -305,7 +303,8 @@ def test_snapshot_id_with_filters(catalog: OpenHouseCatalog, snap2: int) -> None
 def test_snapshot_id_invalid(catalog: OpenHouseCatalog) -> None:
     """Loading with a non-existent snapshot_id raises an error."""
     try:
-        _load_rows(catalog, TABLE_ID_SNAPSHOT, snapshot_id=-1)
+        loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=-1)
+        list(loader)
         raise AssertionError("Expected an error for invalid snapshot_id")
     except Exception as e:
         print(f"Invalid snapshot_id correctly raised {type(e).__name__}: {e}")
