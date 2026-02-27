@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Iterator, Mapping, Sequence
 from types import MappingProxyType
 
@@ -11,9 +12,12 @@ from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
+from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.filters import _quote_identifier
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+
+logger = logging.getLogger(__name__)
 
 
 def to_sql_identifier(table_id: TableIdentifier) -> str:
@@ -92,10 +96,11 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
 
-        batches = arrow_scan.to_record_batches(
-            self._file_scan_tasks,
-            order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
-        )
+        with log_duration(logger, "to_record_batches %s", self.id):
+            batches = arrow_scan.to_record_batches(
+                self._file_scan_tasks,
+                order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
+            )
 
         if self._transform_sql is None:
             yield from batches
