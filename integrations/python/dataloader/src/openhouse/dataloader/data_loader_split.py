@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator, Mapping
 
 from datafusion.plan import LogicalPlan
@@ -8,7 +9,10 @@ from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
+from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class DataLoaderSplit:
@@ -44,4 +48,5 @@ class DataLoaderSplit:
             projected_schema=ctx.projected_schema,
             row_filter=ctx.row_filter,
         )
-        yield from arrow_scan.to_record_batches([self._file_scan_task])
+        with log_duration(logger, "to_record_batches %s", self._file_scan_task.file.file_path):
+            yield from arrow_scan.to_record_batches([self._file_scan_task])
