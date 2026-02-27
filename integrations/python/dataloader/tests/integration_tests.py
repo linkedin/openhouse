@@ -144,13 +144,12 @@ class _LocalCommitCatalog(NoopCatalog):
         return CommitTableResponse(metadata=new_metadata, metadata_location=table.metadata_location)
 
 
-def _append_data(token: str, table_id: str, df: pa.Table, metadata_path: str | None = None) -> str:
-    """Write data to an OpenHouse table using PyIceberg.
+def _append_data(token: str, table_id: str, df: pa.Table) -> str:
+    """Append rows to an OpenHouse table and write updated metadata to the host.
 
-    On the first call, fetches table metadata from the Docker container.
-    On subsequent calls, pass the *metadata_path* returned by the previous
-    call so the function reads the already-updated host metadata (which
-    contains prior snapshots the container doesn't know about).
+    Reads the current table metadata (from the host if a previous append already
+    wrote it there, otherwise copied from the Docker container), appends data
+    files via PyIceberg, and writes the new metadata back to the host.
 
     Returns the host filesystem path to the metadata file.
     """
@@ -158,14 +157,14 @@ def _append_data(token: str, table_id: str, df: pa.Table, metadata_path: str | N
     host_metadata_dir = os.path.dirname(container_metadata_path)
     os.makedirs(host_metadata_dir, exist_ok=True)
 
-    if metadata_path and os.path.exists(metadata_path):
-        # Re-use the host metadata written by a previous _append_data call
-        io = load_file_io(properties={}, location=metadata_path)
-        metadata = FromInputFile.table_metadata(io.new_input(metadata_path))
+    if os.path.exists(container_metadata_path):
+        # Host already has metadata from a previous append
+        io = load_file_io(properties={}, location=container_metadata_path)
+        metadata = FromInputFile.table_metadata(io.new_input(container_metadata_path))
     else:
         # First append: copy metadata from the Docker container
-        tmp_metadata = container_metadata_path + ".tmp"
         container_name = os.environ.get("OH_CONTAINER", CONTAINER_NAME)
+        tmp_metadata = container_metadata_path + ".tmp"
         result = subprocess.run(
             ["docker", "cp", f"{container_name}:{container_metadata_path}", tmp_metadata],
             capture_output=True,
@@ -271,6 +270,25 @@ def test_empty_table(catalog: OpenHouseCatalog) -> None:
     print("Table property verified: myProp=hello")
 
 
+def _setup_snapshot_table(token: str, catalog: OpenHouseCatalog) -> tuple[str, int, int]:
+    """Create a table with two snapshots: SNAPSHOT_BATCH_1 then SNAPSHOT_BATCH_2.
+
+    Returns (metadata_path, snap1, snap2).
+    """
+    _create_table(token, TABLE_ID_SNAPSHOT, TABLE_SCHEMA, tableProperties={"write.format.default": "parquet"})
+    metadata_path = _append_data(token, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_1)
+    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
+    snap1 = table.metadata.current_snapshot_id
+
+    metadata_path = _append_data(token, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_2)
+    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
+    snap2 = table.metadata.current_snapshot_id
+
+    assert snap1 != snap2, f"Expected different snapshot IDs, got {snap1} for both"
+    print(f"Snapshot IDs: snap1={snap1}, snap2={snap2}")
+    return metadata_path, snap1, snap2
+
+
 def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: int, snap2: int) -> None:
     """Load with snapshot_id=snap1 returns only the first batch of data."""
     loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap1)
@@ -355,25 +373,7 @@ if __name__ == "__main__":
     # --- Snapshot ID ---
     snapshot_metadata_path = None
     try:
-        _create_table(
-            token_str,
-            TABLE_ID_SNAPSHOT,
-            TABLE_SCHEMA,
-            tableProperties={"write.format.default": "parquet"},
-        )
-        snapshot_metadata_path = _append_data(token_str, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_1)
-        table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
-        snap1 = table.metadata.current_snapshot_id
-
-        snapshot_metadata_path = _append_data(
-            token_str, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_2, metadata_path=snapshot_metadata_path
-        )
-        table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
-        snap2 = table.metadata.current_snapshot_id
-
-        assert snap1 != snap2, f"Expected different snapshot IDs, got {snap1} for both"
-        print(f"Snapshot IDs: snap1={snap1}, snap2={snap2}")
-
+        snapshot_metadata_path, snap1, snap2 = _setup_snapshot_table(token_str, catalog)
         test_snapshot_id_returns_data_at_snapshot(catalog, snap1, snap2)
         test_snapshot_id_with_filters(catalog, snap2)
         test_snapshot_id_invalid(catalog)
