@@ -1121,12 +1121,6 @@ public class JobsScheduler {
       long remainingTimeMillis =
           TimeUnit.HOURS.toMillis(tasksWaitHours) - (System.currentTimeMillis() - startTimeMillis);
       if (remainingTimeMillis <= 0 || isShutdownInitiated) {
-        if (isShutdownInitiated) {
-          log.info(
-              "Shutdown signal received, draining {} remaining futures for job type: {}",
-              pending.size(),
-              jobType);
-        }
         drainRemainingFutures(
             jobType,
             executors,
