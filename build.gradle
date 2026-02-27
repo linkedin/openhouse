@@ -33,6 +33,7 @@ ext {
   iceberg_1_2_version = "1.2.0.6"
   iceberg_1_5_version = "1.5.2.7"
   otel_agent_version = "2.12.0" // Bundles OTel SDK 1.47.0
+  otel_annotations_version = "2.12.0" // Match agent version
 }
 
 // OpenTelemetry Java Agent for distributed tracing.
