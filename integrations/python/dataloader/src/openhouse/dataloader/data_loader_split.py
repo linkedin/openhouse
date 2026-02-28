@@ -48,5 +48,10 @@ class DataLoaderSplit:
             projected_schema=ctx.projected_schema,
             row_filter=ctx.row_filter,
         )
-        with log_duration(logger, "to_record_batches %s", self._file_scan_task.file.file_path):
-            yield from arrow_scan.to_record_batches([self._file_scan_task])
+        it = iter(arrow_scan.to_record_batches([self._file_scan_task]))
+        while True:
+            with log_duration(logger, "record_batch %s", self._file_scan_task.file.file_path):
+                batch = next(it, None)
+            if batch is None:
+                break
+            yield batch
