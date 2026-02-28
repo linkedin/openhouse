@@ -9,8 +9,12 @@ from openhouse.dataloader import OpenHouseDataLoader
 
 loader = OpenHouseDataLoader("my_database", "my_table")
 
+# Access table metadata
+loader.table_properties  # table properties as a dict
+loader.snapshot_id        # snapshot ID of the loaded table
+
 for split in loader:
-    # Get table properties
+    # Get table properties (also available per-split)
     split.table_properties
 
     # Load data
