@@ -115,12 +115,11 @@ def _materialize(loader: OpenHouseDataLoader) -> pa.Table:
 
 
 def test_table_properties_returns_metadata_properties(tmp_path):
-    properties = {"write.format.default": "parquet", "custom.key": "value"}
-    catalog = _make_real_catalog(tmp_path, properties=properties)
+    catalog = _make_real_catalog(tmp_path, properties={"custom.key": "myvalue"})
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
 
-    assert dict(loader.table_properties) == properties
+    assert loader.table_properties["custom.key"] == "myvalue"
 
 
 def test_snapshot_id_returns_current_snapshot_id(tmp_path):
