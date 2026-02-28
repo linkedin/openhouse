@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
@@ -93,7 +94,9 @@ class OpenHouseDataLoader:
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
 
-        self._iceberg_table = _retry(
+    @cached_property
+    def _iceberg_table(self):
+        return _retry(
             lambda: self._catalog.load_table((self._table_id.database, self._table_id.table)),
             label=f"load_table {self._table_id}",
             max_attempts=self._max_attempts,

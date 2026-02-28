@@ -217,8 +217,10 @@ def test_load_table_does_not_retry_on_4xx_http_error():
     catalog = MagicMock()
     catalog.load_table.side_effect = _make_http_error(404)
 
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
     with pytest.raises(HTTPError):
-        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+        list(loader)
 
     catalog.load_table.assert_called_once()
 
@@ -228,8 +230,10 @@ def test_does_not_retry_non_transient_error():
     catalog = MagicMock()
     catalog.load_table.side_effect = ValueError("bad argument")
 
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
     with pytest.raises(ValueError, match="bad argument"):
-        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+        list(loader)
 
     catalog.load_table.assert_called_once()
 
@@ -262,7 +266,9 @@ def test_retries_exhausted_reraises():
     catalog = MagicMock()
     catalog.load_table.side_effect = OSError("persistent failure")
 
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
     with pytest.raises(OSError, match="persistent failure"):
-        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+        list(loader)
 
     assert catalog.load_table.call_count == 3
