@@ -103,19 +103,23 @@ class DataLoaderSplit:
             )
 
         if self._transform_sql is None:
-            yield from batches
+            for batch in batches:
+                with log_duration(logger, "record_batch %s", self.id):
+                    yield batch
         else:
             # Materialize the first batch before creating the transform session
             # so that the HDFS JVM starts (and picks up worker_jvm_args) before
             # any UDF registration code can trigger JNI.
             batch_iter = iter(batches)
-            first = next(batch_iter, None)
+            with log_duration(logger, "record_batch %s", self.id):
+                first = next(batch_iter, None)
             if first is None:
                 return
             session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
             yield from self._apply_transform(session, first)
             for batch in batch_iter:
-                yield from self._apply_transform(session, batch)
+                with log_duration(logger, "record_batch %s", self.id):
+                    yield from self._apply_transform(session, batch)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
