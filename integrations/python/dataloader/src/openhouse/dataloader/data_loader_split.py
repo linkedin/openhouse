@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from types import MappingProxyType
 
 from datafusion.plan import LogicalPlan
 from pyarrow import RecordBatch
@@ -29,7 +30,7 @@ class DataLoaderSplit:
     @property
     def table_properties(self) -> Mapping[str, str]:
         """Properties of the table being loaded"""
-        return self._scan_context.table_metadata.properties
+        return MappingProxyType(self._scan_context.table_metadata.properties)
 
     def __iter__(self) -> Iterator[RecordBatch]:
         """Reads the file scan task and yields Arrow RecordBatches.

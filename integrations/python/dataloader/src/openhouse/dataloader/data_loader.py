@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
 from requests import HTTPError
@@ -101,7 +102,7 @@ class OpenHouseDataLoader:
     @property
     def table_properties(self) -> Mapping[str, str]:
         """Properties of the table being loaded"""
-        return self._iceberg_table.metadata.properties
+        return MappingProxyType(self._iceberg_table.metadata.properties)
 
     @property
     def snapshot_id(self) -> int | None:

@@ -61,7 +61,9 @@ def _write_parquet(tmp_path, data: dict) -> str:
     return file_path
 
 
-def _make_real_catalog(tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema = TEST_SCHEMA):
+def _make_real_catalog(
+    tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema = TEST_SCHEMA, properties: dict | None = None
+):
     """Create a mock catalog backed by real Parquet data.
 
     The catalog mock only stubs the catalog boundary. The table's metadata, io,
@@ -74,6 +76,7 @@ def _make_real_catalog(tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema 
         partition_spec=UNPARTITIONED_PARTITION_SPEC,
         sort_order=UNSORTED_SORT_ORDER,
         location=str(tmp_path),
+        properties=properties or {},
     )
     io = load_file_io(properties={}, location=file_path)
 
@@ -112,11 +115,12 @@ def _materialize(loader: OpenHouseDataLoader) -> pa.Table:
 
 
 def test_table_properties_returns_metadata_properties(tmp_path):
-    catalog = _make_real_catalog(tmp_path)
+    properties = {"write.format.default": "parquet", "custom.key": "value"}
+    catalog = _make_real_catalog(tmp_path, properties=properties)
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
 
-    assert loader.table_properties == catalog.load_table.return_value.metadata.properties
+    assert dict(loader.table_properties) == properties
 
 
 def test_snapshot_id_returns_current_snapshot_id(tmp_path):
