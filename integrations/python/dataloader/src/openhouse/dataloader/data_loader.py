@@ -111,7 +111,7 @@ class OpenHouseDataLoader:
         """Properties of the table being loaded"""
         return MappingProxyType(self._iceberg_table.metadata.properties)
 
-    @property
+    @cached_property
     def snapshot_id(self) -> int | None:
         """Snapshot ID of the loaded table, or None if the table has no snapshots"""
         return self._snapshot_id if self._snapshot_id is not None else self._iceberg_table.metadata.current_snapshot_id
@@ -127,8 +127,8 @@ class OpenHouseDataLoader:
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
-        if self._snapshot_id is not None:
-            scan_kwargs["snapshot_id"] = self._snapshot_id
+        if self.snapshot_id is not None:
+            scan_kwargs["snapshot_id"] = self.snapshot_id
         if self._columns:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
