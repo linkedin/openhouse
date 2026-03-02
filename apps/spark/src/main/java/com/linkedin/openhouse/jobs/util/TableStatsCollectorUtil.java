@@ -222,10 +222,18 @@ public final class TableStatsCollectorUtil {
     // location using filesystem call. This just replicates hdfs dfs -count and hdfs dfs -du -s.
     long sumOfTotalDirectorySizeInBytes = 0;
     long numOfObjectsInDirectory = 0;
+    Path tableRootPath = new Path(table.location());
+    String tableRootPrefix = tableRootPath.toString() + "/";
     try {
-      RemoteIterator<LocatedFileStatus> it = fs.listFiles(new Path(table.location()), true);
+      RemoteIterator<LocatedFileStatus> it = fs.listFiles(tableRootPath, true);
       while (it.hasNext()) {
         LocatedFileStatus status = it.next();
+        // Skip files under hidden directories (starting with '.') at the table root level,
+        // e.g. .backup, .trash
+        String relativePath = status.getPath().toString().substring(tableRootPrefix.length());
+        if (relativePath.startsWith(".")) {
+          continue;
+        }
         numOfObjectsInDirectory++;
         sumOfTotalDirectorySizeInBytes += status.getLen();
       }
