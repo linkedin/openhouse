@@ -6,6 +6,7 @@ from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
+from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
@@ -116,6 +117,15 @@ class OpenHouseDataLoader:
         """Snapshot ID of the loaded table, or None if the table has no snapshots"""
         return self._snapshot_id if self._snapshot_id is not None else self._iceberg_table.metadata.current_snapshot_id
 
+    def _verify_snapshot(self, snapshot: Snapshot | None) -> None:
+        """Log the resolved snapshot or raise if a user-provided snapshot_id was not found."""
+        if snapshot:
+            logger.info("Using snapshot %d for table %s", snapshot.snapshot_id, self._table_id)
+        elif self._snapshot_id is not None:
+            raise ValueError(f"Snapshot {self._snapshot_id} not found for table {self._table_id}")
+        else:
+            logger.info("No snapshot found for table %s", self._table_id)
+
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
 
@@ -134,13 +144,7 @@ class OpenHouseDataLoader:
 
         scan = table.scan(**scan_kwargs)
 
-        snapshot = scan.snapshot()
-        if snapshot:
-            logger.info("Using snapshot %d for table %s", snapshot.snapshot_id, self._table_id)
-        elif self._snapshot_id is not None:
-            raise ValueError(f"Snapshot {self._snapshot_id} not found for table {self._table_id}")
-        else:
-            logger.info("No snapshot found for table %s", self._table_id)
+        self._verify_snapshot(scan.snapshot())
 
         scan_context = TableScanContext(
             table_metadata=table.metadata,
