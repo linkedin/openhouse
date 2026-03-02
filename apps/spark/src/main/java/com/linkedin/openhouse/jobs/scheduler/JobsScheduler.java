@@ -92,6 +92,7 @@ public class JobsScheduler {
   private static final int JOB_SUBMISSION_PAUSE_IN_MILLIS_DEFAULT = 60000;
   private static final int SUBMIT_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 30;
   private static final int STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 15;
+  private static final long SHUTDOWN_GRACE_PERIOD_MS_DEFAULT = 120_000;
   private static final String DURATION_FORMAT_DEFAULT = "HH:mm";
   private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
@@ -250,6 +251,7 @@ public class JobsScheduler {
             tasksBuilder,
             otelEmitter);
     Thread mainThread = Thread.currentThread();
+    long shutdownGracePeriodMs = getShutdownGracePeriodMs(cmdLine);
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(
@@ -257,7 +259,7 @@ public class JobsScheduler {
                   log.info("SIGTERM received, initiating graceful shutdown of scheduler...");
                   app.initiateGracefulShutdown();
                   try {
-                    mainThread.join(120_000);
+                    mainThread.join(shutdownGracePeriodMs);
                   } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                   }
@@ -400,27 +402,10 @@ public class JobsScheduler {
         "The total run duration of job scheduler for job type {} is : {} hours (HH:mm format)",
         jobType,
         totalRunDuration);
-    jobExecutors.shutdown();
-    try {
-      if (!jobExecutors.awaitTermination(30, TimeUnit.SECONDS)) {
-        log.warn("jobExecutors did not terminate within 30s, forcing shutdown");
-        jobExecutors.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      jobExecutors.shutdownNow();
-      Thread.currentThread().interrupt();
-    }
+    // All futures have been drained/resolved by this point, so no active tasks remain.
+    jobExecutors.shutdownNow();
     if (statusExecutors != null) {
-      statusExecutors.shutdown();
-      try {
-        if (!statusExecutors.awaitTermination(30, TimeUnit.SECONDS)) {
-          log.warn("statusExecutors did not terminate within 30s, forcing shutdown");
-          statusExecutors.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        statusExecutors.shutdownNow();
-        Thread.currentThread().interrupt();
-      }
+      statusExecutors.shutdownNow();
     }
     otelEmitter.count(METRICS_SCOPE, "scheduler_end_count", 1, attributes);
     reportMetrics(jobStateCountMap, attributes, startTimeMillis);
@@ -662,6 +647,13 @@ public class JobsScheduler {
             .longOpt("statusOperationPreSlaGracePeriodInMinutes")
             .desc("Pre sla grace period in minutes to stop submitting new status check jobs")
             .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("shutdownGracePeriodMs")
+            .desc("Grace period in milliseconds to wait for in-flight work to complete on SIGTERM")
+            .build());
     CommandLineParser parser = new BasicParser();
     try {
       return parser.parse(options, args);
@@ -889,6 +881,12 @@ public class JobsScheduler {
     return CompletableFuture.runAsync(
             () -> {
               do {
+                if (isShutdownInitiated) {
+                  log.info(
+                      "Shutdown signal received, stopping status task submission for job type: {}",
+                      jobType);
+                  break;
+                }
                 try {
                   JobInfo jobInfo = jobInfoManager.getData();
                   log.debug("Received job info: {} from submitted job queue", jobInfo);
@@ -1081,6 +1079,13 @@ public class JobsScheduler {
     return STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT;
   }
 
+  protected static long getShutdownGracePeriodMs(CommandLine cmdLine) {
+    if (cmdLine.hasOption("shutdownGracePeriodMs")) {
+      return Long.parseLong(cmdLine.getOptionValue("shutdownGracePeriodMs"));
+    }
+    return SHUTDOWN_GRACE_PERIOD_MS_DEFAULT;
+  }
+
   protected static long getTaskPollIntervalMs(CommandLine cmdLine) {
     if (cmdLine.hasOption("taskPollIntervalMs")) {
       return Long.parseLong(cmdLine.getOptionValue("taskPollIntervalMs"));
@@ -1176,7 +1181,7 @@ public class JobsScheduler {
       boolean skipStateCountUpdate) {
     String reason =
         isShutdownInitiated
-            ? "graceful shutdown"
+            ? "Sigterm graceful shutdown"
             : String.format("SLA timeout of %d hours", tasksWaitHours);
     log.warn(
         "Draining {} remaining futures for job type: {} due to {}",

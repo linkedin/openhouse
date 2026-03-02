@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -239,7 +240,7 @@ public class JobsSchedulerTest {
    * Mocks jobsClient.launch() with a delay to simulate Livy submission time, returning unique job
    * IDs. Returns an AtomicInteger that tracks the number of launches.
    */
-  private AtomicInteger mockLaunchJobWithDelay(int delayMs) {
+  private AtomicInteger mockLaunchJobWithDelay(int delayMs, CountDownLatch launchLatch) {
     AtomicInteger launchCount = new AtomicInteger(0);
     Mockito.when(
             jobsClient.launch(
@@ -251,6 +252,9 @@ public class JobsSchedulerTest {
         .thenAnswer(
             invocation -> {
               launchCount.incrementAndGet();
+              if (launchLatch != null) {
+                launchLatch.countDown();
+              }
               Thread.sleep(delayMs);
               return Optional.of(UUID.randomUUID().toString());
             });
@@ -502,7 +506,8 @@ public class JobsSchedulerTest {
   public void testGracefulShutdownDuringExecution() throws InterruptedException {
     JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
     OtelEmitter mockOtelEmitter = createMockOtelEmitter();
-    AtomicInteger launchCount = mockLaunchJobWithDelay(300);
+    CountDownLatch launchLatch = new CountDownLatch(4);
+    AtomicInteger launchCount = mockLaunchJobWithDelay(300, launchLatch);
     mockStatusPolling(null, JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
 
     // Create scheduler with short poll interval (100ms) for faster status checks
@@ -548,10 +553,8 @@ public class JobsSchedulerTest {
                     15));
     schedulerThread.start();
 
-    // Wait for some jobs to launch, then trigger graceful shutdown
-    while (launchCount.get() < 4) {
-      Thread.sleep(50);
-    }
+    // Wait for 4 jobs to be launched, then trigger graceful shutdown
+    launchLatch.await(30, TimeUnit.SECONDS);
     scheduler.initiateGracefulShutdown();
 
     // Scheduler should exit cleanly
@@ -583,7 +586,8 @@ public class JobsSchedulerTest {
   public void testGracefulShutdownMultiOperationMode() throws InterruptedException {
     JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
     OtelEmitter mockOtelEmitter = createMockOtelEmitter();
-    AtomicInteger launchCount = mockLaunchJobWithDelay(300);
+    CountDownLatch launchLatch = new CountDownLatch(6);
+    AtomicInteger launchCount = mockLaunchJobWithDelay(300, launchLatch);
     mockStatusPolling(null, JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
 
     // Create scheduler with both job and status executors for multi-operation mode
@@ -630,10 +634,8 @@ public class JobsSchedulerTest {
                     15));
     schedulerThread.start();
 
-    // Wait for some jobs to launch, then trigger graceful shutdown
-    while (launchCount.get() < 4) {
-      Thread.sleep(50);
-    }
+    // Wait for 6 jobs to be launched, then trigger graceful shutdown
+    launchLatch.await(30, TimeUnit.SECONDS);
     scheduler.initiateGracefulShutdown();
 
     // Scheduler should exit cleanly. The status polling loop may block for up to 1s on the
