@@ -28,8 +28,6 @@ from openhouse.dataloader import OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.filters import col
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-
 BASE_URL = "http://localhost:8000"
 DATABASE_ID = "d_e2e"
 TABLE_ID_EMPTY = "t_empty"
@@ -349,6 +347,8 @@ def read_token(path: str) -> str:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
     if len(sys.argv) != 2:
         print("Usage: python integration_tests.py <token_file>")
         sys.exit(1)
