@@ -31,6 +31,7 @@ openApi {
 }
 
 dependencies {
+  compileOnly "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
   api project(':services:common')
   api project(':iceberg:openhouse:internalcatalog')
   api project(':client:hts')

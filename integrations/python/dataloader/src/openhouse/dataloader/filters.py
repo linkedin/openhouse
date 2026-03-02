@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -307,7 +308,20 @@ class Not(Filter):
 
 
 def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:
-    """Convert a Filter expression tree to a PyIceberg BooleanExpression."""
+    """Convert a Filter expression tree to a PyIceberg BooleanExpression.
+
+    PyIceberg constructors accept ``str`` for the ``term`` parameter at runtime
+    (auto-wrapped to ``UnboundTerm``), but the type stubs don't reflect this, so
+    we suppress type checking for the body of this function.
+    See https://github.com/apache/iceberg-python/issues/3101
+    """
+    result: ice.BooleanExpression = _to_pyiceberg_impl(expr)
+    return result
+
+
+# Separated so @no_type_check only applies to the pyiceberg interop, not the public signature.
+@typing.no_type_check
+def _to_pyiceberg_impl(expr: Filter) -> ice.BooleanExpression:
     match expr:
         case AlwaysTrue():
             return ice.AlwaysTrue()

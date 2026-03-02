@@ -12,6 +12,8 @@ plugins {
 dependencies {
   implementation 'com.github.spotbugs:spotbugs-annotations:4.8.1'
   api 'org.springframework.retry:spring-retry:1.3.3'
+  compileOnly "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
+  api 'io.opentelemetry:opentelemetry-api:1.47.0'
   api project(':client:hts')
   api project(':cluster:storage')
   api project(':cluster:metrics')

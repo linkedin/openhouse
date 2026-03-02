@@ -1,11 +1,12 @@
-.PHONY: help sync clean lint format format-check check test verify build package-check integration-tests
+.PHONY: help sync clean lint format format-check typecheck check test verify build package-check integration-tests
 
 help:
 	@echo "Available commands:"
 	@echo "  make sync          - Sync dependencies using uv"
 	@echo "  make lint          - Run ruff linter"
 	@echo "  make format        - Format code with ruff"
-	@echo "  make check         - Run all checks (lint + format check)"
+	@echo "  make typecheck     - Run mypy type checker"
+	@echo "  make check         - Run all checks (lint + format check + typecheck)"
 	@echo "  make test          - Run tests with pytest"
 	@echo "  make verify        - Run all checks and tests"
 	@echo "  make build         - Build package distributions"
@@ -24,7 +25,10 @@ format:
 format-check:
 	uv run ruff format --check src/ tests/
 
-check: lint format-check
+typecheck:
+	uv run mypy src/
+
+check: lint format-check typecheck
 
 test:
 	uv run pytest

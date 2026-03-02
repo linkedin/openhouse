@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Self
 
 import requests
 from pyiceberg.catalog import Catalog
@@ -55,13 +55,13 @@ class OpenHouseCatalog(Catalog):
         if ssl_ca_cert is not None:
             self._session.verify = ssl_ca_cert
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *_: Any):
+    def __exit__(self, *_: Any) -> None:
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         self._session.close()
 
     def load_table(self, identifier: str | Identifier) -> Table:

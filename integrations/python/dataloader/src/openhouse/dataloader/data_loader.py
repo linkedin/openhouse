@@ -1,8 +1,11 @@
 import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
+from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
+from pyiceberg.table import Table
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
@@ -88,12 +91,30 @@ class OpenHouseDataLoader:
             max_attempts: Total number of attempts including the initial try (default 3)
         """
         self._catalog = catalog
-        self._table = TableIdentifier(database, table, branch)
+        self._table_id = TableIdentifier(database, table, branch)
         self._snapshot_id = snapshot_id
         self._columns = columns
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
+
+    @cached_property
+    def _iceberg_table(self) -> Table:
+        return _retry(
+            lambda: self._catalog.load_table((self._table_id.database, self._table_id.table)),
+            label=f"load_table {self._table_id}",
+            max_attempts=self._max_attempts,
+        )
+
+    @property
+    def table_properties(self) -> Mapping[str, str]:
+        """Properties of the table being loaded"""
+        return MappingProxyType(self._iceberg_table.metadata.properties)
+
+    @property
+    def snapshot_id(self) -> int | None:
+        """Snapshot ID of the loaded table, or None if the table has no snapshots"""
+        return self._iceberg_table.metadata.current_snapshot_id
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -101,11 +122,7 @@ class OpenHouseDataLoader:
         Yields:
             DataLoaderSplit for each file scan task in the table
         """
-        table = _retry(
-            lambda: self._catalog.load_table((self._table.database, self._table.table)),
-            label=f"load_table {self._table}",
-            max_attempts=self._max_attempts,
-        )
+        table = self._iceberg_table
 
         row_filter = _to_pyiceberg(self._filters)
 
@@ -119,11 +136,11 @@ class OpenHouseDataLoader:
 
         snapshot = scan.snapshot()
         if snapshot:
-            logger.info("Using snapshot %d for table %s", snapshot.snapshot_id, self._table)
+            logger.info("Using snapshot %d for table %s", snapshot.snapshot_id, self._table_id)
         elif self._snapshot_id is not None:
-            raise ValueError(f"Snapshot {self._snapshot_id} not found for table {self._table}")
+            raise ValueError(f"Snapshot {self._snapshot_id} not found for table {self._table_id}")
         else:
-            logger.info("No snapshot found for table %s", self._table)
+            logger.info("No snapshot found for table %s", self._table_id)
 
         scan_context = TableScanContext(
             table_metadata=table.metadata,
@@ -135,7 +152,7 @@ class OpenHouseDataLoader:
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
         # Manifests are read in parallel with one thread per manifest
         scan_tasks = _retry(
-            lambda: scan.plan_files(), label=f"plan_files for table {self._table}", max_attempts=self._max_attempts
+            lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
         )
 
         for scan_task in scan_tasks:
