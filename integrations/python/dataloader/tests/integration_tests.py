@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 import pyarrow as pa
+import pytest
 import requests
 from pyiceberg.catalog.noop import NoopCatalog
 from pyiceberg.exceptions import NoSuchTableError
@@ -320,21 +321,17 @@ def test_snapshot_id_with_filters(catalog: OpenHouseCatalog, snap2: int) -> None
 
 def test_snapshot_id_invalid(catalog: OpenHouseCatalog) -> None:
     """Loading with a non-existent snapshot_id raises an error."""
-    try:
+    with pytest.raises(ValueError, match="Snapshot .* not found"):
         loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=-1)
         list(loader)
-        raise AssertionError("Expected an error for invalid snapshot_id")
-    except Exception as e:
-        print(f"Invalid snapshot_id correctly raised {type(e).__name__}: {e}")
+    print("Invalid snapshot_id correctly raised ValueError")
 
 
 def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:
     """Check that loading a nonexistent table raises NoSuchTableError."""
-    try:
+    with pytest.raises(NoSuchTableError):
         catalog.load_table(f"{DATABASE_ID}.nonexistent_table")
-        raise AssertionError("Expected NoSuchTableError")
-    except NoSuchTableError:
-        print("load_table correctly raised NoSuchTableError for nonexistent table")
+    print("load_table correctly raised NoSuchTableError for nonexistent table")
 
 
 def read_token(path: str) -> str:

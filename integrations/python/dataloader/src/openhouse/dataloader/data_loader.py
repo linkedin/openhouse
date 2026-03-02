@@ -120,6 +120,10 @@ class OpenHouseDataLoader:
         snapshot = scan.snapshot()
         if snapshot:
             logger.info("Using snapshot %d for table %s", snapshot.snapshot_id, self._table)
+        elif self._snapshot_id is not None:
+            raise ValueError(f"Snapshot {self._snapshot_id} not found for table {self._table}")
+        else:
+            logger.info("No snapshot found for table %s", self._table)
 
         scan_context = TableScanContext(
             table_metadata=table.metadata,
