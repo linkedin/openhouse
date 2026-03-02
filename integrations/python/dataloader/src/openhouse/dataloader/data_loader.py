@@ -114,7 +114,7 @@ class OpenHouseDataLoader:
     @property
     def snapshot_id(self) -> int | None:
         """Snapshot ID of the loaded table, or None if the table has no snapshots"""
-        return self._iceberg_table.metadata.current_snapshot_id
+        return self._snapshot_id if self._snapshot_id is not None else self._iceberg_table.metadata.current_snapshot_id
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
