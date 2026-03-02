@@ -5,6 +5,7 @@ from functools import cached_property
 from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
+from pyiceberg.table import Table
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
@@ -95,7 +96,7 @@ class OpenHouseDataLoader:
         self._max_attempts = max_attempts
 
     @cached_property
-    def _iceberg_table(self):
+    def _iceberg_table(self) -> Table:
         return _retry(
             lambda: self._catalog.load_table((self._table_id.database, self._table_id.table)),
             label=f"load_table {self._table_id}",
