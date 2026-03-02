@@ -180,8 +180,14 @@ def _cleanup_table(token: str, table_id: str, metadata_path: str | None = None) 
 
 
 def test_table_with_data(catalog: OpenHouseCatalog) -> None:
-    """Load a table with data. Check the data and a custom table property."""
+    """Load a table with data. Check the data, table properties, and snapshot ID."""
     loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA)
+
+    assert loader.table_properties.get("write.format.default") == "parquet"
+    print("Loader table_properties verified: write.format.default=parquet")
+
+    assert loader.snapshot_id is not None, "Expected a snapshot ID for a table with data"
+    print(f"Loader snapshot_id verified: {loader.snapshot_id}")
 
     batches = [batch for split in loader for batch in split]
     assert len(batches) > 0, "Expected at least one batch"
@@ -194,10 +200,6 @@ def test_table_with_data(catalog: OpenHouseCatalog) -> None:
     assert result.column(COL_NAME).to_pylist() == EXPECTED_DATA.column(COL_NAME).to_pylist()
     assert result.column(COL_SCORE).to_pylist() == EXPECTED_DATA.column(COL_SCORE).to_pylist()
     print(f"DataLoader read {result.num_rows} rows with correct values")
-
-    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_DATA}")
-    assert table.metadata.properties.get("write.format.default") == "parquet"
-    print("Table property verified: write.format.default=parquet")
 
 
 def test_table_with_data_row_filter(catalog: OpenHouseCatalog) -> None:
@@ -235,15 +237,18 @@ def test_table_with_data_selected_columns(catalog: OpenHouseCatalog) -> None:
 
 
 def test_empty_table(catalog: OpenHouseCatalog) -> None:
-    """Load a table without data. Check splits are empty and a custom table property."""
+    """Load a table without data. Check splits are empty, table properties, and snapshot ID."""
     loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_EMPTY)
+
+    assert loader.table_properties.get("myProp") == "hello"
+    print("Loader table_properties verified: myProp=hello")
+
+    assert loader.snapshot_id is None, f"Expected no snapshot ID for empty table, got {loader.snapshot_id}"
+    print("Loader snapshot_id verified: None (empty table)")
+
     splits = list(loader)
     assert splits == [], f"Expected no splits, got {len(splits)}"
     print("DataLoader correctly yielded no splits for empty table")
-
-    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_EMPTY}")
-    assert table.metadata.properties.get("myProp") == "hello"
-    print("Table property verified: myProp=hello")
 
 
 def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:

@@ -61,7 +61,9 @@ def _write_parquet(tmp_path, data: dict) -> str:
     return file_path
 
 
-def _make_real_catalog(tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema = TEST_SCHEMA):
+def _make_real_catalog(
+    tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema = TEST_SCHEMA, properties: dict | None = None
+):
     """Create a mock catalog backed by real Parquet data.
 
     The catalog mock only stubs the catalog boundary. The table's metadata, io,
@@ -74,6 +76,7 @@ def _make_real_catalog(tmp_path, data: dict = TEST_DATA, iceberg_schema: Schema 
         partition_spec=UNPARTITIONED_PARTITION_SPEC,
         sort_order=UNSORTED_SORT_ORDER,
         location=str(tmp_path),
+        properties=properties or {},
     )
     io = load_file_io(properties={}, location=file_path)
 
@@ -109,6 +112,22 @@ def _materialize(loader: OpenHouseDataLoader) -> pa.Table:
     """Iterate the loader and concatenate all splits into a single Arrow table."""
     batches = [batch for split in loader for batch in split]
     return pa.Table.from_batches(batches) if batches else pa.table({})
+
+
+def test_table_properties_returns_metadata_properties(tmp_path):
+    catalog = _make_real_catalog(tmp_path, properties={"custom.key": "myvalue"})
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    assert loader.table_properties["custom.key"] == "myvalue"
+
+
+def test_snapshot_id_returns_current_snapshot_id(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    assert loader.snapshot_id == catalog.load_table.return_value.metadata.current_snapshot_id
 
 
 def test_iter_returns_all_columns_when_no_selection(tmp_path):
