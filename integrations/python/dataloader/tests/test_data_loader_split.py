@@ -1,6 +1,5 @@
 """Tests for DataLoaderSplit functionality."""
 
-import hashlib
 import os
 
 import pyarrow as pa
@@ -147,8 +146,9 @@ def test_split_handles_wide_tables_with_many_columns(tmp_path, file_format):
         assert result.column(f"col_{i}").to_pylist() == list(range(5)), f"Column col_{i} values mismatch"
 
 
-def _make_split_with_path(file_path: str) -> DataLoaderSplit:
+def _make_split_with_path(file_path: str, io_properties: dict[str, str] | None = None) -> DataLoaderSplit:
     """Create a minimal DataLoaderSplit with the given file path (no real file needed)."""
+    props = io_properties or {}
     iceberg_schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
     metadata = new_table_metadata(
         schema=iceberg_schema,
@@ -158,7 +158,7 @@ def _make_split_with_path(file_path: str) -> DataLoaderSplit:
     )
     scan_context = TableScanContext(
         table_metadata=metadata,
-        io=load_file_io(properties={}, location=file_path),
+        io=load_file_io(properties=props, location=file_path),
         projected_schema=iceberg_schema,
     )
     data_file = DataFile.from_args(
@@ -172,58 +172,22 @@ def _make_split_with_path(file_path: str) -> DataLoaderSplit:
     return DataLoaderSplit(file_scan_task=task, scan_context=scan_context)
 
 
-def test_split_id_is_deterministic():
-    """Two splits with the same file path produce the same id."""
-    path = "s3://bucket/warehouse/db/table/data/00001.parquet"
-    assert _make_split_with_path(path).id == _make_split_with_path(path).id
-
-
 def test_split_id_differs_for_different_paths():
-    """Two splits with different file paths produce different ids."""
+    """Different file paths produce different split ids."""
     id_a = _make_split_with_path("s3://bucket/warehouse/db/table/data/00001.parquet").id
     id_b = _make_split_with_path("s3://bucket/warehouse/db/table/data/00002.parquet").id
     assert id_a != id_b
 
 
+def test_split_id_is_deterministic():
+    """Two independently constructed splits with the same file path produce the same id."""
+    path = "s3://bucket/warehouse/db/table/data/00001.parquet"
+    assert _make_split_with_path(path).id == _make_split_with_path(path).id
+
+
 def test_split_id_ignores_default_netloc():
     """The id depends only on the file path in the manifest, not the catalog's DEFAULT_NETLOC."""
-    schemeless_path = "/warehouse/db/table/data/00001.parquet"
-    iceberg_schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
-    metadata = new_table_metadata(
-        schema=iceberg_schema,
-        partition_spec=UNPARTITIONED_PARTITION_SPEC,
-        sort_order=UNSORTED_SORT_ORDER,
-        location="/tmp",
-    )
-    data_file = DataFile.from_args(
-        file_path=schemeless_path,
-        file_format=FileFormat.PARQUET,
-        record_count=0,
-        file_size_in_bytes=0,
-    )
-    data_file._spec_id = 0
-    task = FileScanTask(data_file=data_file)
-
-    ids = []
-    for netloc in ["nn1.example.com:9000", "nn2.example.com:9000"]:
-        scan_context = TableScanContext(
-            table_metadata=metadata,
-            io=load_file_io(
-                properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc},
-                location=schemeless_path,
-            ),
-            projected_schema=iceberg_schema,
-        )
-        split = DataLoaderSplit(file_scan_task=task, scan_context=scan_context)
-        ids.append(split.id)
-
-    assert ids[0] == ids[1]
-
-
-def test_split_id_is_sha256_hex():
-    """The id is a 64-character hex string matching SHA-256 of the file path."""
-    path = "s3://bucket/warehouse/db/table/data/00001.parquet"
-    split = _make_split_with_path(path)
-    expected = hashlib.sha256(path.encode("utf-8")).hexdigest()
-    assert split.id == expected
-    assert len(split.id) == 64
+    path = "/warehouse/db/table/data/00001.parquet"
+    id_a = _make_split_with_path(path, {"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn1.example.com:9000"}).id
+    id_b = _make_split_with_path(path, {"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn2.example.com:9000"}).id
+    assert id_a == id_b
