@@ -19,7 +19,7 @@ make integration-tests TOKEN_FILE=<path>  # Run integration tests against Docker
 ```
 
 ## Workflows
-When making a change run `make verify` to ensure all tests and checks pass
+When making a change run `make verify` to ensure all tests and checks pass. Run `make format` before pushing to avoid CI formatting failures.
 
 ## Integration Tests
 
