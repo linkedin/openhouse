@@ -30,10 +30,8 @@ class DataLoaderSplit:
 
     @property
     def id(self) -> str:
-        """Deterministic split identifier.
-
-        Stable across executions for a given snapshot — Iceberg snapshots are
-        immutable so the file paths they reference never change.
+        """Unique ID for the split. This is stable across executions for a given
+        snapshot and split size.
         """
         file_path = self._file_scan_task.file.file_path
         return hashlib.sha256(file_path.encode("utf-8")).hexdigest()
