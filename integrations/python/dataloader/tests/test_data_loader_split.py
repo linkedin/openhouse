@@ -27,6 +27,8 @@ def _create_test_split(
     table: pa.Table,
     file_format: FileFormat,
     iceberg_schema: Schema,
+    io_properties: dict[str, str] | None = None,
+    filename: str | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -35,12 +37,14 @@ def _create_test_split(
         table: PyArrow table containing test data
         file_format: File format to use (PARQUET or ORC)
         iceberg_schema: Iceberg schema with field IDs for column mapping
+        io_properties: Optional properties passed to load_file_io (e.g. DEFAULT_SCHEME, DEFAULT_NETLOC)
+        filename: Optional filename override (default: test.<ext>)
 
     Returns:
         DataLoaderSplit configured to read the written test file
     """
     ext = file_format.name.lower()
-    file_path = str(tmp_path / f"test.{ext}")
+    file_path = str(tmp_path / (filename or f"test.{ext}"))
 
     properties = {}
     if file_format == FileFormat.PARQUET:
@@ -63,7 +67,7 @@ def _create_test_split(
 
     scan_context = TableScanContext(
         table_metadata=metadata,
-        io=load_file_io(properties={}, location=file_path),
+        io=load_file_io(properties=io_properties or {}, location=file_path),
         projected_schema=iceberg_schema,
     )
 
@@ -146,48 +150,32 @@ def test_split_handles_wide_tables_with_many_columns(tmp_path, file_format):
         assert result.column(f"col_{i}").to_pylist() == list(range(5)), f"Column col_{i} values mismatch"
 
 
-def _make_split_with_path(file_path: str, io_properties: dict[str, str] | None = None) -> DataLoaderSplit:
-    """Create a minimal DataLoaderSplit with the given file path (no real file needed)."""
-    props = io_properties or {}
-    iceberg_schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
-    metadata = new_table_metadata(
-        schema=iceberg_schema,
-        partition_spec=UNPARTITIONED_PARTITION_SPEC,
-        sort_order=UNSORTED_SORT_ORDER,
-        location="/tmp",
-    )
-    scan_context = TableScanContext(
-        table_metadata=metadata,
-        io=load_file_io(properties=props, location=file_path),
-        projected_schema=iceberg_schema,
-    )
-    data_file = DataFile.from_args(
-        file_path=file_path,
-        file_format=FileFormat.PARQUET,
-        record_count=0,
-        file_size_in_bytes=0,
-    )
-    data_file._spec_id = 0
-    task = FileScanTask(data_file=data_file)
-    return DataLoaderSplit(file_scan_task=task, scan_context=scan_context)
+_ID_SCHEMA = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
+_ID_TABLE = pa.table({"x": pa.array([1], type=pa.int64())})
 
 
-def test_split_id_differs_for_different_paths():
-    """Different file paths produce different split ids."""
-    id_a = _make_split_with_path("s3://bucket/warehouse/db/table/data/00001.parquet").id
-    id_b = _make_split_with_path("s3://bucket/warehouse/db/table/data/00002.parquet").id
-    assert id_a != id_b
+def test_split_id_differs_for_different_splits(tmp_path):
+    """Different splits produce different ids."""
+    split_a = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA, filename="a.parquet")
+    split_b = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA, filename="b.parquet")
+    assert split_a.id != split_b.id
 
 
-def test_split_id_is_deterministic():
-    """Two independently constructed splits with the same file path produce the same id."""
-    path = "s3://bucket/warehouse/db/table/data/00001.parquet"
-    assert _make_split_with_path(path).id == _make_split_with_path(path).id
+def test_split_id_is_deterministic(tmp_path):
+    """Two independently constructed splits from the same file produce the same id."""
+    split_a = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    split_b = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    assert split_a.id == split_b.id
 
 
-def test_split_id_ignores_default_netloc():
+def test_split_id_ignores_default_netloc(tmp_path):
     """The id depends only on the file path in the manifest, not the catalog's DEFAULT_NETLOC."""
-    path = "/warehouse/db/table/data/00001.parquet"
-    id_a = _make_split_with_path(path, {"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn1.example.com:9000"}).id
-    id_b = _make_split_with_path(path, {"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn2.example.com:9000"}).id
-    assert id_a == id_b
+    split_a = _create_test_split(
+        tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA,
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn1.example.com:9000"},
+    )
+    split_b = _create_test_split(
+        tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA,
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn2.example.com:9000"},
+    )
+    assert split_a.id == split_b.id
