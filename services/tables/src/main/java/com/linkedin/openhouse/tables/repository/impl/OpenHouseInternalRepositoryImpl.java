@@ -34,6 +34,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -132,6 +133,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                   tableDto.getTableCreator(),
                   tableProps);
       SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
+      tableProps.putAll(beforeTableSave(tableDto));
       table =
           createTable(
               tableIdentifier, writeSchema, partitionSpec, tableLocation, tableProps, sortOrder);
@@ -148,6 +150,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       UpdateProperties updateProperties = transaction.updateProperties();
       boolean schemaUpdated =
           doUpdateSchemaIfNeeded(writeSchema, table.schema(), tableDto, updateProperties);
+      Map<String, String> hookProperties = beforeTableSave(tableDto);
+      hookProperties.forEach(updateProperties::set);
+      boolean hookPropsUpdated = !hookProperties.isEmpty();
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
@@ -172,6 +177,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
       // No new metadata.json shall be generated if nothing changed.
       if (schemaUpdated
+          || hookPropsUpdated
           || propsUpdated
           || snapshotsUpdated
           || policiesUpdated
@@ -203,6 +209,23 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .withProperties(tableProps)
         .withSortOrder(sortOrder)
         .create();
+  }
+
+  /**
+   * Lifecycle hook invoked on every {@link #save} call, for both table creation and update, after
+   * core properties have been computed but before the Iceberg catalog commit.
+   *
+   * <p>Subclasses override this to inject additional table properties derived from the table
+   * metadata. The returned map is merged into the table properties (creation) or applied via {@link
+   * UpdateProperties#set} (update).
+   *
+   * <p>Naming convention for future hooks: {@code {before|after}Table{Save|Create|Update|Delete}}.
+   *
+   * @param tableDto the table being saved
+   * @return additional properties to set; empty map by default
+   */
+  protected Map<String, String> beforeTableSave(TableDto tableDto) {
+    return Collections.emptyMap();
   }
 
   private boolean doUpdateSortOrderIfNeeded(
