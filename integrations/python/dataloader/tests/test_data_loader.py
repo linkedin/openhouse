@@ -96,7 +96,6 @@ def _make_real_catalog(
         scan = MagicMock()
         scan.projection.return_value = projected
         scan.plan_files.return_value = [task]
-        scan.use_ref.return_value = scan
         return scan
 
     mock_table = MagicMock()
@@ -328,28 +327,6 @@ def test_snapshot_id_with_columns_and_filters(tmp_path):
 # --- branch tests ---
 
 
-def test_branch_calls_use_ref(tmp_path):
-    """scan.use_ref() is called when branch is set."""
-    catalog = _make_real_catalog(tmp_path)
-    mock_table = catalog.load_table.return_value
-    original_side_effect = mock_table.scan.side_effect
-    scans: list = []
-
-    def capturing_scan(**kwargs):
-        scan = original_side_effect(**kwargs)
-        scans.append(scan)
-        return scan
-
-    mock_table.scan.side_effect = capturing_scan
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch")
-    list(loader)
-
-    mock_table.scan.assert_called_once()
-    assert len(scans) == 1
-    scans[0].use_ref.assert_called_once_with("my-branch")
-
-
 def test_branch_and_snapshot_id_raises():
     """ValueError is raised when both branch and snapshot_id are provided."""
     catalog = MagicMock()
@@ -382,14 +359,17 @@ def test_branch_snapshot_id_not_found_raises():
         _ = loader.snapshot_id
 
 
-def test_branch_snapshot_id_not_passed_to_scan(tmp_path):
-    """snapshot_id is not in scan kwargs when branch is used."""
+def test_branch_resolved_snapshot_id_passed_to_scan(tmp_path):
+    """Resolved branch snapshot_id is passed to scan kwargs."""
     catalog = _make_real_catalog(tmp_path)
     mock_table = catalog.load_table.return_value
+    mock_snapshot = MagicMock()
+    mock_snapshot.snapshot_id = 456
+    mock_table.snapshot_by_name.return_value = mock_snapshot
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch")
     list(loader)
 
     mock_table.scan.assert_called_once()
     scan_kwargs = mock_table.scan.call_args.kwargs
-    assert "snapshot_id" not in scan_kwargs
+    assert scan_kwargs["snapshot_id"] == 456

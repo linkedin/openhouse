@@ -146,14 +146,12 @@ class OpenHouseDataLoader:
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
-        if self._table_id.branch is None and self.snapshot_id is not None:
+        if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
         if self._columns:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
         scan = table.scan(**scan_kwargs)
-        if self._table_id.branch:
-            scan = scan.use_ref(self._table_id.branch)
 
         self._verify_snapshot(scan.snapshot())
 
