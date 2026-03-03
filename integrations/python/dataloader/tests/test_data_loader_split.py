@@ -1,6 +1,7 @@
 """Tests for DataLoaderSplit functionality."""
 
 import os
+from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.orc as orc
@@ -170,12 +171,25 @@ def test_split_id_is_deterministic(tmp_path):
 
 def test_split_id_ignores_default_netloc(tmp_path):
     """The id depends only on the file path in the manifest, not the catalog's DEFAULT_NETLOC."""
+    netloc_a = "nn1.example.com:9000"
+    netloc_b = "nn2.example.com:9000"
     split_a = _create_test_split(
         tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA,
-        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn1.example.com:9000"},
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_a},
     )
     split_b = _create_test_split(
         tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA,
-        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": "nn2.example.com:9000"},
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_b},
     )
+
     assert split_a.id == split_b.id
+
+    # Without this check, the test would pass even if DEFAULT_NETLOC was
+    # silently dropped — both splits share the same file path so their ids
+    # would match regardless. Spy on fs_by_scheme (where PyIceberg resolves
+    # scheme + netloc into a filesystem) to confirm each netloc is used.
+    local_fs = load_file_io(properties={}, location=str(tmp_path)).fs_by_scheme("file", None)
+    for split, expected_netloc in [(split_a, netloc_a), (split_b, netloc_b)]:
+        split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
+        list(split)
+        split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
