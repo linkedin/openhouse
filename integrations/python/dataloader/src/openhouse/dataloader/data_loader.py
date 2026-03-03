@@ -91,6 +91,8 @@ class OpenHouseDataLoader:
             context: Data loader context
             max_attempts: Total number of attempts including the initial try (default 3)
         """
+        if branch and snapshot_id is not None:
+            raise ValueError("Cannot specify both branch and snapshot_id")
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
         self._snapshot_id = snapshot_id
@@ -115,7 +117,14 @@ class OpenHouseDataLoader:
     @cached_property
     def snapshot_id(self) -> int | None:
         """Snapshot ID of the loaded table, or None if the table has no snapshots"""
-        return self._snapshot_id if self._snapshot_id is not None else self._iceberg_table.metadata.current_snapshot_id
+        if self._snapshot_id is not None:
+            return self._snapshot_id
+        if self._table_id.branch:
+            snapshot = self._iceberg_table.snapshot_by_name(self._table_id.branch)
+            if snapshot is None:
+                raise ValueError(f"Branch '{self._table_id.branch}' not found for table {self._table_id}")
+            return snapshot.snapshot_id
+        return self._iceberg_table.metadata.current_snapshot_id
 
     def _verify_snapshot(self, snapshot: Snapshot | None) -> None:
         """Log the resolved snapshot or raise if a user-provided snapshot_id was not found."""
@@ -137,12 +146,14 @@ class OpenHouseDataLoader:
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
-        if self.snapshot_id is not None:
+        if self._table_id.branch is None and self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
         if self._columns:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
         scan = table.scan(**scan_kwargs)
+        if self._table_id.branch:
+            scan = scan.use_ref(self._table_id.branch)
 
         self._verify_snapshot(scan.snapshot())
 
