@@ -174,11 +174,17 @@ def test_split_id_ignores_default_netloc(tmp_path):
     netloc_a = "nn1.example.com:9000"
     netloc_b = "nn2.example.com:9000"
     split_a = _create_test_split(
-        tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA,
+        tmp_path,
+        _ID_TABLE,
+        FileFormat.PARQUET,
+        _ID_SCHEMA,
         io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_a},
     )
     split_b = _create_test_split(
-        tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA,
+        tmp_path,
+        _ID_TABLE,
+        FileFormat.PARQUET,
+        _ID_SCHEMA,
         io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_b},
     )
 
