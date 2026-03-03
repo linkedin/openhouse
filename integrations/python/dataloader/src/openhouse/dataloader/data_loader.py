@@ -6,6 +6,7 @@ from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
+from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
@@ -72,6 +73,7 @@ class OpenHouseDataLoader:
         database: str,
         table: str,
         branch: str | None = None,
+        snapshot_id: int | None = None,
         columns: Sequence[str] | None = None,
         filters: Filter | None = None,
         context: DataLoaderContext | None = None,
@@ -83,6 +85,7 @@ class OpenHouseDataLoader:
             database: Database name
             table: Table name
             branch: Optional branch name
+            snapshot_id: Optional snapshot ID for time-travel reads
             columns: Column names to load, or None to load all columns
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
@@ -90,6 +93,7 @@ class OpenHouseDataLoader:
         """
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
+        self._snapshot_id = snapshot_id
         self._columns = columns
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
@@ -108,10 +112,19 @@ class OpenHouseDataLoader:
         """Properties of the table being loaded"""
         return MappingProxyType(self._iceberg_table.metadata.properties)
 
-    @property
+    @cached_property
     def snapshot_id(self) -> int | None:
         """Snapshot ID of the loaded table, or None if the table has no snapshots"""
-        return self._iceberg_table.metadata.current_snapshot_id
+        return self._snapshot_id if self._snapshot_id is not None else self._iceberg_table.metadata.current_snapshot_id
+
+    def _verify_snapshot(self, snapshot: Snapshot | None) -> None:
+        """Log the resolved snapshot or raise if a user-provided snapshot_id was not found."""
+        if snapshot:
+            logger.info("Using snapshot %d for table %s", snapshot.snapshot_id, self._table_id)
+        elif self._snapshot_id is not None:
+            raise ValueError(f"Snapshot {self._snapshot_id} not found for table {self._table_id}")
+        else:
+            logger.info("No snapshot found for table %s", self._table_id)
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -124,10 +137,14 @@ class OpenHouseDataLoader:
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
+        if self.snapshot_id is not None:
+            scan_kwargs["snapshot_id"] = self.snapshot_id
         if self._columns:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
         scan = table.scan(**scan_kwargs)
+
+        self._verify_snapshot(scan.snapshot())
 
         scan_context = TableScanContext(
             table_metadata=table.metadata,

@@ -9,12 +9,14 @@ metadata is then written to the path that OpenHouseCatalog reads from.
 Only Parquet is tested because PyIceberg does not support ORC writes.
 """
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
 
 import pyarrow as pa
+import pytest
 import requests
 from pyiceberg.catalog.noop import NoopCatalog
 from pyiceberg.exceptions import NoSuchTableError
@@ -30,6 +32,7 @@ BASE_URL = "http://localhost:8000"
 DATABASE_ID = "d_e2e"
 TABLE_ID_EMPTY = "t_empty"
 TABLE_ID_DATA = "t_data"
+TABLE_ID_SNAPSHOT = "t_snapshot"
 CONTAINER_NAME = "oh-only-openhouse-tables-1"
 
 COL_ID = "id"
@@ -49,6 +52,22 @@ EXPECTED_DATA = pa.table(
         COL_ID: pa.array([1, 2, 3], type=pa.int64()),
         COL_NAME: pa.array(["alice", "bob", "charlie"], type=pa.string()),
         COL_SCORE: pa.array([1.1, 2.2, 3.3], type=pa.float64()),
+    }
+)
+
+SNAPSHOT_BATCH_1 = pa.table(
+    {
+        COL_ID: pa.array([1, 2], type=pa.int64()),
+        COL_NAME: pa.array(["alice", "bob"], type=pa.string()),
+        COL_SCORE: pa.array([1.1, 2.2], type=pa.float64()),
+    }
+)
+
+SNAPSHOT_BATCH_2 = pa.table(
+    {
+        COL_ID: pa.array([3, 4], type=pa.int64()),
+        COL_NAME: pa.array(["charlie", "diana"], type=pa.string()),
+        COL_SCORE: pa.array([3.3, 4.4], type=pa.float64()),
     }
 )
 
@@ -125,12 +144,11 @@ class _LocalCommitCatalog(NoopCatalog):
 
 
 def _append_data(token: str, table_id: str, df: pa.Table) -> str:
-    """Write data to an OpenHouse table using PyIceberg.
+    """Append rows to an OpenHouse table and write updated metadata to the host.
 
-    Fetches the table metadata from the Docker container, writes Parquet
-    data files and manifests to the host via PyIceberg's append API, then
-    writes the updated metadata (with the new snapshot) to the host path
-    that the OpenHouseCatalog will read.
+    Reads the current table metadata (from the host if a previous append already
+    wrote it there, otherwise copied from the Docker container), appends data
+    files via PyIceberg, and writes the new metadata back to the host.
 
     Returns the host filesystem path to the metadata file.
     """
@@ -138,19 +156,24 @@ def _append_data(token: str, table_id: str, df: pa.Table) -> str:
     host_metadata_dir = os.path.dirname(container_metadata_path)
     os.makedirs(host_metadata_dir, exist_ok=True)
 
-    # Copy metadata from container to a temp file (not the final path)
-    tmp_metadata = container_metadata_path + ".tmp"
-    container_name = os.environ.get("OH_CONTAINER", CONTAINER_NAME)
-    result = subprocess.run(
-        ["docker", "cp", f"{container_name}:{container_metadata_path}", tmp_metadata],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, f"docker cp failed: {result.stderr}"
+    if os.path.exists(container_metadata_path):
+        # Host already has metadata from a previous append
+        io = load_file_io(properties={}, location=container_metadata_path)
+        metadata = FromInputFile.table_metadata(io.new_input(container_metadata_path))
+    else:
+        # First append: copy metadata from the Docker container
+        container_name = os.environ.get("OH_CONTAINER", CONTAINER_NAME)
+        tmp_metadata = container_metadata_path + ".tmp"
+        result = subprocess.run(
+            ["docker", "cp", f"{container_name}:{container_metadata_path}", tmp_metadata],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"docker cp failed: {result.stderr}"
 
-    io = load_file_io(properties={}, location=tmp_metadata)
-    metadata = FromInputFile.table_metadata(io.new_input(tmp_metadata))
-    os.remove(tmp_metadata)
+        io = load_file_io(properties={}, location=tmp_metadata)
+        metadata = FromInputFile.table_metadata(io.new_input(tmp_metadata))
+        os.remove(tmp_metadata)
 
     table_io = load_file_io({**metadata.properties}, location=metadata.location)
     table = Table(
@@ -163,7 +186,7 @@ def _append_data(token: str, table_id: str, df: pa.Table) -> str:
     table.append(df)
 
     # Write the updated metadata (with snapshot) to the path the OpenHouseCatalog expects
-    ToOutputFile.table_metadata(table.metadata, table_io.new_output(container_metadata_path))
+    ToOutputFile.table_metadata(table.metadata, table_io.new_output(container_metadata_path), overwrite=True)
     print(f"Wrote {df.num_rows} rows and updated metadata at {container_metadata_path}")
     return container_metadata_path
 
@@ -251,13 +274,67 @@ def test_empty_table(catalog: OpenHouseCatalog) -> None:
     print("DataLoader correctly yielded no splits for empty table")
 
 
+def _setup_snapshot_table(token: str, catalog: OpenHouseCatalog) -> tuple[str, int, int]:
+    """Create a table with two snapshots: SNAPSHOT_BATCH_1 then SNAPSHOT_BATCH_2.
+
+    Returns (metadata_path, snap1, snap2).
+    """
+    _create_table(token, TABLE_ID_SNAPSHOT, TABLE_SCHEMA, tableProperties={"write.format.default": "parquet"})
+    metadata_path = _append_data(token, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_1)
+    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
+    snap1 = table.metadata.current_snapshot_id
+
+    metadata_path = _append_data(token, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_2)
+    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
+    snap2 = table.metadata.current_snapshot_id
+
+    assert snap1 != snap2, f"Expected different snapshot IDs, got {snap1} for both"
+    print(f"Snapshot IDs: snap1={snap1}, snap2={snap2}")
+    return metadata_path, snap1, snap2
+
+
+def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: int, snap2: int) -> None:
+    """Load with snapshot_id=snap1 returns only the first batch of data."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap1)
+    batches = [batch for split in loader for batch in split]
+    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
+    assert result.num_rows == 2, f"Expected 2 rows at snapshot 1, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [1, 2]
+    print(f"snapshot_id={snap1} correctly returned {result.num_rows} rows (batch 1 only)")
+
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2)
+    batches = [batch for split in loader for batch in split]
+    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
+    assert result.num_rows == 4, f"Expected 4 rows at snapshot 2, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
+    print(f"snapshot_id={snap2} correctly returned {result.num_rows} rows (both batches)")
+
+
+def test_snapshot_id_with_filters(catalog: OpenHouseCatalog, snap2: int) -> None:
+    """snapshot_id works alongside row filters."""
+    loader = OpenHouseDataLoader(
+        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2, filters=col(COL_ID) > 2
+    )
+    batches = [batch for split in loader for batch in split]
+    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
+    assert result.num_rows == 2, f"Expected 2 filtered rows at snapshot 2, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [3, 4]
+    print(f"snapshot_id={snap2} with filter correctly returned {result.num_rows} rows")
+
+
+def test_snapshot_id_invalid(catalog: OpenHouseCatalog) -> None:
+    """Loading with a non-existent snapshot_id raises an error."""
+    with pytest.raises(ValueError, match="Snapshot .* not found"):
+        loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=-1)
+        list(loader)
+    print("Invalid snapshot_id correctly raised ValueError")
+
+
 def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:
     """Check that loading a nonexistent table raises NoSuchTableError."""
-    try:
+    with pytest.raises(NoSuchTableError):
         catalog.load_table(f"{DATABASE_ID}.nonexistent_table")
-        raise AssertionError("Expected NoSuchTableError")
-    except NoSuchTableError:
-        print("load_table correctly raised NoSuchTableError for nonexistent table")
+    print("load_table correctly raised NoSuchTableError for nonexistent table")
 
 
 def read_token(path: str) -> str:
@@ -270,6 +347,8 @@ def read_token(path: str) -> str:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
     if len(sys.argv) != 2:
         print("Usage: python integration_tests.py <token_file>")
         sys.exit(1)
@@ -292,6 +371,16 @@ if __name__ == "__main__":
         test_table_with_data_selected_columns(catalog)
     finally:
         _cleanup_table(token_str, TABLE_ID_DATA, data_metadata_path)
+
+    # --- Snapshot ID ---
+    snapshot_metadata_path = None
+    try:
+        snapshot_metadata_path, snap1, snap2 = _setup_snapshot_table(token_str, catalog)
+        test_snapshot_id_returns_data_at_snapshot(catalog, snap1, snap2)
+        test_snapshot_id_with_filters(catalog, snap2)
+        test_snapshot_id_invalid(catalog)
+    finally:
+        _cleanup_table(token_str, TABLE_ID_SNAPSHOT, snapshot_metadata_path)
 
     # --- Empty table ---
     try:
