@@ -13,6 +13,15 @@ services:
       - datanode
       - prometheus
       - opa
+      - jaeger
+    environment:
+      - OTEL_SERVICE_NAME=openhouse-tables
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+      - OTEL_TRACES_SAMPLER=always_on
 
   openhouse-jobs:
     container_name: local.openhouse-jobs
@@ -24,6 +33,15 @@ services:
     depends_on:
       - openhouse-housetables
       - prometheus
+      - jaeger
+    environment:
+      - OTEL_SERVICE_NAME=openhouse-jobs
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+      - OTEL_TRACES_SAMPLER=always_on
 
   openhouse-jobs-scheduler:
     container_name: local.openhouse-jobs-scheduler
@@ -51,9 +69,27 @@ services:
     depends_on:
       - prometheus
       - mysql
+      - jaeger
     environment:
       - HTS_DB_USER=oh_user
       - HTS_DB_PASSWORD=oh_password
+      - OTEL_SERVICE_NAME=openhouse-housetables
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+      - OTEL_TRACES_SAMPLER=always_on
+
+  jaeger:
+    container_name: local.jaeger
+    image: jaegertracing/all-in-one:1.54
+    ports:
+      - 16686:16686
+      - 4317:4317
+      - 4318:4318
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
 
   prometheus:
     extends:

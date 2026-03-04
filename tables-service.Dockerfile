@@ -35,6 +35,7 @@ RUN ls $APP_NAME.jar
 
 COPY run.sh .
 
+
 # Ensure that everything in $USER_HOME is owned by openhouse user
 RUN chown -R openhouse:openhouse $USER_HOME
 

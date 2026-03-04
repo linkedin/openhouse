@@ -74,7 +74,7 @@ public class TablesClient {
     return getTableHistory(response);
   }
 
-  private Optional<RetentionConfig> getTableRetention(GetTableResponseBody response) {
+  protected Optional<RetentionConfig> getTableRetention(GetTableResponseBody response) {
     // timePartitionSpec or retention.ColumnPattern should be present to run Retention job on a
     // table.
     if (response == null
@@ -104,7 +104,7 @@ public class TablesClient {
             .build());
   }
 
-  private Optional<HistoryConfig> getTableHistory(GetTableResponseBody response) {
+  protected Optional<HistoryConfig> getTableHistory(GetTableResponseBody response) {
     if (response == null
         || response.getPolicies() == null
         || response.getPolicies().getHistory() == null) {
@@ -129,7 +129,7 @@ public class TablesClient {
             .build());
   }
 
-  private Optional<List<ReplicationConfig>> getTableReplication(GetTableResponseBody response) {
+  protected Optional<List<ReplicationConfig>> getTableReplication(GetTableResponseBody response) {
     // At least one replication config must be present
     if (response == null
         || response.getPolicies() == null

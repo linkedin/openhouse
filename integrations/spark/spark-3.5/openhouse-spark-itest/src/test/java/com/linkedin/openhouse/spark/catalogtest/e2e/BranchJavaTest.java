@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test;
 
 public class BranchJavaTest extends OpenHouseSparkITest {
 
+  private static final String DATABASE = "d1_branch_java";
+
   private static final DataFile F1 =
       DataFiles.builder(PartitionSpec.unpartitioned())
           .withPath("/p/f1.parquet")
@@ -42,7 +44,7 @@ public class BranchJavaTest extends OpenHouseSparkITest {
     // 6. Staged Commits: Confirms stageOnly adds a snapshot without updating branch reference
     // history.
     try (SparkSession spark = getSparkSession()) {
-      String name = "d1.branch_test";
+      String name = DATABASE + ".branch_test";
       spark.sql("DROP TABLE IF EXISTS openhouse." + name);
       spark.sql("CREATE TABLE openhouse." + name + " (d string)");
       CatalogPlugin plugin = spark.sessionState().catalogManager().catalog("openhouse");

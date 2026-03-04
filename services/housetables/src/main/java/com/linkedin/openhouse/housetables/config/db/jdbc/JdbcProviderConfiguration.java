@@ -2,8 +2,12 @@ package com.linkedin.openhouse.housetables.config.db.jdbc;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration;
+import com.zaxxer.hikari.HikariDataSource;
+import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -55,5 +59,70 @@ public class JdbcProviderConfiguration {
     properties.setPassword(clusterProperties.getClusterHouseTablesDatabasePassword());
 
     return properties;
+  }
+
+  /**
+   * Create HikariCP DataSource with SSL properties configured as DataSource properties. This is
+   * cleaner than appending parameters to JDBC URL and follows Spring Boot best practices.
+   *
+   * <p>The @ConfigurationProperties annotation ensures that spring.datasource.hikari.* properties
+   * (such as maximum-pool-size, connection-timeout, etc.) are automatically bound to the
+   * HikariDataSource.
+   *
+   * <p>When SSL is enabled for MySQL, this method configures certificate-based authentication
+   * properties including keystore paths, passwords, and SSL modes. These properties are passed
+   * directly to the MySQL JDBC driver via HikariCP.
+   *
+   * @param dataSourceProperties the basic datasource properties (URL, username, password)
+   * @return configured HikariDataSource with SSL properties if enabled
+   */
+  @Bean
+  @Primary
+  @ConfigurationProperties("spring.datasource.hikari")
+  public DataSource dataSource(DataSourceProperties dataSourceProperties) {
+    HikariDataSource dataSource =
+        dataSourceProperties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
+
+    // Add SSL/Certificate properties if enabled (MYSQL only)
+    DatabaseConfiguration.SupportedDbTypes dbType =
+        DatabaseConfiguration.SupportedDbTypes.valueOf(
+            clusterProperties.getClusterHouseTablesDatabaseType());
+
+    if (dbType == DatabaseConfiguration.SupportedDbTypes.MYSQL
+        && clusterProperties.isClusterHouseTablesDatabaseCertBasedAuthEnabled()) {
+
+      log.info("Configuring MySQL certificate-based authentication");
+
+      // Add MySQL Connector/J specific SSL properties
+      dataSource.addDataSourceProperty(
+          "sslMode", clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthSslMode());
+
+      if (StringUtils.isNotBlank(
+          clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystoreUrl())) {
+        dataSource.addDataSourceProperty(
+            "clientCertificateKeyStoreUrl",
+            clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystoreUrl());
+        dataSource.addDataSourceProperty(
+            "clientCertificateKeyStorePassword",
+            clusterProperties
+                .getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystorePassword());
+      }
+
+      if (StringUtils.isNotBlank(
+          clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthTruststoreUrl())) {
+        dataSource.addDataSourceProperty(
+            "trustCertificateKeyStoreUrl",
+            clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthTruststoreUrl());
+        dataSource.addDataSourceProperty(
+            "trustCertificateKeyStorePassword",
+            clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthTruststorePassword());
+      }
+
+      log.info(
+          "MySQL SSL configuration completed successfully (sslMode={}).",
+          clusterProperties.getClusterHouseTablesDatabaseCertBasedAuthSslMode());
+    }
+
+    return dataSource;
   }
 }

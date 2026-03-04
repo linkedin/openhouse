@@ -50,6 +50,7 @@ cd "$output" || exit 1
 FILE="openapi-generator-cli-${version}.jar"
 if test -f "$FILE"; then
   echo "$FILE exists."
-  exit
+  exit 0
 fi
-curl "https://repo.maven.apache.org/maven2/org/openapitools/openapi-generator-cli/${version}/openapi-generator-cli-${version}.jar" --output "openapi-generator-cli-${version}.jar"
+echo "Downloading $FILE..."
+curl -f "https://repo.maven.apache.org/maven2/org/openapitools/openapi-generator-cli/${version}/openapi-generator-cli-${version}.jar" --output "$FILE" || exit 1

@@ -17,7 +17,7 @@
     </a>
   </div>
   <div align="center">
-    <a href="https://github.com/linkedin/openhouse">
+    <a href="https://linkedin.github.io/openhouse/">
       <img src="https://img.shields.io/badge/github-%23121011.svg?logo=github&logoColor=white" alt="GitHub">
     </a>
     <a href="https://join.slack.com/t/openhouse-bap9266/shared_invite/zt-2bsi0t8pi-wUOeDvQr8j8d5yl3X8WQJQ">
@@ -64,8 +64,19 @@ To build OpenHouse, you can use the following command:
 
 ### Running OpenHouse with Docker Compose
 
-To run OpenHouse, we recommend the [SETUP](SETUP.md) guide. You would bring up all the OpenHouse services, MySQL,
-Prometheus, Apache Spark and HDFS.
+The quickest way to run OpenHouse locally:
+```bash
+# Build JARs, Docker images, and start containers (default: oh-hadoop-spark recipe)
+./gradlew dockerUp
+
+# Or use a lighter recipe for faster startup
+./gradlew dockerUp -Precipe=oh-only
+
+# Stop containers
+./gradlew dockerDown
+```
+
+For detailed configuration options and testing instructions, see the [SETUP](SETUP.md) guide.
 
 ### Deploying OpenHouse to Kubernetes
 

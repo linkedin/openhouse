@@ -24,6 +24,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * A callable class to apply an operation to some entity (table/database) by running a Spark job.
  * Takes care of the job lifecycle using /jobs API.
+ *
+ * <p>NOTE: Every implementation must implement a static {@code OPERATION_TYPE} field in order for
+ * the job scheduler to load the OperationTask.
  */
 @Slf4j
 @Getter
@@ -270,6 +273,20 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
         AppConstants.JOB_DURATION,
         System.currentTimeMillis() - startTime,
         attributes);
+
+    // Granular attributes to publish entity level job metrics
+    Attributes granularAttributes =
+        Attributes.of(
+            AttributeKey.stringKey(AppConstants.ENTITY_NAME),
+            metadata.getEntityName(),
+            AttributeKey.stringKey(AppConstants.ENTITY_TYPE),
+            metadata.getClass().getSimpleName().replace("Metadata", ""),
+            AttributeKey.stringKey(AppConstants.JOB_TYPE),
+            getType().getValue(),
+            AttributeKey.stringKey(AppConstants.JOB_STATE),
+            state.name());
+
+    otelEmitter.count(METRICS_SCOPE, "maintenance_job_completed", 1, granularAttributes);
   }
 
   protected abstract boolean launchJob();

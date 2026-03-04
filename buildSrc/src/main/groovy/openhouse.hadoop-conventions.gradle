@@ -3,7 +3,7 @@ ext {
 }
 
 dependencies {
-  implementation("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
+  api("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
     exclude group: 'junit', module: 'junit'
     exclude group: 'javax', module: 'servlet-api'
     exclude group: 'com.zaxxer', module: 'HikariCP-java7'
@@ -11,5 +11,5 @@ dependencies {
     exclude group: 'com.codahale.metrics', module: 'metrics-core'
     exclude group: 'com.squareup.okhttp', module: 'okhttp'
   }
-  implementation 'org.apache.commons:commons-lang3:3.12.0'
+  api 'org.apache.commons:commons-lang3:3.12.0'
 }

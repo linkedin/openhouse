@@ -76,7 +76,7 @@ task runAntlr(type:JavaExec) {
   inputs.dir antlrMainDir
   outputs.dir antlrMainGeneratedSrcDir
 
-  main = "org.antlr.v4.Tool"
+  mainClass = "org.antlr.v4.Tool"
   args = ["${antlrMainDir}/OpenhouseSqlExtensions.g4",
           "-visitor",
           "-o", "${antlrMainGeneratedSrcDir}/${antlrPackageDirPrefix}",

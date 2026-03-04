@@ -94,23 +94,6 @@ public final class InternalRepositoryUtils {
   }
 
   /**
-   * @param updateProperties
-   * @param policiesFromRequest
-   * @param policiesFromTable
-   * @return True if alteration of policies occurred.
-   */
-  public static boolean alterPoliciesIfNeeded(
-      UpdateProperties updateProperties, String policiesFromRequest, String policiesFromTable) {
-    boolean policiesUpdated = false;
-    if (!policiesFromRequest.equals(policiesFromTable)) {
-      updateProperties.set(POLICIES_KEY, policiesFromRequest);
-      policiesUpdated = true;
-    }
-
-    return policiesUpdated;
-  }
-
-  /**
    * Converting {@link Table} to {@link TableDto} ONLY when returning back to response, since
    * jsonSnapshots won't be set to a meaningful value here.
    */

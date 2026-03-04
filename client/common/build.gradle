@@ -1,0 +1,10 @@
+// Shared OpenAPI CLI setup for client code generation
+def sharedBinDir = "${rootProject.buildDir}/openapi-cli"
+def openApiCliVersion = "5.3.0"
+
+task setUp(type: Exec) {
+  commandLine "sh", "${projectDir}/jar_download.sh",
+      "-o", sharedBinDir,
+      "-v", openApiCliVersion
+  outputs.dir(sharedBinDir)
+}

@@ -9,7 +9,9 @@ public final class AppConstants {
 
   // Spark App observability constants
   public static final String TYPE = "type";
+  public static final String ENTITY_TYPE = "entity_type";
   public static final String JOB_TYPE = "job_type";
+  public static final String JOB_STATE = "job_state";
   public static final String ORPHAN_FILE_COUNT = "orphan_file_count";
   public static final String STAGED_FILE_COUNT = "staged_file_count";
   public static final String ORPHAN_DIRECTORY_COUNT = "orphan_directory_count";
@@ -49,6 +51,7 @@ public final class AppConstants {
   public static final String JOB_ID = "job_id";
   public static final String QUEUED_TIME = "queued_time";
   public static final String DATABASE_NAME = "database_name";
+  public static final String ENTITY_NAME = "entity_name";
 
   // Maintenance jobs table properties keys
   public static final String BACKUP_ENABLED_KEY = "retention.backup.enabled";

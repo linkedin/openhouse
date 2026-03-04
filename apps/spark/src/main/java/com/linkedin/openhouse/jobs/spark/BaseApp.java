@@ -65,20 +65,30 @@ public abstract class BaseApp {
     }
   }
 
+  protected static StateManager createStateManager(
+      CommandLine cmdLine, OtelEmitter otelEmitter, String trustStoreLocation) {
+    return new StateManager(
+        RetryUtil.getJobsStateApiRetryTemplate(),
+        createJobApiClient(cmdLine.getOptionValue("storageURL"), otelEmitter, trustStoreLocation));
+  }
+
   protected static StateManager createStateManager(CommandLine cmdLine, OtelEmitter otelEmitter) {
     return new StateManager(
         RetryUtil.getJobsStateApiRetryTemplate(),
-        createJobApiClient(cmdLine.getOptionValue("storageURL"), otelEmitter));
+        createJobApiClient(cmdLine.getOptionValue("storageURL"), otelEmitter, null));
   }
 
   protected static String getJobId(CommandLine cmdLine) {
     return cmdLine.getOptionValue("jobId");
   }
 
-  private static JobApi createJobApiClient(String basePath, OtelEmitter otelEmitter) {
+  protected static JobApi createJobApiClient(
+      String basePath, OtelEmitter otelEmitter, String trustStoreLocation) {
     ApiClient client = null;
     try {
-      client = HousetablesApiClientFactory.getInstance().createApiClient(basePath, null, null);
+      client =
+          HousetablesApiClientFactory.getInstance()
+              .createApiClient(basePath, null, trustStoreLocation);
     } catch (MalformedURLException | SSLException e) {
       log.error("Jobs Api client creation failed: Failure while initializing ApiClient", e);
       otelEmitter.count(

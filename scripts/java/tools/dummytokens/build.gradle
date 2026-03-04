@@ -3,8 +3,10 @@ plugins {
     id 'openhouse.maven-publish'
     id 'application'
 }
-apply plugin: 'application'
-mainClassName = 'com.linkedin.openhouse.tools.dummytokens.DummyTokenGenerator'
+
+application {
+    mainClass = 'com.linkedin.openhouse.tools.dummytokens.DummyTokenGenerator'
+}
 
 dependencies {
     implementation(project(':services:common')){
@@ -17,6 +19,8 @@ dependencies {
 }
 
 jar {
+    // Ensure all runtime dependencies are built before creating the fat jar
+    dependsOn configurations.runtimeClasspath
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
         attributes(

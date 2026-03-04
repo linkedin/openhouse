@@ -84,6 +84,8 @@ body:
         required: false
       - label: "`Spark Client Integration`: This is the Apache Spark integration for OpenHouse catalog. `:integration:spark`"
         required: false
+      - label: "`Python DataLoader`: This is the distributed data loading library for OpenHouse tables. `:integrations:python:dataloader`"
+        required: false
       - label: "`Documentation`: This is the documentation for OpenHouse. `docs`"
         required: false
       - label: "`Local Docker`: This is the local Docker environment for OpenHouse. `infra/recipes/docker-compose`"
