@@ -20,23 +20,24 @@ public class CreateTablePartitionedTest {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
+    Object getTableResponseBody =
+        mockGetTableResponseBody(
+            "dbCreate",
+            tbName,
+            "c1",
+            "dbCreate.tbpartitionedclustered.c1",
+            "UUID",
+            mockTableLocation(
+                TableIdentifier.of("dbDesc", tbName),
+                convertSchemaToDDLComponent(baseSchema),
+                "PARTITIONED BY (days(timestampCol), name, id, count)"),
+            "v1",
+            baseSchema,
+            null,
+            null);
+    mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
     mockTableService.enqueue(
-        mockResponse(
-            201,
-            mockGetTableResponseBody(
-                "dbCreate",
-                tbName,
-                "c1",
-                "dbCreate.tbpartitionedclustered.c1",
-                "UUID",
-                mockTableLocation(
-                    TableIdentifier.of("dbDesc", tbName),
-                    convertSchemaToDDLComponent(baseSchema),
-                    "PARTITIONED BY (days(timestampCol), name, id, count)"),
-                "v1",
-                baseSchema,
-                null,
-                null))); // doCommit()
+        mockResponse(200, getTableResponseBody)); // doRefresh() after commit (Iceberg 1.2+)
 
     Assertions.assertDoesNotThrow(
         () ->
@@ -53,23 +54,24 @@ public class CreateTablePartitionedTest {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
+    Object getTableResponseBody =
+        mockGetTableResponseBody(
+            "dbCreate",
+            tbName,
+            "c1",
+            "dbCreate.tbpartitionedclustered.c1",
+            "UUID",
+            mockTableLocation(
+                TableIdentifier.of("dbDesc", tbName),
+                convertSchemaToDDLComponent(baseSchema),
+                "PARTITIONED BY (days(timestampCol), truncate(100, name))"),
+            "v1",
+            baseSchema,
+            null,
+            null);
+    mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
     mockTableService.enqueue(
-        mockResponse(
-            201,
-            mockGetTableResponseBody(
-                "dbCreate",
-                tbName,
-                "c1",
-                "dbCreate.tbpartitionedclustered.c1",
-                "UUID",
-                mockTableLocation(
-                    TableIdentifier.of("dbDesc", tbName),
-                    convertSchemaToDDLComponent(baseSchema),
-                    "PARTITIONED BY (days(timestampCol), truncate(100, name))"),
-                "v1",
-                baseSchema,
-                null,
-                null))); // doCommit()
+        mockResponse(200, getTableResponseBody)); // doRefresh() after commit (Iceberg 1.2+)
 
     Assertions.assertDoesNotThrow(
         () ->
@@ -87,23 +89,24 @@ public class CreateTablePartitionedTest {
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
+      Object getTableResponseBody =
+          mockGetTableResponseBody(
+              "dbCreate",
+              tbName,
+              "c1",
+              "dbCreate.tbpartitioned.c1",
+              "UUID",
+              mockTableLocation(
+                  TableIdentifier.of("dbDesc", tbName),
+                  convertSchemaToDDLComponent(baseSchema),
+                  String.format("PARTITIONED BY (%s(timestampCol))", transform)),
+              "v1",
+              baseSchema,
+              null,
+              null);
+      mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
       mockTableService.enqueue(
-          mockResponse(
-              201,
-              mockGetTableResponseBody(
-                  "dbCreate",
-                  tbName,
-                  "c1",
-                  "dbCreate.tbpartitioned.c1",
-                  "UUID",
-                  mockTableLocation(
-                      TableIdentifier.of("dbDesc", tbName),
-                      convertSchemaToDDLComponent(baseSchema),
-                      String.format("PARTITIONED BY (%s(timestampCol))", transform)),
-                  "v1",
-                  baseSchema,
-                  null,
-                  null))); // doCommit()
+          mockResponse(200, getTableResponseBody)); // doRefresh() after commit (Iceberg 1.2+)
 
       Assertions.assertDoesNotThrow(
           () ->
@@ -126,23 +129,24 @@ public class CreateTablePartitionedTest {
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
       mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
+      Object getTableResponseBody =
+          mockGetTableResponseBody(
+              "dbCreate",
+              tbName,
+              "c1",
+              "dbCreate.tbpartitioned.c1",
+              "UUID",
+              mockTableLocation(
+                  TableIdentifier.of("dbDesc", tbName),
+                  convertSchemaToDDLComponent(baseSchema),
+                  String.format("PARTITIONED BY (%s)", transform)),
+              "v1",
+              baseSchema,
+              null,
+              null);
+      mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
       mockTableService.enqueue(
-          mockResponse(
-              201,
-              mockGetTableResponseBody(
-                  "dbCreate",
-                  tbName,
-                  "c1",
-                  "dbCreate.tbpartitioned.c1",
-                  "UUID",
-                  mockTableLocation(
-                      TableIdentifier.of("dbDesc", tbName),
-                      convertSchemaToDDLComponent(baseSchema),
-                      String.format("PARTITIONED BY (%s)", transform)),
-                  "v1",
-                  baseSchema,
-                  null,
-                  null))); // doCommit()
+          mockResponse(200, getTableResponseBody)); // doRefresh() after commit (Iceberg 1.2+)
 
       Assertions.assertDoesNotThrow(
           () ->

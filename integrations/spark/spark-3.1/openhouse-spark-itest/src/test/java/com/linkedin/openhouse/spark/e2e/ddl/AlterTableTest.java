@@ -40,6 +40,8 @@ public class AlterTableTest {
     tblProps.put(key, value);
     mockTableService.enqueue(
         mockResponse(200, decorateResponse(existingTable, tblProps))); // doCommit()
+    mockTableService.enqueue(
+        mockResponse(200, existingTable)); // doRefresh() after commit (Iceberg 1.2+)
 
     Assertions.assertDoesNotThrow(
         () ->
