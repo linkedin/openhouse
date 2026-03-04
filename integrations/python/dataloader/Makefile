@@ -41,8 +41,14 @@ build:
 package-check:
 	uv run twine check dist/*
 
+ITEST_IMAGE ?= oh-dataloader-itest
+DOCKER_NETWORK ?= oh-hadoop-spark_default
+
 integration-tests:
-	uv run python tests/integration_tests.py $(TOKEN_FILE)
+	docker build -t $(ITEST_IMAGE) -f tests/Dockerfile .
+	docker run --rm --network $(DOCKER_NETWORK) \
+		-e OH_TOKEN="$$(cat $(TOKEN_FILE))" \
+		$(ITEST_IMAGE) uv run python tests/integration_tests.py
 
 clean:
 	rm -rf build/

@@ -1,51 +1,36 @@
 """Integration tests for OpenHouseCatalog against a running OpenHouse instance.
 
-Tables are created via the OpenHouse REST API. For tests that need data,
-we use PyIceberg to write Parquet files to the table's location on the
-host filesystem. Since there is no real Iceberg catalog running locally,
-we use a _LocalCommitCatalog that applies metadata updates in memory so
-PyIceberg's table.append() can write data files and manifests. The updated
-metadata is then written to the path that OpenHouseCatalog reads from.
-Only Parquet is tested because PyIceberg does not support ORC writes.
+Tables are created and populated via Spark SQL submitted through Livy's REST API.
+Data lives in HDFS, so these tests run inside a Docker container on the same
+network as the oh-hadoop-spark Docker Compose services.
 """
 
 import logging
 import os
-import shutil
-import subprocess
 import sys
+import time
 
 import pyarrow as pa
 import pytest
 import requests
-from pyiceberg.catalog.noop import NoopCatalog
 from pyiceberg.exceptions import NoSuchTableError
-from pyiceberg.io import load_file_io
-from pyiceberg.serializers import FromInputFile, ToOutputFile
-from pyiceberg.table import CommitTableResponse, Table, update_table_metadata
 
 from openhouse.dataloader import OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.filters import col
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://openhouse-tables:8080"
+LIVY_URL = "http://spark-livy:8998"
 DATABASE_ID = "d_e2e"
 TABLE_ID_EMPTY = "t_empty"
 TABLE_ID_DATA = "t_data"
 TABLE_ID_SNAPSHOT = "t_snapshot"
-CONTAINER_NAME = "oh-only-openhouse-tables-1"
 
 COL_ID = "id"
 COL_NAME = "name"
 COL_SCORE = "score"
 
-TABLE_SCHEMA = (
-    '{"type": "struct", "fields": ['
-    f'{{"id": 1, "required": false, "name": "{COL_ID}", "type": "long"}},'
-    f'{{"id": 2, "required": false, "name": "{COL_NAME}", "type": "string"}},'
-    f'{{"id": 3, "required": false, "name": "{COL_SCORE}", "type": "double"}}'
-    "]}"
-)
+CREATE_COLUMNS = f"{COL_ID} BIGINT, {COL_NAME} STRING, {COL_SCORE} DOUBLE"
 
 EXPECTED_DATA = pa.table(
     {
@@ -71,135 +56,69 @@ SNAPSHOT_BATCH_2 = pa.table(
     }
 )
 
+SPARK_CONF = {
+    "spark.jars": "local:/opt/spark/openhouse-spark-runtime_2.12-latest-all.jar",
+    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0",
+    "spark.sql.extensions": (
+        "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
+        "com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions"
+    ),
+    "spark.sql.catalog.openhouse": "org.apache.iceberg.spark.SparkCatalog",
+    "spark.sql.catalog.openhouse.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog",
+    "spark.sql.catalog.openhouse.uri": BASE_URL,
+    "spark.sql.catalog.openhouse.cluster": "LocalHadoopCluster",
+}
 
-def _headers(token: str) -> dict:
-    return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-
-
-def _create_table(token: str, table_id: str, schema: str, **extra_payload) -> dict:
-    url = f"{BASE_URL}/v1/databases/{DATABASE_ID}/tables/"
-    payload = {
-        "tableId": table_id,
-        "databaseId": DATABASE_ID,
-        "baseTableVersion": "INITIAL_VERSION",
-        "clusterId": "LocalFSCluster",
-        "schema": schema,
-        **extra_payload,
-    }
-    response = requests.post(url, json=payload, headers=_headers(token))
-    assert response.status_code == 201, f"Failed to create table: {response.status_code} {response.text}"
-    print(f"Created table {DATABASE_ID}.{table_id}")
-    return response.json()
+HEADERS = {"Content-Type": "application/json"}
 
 
-def _delete_table(token: str, table_id: str) -> None:
-    url = f"{BASE_URL}/v1/databases/{DATABASE_ID}/tables/{table_id}"
-    response = requests.delete(url, headers=_headers(token))
-    assert response.status_code == 204, f"Failed to delete table: {response.status_code} {response.text}"
-    print(f"Deleted table {DATABASE_ID}.{table_id}")
+class LivySession:
+    """Manages a Livy SQL session for executing Spark SQL statements."""
+
+    def __init__(self, livy_url: str, auth_token: str) -> None:
+        self._livy_url = livy_url
+        conf = {**SPARK_CONF, "spark.sql.catalog.openhouse.auth-token": auth_token}
+        data = {"kind": "sql", "conf": conf}
+        response = requests.post(f"{livy_url}/sessions", json=data, headers=HEADERS)
+        assert response.status_code == 201, f"Session creation failed: {response.status_code} {response.text}"
+        self._session_url = livy_url + response.headers["location"]
+        self._wait_for_idle()
+
+    def _wait_for_idle(self) -> None:
+        while True:
+            resp = requests.get(self._session_url, headers=HEADERS)
+            state = resp.json()["state"]
+            if state == "idle":
+                return
+            if state in ("dead", "shutting_down", "error", "killed"):
+                raise RuntimeError(f"Livy session entered state: {state}")
+            time.sleep(2)
+
+    def execute(self, sql: str) -> None:
+        """Submit a SQL statement and wait for completion. Raises on error."""
+        print(f"  SQL: {sql}")
+        resp = requests.post(f"{self._session_url}/statements", json={"code": sql}, headers=HEADERS)
+        assert resp.status_code == 201, f"Statement submit failed: {resp.status_code} {resp.text}"
+        stmt_url = self._livy_url + resp.headers["location"]
+
+        while True:
+            resp = requests.get(stmt_url, headers=HEADERS)
+            state = resp.json()["state"]
+            if state == "available":
+                output = resp.json()["output"]
+                if output["status"] == "error":
+                    raise RuntimeError(f"SQL failed: {output.get('evalue', output)}")
+                return
+            if state in ("error", "cancelled"):
+                raise RuntimeError(f"Statement entered state: {state}")
+            time.sleep(1)
+
+    def close(self) -> None:
+        requests.delete(self._session_url, headers=HEADERS)
 
 
-def _get_metadata_path(token: str, table_id: str) -> str:
-    """Get the host filesystem path to the table metadata file."""
-    url = f"{BASE_URL}/v1/databases/{DATABASE_ID}/tables/{table_id}"
-    response = requests.get(url, headers=_headers(token))
-    assert response.status_code == 200, f"Failed to get table: {response.status_code} {response.text}"
-    location = response.json()["tableLocation"]
-    return location.removeprefix("file:")
-
-
-def _copy_metadata_from_container(token: str, table_id: str) -> str:
-    """Copy table metadata from the Docker container to the host filesystem.
-
-    Returns the host filesystem path to the metadata file.
-    """
-    metadata_path = _get_metadata_path(token, table_id)
-    metadata_dir = os.path.dirname(metadata_path)
-
-    os.makedirs(metadata_dir, exist_ok=True)
-    container_name = os.environ.get("OH_CONTAINER", CONTAINER_NAME)
-    result = subprocess.run(
-        ["docker", "cp", f"{container_name}:{metadata_path}", metadata_path],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, f"docker cp failed: {result.stderr}"
-    print(f"Copied metadata from container to {metadata_path}")
-    return metadata_path
-
-
-class _LocalCommitCatalog(NoopCatalog):
-    """Minimal catalog that applies metadata updates without persisting them.
-
-    PyIceberg's table.append() writes data files and manifests to the table
-    location, then calls catalog.commit_table() to update the metadata.
-    This catalog applies the metadata updates in memory so the Table object
-    receives the new snapshot. The caller is responsible for persisting the
-    updated metadata to disk afterward.
-    """
-
-    def commit_table(self, table, requirements, updates):
-        new_metadata = update_table_metadata(base_metadata=table.metadata, updates=updates)
-        return CommitTableResponse(metadata=new_metadata, metadata_location=table.metadata_location)
-
-
-def _append_data(token: str, table_id: str, df: pa.Table) -> str:
-    """Append rows to an OpenHouse table and write updated metadata to the host.
-
-    Reads the current table metadata (from the host if a previous append already
-    wrote it there, otherwise copied from the Docker container), appends data
-    files via PyIceberg, and writes the new metadata back to the host.
-
-    Returns the host filesystem path to the metadata file.
-    """
-    container_metadata_path = _get_metadata_path(token, table_id)
-    host_metadata_dir = os.path.dirname(container_metadata_path)
-    os.makedirs(host_metadata_dir, exist_ok=True)
-
-    if os.path.exists(container_metadata_path):
-        # Host already has metadata from a previous append
-        io = load_file_io(properties={}, location=container_metadata_path)
-        metadata = FromInputFile.table_metadata(io.new_input(container_metadata_path))
-    else:
-        # First append: copy metadata from the Docker container
-        container_name = os.environ.get("OH_CONTAINER", CONTAINER_NAME)
-        tmp_metadata = container_metadata_path + ".tmp"
-        result = subprocess.run(
-            ["docker", "cp", f"{container_name}:{container_metadata_path}", tmp_metadata],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, f"docker cp failed: {result.stderr}"
-
-        io = load_file_io(properties={}, location=tmp_metadata)
-        metadata = FromInputFile.table_metadata(io.new_input(tmp_metadata))
-        os.remove(tmp_metadata)
-
-    table_io = load_file_io({**metadata.properties}, location=metadata.location)
-    table = Table(
-        identifier=(DATABASE_ID, table_id),
-        metadata=metadata,
-        metadata_location=container_metadata_path,
-        io=table_io,
-        catalog=_LocalCommitCatalog("local"),
-    )
-    table.append(df)
-
-    # Write the updated metadata (with snapshot) to the path the OpenHouseCatalog expects
-    ToOutputFile.table_metadata(table.metadata, table_io.new_output(container_metadata_path), overwrite=True)
-    print(f"Wrote {df.num_rows} rows and updated metadata at {container_metadata_path}")
-    return container_metadata_path
-
-
-def _cleanup_table(token: str, table_id: str, metadata_path: str | None = None) -> None:
-    """Delete a table via REST API and clean up local files."""
-    try:
-        _delete_table(token, table_id)
-    except Exception as e:
-        print(f"Warning: failed to delete {table_id}: {e}")
-    if metadata_path:
-        table_dir = os.path.dirname(metadata_path)
-        shutil.rmtree(table_dir, ignore_errors=True)
+def _fqtn(table_id: str) -> str:
+    return f"openhouse.{DATABASE_ID}.{table_id}"
 
 
 def test_table_with_data(catalog: OpenHouseCatalog) -> None:
@@ -274,25 +193,6 @@ def test_empty_table(catalog: OpenHouseCatalog) -> None:
     print("DataLoader correctly yielded no splits for empty table")
 
 
-def _setup_snapshot_table(token: str, catalog: OpenHouseCatalog) -> tuple[str, int, int]:
-    """Create a table with two snapshots: SNAPSHOT_BATCH_1 then SNAPSHOT_BATCH_2.
-
-    Returns (metadata_path, snap1, snap2).
-    """
-    _create_table(token, TABLE_ID_SNAPSHOT, TABLE_SCHEMA, tableProperties={"write.format.default": "parquet"})
-    metadata_path = _append_data(token, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_1)
-    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
-    snap1 = table.metadata.current_snapshot_id
-
-    metadata_path = _append_data(token, TABLE_ID_SNAPSHOT, SNAPSHOT_BATCH_2)
-    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}")
-    snap2 = table.metadata.current_snapshot_id
-
-    assert snap1 != snap2, f"Expected different snapshot IDs, got {snap1} for both"
-    print(f"Snapshot IDs: snap1={snap1}, snap2={snap2}")
-    return metadata_path, snap1, snap2
-
-
 def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: int, snap2: int) -> None:
     """Load with snapshot_id=snap1 returns only the first batch of data."""
     loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap1)
@@ -337,65 +237,79 @@ def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:
     print("load_table correctly raised NoSuchTableError for nonexistent table")
 
 
-def read_token(path: str) -> str:
-    try:
-        with open(path) as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        print(f"Token file not found: {path}")
-        sys.exit(1)
+def read_token() -> str:
+    """Read auth token from OH_TOKEN env var or file argument."""
+    token = os.environ.get("OH_TOKEN")
+    if token:
+        return token.strip()
+    if len(sys.argv) >= 2:
+        try:
+            with open(sys.argv[1]) as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            print(f"Token file not found: {sys.argv[1]}")
+            sys.exit(1)
+    print("Usage: set OH_TOKEN env var or pass token file as argument")
+    sys.exit(1)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-    if len(sys.argv) != 2:
-        print("Usage: python integration_tests.py <token_file>")
-        sys.exit(1)
-
-    token_str = read_token(sys.argv[1])
+    token_str = read_token()
     catalog = OpenHouseCatalog(name="integration-test", uri=BASE_URL, auth_token=token_str)
 
-    # --- Table with data ---
-    data_metadata_path = None
+    livy = LivySession(LIVY_URL, token_str)
     try:
-        _create_table(
-            token_str,
-            TABLE_ID_DATA,
-            TABLE_SCHEMA,
-            tableProperties={"write.format.default": "parquet"},
-        )
-        data_metadata_path = _append_data(token_str, TABLE_ID_DATA, EXPECTED_DATA)
-        test_table_with_data(catalog)
-        test_table_with_data_row_filter(catalog)
-        test_table_with_data_selected_columns(catalog)
+        # --- Table with data ---
+        try:
+            livy.execute(
+                f"CREATE TABLE {_fqtn(TABLE_ID_DATA)} ({CREATE_COLUMNS}) "
+                "USING iceberg TBLPROPERTIES ('write.format.default'='parquet')"
+            )
+            livy.execute(
+                f"INSERT INTO {_fqtn(TABLE_ID_DATA)} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)"
+            )
+            test_table_with_data(catalog)
+            test_table_with_data_row_filter(catalog)
+            test_table_with_data_selected_columns(catalog)
+        finally:
+            livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_DATA)}")
+
+        # --- Snapshot ID ---
+        try:
+            livy.execute(
+                f"CREATE TABLE {_fqtn(TABLE_ID_SNAPSHOT)} ({CREATE_COLUMNS}) "
+                "USING iceberg TBLPROPERTIES ('write.format.default'='parquet')"
+            )
+            livy.execute(f"INSERT INTO {_fqtn(TABLE_ID_SNAPSHOT)} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2)")
+            snap1 = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}").metadata.current_snapshot_id
+
+            livy.execute(f"INSERT INTO {_fqtn(TABLE_ID_SNAPSHOT)} VALUES (3, 'charlie', 3.3), (4, 'diana', 4.4)")
+            snap2 = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}").metadata.current_snapshot_id
+
+            assert snap1 != snap2, f"Expected different snapshot IDs, got {snap1} for both"
+            print(f"Snapshot IDs: snap1={snap1}, snap2={snap2}")
+
+            test_snapshot_id_returns_data_at_snapshot(catalog, snap1, snap2)
+            test_snapshot_id_with_filters(catalog, snap2)
+            test_snapshot_id_invalid(catalog)
+        finally:
+            livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_SNAPSHOT)}")
+
+        # --- Empty table ---
+        try:
+            livy.execute(
+                f"CREATE TABLE {_fqtn(TABLE_ID_EMPTY)} ({CREATE_COLUMNS}) "
+                "USING iceberg TBLPROPERTIES ('myProp'='hello')"
+            )
+            test_empty_table(catalog)
+        finally:
+            livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_EMPTY)}")
+
+        # --- Nonexistent table ---
+        test_nonexistent_table(catalog)
+
+        print("All integration tests passed")
     finally:
-        _cleanup_table(token_str, TABLE_ID_DATA, data_metadata_path)
-
-    # --- Snapshot ID ---
-    snapshot_metadata_path = None
-    try:
-        snapshot_metadata_path, snap1, snap2 = _setup_snapshot_table(token_str, catalog)
-        test_snapshot_id_returns_data_at_snapshot(catalog, snap1, snap2)
-        test_snapshot_id_with_filters(catalog, snap2)
-        test_snapshot_id_invalid(catalog)
-    finally:
-        _cleanup_table(token_str, TABLE_ID_SNAPSHOT, snapshot_metadata_path)
-
-    # --- Empty table ---
-    try:
-        _create_table(
-            token_str,
-            TABLE_ID_EMPTY,
-            TABLE_SCHEMA,
-            tableProperties={"myProp": "hello"},
-        )
-        _copy_metadata_from_container(token_str, TABLE_ID_EMPTY)
-        test_empty_table(catalog)
-    finally:
-        _cleanup_table(token_str, TABLE_ID_EMPTY)
-
-    # --- Nonexistent table ---
-    test_nonexistent_table(catalog)
-
-    print("All integration tests passed")
+        livy.close()

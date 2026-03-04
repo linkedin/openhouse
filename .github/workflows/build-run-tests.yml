@@ -24,10 +24,10 @@ jobs:
         run: ./gradlew clean build
 
       - name: Start Docker Containers
-        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
+        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build
 
       - name: Wait for Docker Containers to start
-        run: sleep 30
+        run: sleep 90
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -54,4 +54,4 @@ jobs:
         run: python scripts/python/integration_test.py ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
 
       - name: Stop Docker Containers
-        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
+        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml down
