@@ -14,6 +14,9 @@ import pyarrow as pa
 import pytest
 import requests
 from pyiceberg.exceptions import NoSuchTableError
+from pyiceberg.io import load_file_io
+from pyiceberg.serializers import ToOutputFile
+from pyiceberg.table.refs import SnapshotRef, SnapshotRefType
 
 from openhouse.dataloader import OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
@@ -113,6 +116,23 @@ def _read_all(loader: OpenHouseDataLoader) -> pa.Table:
     if not batches:
         return pa.table({})
     return pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
+
+
+def _create_branch(catalog: OpenHouseCatalog, branch_name: str, snapshot_id: int) -> None:
+    """Create a named branch on a table by writing updated metadata with the new ref.
+
+    Spark 3.1 does not support ALTER TABLE ... CREATE BRANCH, so we manipulate
+    the Iceberg metadata directly: load metadata, add a branch SnapshotRef, and
+    write the updated metadata back to the same location.
+    """
+    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID}")
+    metadata = table.metadata
+    branch_ref = SnapshotRef(snapshot_id=snapshot_id, snapshot_ref_type=SnapshotRefType.BRANCH)
+    new_refs = {**metadata.refs, branch_name: branch_ref}
+    updated_metadata = metadata.model_copy(update={"refs": new_refs})
+    io = load_file_io(properties=catalog.properties, location=table.metadata_location)
+    ToOutputFile.table_metadata(updated_metadata, io.new_output(table.metadata_location), overwrite=True)
+    print(f"  Created branch '{branch_name}' at snapshot {snapshot_id}")
 
 
 def read_token() -> str:
@@ -223,6 +243,41 @@ if __name__ == "__main__":
                 loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, snapshot_id=-1)
                 list(loader)
             print("PASS: invalid snapshot_id raised ValueError")
+
+            # 8. Branch tests — create branch_a at snap1, branch_b at snap2
+            _create_branch(catalog, "branch_a", snap1)
+            _create_branch(catalog, "branch_b", snap2)
+
+            # 8a. branch_a returns only snap1 data (3 rows)
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_a")
+            result = _read_all(loader)
+            assert result.num_rows == 3
+            assert result.column(COL_ID).to_pylist() == [1, 2, 3]
+            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
+            print(f"PASS: branch_a returned {result.num_rows} rows (snap1 data)")
+
+            # 8b. branch_b returns all 4 rows (snap2 data)
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_b")
+            result = _read_all(loader)
+            assert result.num_rows == 4
+            assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
+            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie", "diana"]
+            print(f"PASS: branch_b returned {result.num_rows} rows (snap2 data)")
+
+            # 8c. Branch resolves to the correct snapshot_id
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_a")
+            assert loader.snapshot_id == snap1, f"Expected branch_a snapshot_id={snap1}, got {loader.snapshot_id}"
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_b")
+            assert loader.snapshot_id == snap2, f"Expected branch_b snapshot_id={snap2}, got {loader.snapshot_id}"
+            print("PASS: branches resolve to correct snapshot IDs")
+
+            # 8d. Non-existent branch raises ValueError
+            with pytest.raises(ValueError, match="Branch .* not found"):
+                loader = OpenHouseDataLoader(
+                    catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="nonexistent"
+                )
+                list(loader)
+            print("PASS: non-existent branch raised ValueError")
 
         finally:
             livy.execute(f"DROP TABLE IF EXISTS {FQTN}")
