@@ -25,11 +25,14 @@ When validating a change, always run both:
 1. `make verify` — lint, format checks, and unit tests
 2. Integration tests against Docker OpenHouse — start the Docker services, then run `make integration-tests`. These test the dataloader end-to-end against a real OpenHouse instance and must pass before a change is considered correct.
 
+Run `make format` before pushing to avoid CI formatting failures.
+
 ```bash
 # From the repo root, start Docker services (once per session):
 docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d
 
 # From the dataloader directory:
+make format
 make verify
 make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
 ```

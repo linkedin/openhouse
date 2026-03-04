@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
@@ -26,6 +27,14 @@ class DataLoaderSplit:
         self._file_scan_task = file_scan_task
         self._udf_registry = udf_registry or NoOpRegistry()
         self._scan_context = scan_context
+
+    @property
+    def id(self) -> str:
+        """Unique ID for the split. This is stable across executions for a given
+        snapshot and split size.
+        """
+        file_path = self._file_scan_task.file.file_path
+        return hashlib.sha256(file_path.encode("utf-8")).hexdigest()
 
     @property
     def table_properties(self) -> Mapping[str, str]:

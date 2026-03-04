@@ -1,6 +1,7 @@
 """Tests for DataLoaderSplit functionality."""
 
 import os
+from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.orc as orc
@@ -27,6 +28,8 @@ def _create_test_split(
     table: pa.Table,
     file_format: FileFormat,
     iceberg_schema: Schema,
+    io_properties: dict[str, str] | None = None,
+    filename: str | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -35,12 +38,14 @@ def _create_test_split(
         table: PyArrow table containing test data
         file_format: File format to use (PARQUET or ORC)
         iceberg_schema: Iceberg schema with field IDs for column mapping
+        io_properties: Optional properties passed to load_file_io (e.g. DEFAULT_SCHEME, DEFAULT_NETLOC)
+        filename: Optional filename override (default: test.<ext>)
 
     Returns:
         DataLoaderSplit configured to read the written test file
     """
     ext = file_format.name.lower()
-    file_path = str(tmp_path / f"test.{ext}")
+    file_path = str(tmp_path / (filename or f"test.{ext}"))
 
     properties = {}
     if file_format == FileFormat.PARQUET:
@@ -63,7 +68,7 @@ def _create_test_split(
 
     scan_context = TableScanContext(
         table_metadata=metadata,
-        io=load_file_io(properties={}, location=file_path),
+        io=load_file_io(properties=io_properties or {}, location=file_path),
         projected_schema=iceberg_schema,
     )
 
@@ -144,3 +149,53 @@ def test_split_handles_wide_tables_with_many_columns(tmp_path, file_format):
 
     for i in range(num_cols):
         assert result.column(f"col_{i}").to_pylist() == list(range(5)), f"Column col_{i} values mismatch"
+
+
+_ID_SCHEMA = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
+_ID_TABLE = pa.table({"x": pa.array([1], type=pa.int64())})
+
+
+def test_split_id_differs_for_different_splits(tmp_path):
+    """Different splits produce different ids."""
+    split_a = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA, filename="a.parquet")
+    split_b = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA, filename="b.parquet")
+    assert split_a.id != split_b.id
+
+
+def test_split_id_is_deterministic(tmp_path):
+    """Two independently constructed splits from the same file produce the same id."""
+    split_a = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    split_b = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    assert split_a.id == split_b.id
+
+
+def test_split_id_ignores_default_netloc(tmp_path):
+    """The id depends only on the file path in the manifest, not the catalog's DEFAULT_NETLOC."""
+    netloc_a = "nn1.example.com:9000"
+    netloc_b = "nn2.example.com:9000"
+    split_a = _create_test_split(
+        tmp_path,
+        _ID_TABLE,
+        FileFormat.PARQUET,
+        _ID_SCHEMA,
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_a},
+    )
+    split_b = _create_test_split(
+        tmp_path,
+        _ID_TABLE,
+        FileFormat.PARQUET,
+        _ID_SCHEMA,
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_b},
+    )
+
+    assert split_a.id == split_b.id
+
+    # Without this check, the test would pass even if DEFAULT_NETLOC was
+    # silently dropped — both splits share the same file path so their ids
+    # would match regardless. Spy on fs_by_scheme (where PyIceberg resolves
+    # scheme + netloc into a filesystem) to confirm each netloc is used.
+    local_fs = load_file_io(properties={}, location=str(tmp_path)).fs_by_scheme("file", None)
+    for split, expected_netloc in [(split_a, netloc_a), (split_b, netloc_b)]:
+        split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
+        list(split)
+        split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
