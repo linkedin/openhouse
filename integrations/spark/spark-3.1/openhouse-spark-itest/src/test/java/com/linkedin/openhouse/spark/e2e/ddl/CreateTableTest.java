@@ -22,20 +22,21 @@ public class CreateTableTest {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
+    Object getTableResponseBody =
+        mockGetTableResponseBody(
+            "dbCreate",
+            "tb1",
+            "c1",
+            "dbCreate.tb1.c1",
+            "UUID",
+            mockTableLocationDefaultSchema(TableIdentifier.of("dbCreate", "tb1")),
+            "v1",
+            baseSchema,
+            null,
+            null);
+    mockTableService.enqueue(mockResponse(201, getTableResponseBody)); // doCommit()
     mockTableService.enqueue(
-        mockResponse(
-            201,
-            mockGetTableResponseBody(
-                "dbCreate",
-                "tb1",
-                "c1",
-                "dbCreate.tb1.c1",
-                "UUID",
-                mockTableLocationDefaultSchema(TableIdentifier.of("dbCreate", "tb1")),
-                "v1",
-                baseSchema,
-                null,
-                null))); // doCommit()
+        mockResponse(200, getTableResponseBody)); // doRefresh() after commit (Iceberg 1.2+)
 
     String ddlWithSchema =
         "CREATE TABLE openhouse.dbCreate.tb1 (" + convertSchemaToDDLComponent(baseSchema) + ")";
