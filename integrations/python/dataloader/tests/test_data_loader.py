@@ -340,18 +340,17 @@ def test_branch_snapshot_id_resolves():
     catalog = MagicMock()
     mock_snapshot = MagicMock()
     mock_snapshot.snapshot_id = 123
-    catalog.load_table.return_value.snapshot_by_name.return_value = mock_snapshot
+    catalog.load_table.return_value.snapshot_by_name.side_effect = lambda name: mock_snapshot if name == "my-branch" else None
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch")
 
     assert loader.snapshot_id == 123
-    catalog.load_table.return_value.snapshot_by_name.assert_called_once_with("my-branch")
 
 
 def test_branch_snapshot_id_not_found_raises():
     """ValueError is raised when branch does not exist in table metadata."""
     catalog = MagicMock()
-    catalog.load_table.return_value.snapshot_by_name.return_value = None
+    catalog.load_table.return_value.snapshot_by_name.side_effect = lambda name: None
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="missing")
 
@@ -400,14 +399,14 @@ def test_branch_reads_data_from_branch_snapshot(tmp_path):
         scan.plan_files.return_value = [tasks_by_snapshot[kwargs["snapshot_id"]]]
         return scan
 
+    mock_snapshot = MagicMock()
+    mock_snapshot.snapshot_id = branch_snapshot_id
+
     mock_table = MagicMock()
     mock_table.metadata = metadata
     mock_table.io = io
     mock_table.scan.side_effect = fake_scan
-
-    mock_snapshot = MagicMock()
-    mock_snapshot.snapshot_id = branch_snapshot_id
-    mock_table.snapshot_by_name.return_value = mock_snapshot
+    mock_table.snapshot_by_name.side_effect = lambda name: mock_snapshot if name == "my-branch" else None
 
     catalog = MagicMock()
     catalog.load_table.return_value = mock_table
