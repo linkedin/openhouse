@@ -166,6 +166,8 @@ if __name__ == "__main__":
             result = _read_all(loader)
             assert result.num_rows == 2
             assert result.column(COL_ID).to_pylist() == [2, 3]
+            assert result.column(COL_NAME).to_pylist() == ["bob", "charlie"]
+            assert result.column(COL_SCORE).to_pylist() == [2.2, 3.3]
             print(f"PASS: row filter returned {result.num_rows} rows")
 
             # 5b. Column projection
@@ -175,6 +177,8 @@ if __name__ == "__main__":
             result = _read_all(loader)
             assert result.column_names == [COL_ID, COL_NAME]
             assert result.num_rows == 3
+            assert result.column(COL_ID).to_pylist() == [1, 2, 3]
+            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
             print(f"PASS: column projection returned columns {result.column_names}")
 
             # 6. Write a second snapshot and verify the new data is read
@@ -187,6 +191,8 @@ if __name__ == "__main__":
             result = _read_all(loader)
             assert result.num_rows == 4
             assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
+            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie", "diana"]
+            assert result.column(COL_SCORE).to_pylist() == [1.1, 2.2, 3.3, 4.4]
             print(f"PASS: after second insert, read all {result.num_rows} rows")
 
             # 7. Pin to the old snapshot and verify only the original data is returned
@@ -196,6 +202,8 @@ if __name__ == "__main__":
             result = _read_all(loader)
             assert result.num_rows == 3
             assert result.column(COL_ID).to_pylist() == [1, 2, 3]
+            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
+            assert result.column(COL_SCORE).to_pylist() == [1.1, 2.2, 3.3]
             print(f"PASS: pinned to snap1, read {result.num_rows} rows (excluded snap2 data)")
 
             # Verify invalid snapshot raises
