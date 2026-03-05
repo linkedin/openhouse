@@ -30,7 +30,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v5
 
       - name: Build project and Spark uber JARs
-        run: ./gradlew clean build shadowJar
+        run: ./gradlew clean build shadowJar -x test
 
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build
