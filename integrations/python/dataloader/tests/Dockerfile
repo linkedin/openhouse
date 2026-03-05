@@ -1,15 +1,5 @@
-# Stage 1: Build the test runner shiv on the target platform.
-# This ensures native extensions (pyarrow, etc.) match the runtime architecture.
-FROM python:3.12-slim-bookworm AS builder
-RUN pip install --no-cache-dir shiv
-WORKDIR /build
-COPY pyproject.toml README.md ./
-COPY src/ src/
-COPY tests/shiv_preamble.py ./
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
-RUN shiv --compile --preamble shiv_preamble.py -p '/usr/bin/env python3' -o itest.pyz ".[dev]"
-
-# Stage 2: Minimal runtime image with Java 8 + Hadoop 2.8 for HDFS access.
+# Minimal runtime image with Java 8 + Hadoop 2.8 for HDFS access.
+# The test runner shiv (itest.pyz) is built on the host and copied in.
 FROM python:3.12-slim-bookworm
 
 # Copy JRE 8 and Hadoop 2.8 client from the hadoop base image.
@@ -33,7 +23,7 @@ RUN echo "${HADOOP_HOME}/etc/hadoop" > /tmp/cp_parts && \
 ENV CLASSPATH_FILE=/tmp/cp
 
 WORKDIR /app
-COPY --from=builder /build/itest.pyz ./
+COPY tests/itest.pyz ./
 COPY tests/ tests/
 
 # Set CLASSPATH from the expanded file at container start.

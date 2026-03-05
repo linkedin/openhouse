@@ -1,4 +1,4 @@
-.PHONY: help sync clean lint format format-check typecheck check test verify build package-check integration-tests
+.PHONY: help sync clean lint format format-check typecheck check test verify build package-check build-itest integration-tests
 
 help:
 	@echo "Available commands:"
@@ -43,8 +43,15 @@ package-check:
 
 ITEST_IMAGE ?= oh-dataloader-itest
 DOCKER_NETWORK ?= oh-hadoop-spark_default
+ITEST_PYZ = tests/itest.pyz
 
-integration-tests:
+build-itest: $(ITEST_PYZ)
+
+$(ITEST_PYZ): pyproject.toml src/ tests/shiv_preamble.py
+	pip install --quiet shiv
+	SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 shiv --compile --preamble tests/shiv_preamble.py -p '/usr/bin/env python3' -o $(ITEST_PYZ) ".[dev]"
+
+integration-tests: $(ITEST_PYZ)
 	docker build --platform linux/amd64 -t $(ITEST_IMAGE) -f tests/Dockerfile .
 	docker run --rm --platform linux/amd64 --network $(DOCKER_NETWORK) \
 		-e OH_TOKEN="$$(cat $(TOKEN_FILE))" \
@@ -55,5 +62,6 @@ clean:
 	rm -rf dist/
 	rm -rf *.egg-info
 	rm -rf .venv/
+	rm -f $(ITEST_PYZ)
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
