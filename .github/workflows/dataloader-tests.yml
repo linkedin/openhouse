@@ -20,6 +20,20 @@ jobs:
       - name: Checkout project sources
         uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Run Data Loader Tests
+        working-directory: integrations/python/dataloader
+        run: make sync verify
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -34,20 +48,6 @@ jobs:
 
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Run Data Loader Tests
-        working-directory: integrations/python/dataloader
-        run: make sync verify
 
       - name: Wait for Docker Containers to be ready
         run: |
