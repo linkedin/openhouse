@@ -35,20 +35,6 @@ jobs:
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build
 
-      - name: Wait for Docker Containers to start
-        run: |
-          echo "Waiting for openhouse-tables and spark-livy..."
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:8000/v1/databases > /dev/null 2>&1 && \
-               curl -sf http://localhost:9003/sessions > /dev/null 2>&1; then
-              echo "Services ready after $((i * 5))s"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Timed out waiting for services after 300s"
-          exit 1
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -62,6 +48,20 @@ jobs:
       - name: Run Data Loader Tests
         working-directory: integrations/python/dataloader
         run: make sync verify
+
+      - name: Wait for Docker Containers to be ready
+        run: |
+          echo "Waiting for openhouse-tables and spark-livy..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/v1/databases > /dev/null 2>&1 && \
+               curl -sf http://localhost:9003/sessions > /dev/null 2>&1; then
+              echo "Services ready after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for services after 300s"
+          exit 1
 
       - name: Run Data Loader Integration Tests
         working-directory: integrations/python/dataloader
