@@ -9,7 +9,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 RUN uv python install 3.12
 
 WORKDIR /app
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 RUN uv sync --all-extras
 
