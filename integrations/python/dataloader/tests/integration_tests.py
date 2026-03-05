@@ -148,13 +148,16 @@ if __name__ == "__main__":
             _read_all(loader)
         print("PASS: nonexistent table raised NoSuchTableError")
 
-        # 2. Empty table returns no splits
-        livy.execute(f"CREATE TABLE {FQTN} ({CREATE_COLUMNS}) USING iceberg")
+        # 2. Empty table returns no splits and custom properties are accessible
+        livy.execute(
+            f"CREATE TABLE {FQTN} ({CREATE_COLUMNS}) USING iceberg TBLPROPERTIES ('itest.custom-key' = 'custom-value')"
+        )
         try:
             loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
             assert list(loader) == [], "Expected no splits for empty table"
             assert loader.snapshot_id is None, "Expected no snapshot for empty table"
-            print("PASS: empty table returned no splits")
+            assert loader.table_properties.get("itest.custom-key") == "custom-value"
+            print("PASS: empty table returned no splits and custom property is accessible")
 
             # 3. Write data via Spark
             livy.execute(f"INSERT INTO {FQTN} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)")
