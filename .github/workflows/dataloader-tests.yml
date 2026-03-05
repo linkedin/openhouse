@@ -52,7 +52,7 @@ jobs:
       - name: Wait for Docker Containers to be ready
         run: |
           echo "Waiting for openhouse-tables and spark-livy..."
-          for i in $(seq 1 60); do
+          for i in $(seq 1 120); do
             if curl -sf http://localhost:8000/v1/databases > /dev/null 2>&1 && \
                curl -sf http://localhost:9003/sessions > /dev/null 2>&1; then
               echo "Services ready after $((i * 5))s"
@@ -60,7 +60,7 @@ jobs:
             fi
             sleep 5
           done
-          echo "Timed out waiting for services after 300s"
+          echo "Timed out waiting for services after 600s"
           exit 1
 
       - name: Run Data Loader Integration Tests
