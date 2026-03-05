@@ -40,22 +40,6 @@ EXPECTED_DATA = pa.table(
     }
 )
 
-SNAPSHOT_BATCH_1 = pa.table(
-    {
-        COL_ID: pa.array([1, 2], type=pa.int64()),
-        COL_NAME: pa.array(["alice", "bob"], type=pa.string()),
-        COL_SCORE: pa.array([1.1, 2.2], type=pa.float64()),
-    }
-)
-
-SNAPSHOT_BATCH_2 = pa.table(
-    {
-        COL_ID: pa.array([3, 4], type=pa.int64()),
-        COL_NAME: pa.array(["charlie", "diana"], type=pa.string()),
-        COL_SCORE: pa.array([3.3, 4.4], type=pa.float64()),
-    }
-)
-
 SPARK_CONF = {
     "spark.jars": "local:/opt/spark/openhouse-spark-runtime_2.12-latest-all.jar",
     "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0",
@@ -121,120 +105,12 @@ def _fqtn(table_id: str) -> str:
     return f"openhouse.{DATABASE_ID}.{table_id}"
 
 
-def test_table_with_data(catalog: OpenHouseCatalog) -> None:
-    """Load a table with data. Check the data, table properties, and snapshot ID."""
-    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA)
-
-    assert loader.table_properties.get("write.format.default") == "parquet"
-    print("Loader table_properties verified: write.format.default=parquet")
-
-    assert loader.snapshot_id is not None, "Expected a snapshot ID for a table with data"
-    print(f"Loader snapshot_id verified: {loader.snapshot_id}")
-
+def _read_all(loader: OpenHouseDataLoader) -> pa.Table:
+    """Read all data from a DataLoader and return as a sorted PyArrow table."""
     batches = [batch for split in loader for batch in split]
-    assert len(batches) > 0, "Expected at least one batch"
-
-    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
-    result = result.sort_by(COL_ID)
-
-    assert result.num_rows == EXPECTED_DATA.num_rows, f"Expected {EXPECTED_DATA.num_rows} rows, got {result.num_rows}"
-    assert result.column(COL_ID).to_pylist() == EXPECTED_DATA.column(COL_ID).to_pylist()
-    assert result.column(COL_NAME).to_pylist() == EXPECTED_DATA.column(COL_NAME).to_pylist()
-    assert result.column(COL_SCORE).to_pylist() == EXPECTED_DATA.column(COL_SCORE).to_pylist()
-    print(f"DataLoader read {result.num_rows} rows with correct values")
-
-
-def test_table_with_data_row_filter(catalog: OpenHouseCatalog) -> None:
-    """Load a table with data and apply a row filter."""
-    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, filters=col(COL_ID) > 1)
-
-    batches = [batch for split in loader for batch in split]
-    assert len(batches) > 0, "Expected at least one batch"
-
-    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
-    result = result.sort_by(COL_ID)
-
-    assert result.num_rows == 2, f"Expected 2 rows, got {result.num_rows}"
-    assert result.column(COL_ID).to_pylist() == [2, 3]
-    assert result.column(COL_NAME).to_pylist() == ["bob", "charlie"]
-    assert result.column(COL_SCORE).to_pylist() == [2.2, 3.3]
-    print(f"DataLoader read {result.num_rows} filtered rows")
-
-
-def test_table_with_data_selected_columns(catalog: OpenHouseCatalog) -> None:
-    """Load a table with data and select only specific columns."""
-    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, columns=[COL_ID, COL_NAME])
-
-    batches = [batch for split in loader for batch in split]
-    assert len(batches) > 0, "Expected at least one batch"
-
-    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches])
-    result = result.sort_by(COL_ID)
-
-    assert result.column_names == [COL_ID, COL_NAME], f"Expected [{COL_ID}, {COL_NAME}], got {result.column_names}"
-    assert result.num_rows == 3, f"Expected 3 rows, got {result.num_rows}"
-    assert result.column(COL_ID).to_pylist() == [1, 2, 3]
-    assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
-    print(f"DataLoader read {result.num_rows} rows with selected columns {result.column_names}")
-
-
-def test_empty_table(catalog: OpenHouseCatalog) -> None:
-    """Load a table without data. Check splits are empty, table properties, and snapshot ID."""
-    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_EMPTY)
-
-    assert loader.table_properties.get("myProp") == "hello"
-    print("Loader table_properties verified: myProp=hello")
-
-    assert loader.snapshot_id is None, f"Expected no snapshot ID for empty table, got {loader.snapshot_id}"
-    print("Loader snapshot_id verified: None (empty table)")
-
-    splits = list(loader)
-    assert splits == [], f"Expected no splits, got {len(splits)}"
-    print("DataLoader correctly yielded no splits for empty table")
-
-
-def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: int, snap2: int) -> None:
-    """Load with snapshot_id=snap1 returns only the first batch of data."""
-    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap1)
-    batches = [batch for split in loader for batch in split]
-    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
-    assert result.num_rows == 2, f"Expected 2 rows at snapshot 1, got {result.num_rows}"
-    assert result.column(COL_ID).to_pylist() == [1, 2]
-    print(f"snapshot_id={snap1} correctly returned {result.num_rows} rows (batch 1 only)")
-
-    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2)
-    batches = [batch for split in loader for batch in split]
-    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
-    assert result.num_rows == 4, f"Expected 4 rows at snapshot 2, got {result.num_rows}"
-    assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
-    print(f"snapshot_id={snap2} correctly returned {result.num_rows} rows (both batches)")
-
-
-def test_snapshot_id_with_filters(catalog: OpenHouseCatalog, snap2: int) -> None:
-    """snapshot_id works alongside row filters."""
-    loader = OpenHouseDataLoader(
-        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2, filters=col(COL_ID) > 2
-    )
-    batches = [batch for split in loader for batch in split]
-    result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
-    assert result.num_rows == 2, f"Expected 2 filtered rows at snapshot 2, got {result.num_rows}"
-    assert result.column(COL_ID).to_pylist() == [3, 4]
-    print(f"snapshot_id={snap2} with filter correctly returned {result.num_rows} rows")
-
-
-def test_snapshot_id_invalid(catalog: OpenHouseCatalog) -> None:
-    """Loading with a non-existent snapshot_id raises an error."""
-    with pytest.raises(ValueError, match="Snapshot .* not found"):
-        loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=-1)
-        list(loader)
-    print("Invalid snapshot_id correctly raised ValueError")
-
-
-def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:
-    """Check that loading a nonexistent table raises NoSuchTableError."""
-    with pytest.raises(NoSuchTableError):
-        catalog.load_table(f"{DATABASE_ID}.nonexistent_table")
-    print("load_table correctly raised NoSuchTableError for nonexistent table")
+    if not batches:
+        return pa.table({})
+    return pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
 
 
 def read_token() -> str:
@@ -253,6 +129,162 @@ def read_token() -> str:
     sys.exit(1)
 
 
+def setup_data_table(livy: LivySession) -> None:
+    livy.execute(
+        f"CREATE TABLE {_fqtn(TABLE_ID_DATA)} ({CREATE_COLUMNS}) "
+        "USING iceberg TBLPROPERTIES ('write.format.default'='parquet')"
+    )
+    livy.execute(f"INSERT INTO {_fqtn(TABLE_ID_DATA)} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)")
+
+
+def teardown_data_table(livy: LivySession) -> None:
+    livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_DATA)}")
+
+
+def setup_snapshot_table(livy: LivySession, catalog: OpenHouseCatalog) -> tuple[int, int]:
+    """Create a table with two inserts and return the snapshot IDs from the DataLoader."""
+    livy.execute(
+        f"CREATE TABLE {_fqtn(TABLE_ID_SNAPSHOT)} ({CREATE_COLUMNS}) "
+        "USING iceberg TBLPROPERTIES ('write.format.default'='parquet')"
+    )
+    livy.execute(f"INSERT INTO {_fqtn(TABLE_ID_SNAPSHOT)} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2)")
+    snap1 = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT).snapshot_id
+
+    livy.execute(f"INSERT INTO {_fqtn(TABLE_ID_SNAPSHOT)} VALUES (3, 'charlie', 3.3), (4, 'diana', 4.4)")
+    snap2 = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT).snapshot_id
+
+    return snap1, snap2
+
+
+def teardown_snapshot_table(livy: LivySession) -> None:
+    livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_SNAPSHOT)}")
+
+
+def setup_empty_table(livy: LivySession) -> None:
+    livy.execute(
+        f"CREATE TABLE {_fqtn(TABLE_ID_EMPTY)} ({CREATE_COLUMNS}) USING iceberg TBLPROPERTIES ('myProp'='hello')"
+    )
+
+
+def teardown_empty_table(livy: LivySession) -> None:
+    livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_EMPTY)}")
+
+
+def test_table_with_data(catalog: OpenHouseCatalog) -> None:
+    """Load a table with data and verify all rows are returned."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA)
+    result = _read_all(loader)
+
+    assert result.num_rows == EXPECTED_DATA.num_rows, f"Expected {EXPECTED_DATA.num_rows} rows, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == EXPECTED_DATA.column(COL_ID).to_pylist()
+    assert result.column(COL_NAME).to_pylist() == EXPECTED_DATA.column(COL_NAME).to_pylist()
+    assert result.column(COL_SCORE).to_pylist() == EXPECTED_DATA.column(COL_SCORE).to_pylist()
+    print(f"DataLoader read {result.num_rows} rows with correct values")
+
+
+def test_table_with_data_properties(catalog: OpenHouseCatalog) -> None:
+    """Verify table properties are exposed through the DataLoader."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA)
+    assert loader.table_properties.get("write.format.default") == "parquet"
+    print("Loader table_properties verified: write.format.default=parquet")
+
+
+def test_table_with_data_snapshot_id(catalog: OpenHouseCatalog) -> None:
+    """A table with data should have a snapshot ID."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA)
+    assert loader.snapshot_id is not None, "Expected a snapshot ID for a table with data"
+    print(f"Loader snapshot_id verified: {loader.snapshot_id}")
+
+
+def test_table_with_data_row_filter(catalog: OpenHouseCatalog) -> None:
+    """Load a table with data and apply a row filter."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, filters=col(COL_ID) > 1)
+    result = _read_all(loader)
+
+    assert result.num_rows == 2, f"Expected 2 rows, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["bob", "charlie"]
+    assert result.column(COL_SCORE).to_pylist() == [2.2, 3.3]
+    print(f"DataLoader read {result.num_rows} filtered rows")
+
+
+def test_table_with_data_selected_columns(catalog: OpenHouseCatalog) -> None:
+    """Load a table with data and select only specific columns."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_DATA, columns=[COL_ID, COL_NAME])
+    result = _read_all(loader)
+
+    assert result.column_names == [COL_ID, COL_NAME], f"Expected [{COL_ID}, {COL_NAME}], got {result.column_names}"
+    assert result.num_rows == 3, f"Expected 3 rows, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [1, 2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
+    print(f"DataLoader read {result.num_rows} rows with selected columns {result.column_names}")
+
+
+def test_empty_table(catalog: OpenHouseCatalog) -> None:
+    """An empty table should yield no splits."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_EMPTY)
+
+    splits = list(loader)
+    assert splits == [], f"Expected no splits, got {len(splits)}"
+    print("DataLoader correctly yielded no splits for empty table")
+
+
+def test_empty_table_properties(catalog: OpenHouseCatalog) -> None:
+    """Verify table properties are exposed for an empty table."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_EMPTY)
+    assert loader.table_properties.get("myProp") == "hello"
+    print("Loader table_properties verified: myProp=hello")
+
+
+def test_empty_table_snapshot_id(catalog: OpenHouseCatalog) -> None:
+    """An empty table should have no snapshot ID."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_EMPTY)
+    assert loader.snapshot_id is None, f"Expected no snapshot ID for empty table, got {loader.snapshot_id}"
+    print("Loader snapshot_id verified: None (empty table)")
+
+
+def test_snapshot_id_returns_data_at_snapshot(catalog: OpenHouseCatalog, snap1: int, snap2: int) -> None:
+    """Loading with snapshot_id returns data as of that snapshot."""
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap1)
+    result = _read_all(loader)
+    assert result.num_rows == 2, f"Expected 2 rows at snapshot 1, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [1, 2]
+    print(f"snapshot_id={snap1} correctly returned {result.num_rows} rows (batch 1 only)")
+
+    loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2)
+    result = _read_all(loader)
+    assert result.num_rows == 4, f"Expected 4 rows at snapshot 2, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
+    print(f"snapshot_id={snap2} correctly returned {result.num_rows} rows (both batches)")
+
+
+def test_snapshot_id_with_filters(catalog: OpenHouseCatalog, snap2: int) -> None:
+    """snapshot_id works alongside row filters."""
+    loader = OpenHouseDataLoader(
+        catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=snap2, filters=col(COL_ID) > 2
+    )
+    result = _read_all(loader)
+    assert result.num_rows == 2, f"Expected 2 filtered rows at snapshot 2, got {result.num_rows}"
+    assert result.column(COL_ID).to_pylist() == [3, 4]
+    print(f"snapshot_id={snap2} with filter correctly returned {result.num_rows} rows")
+
+
+def test_snapshot_id_invalid(catalog: OpenHouseCatalog) -> None:
+    """Loading with a non-existent snapshot_id raises an error."""
+    with pytest.raises(ValueError, match="Snapshot .* not found"):
+        loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID_SNAPSHOT, snapshot_id=-1)
+        list(loader)
+    print("Invalid snapshot_id correctly raised ValueError")
+
+
+def test_nonexistent_table(catalog: OpenHouseCatalog) -> None:
+    """Check that loading a nonexistent table raises NoSuchTableError."""
+    with pytest.raises(NoSuchTableError):
+        loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table="nonexistent_table")
+        _read_all(loader)
+    print("DataLoader correctly raised NoSuchTableError for nonexistent table")
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -261,53 +293,32 @@ if __name__ == "__main__":
 
     livy = LivySession(LIVY_URL, token_str)
     try:
-        # --- Table with data ---
+        setup_data_table(livy)
         try:
-            livy.execute(
-                f"CREATE TABLE {_fqtn(TABLE_ID_DATA)} ({CREATE_COLUMNS}) "
-                "USING iceberg TBLPROPERTIES ('write.format.default'='parquet')"
-            )
-            livy.execute(
-                f"INSERT INTO {_fqtn(TABLE_ID_DATA)} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)"
-            )
             test_table_with_data(catalog)
+            test_table_with_data_properties(catalog)
+            test_table_with_data_snapshot_id(catalog)
             test_table_with_data_row_filter(catalog)
             test_table_with_data_selected_columns(catalog)
         finally:
-            livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_DATA)}")
+            teardown_data_table(livy)
 
-        # --- Snapshot ID ---
+        snap1, snap2 = setup_snapshot_table(livy, catalog)
         try:
-            livy.execute(
-                f"CREATE TABLE {_fqtn(TABLE_ID_SNAPSHOT)} ({CREATE_COLUMNS}) "
-                "USING iceberg TBLPROPERTIES ('write.format.default'='parquet')"
-            )
-            livy.execute(f"INSERT INTO {_fqtn(TABLE_ID_SNAPSHOT)} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2)")
-            snap1 = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}").metadata.current_snapshot_id
-
-            livy.execute(f"INSERT INTO {_fqtn(TABLE_ID_SNAPSHOT)} VALUES (3, 'charlie', 3.3), (4, 'diana', 4.4)")
-            snap2 = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID_SNAPSHOT}").metadata.current_snapshot_id
-
-            assert snap1 != snap2, f"Expected different snapshot IDs, got {snap1} for both"
-            print(f"Snapshot IDs: snap1={snap1}, snap2={snap2}")
-
             test_snapshot_id_returns_data_at_snapshot(catalog, snap1, snap2)
             test_snapshot_id_with_filters(catalog, snap2)
             test_snapshot_id_invalid(catalog)
         finally:
-            livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_SNAPSHOT)}")
+            teardown_snapshot_table(livy)
 
-        # --- Empty table ---
+        setup_empty_table(livy)
         try:
-            livy.execute(
-                f"CREATE TABLE {_fqtn(TABLE_ID_EMPTY)} ({CREATE_COLUMNS}) "
-                "USING iceberg TBLPROPERTIES ('myProp'='hello')"
-            )
             test_empty_table(catalog)
+            test_empty_table_properties(catalog)
+            test_empty_table_snapshot_id(catalog)
         finally:
-            livy.execute(f"DROP TABLE IF EXISTS {_fqtn(TABLE_ID_EMPTY)}")
+            teardown_empty_table(livy)
 
-        # --- Nonexistent table ---
         test_nonexistent_table(catalog)
 
         print("All integration tests passed")
