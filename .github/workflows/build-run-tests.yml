@@ -4,7 +4,6 @@ on:
   workflow_call: # Allow to be run by other workflows
 
 jobs:
-  # Unchanged from main — Java build + lightweight API integration test
   build-and-run-tests:
     name: Build and Run Tests
     runs-on: ubuntu-latest
@@ -44,83 +43,3 @@ jobs:
       - name: Stop Docker Containers
         if: always()
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
-
-  # Dataloader lint, unit tests, and integration tests (only when dataloader files change)
-  dataloader-tests:
-    name: Dataloader Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout project sources
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Check for dataloader changes
-        id: changes
-        run: |
-          BASE_SHA=${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
-          if git diff --name-only "$BASE_SHA" HEAD | grep -qE '^integrations/python/dataloader/'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up JDK 17
-        if: steps.changes.outputs.changed == 'true'
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'microsoft'
-          java-version: '17'
-
-      - name: Setup Gradle
-        if: steps.changes.outputs.changed == 'true'
-        uses: gradle/actions/setup-gradle@v5
-
-      - name: Build Spark uber JARs
-        if: steps.changes.outputs.changed == 'true'
-        run: ./gradlew shadowJar
-
-      - name: Start Docker Containers
-        if: steps.changes.outputs.changed == 'true'
-        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build
-
-      - name: Wait for Docker Containers to start
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          echo "Waiting for openhouse-tables and spark-livy..."
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:8000/v1/databases > /dev/null 2>&1 && \
-               curl -sf http://localhost:9003/sessions > /dev/null 2>&1; then
-              echo "Services ready after $((i * 5))s"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Timed out waiting for services after 300s"
-          exit 1
-
-      - name: Set up Python
-        if: steps.changes.outputs.changed == 'true'
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        if: steps.changes.outputs.changed == 'true'
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Run Data Loader Tests
-        if: steps.changes.outputs.changed == 'true'
-        working-directory: integrations/python/dataloader
-        run: make sync verify
-
-      - name: Run Data Loader Integration Tests
-        if: steps.changes.outputs.changed == 'true'
-        working-directory: integrations/python/dataloader
-        run: make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
-
-      - name: Stop Docker Containers
-        if: always() && steps.changes.outputs.changed == 'true'
-        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml down

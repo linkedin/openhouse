@@ -1,0 +1,72 @@
+name: Dataloader Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+    paths:
+      - 'integrations/python/dataloader/**'
+
+concurrency:
+  group: dataloader-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Dataloader Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project sources
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build Spark uber JARs
+        run: ./gradlew shadowJar
+
+      - name: Start Docker Containers
+        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build
+
+      - name: Wait for Docker Containers to start
+        run: |
+          echo "Waiting for openhouse-tables and spark-livy..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/v1/databases > /dev/null 2>&1 && \
+               curl -sf http://localhost:9003/sessions > /dev/null 2>&1; then
+              echo "Services ready after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for services after 300s"
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Run Data Loader Tests
+        working-directory: integrations/python/dataloader
+        run: make sync verify
+
+      - name: Run Data Loader Integration Tests
+        working-directory: integrations/python/dataloader
+        run: make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
+
+      - name: Stop Docker Containers
+        if: always()
+        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml down
