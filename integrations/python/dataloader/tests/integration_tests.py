@@ -160,9 +160,7 @@ if __name__ == "__main__":
             print(f"PASS: read all {result.num_rows} rows")
 
             # 5a. Row filter
-            loader = OpenHouseDataLoader(
-                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, filters=col(COL_ID) > 1
-            )
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, filters=col(COL_ID) > 1)
             result = _read_all(loader)
             assert result.num_rows == 2
             assert result.column(COL_ID).to_pylist() == [2, 3]
@@ -196,9 +194,7 @@ if __name__ == "__main__":
             print(f"PASS: after second insert, read all {result.num_rows} rows")
 
             # 7. Pin to the old snapshot and verify only the original data is returned
-            loader = OpenHouseDataLoader(
-                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, snapshot_id=snap1
-            )
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, snapshot_id=snap1)
             result = _read_all(loader)
             assert result.num_rows == 3
             assert result.column(COL_ID).to_pylist() == [1, 2, 3]
@@ -208,9 +204,7 @@ if __name__ == "__main__":
 
             # Verify invalid snapshot raises
             with pytest.raises(ValueError, match="Snapshot .* not found"):
-                loader = OpenHouseDataLoader(
-                    catalog=catalog, database=DATABASE_ID, table=TABLE_ID, snapshot_id=-1
-                )
+                loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, snapshot_id=-1)
                 list(loader)
             print("PASS: invalid snapshot_id raised ValueError")
 

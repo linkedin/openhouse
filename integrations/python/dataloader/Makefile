@@ -43,30 +43,25 @@ package-check:
 
 ITEST_IMAGE ?= oh-dataloader-itest
 DOCKER_NETWORK ?= oh-hadoop-spark_default
-ITEST_PYZ = tests/itest.pyz
+ITEST_SITE = tests/site-packages
 
-build-itest: $(ITEST_PYZ)
+build-itest: $(ITEST_SITE)
 
-$(ITEST_PYZ): pyproject.toml src/ tests/shiv_preamble.py
-ifeq ($(shell uname -s),Linux)
-	pip install --quiet shiv
-	SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 shiv --compile --preamble tests/shiv_preamble.py -p '/usr/bin/env python3' -o $(ITEST_PYZ) ".[dev]"
-else
-	docker run --rm --platform linux/amd64 -v $(CURDIR):/build -w /build python:3.12-slim-bookworm \
-		sh -c 'pip install --quiet shiv && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 shiv --compile --preamble tests/shiv_preamble.py -p "/usr/bin/env python3" -o $(ITEST_PYZ) ".[dev]"'
-endif
+$(ITEST_SITE): pyproject.toml src/
+	rm -rf $(ITEST_SITE)
+	SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 uv pip install --target $(ITEST_SITE) --python-platform x86_64-unknown-linux-gnu --python-version 3.12 ".[dev]"
 
-integration-tests: $(ITEST_PYZ)
+integration-tests: $(ITEST_SITE)
 	docker build --platform linux/amd64 -t $(ITEST_IMAGE) -f tests/Dockerfile .
 	docker run --rm --platform linux/amd64 --network $(DOCKER_NETWORK) \
 		-e OH_TOKEN="$$(cat $(TOKEN_FILE))" \
-		$(ITEST_IMAGE) python3 itest.pyz
+		$(ITEST_IMAGE) python3 tests/integration_tests.py
 
 clean:
 	rm -rf build/
 	rm -rf dist/
 	rm -rf *.egg-info
 	rm -rf .venv/
-	rm -f $(ITEST_PYZ)
+	rm -rf $(ITEST_SITE)
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete

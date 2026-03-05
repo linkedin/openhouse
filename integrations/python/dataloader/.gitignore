@@ -13,7 +13,7 @@ dist/
 *.egg-info/
 
 # Integration test artifacts
-*.pyz
+tests/site-packages/
 
 # Testing
 .pytest_cache/
