@@ -11,12 +11,6 @@ ENV HADOOP_HOME=/opt/hadoop-2.8.0
 ENV CLASSPATH="${HADOOP_HOME}/etc/hadoop:${HADOOP_HOME}/share/hadoop/common/*:${HADOOP_HOME}/share/hadoop/common/lib/*:${HADOOP_HOME}/share/hadoop/hdfs/*:${HADOOP_HOME}/share/hadoop/hdfs/lib/*"
 ENV ARROW_LIBHDFS_DIR="${HADOOP_HOME}/lib/native"
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
-
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md ./
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
-RUN uv sync --all-extras
-
-COPY src/ src/
+COPY dist/itest.pyz ./
 COPY tests/ tests/

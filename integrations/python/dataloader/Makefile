@@ -45,10 +45,12 @@ ITEST_IMAGE ?= oh-dataloader-itest
 DOCKER_NETWORK ?= oh-hadoop-spark_default
 
 integration-tests:
+	mkdir -p dist
+	uvx shiv --compile --preamble tests/shiv_preamble.py -p '/usr/bin/env python3' -o dist/itest.pyz ".[dev]"
 	docker build -t $(ITEST_IMAGE) -f tests/Dockerfile .
 	docker run --rm --network $(DOCKER_NETWORK) \
 		-e OH_TOKEN="$$(cat $(TOKEN_FILE))" \
-		$(ITEST_IMAGE) uv run python tests/integration_tests.py
+		$(ITEST_IMAGE) python3 itest.pyz
 
 clean:
 	rm -rf build/
