@@ -1,7 +1,6 @@
 version: "3.3"
 services:
   spark-master:
-    image: oh-spark-base
     build:
       context: ../../../../
       dockerfile: infra/recipes/docker-compose/common/spark/spark-base-hadoop2.8.dockerfile
