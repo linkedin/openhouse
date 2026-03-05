@@ -1,5 +1,5 @@
 # Minimal runtime image with Java 8 + Hadoop 2.8 for HDFS access.
-# Dependencies are pre-installed into tests/site-packages on the host and copied in.
+# Dependencies are pre-installed into build/itest-site-packages on the host and copied in.
 FROM python:3.12-slim-bookworm
 
 # Copy JRE 8 and Hadoop 2.8 client from the hadoop base image.
@@ -23,7 +23,7 @@ RUN echo "${HADOOP_HOME}/etc/hadoop" > /tmp/cp_parts && \
 ENV CLASSPATH_FILE=/tmp/cp
 
 WORKDIR /app
-COPY tests/site-packages/ /app/site-packages/
+COPY build/itest-site-packages/ /app/site-packages/
 ENV PYTHONPATH=/app/site-packages
 COPY tests/ tests/
 

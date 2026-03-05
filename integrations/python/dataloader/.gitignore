@@ -12,9 +12,6 @@ build/
 dist/
 *.egg-info/
 
-# Integration test artifacts
-tests/site-packages/
-
 # Testing
 .pytest_cache/
 .coverage

@@ -43,7 +43,7 @@ package-check:
 
 ITEST_IMAGE ?= oh-dataloader-itest
 DOCKER_NETWORK ?= oh-hadoop-spark_default
-ITEST_SITE = tests/site-packages
+ITEST_SITE = build/itest-site-packages
 
 build-itest: $(ITEST_SITE)
 
