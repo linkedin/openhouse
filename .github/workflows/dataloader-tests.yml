@@ -53,10 +53,10 @@ jobs:
         run: |
           echo "Waiting for openhouse-tables and spark-livy..."
           for i in $(seq 1 120); do
-            tables_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/databases 2>&1 || echo "error")
-            livy_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9003/sessions 2>&1 || echo "error")
+            tables_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/databases 2>&1 || echo "000")
+            livy_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9003/sessions 2>&1 || echo "000")
             echo "Poll $i: tables=$tables_status livy=$livy_status"
-            if [ "$tables_status" = "200" ] && [ "$livy_status" = "200" ]; then
+            if [ "$tables_status" != "000" ] && [ "$livy_status" != "000" ]; then
               echo "Services ready after $((i * 5))s"
               exit 0
             fi
