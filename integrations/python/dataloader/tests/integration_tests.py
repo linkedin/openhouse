@@ -21,6 +21,7 @@ from openhouse.dataloader.filters import col
 
 BASE_URL = "http://openhouse-tables:8080"
 LIVY_URL = "http://spark-livy:8998"
+HDFS_NETLOC = "namenode:9000"
 DATABASE_ID = "d_e2e"
 TABLE_ID_EMPTY = "t_empty"
 TABLE_ID_DATA = "t_data"
@@ -289,7 +290,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     token_str = read_token()
-    catalog = OpenHouseCatalog(name="integration-test", uri=BASE_URL, auth_token=token_str)
+    catalog = OpenHouseCatalog(
+        name="integration-test",
+        uri=BASE_URL,
+        auth_token=token_str,
+        properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": HDFS_NETLOC},
+    )
 
     livy = LivySession(LIVY_URL, token_str)
     try:

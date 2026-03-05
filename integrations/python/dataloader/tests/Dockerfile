@@ -1,3 +1,15 @@
+# Stage 1: Build the test runner shiv on the target platform.
+# This ensures native extensions (pyarrow, etc.) match the runtime architecture.
+FROM python:3.12-slim-bookworm AS builder
+RUN pip install --no-cache-dir shiv
+WORKDIR /build
+COPY pyproject.toml README.md ./
+COPY src/ src/
+COPY tests/shiv_preamble.py ./
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
+RUN shiv --compile --preamble shiv_preamble.py -p '/usr/bin/env python3' -o itest.pyz ".[dev]"
+
+# Stage 2: Minimal runtime image with Java 8 + Hadoop 2.8 for HDFS access.
 FROM python:3.12-slim-bookworm
 
 # Copy JRE 8 and Hadoop 2.8 client from the hadoop base image.
@@ -7,11 +19,22 @@ COPY --from=bde2020/hadoop-namenode:1.2.0-hadoop2.8-java8 /usr/lib/jvm/java-8-op
 COPY --from=bde2020/hadoop-namenode:1.2.0-hadoop2.8-java8 /opt/hadoop-2.8.0 /opt/hadoop-2.8.0
 
 ENV JAVA_HOME=/opt/java
-
 ENV HADOOP_HOME=/opt/hadoop-2.8.0
-ENV CLASSPATH="${HADOOP_HOME}/etc/hadoop:${HADOOP_HOME}/share/hadoop/common/*:${HADOOP_HOME}/share/hadoop/common/lib/*:${HADOOP_HOME}/share/hadoop/hdfs/*:${HADOOP_HOME}/share/hadoop/hdfs/lib/*"
 ENV ARROW_LIBHDFS_DIR="${HADOOP_HOME}/lib/native"
 
+# Expand CLASSPATH globs at build time. JNI does not expand '*' wildcards the
+# way the java launcher does, so we must list every jar explicitly.
+RUN echo "${HADOOP_HOME}/etc/hadoop" > /tmp/cp_parts && \
+    find ${HADOOP_HOME}/share/hadoop/common ${HADOOP_HOME}/share/hadoop/common/lib \
+         ${HADOOP_HOME}/share/hadoop/hdfs ${HADOOP_HOME}/share/hadoop/hdfs/lib \
+         -maxdepth 1 -name '*.jar' >> /tmp/cp_parts && \
+    paste -sd ':' /tmp/cp_parts > /tmp/cp && \
+    rm /tmp/cp_parts
+ENV CLASSPATH_FILE=/tmp/cp
+
 WORKDIR /app
-COPY dist/itest.pyz ./
+COPY --from=builder /build/itest.pyz ./
 COPY tests/ tests/
+
+# Set CLASSPATH from the expanded file at container start.
+ENTRYPOINT ["sh", "-c", "export CLASSPATH=$(cat /tmp/cp) && exec \"$@\"", "--"]
