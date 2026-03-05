@@ -41,5 +41,4 @@ jobs:
         run: python scripts/python/integration_test.py ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
 
       - name: Stop Docker Containers
-        if: always()
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
