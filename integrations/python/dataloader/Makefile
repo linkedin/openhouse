@@ -48,8 +48,13 @@ ITEST_PYZ = tests/itest.pyz
 build-itest: $(ITEST_PYZ)
 
 $(ITEST_PYZ): pyproject.toml src/ tests/shiv_preamble.py
+ifeq ($(shell uname -s),Linux)
 	pip install --quiet shiv
 	SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 shiv --compile --preamble tests/shiv_preamble.py -p '/usr/bin/env python3' -o $(ITEST_PYZ) ".[dev]"
+else
+	docker run --rm --platform linux/amd64 -v $(CURDIR):/build -w /build python:3.12-slim-bookworm \
+		sh -c 'pip install --quiet shiv && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 shiv --compile --preamble tests/shiv_preamble.py -p "/usr/bin/env python3" -o $(ITEST_PYZ) ".[dev]"'
+endif
 
 integration-tests: $(ITEST_PYZ)
 	docker build --platform linux/amd64 -t $(ITEST_IMAGE) -f tests/Dockerfile .
