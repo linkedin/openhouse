@@ -10,6 +10,7 @@ RUN uv python install 3.12
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 RUN uv sync --all-extras
 
 COPY src/ src/
