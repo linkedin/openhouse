@@ -45,6 +45,9 @@ SPARK_CONF = {
 }
 
 HEADERS = {"Content-Type": "application/json"}
+REQUEST_TIMEOUT = 30
+SESSION_TIMEOUT = 300
+STATEMENT_TIMEOUT = 300
 
 FQTN = f"openhouse.{DATABASE_ID}.{TABLE_ID}"
 
@@ -56,14 +59,17 @@ class LivySession:
         self._livy_url = livy_url
         conf = {**SPARK_CONF, "spark.sql.catalog.openhouse.auth-token": auth_token}
         data = {"kind": "sql", "conf": conf}
-        response = requests.post(f"{livy_url}/sessions", json=data, headers=HEADERS)
+        response = requests.post(f"{livy_url}/sessions", json=data, headers=HEADERS, timeout=REQUEST_TIMEOUT)
         assert response.status_code == 201, f"Session creation failed: {response.status_code} {response.text}"
         self._session_url = livy_url + response.headers["location"]
         self._wait_for_idle()
 
     def _wait_for_idle(self) -> None:
+        deadline = time.monotonic() + SESSION_TIMEOUT
         while True:
-            resp = requests.get(self._session_url, headers=HEADERS)
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"Livy session not idle after {SESSION_TIMEOUT}s")
+            resp = requests.get(self._session_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
             state = resp.json()["state"]
             if state == "idle":
                 return
@@ -74,12 +80,17 @@ class LivySession:
     def execute(self, sql: str) -> None:
         """Submit a SQL statement and wait for completion. Raises on error."""
         print(f"  SQL: {sql}")
-        resp = requests.post(f"{self._session_url}/statements", json={"code": sql}, headers=HEADERS)
+        resp = requests.post(
+            f"{self._session_url}/statements", json={"code": sql}, headers=HEADERS, timeout=REQUEST_TIMEOUT
+        )
         assert resp.status_code == 201, f"Statement submit failed: {resp.status_code} {resp.text}"
         stmt_url = self._livy_url + resp.headers["location"]
 
+        deadline = time.monotonic() + STATEMENT_TIMEOUT
         while True:
-            resp = requests.get(stmt_url, headers=HEADERS)
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"SQL statement not complete after {STATEMENT_TIMEOUT}s: {sql}")
+            resp = requests.get(stmt_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
             state = resp.json()["state"]
             if state == "available":
                 output = resp.json()["output"]
@@ -91,7 +102,7 @@ class LivySession:
             time.sleep(1)
 
     def close(self) -> None:
-        requests.delete(self._session_url, headers=HEADERS)
+        requests.delete(self._session_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
 
 def _read_all(loader: OpenHouseDataLoader) -> pa.Table:
