@@ -61,11 +61,16 @@ jobs:
             sleep 5
           done
           echo "Timed out waiting for services after 600s"
+          docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml ps
           exit 1
 
       - name: Run Data Loader Integration Tests
         working-directory: integrations/python/dataloader
         run: make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
+
+      - name: Docker Container Logs
+        if: always()
+        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml logs --tail 100
 
       - name: Stop Docker Containers
         if: always()
