@@ -235,7 +235,9 @@ public class SparkMoRFunctionalTest extends OpenHouseSparkITest {
     List<Object[]> totalSizeResult =
         sql("SELECT sum(file_size_in_bytes) FROM %s.data_files", tableName);
     long totalDataSize = (long) totalSizeResult.get(0)[0];
-    long halfBudget = totalDataSize / 2;
+    // add margin to total data size, file sizes are roughly the same but can vary by a few bytes
+    long margin = totalDataSize / 10;
+    long halfBudget = totalDataSize / 2 + margin;
 
     // Set target-file-size-bytes to the total size of 2 data files. With the length-based
     // grouping fix (linkedin/iceberg#233), the 2 rewritten data files are grouped into a
