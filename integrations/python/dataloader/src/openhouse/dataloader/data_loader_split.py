@@ -4,7 +4,9 @@ import hashlib
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
+from datafusion.context import SessionContext
 from datafusion.plan import LogicalPlan
+from datafusion.substrait import Producer
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
@@ -21,9 +23,12 @@ class DataLoaderSplit:
         file_scan_task: FileScanTask,
         scan_context: TableScanContext,
         plan: LogicalPlan | None = None,
+        session_context: SessionContext | None = None,
         udf_registry: UDFRegistry | None = None,
     ):
         self._plan = plan
+        self._session_context = session_context
+        self._plan_substrait_bytes: bytes | None = None
         self._file_scan_task = file_scan_task
         self._udf_registry = udf_registry or NoOpRegistry()
         self._scan_context = scan_context
@@ -55,3 +60,18 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
         yield from arrow_scan.to_record_batches([self._file_scan_task])
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        if state.get("_plan") is not None and state.get("_session_context") is not None:
+            substrait_plan = Producer.to_substrait_plan(state["_plan"], state["_session_context"])
+            state["_plan_substrait_bytes"] = substrait_plan.encode()
+        state.pop("_plan", None)
+        state.pop("_session_context", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        state.setdefault("_plan", None)
+        state.setdefault("_session_context", None)
+        state.setdefault("_plan_substrait_bytes", None)
+        self.__dict__.update(state)

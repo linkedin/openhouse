@@ -1,6 +1,7 @@
 """Tests for DataLoaderSplit functionality."""
 
 import os
+import pickle
 from unittest.mock import MagicMock
 
 import pyarrow as pa
@@ -73,7 +74,8 @@ def _create_test_split(
     )
 
     ctx = SessionContext()
-    plan = ctx.sql("SELECT 1 as a").logical_plan()
+    ctx.register_record_batches("test_table", [table.to_batches()])
+    plan = ctx.sql("SELECT * FROM test_table").logical_plan()
 
     data_file = DataFile.from_args(
         file_path=file_path,
@@ -86,6 +88,7 @@ def _create_test_split(
 
     return DataLoaderSplit(
         plan=plan,
+        session_context=ctx,
         file_scan_task=task,
         scan_context=scan_context,
     )
@@ -199,3 +202,38 @@ def test_split_id_ignores_default_netloc(tmp_path):
         split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
         list(split)
         split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
+
+
+@FILE_FORMATS
+def test_split_is_picklable_and_yields_correct_data(tmp_path, file_format):
+    """Test that DataLoaderSplit can be pickled/unpickled and still yields correct data."""
+    iceberg_schema = Schema(
+        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+        NestedField(field_id=2, name="name", field_type=StringType(), required=False),
+    )
+
+    expected_data = {
+        "id": [1, 2, 3],
+        "name": ["alice", "bob", "charlie"],
+    }
+    table = pa.table(
+        {
+            "id": pa.array(expected_data["id"], type=pa.int64()),
+            "name": pa.array(expected_data["name"], type=pa.string()),
+        }
+    )
+
+    split = _create_test_split(tmp_path, table, file_format, iceberg_schema)
+    assert split._plan is not None, "Plan should be set before pickling"
+    assert split._session_context is not None, "Session context should be set before pickling"
+
+    restored = pickle.loads(pickle.dumps(split))
+
+    assert restored._plan is None, "Plan should be None after unpickling"
+    assert restored._session_context is None, "Session context should be None after unpickling"
+    assert isinstance(restored._plan_substrait_bytes, bytes), "Substrait bytes should be preserved after unpickling"
+    assert len(restored._plan_substrait_bytes) > 0, "Substrait bytes should be non-empty"
+
+    result = pa.Table.from_batches(list(restored)).sort_by("id")
+    assert result.column("id").to_pylist() == expected_data["id"]
+    assert result.column("name").to_pylist() == expected_data["name"]
