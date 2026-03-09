@@ -33,7 +33,7 @@ module = ["datafusion.*", "pyiceberg.*", "pyarrow.*", "tenacity.*"]
 ignore_missing_imports = true
 
 [tool.uv.sources]
-pyiceberg = { git = "https://github.com/sumedhsakdeo/iceberg-python", branch = "fix/arrow-scan-benchmark-3036" }
+pyiceberg = { git = "https://github.com/sumedhsakdeo/iceberg-python", rev = "75ba28bfc6d8bbeac398357c6db80327632a2dc8" }
 
 [tool.ruff]
 line-length = 120

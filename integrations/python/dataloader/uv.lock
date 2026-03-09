@@ -571,7 +571,7 @@ dev = [
 requires-dist = [
     { name = "datafusion", specifier = "==51.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14.0" },
-    { name = "pyiceberg", git = "https://github.com/sumedhsakdeo/iceberg-python?branch=fix%2Farrow-scan-benchmark-3036" },
+    { name = "pyiceberg", git = "https://github.com/sumedhsakdeo/iceberg-python?rev=75ba28bfc6d8bbeac398357c6db80327632a2dc8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "responses", marker = "extra == 'dev'", specifier = ">=0.25.0" },
@@ -759,7 +759,7 @@ wheels = [
 [[package]]
 name = "pyiceberg"
 version = "0.11.0"
-source = { git = "https://github.com/sumedhsakdeo/iceberg-python?branch=fix%2Farrow-scan-benchmark-3036#75ba28bfc6d8bbeac398357c6db80327632a2dc8" }
+source = { git = "https://github.com/sumedhsakdeo/iceberg-python?rev=75ba28bfc6d8bbeac398357c6db80327632a2dc8#75ba28bfc6d8bbeac398357c6db80327632a2dc8" }
 dependencies = [
     { name = "cachetools" },
     { name = "click" },
