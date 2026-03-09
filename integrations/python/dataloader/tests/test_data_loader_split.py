@@ -2,7 +2,7 @@
 
 import os
 import pickle
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import pyarrow.orc as orc
@@ -304,3 +304,44 @@ def test_split_plan_without_session_context_raises():
 
     with pytest.raises(ValueError, match="plan and session_context must both be provided or both be None"):
         DataLoaderSplit(file_scan_task=mock_task, scan_context=mock_ctx, plan=mock_plan)
+
+
+def test_split_session_context_without_plan_raises():
+    """Passing session_context without plan raises ValueError."""
+    mock_session_context = MagicMock()
+    mock_task = MagicMock()
+    mock_ctx = MagicMock()
+
+    with pytest.raises(ValueError, match="plan and session_context must both be provided or both be None"):
+        DataLoaderSplit(file_scan_task=mock_task, scan_context=mock_ctx, session_context=mock_session_context)
+
+
+def test_split_registers_udfs_before_substrait_serialization():
+    """UDFs are registered before serializing the logical plan to Substrait."""
+    mock_plan = MagicMock()
+    mock_task = MagicMock()
+    mock_scan_ctx = MagicMock()
+    session_context = SessionContext()
+    mock_udf_registry = MagicMock()
+
+    def _to_substrait(plan, ctx):
+        assert mock_udf_registry.register_udfs.call_count == 1
+        assert plan is mock_plan
+        assert ctx is session_context
+        return "serialized-plan"
+
+    with patch(
+        "openhouse.dataloader.data_loader_split.Producer.to_substrait_plan",
+        side_effect=_to_substrait,
+    ) as producer:
+        split = DataLoaderSplit(
+            file_scan_task=mock_task,
+            scan_context=mock_scan_ctx,
+            plan=mock_plan,
+            session_context=session_context,
+            udf_registry=mock_udf_registry,
+        )
+
+    mock_udf_registry.register_udfs.assert_called_once_with(session_context)
+    producer.assert_called_once_with(mock_plan, session_context)
+    assert split._plan_substrait_bytes == b"serialized-plan"

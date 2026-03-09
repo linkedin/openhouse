@@ -26,17 +26,21 @@ class DataLoaderSplit:
         session_context: SessionContext | None = None,
         udf_registry: UDFRegistry | None = None,
     ):
-        if (plan is None) != (session_context is None):
-            raise ValueError("plan and session_context must both be provided or both be None")
-
-        if plan is not None and session_context is not None:
-            self._plan_substrait_bytes: bytes | None = Producer.to_substrait_plan(plan, session_context).encode()
-        else:
-            self._plan_substrait_bytes = None
-
         self._file_scan_task = file_scan_task
         self._udf_registry = udf_registry or NoOpRegistry()
         self._scan_context = scan_context
+
+        if (plan is None) != (session_context is None):
+            raise ValueError("plan and session_context must both be provided or both be None")
+
+        if plan is not None:
+            # TODO: Deserialize back to a LogicalPlan once we integrate with DataFusion for execution.
+            # The UDF registry is retained so UDFs can be re-registered on remote workers.
+            assert session_context is not None  # guaranteed by the guard above
+            self._udf_registry.register_udfs(session_context)
+            self._plan_substrait_bytes: bytes | None = Producer.to_substrait_plan(plan, session_context).encode()
+        else:
+            self._plan_substrait_bytes = None
 
     @property
     def id(self) -> str:

@@ -44,5 +44,5 @@ class TableScanContext:
     def __reduce__(self) -> tuple:
         return (
             _unpickle_scan_context,
-            (self.table_metadata, self.io.properties, self.projected_schema, self.row_filter),
+            (self.table_metadata, dict(self.io.properties), self.projected_schema, self.row_filter),
         )
