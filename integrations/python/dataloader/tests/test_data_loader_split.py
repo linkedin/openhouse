@@ -224,16 +224,83 @@ def test_split_is_picklable_and_yields_correct_data(tmp_path, file_format):
     )
 
     split = _create_test_split(tmp_path, table, file_format, iceberg_schema)
-    assert split._plan is not None, "Plan should be set before pickling"
-    assert split._session_context is not None, "Session context should be set before pickling"
+    assert not hasattr(split, "_plan"), "Plan should not be stored as an instance field"
+    assert not hasattr(split, "_session_context"), "Session context should not be stored as an instance field"
+    assert isinstance(split._plan_substrait_bytes, bytes), "Substrait bytes should be eagerly serialized in __init__"
+    assert len(split._plan_substrait_bytes) > 0, "Substrait bytes should be non-empty"
 
     restored = pickle.loads(pickle.dumps(split))
 
-    assert restored._plan is None, "Plan should be None after unpickling"
-    assert restored._session_context is None, "Session context should be None after unpickling"
-    assert isinstance(restored._plan_substrait_bytes, bytes), "Substrait bytes should be preserved after unpickling"
-    assert len(restored._plan_substrait_bytes) > 0, "Substrait bytes should be non-empty"
+    assert not hasattr(restored, "_plan"), "Plan should not exist after unpickling"
+    assert not hasattr(restored, "_session_context"), "Session context should not exist after unpickling"
+    assert restored._plan_substrait_bytes == split._plan_substrait_bytes, "Substrait bytes mismatch after round-trip"
 
     result = pa.Table.from_batches(list(restored)).sort_by("id")
     assert result.column("id").to_pylist() == expected_data["id"]
     assert result.column("name").to_pylist() == expected_data["name"]
+
+
+@FILE_FORMATS
+def test_split_pickle_double_round_trip(tmp_path, file_format):
+    """Substrait bytes survive two consecutive pickle round-trips."""
+    iceberg_schema = Schema(
+        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+    )
+    table = pa.table({"id": pa.array([1, 2], type=pa.int64())})
+
+    split = _create_test_split(tmp_path, table, file_format, iceberg_schema)
+    restored_once = pickle.loads(pickle.dumps(split))
+    restored_twice = pickle.loads(pickle.dumps(restored_once))
+
+    assert restored_twice._plan_substrait_bytes == split._plan_substrait_bytes
+
+
+def test_split_pickle_without_plan(tmp_path):
+    """A split constructed without a plan pickles and iterates correctly."""
+    iceberg_schema = Schema(
+        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+    )
+    table = pa.table({"id": pa.array([1], type=pa.int64())})
+    file_path = str(tmp_path / "test.parquet")
+    fields = [field.with_metadata({b"PARQUET:field_id": b"1"}) for field in table.schema]
+    pq.write_table(table.cast(pa.schema(fields)), file_path)
+
+    metadata = new_table_metadata(
+        schema=iceberg_schema,
+        partition_spec=UNPARTITIONED_PARTITION_SPEC,
+        sort_order=UNSORTED_SORT_ORDER,
+        location=str(tmp_path),
+        properties={},
+    )
+    scan_context = TableScanContext(
+        table_metadata=metadata,
+        io=load_file_io(properties={}, location=file_path),
+        projected_schema=iceberg_schema,
+    )
+    data_file = DataFile.from_args(
+        file_path=file_path,
+        file_format=FileFormat.PARQUET,
+        record_count=1,
+        file_size_in_bytes=os.path.getsize(file_path),
+    )
+    data_file._spec_id = 0
+    task = FileScanTask(data_file=data_file)
+
+    split = DataLoaderSplit(file_scan_task=task, scan_context=scan_context)
+    assert split._plan_substrait_bytes is None
+
+    restored = pickle.loads(pickle.dumps(split))
+    assert restored._plan_substrait_bytes is None
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.column("id").to_pylist() == [1]
+
+
+def test_split_plan_without_session_context_raises():
+    """Passing plan without session_context raises ValueError."""
+    mock_plan = MagicMock()
+    mock_task = MagicMock()
+    mock_ctx = MagicMock()
+
+    with pytest.raises(ValueError, match="plan and session_context must both be provided or both be None"):
+        DataLoaderSplit(file_scan_task=mock_task, scan_context=mock_ctx, plan=mock_plan)

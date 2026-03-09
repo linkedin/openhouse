@@ -16,7 +16,7 @@ def _unpickle_scan_context(
 ) -> TableScanContext:
     return TableScanContext(
         table_metadata=table_metadata,
-        io=load_file_io(properties=io_properties),
+        io=load_file_io(properties=io_properties, location=table_metadata.location),
         projected_schema=projected_schema,
         row_filter=row_filter,
     )
