@@ -32,6 +32,9 @@ disallow_untyped_defs = true
 module = ["datafusion.*", "pyiceberg.*", "pyarrow.*", "tenacity.*"]
 ignore_missing_imports = true
 
+[tool.uv.sources]
+pyiceberg = { git = "https://github.com/sumedhsakdeo/iceberg-python", branch = "fix/arrow-scan-benchmark-3036" }
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
