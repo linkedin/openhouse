@@ -91,9 +91,10 @@ class OpenHouseDataLoader:
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
             max_attempts: Total number of attempts including the initial try (default 3)
-            batch_size: Number of rows per RecordBatch yielded by each split.
-                Controls memory usage per worker — smaller values reduce peak memory
-                but increase per-batch overhead. None uses the PyArrow default (~131K rows).
+            batch_size: Maximum number of rows per RecordBatch yielded by each split.
+                Passed to PyArrow's Scanner which produces batches of at most this many
+                rows. Smaller values reduce peak memory but increase per-batch overhead.
+                None uses the PyArrow default (~131K rows).
         """
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
