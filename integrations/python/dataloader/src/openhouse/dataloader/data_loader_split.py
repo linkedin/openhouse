@@ -15,22 +15,25 @@ from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 
 def _create_transform_session(
-    batch: RecordBatch,
     table_id: TableIdentifier,
     udf_registry: UDFRegistry,
 ) -> SessionContext:
-    """Create a DataFusion SessionContext with the batch registered as a table.
+    """Create a DataFusion SessionContext for running split-level transforms.
 
-    Returns a ready-to-query SessionContext where *batch* is available under
-    ``table_id.sql_name``.
+    Returns a ready-to-query SessionContext where UDFs are registered and the
+    target schema exists.
     """
     session = SessionContext()
     udf_registry.register_udfs(session)
 
     session.sql(f"CREATE SCHEMA IF NOT EXISTS {_quote_identifier(table_id.database)}").collect()
-    session.register_record_batches(table_id.sql_name, [[batch]])
-
     return session
+
+
+def _bind_batch_table(session: SessionContext, table_id: TableIdentifier, batch: RecordBatch) -> None:
+    """Bind a single batch to the table name used by transform SQL."""
+    session.deregister_table(table_id.sql_name)
+    session.register_record_batches(table_id.sql_name, [[batch]])
 
 
 class DataLoaderSplit:
@@ -79,18 +82,22 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
 
+        batches = arrow_scan.to_record_batches([self._file_scan_task])
+
         if self._transform_sql is None:
-            yield from arrow_scan.to_record_batches([self._file_scan_task])
-            return
+            yield from batches
+        else:
+            if self._table_id is None:
+                raise RuntimeError("table_id is required when transform_sql is provided")
+            session = _create_transform_session(self._table_id, self._udf_registry)
+            for batch in batches:
+                yield from self._apply_transform(session, batch)
 
-        for batch in arrow_scan.to_record_batches([self._file_scan_task]):
-            yield from self._apply_transform(batch)
-
-    def _apply_transform(self, batch: RecordBatch) -> Iterator[RecordBatch]:
+    def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
         if self._transform_sql is None or self._table_id is None:
             raise RuntimeError("transform_sql and table_id are required for _apply_transform")
 
-        session = _create_transform_session(batch, self._table_id, self._udf_registry)
+        _bind_batch_table(session, self._table_id, batch)
         df = session.sql(self._transform_sql)
         yield from df.collect()

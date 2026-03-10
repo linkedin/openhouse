@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow.orc as orc
 import pyarrow.parquet as pq
 import pytest
+from datafusion.context import SessionContext
 from pyiceberg.io import load_file_io
 from pyiceberg.manifest import DataFile, FileFormat
 from pyiceberg.partitioning import UNPARTITIONED_PARTITION_SPEC
@@ -18,8 +19,9 @@ from pyiceberg.table.name_mapping import create_mapping_from_schema
 from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
 from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, StringType
 
-from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext
+from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext, _bind_batch_table
 from openhouse.dataloader.table_identifier import TableIdentifier
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
 
@@ -33,6 +35,7 @@ def _create_test_split(
     filename: str | None = None,
     transform_sql: str | None = None,
     table_id: TableIdentifier | None = None,
+    udf_registry: UDFRegistry | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -45,6 +48,7 @@ def _create_test_split(
         filename: Optional filename override (default: test.<ext>)
         transform_sql: Optional SQL transformation to apply
         table_id: Optional table identifier (required when transform_sql is set)
+        udf_registry: Optional UDF registry for transform execution
 
     Returns:
         DataLoaderSplit configured to read the written test file
@@ -91,6 +95,7 @@ def _create_test_split(
         scan_context=scan_context,
         transform_sql=transform_sql,
         table_id=table_id,
+        udf_registry=udf_registry,
     )
 
 
@@ -228,6 +233,14 @@ def _make_transform_split(tmp_path, table, transform_sql, table_id=_TABLE_ID):
     )
 
 
+class _CountingRegistry(UDFRegistry):
+    def __init__(self):
+        self.calls = 0
+
+    def register_udfs(self, session_context: SessionContext) -> None:
+        self.calls += 1
+
+
 def test_split_with_transformer_transforms_batches(tmp_path):
     """A transformer that masks a column is applied to each batch."""
     table = pa.table(
@@ -258,6 +271,51 @@ def test_split_with_transformer_and_empty_batches(tmp_path):
     batches = list(split)
     total_rows = sum(b.num_rows for b in batches)
     assert total_rows == 0
+
+
+def test_bind_batch_table_rebinds_each_batch():
+    """Batch binding always deregisters before registering to avoid collisions."""
+    session = MagicMock(spec=SessionContext)
+    batch = MagicMock(spec=pa.RecordBatch)
+
+    _bind_batch_table(session, _TABLE_ID, batch)
+
+    session.deregister_table.assert_called_once_with(_TABLE_ID.sql_name)
+    session.register_record_batches.assert_called_once_with(_TABLE_ID.sql_name, [[batch]])
+
+
+def test_split_transform_reuses_session_per_split_and_rebinds_per_batch(tmp_path, monkeypatch):
+    """Transform path uses one session per split and rebinds table for each batch."""
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+    registry = _CountingRegistry()
+    split = _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
+        transform_sql=_MASKING_SQL,
+        table_id=_TABLE_ID,
+        udf_registry=registry,
+    )
+
+    batch_one = pa.record_batch({"id": pa.array([1], type=pa.int64()), "name": pa.array(["alice"], type=pa.string())})
+    batch_two = pa.record_batch({"id": pa.array([2], type=pa.int64()), "name": pa.array(["bob"], type=pa.string())})
+
+    def _fake_to_record_batches(self, scan_tasks):
+        return iter([batch_one, batch_two])
+
+    monkeypatch.setattr("openhouse.dataloader.data_loader_split.ArrowScan.to_record_batches", _fake_to_record_batches)
+
+    result = pa.Table.from_batches(list(split)).sort_by("id")
+
+    assert registry.calls == 1
+    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
 
 
 # --- Pickle tests ---
