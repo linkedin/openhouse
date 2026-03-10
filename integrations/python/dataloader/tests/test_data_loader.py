@@ -340,7 +340,9 @@ def test_branch_snapshot_id_resolves():
     catalog = MagicMock()
     mock_snapshot = MagicMock()
     mock_snapshot.snapshot_id = 123
-    catalog.load_table.return_value.snapshot_by_name.side_effect = lambda name: mock_snapshot if name == "my-branch" else None
+    catalog.load_table.return_value.snapshot_by_name.side_effect = (
+        lambda name: mock_snapshot if name == "my-branch" else None
+    )
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch")
 
