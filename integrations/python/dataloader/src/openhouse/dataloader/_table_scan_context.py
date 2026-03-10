@@ -25,4 +25,5 @@ class TableScanContext:
     table_metadata: TableMetadata
     io: FileIO
     projected_schema: Schema
+    table_name: str
     row_filter: BooleanExpression = AlwaysTrue()

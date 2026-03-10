@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
 
+import pyarrow as pa
+from datafusion.context import SessionContext
 from pyiceberg.catalog import Catalog
+from pyiceberg.io.pyarrow import schema_to_pyarrow
 from pyiceberg.table import Table
 from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
@@ -126,6 +129,33 @@ class OpenHouseDataLoader:
         else:
             logger.info("No snapshot found for table %s", self._table_id)
 
+    def _resolve_transform(self, transformer: TableTransformer) -> bool:
+        """Call the transformer with an empty table to check if it returns a DataFrame.
+
+        Returns True if the transformer wants to transform (returned non-None),
+        False if it returned None (no transformation needed).
+        """
+        ctx = SessionContext()
+
+        if self._context.udf_registry is not None:
+            self._context.udf_registry.register_udfs(ctx)
+
+        db = self._table_id.database
+        tbl = self._table_id.table
+        full_schema = self._iceberg_table.metadata.schema()
+        arrow_schema = schema_to_pyarrow(full_schema, include_field_ids=False)
+        empty_batch = pa.RecordBatch.from_pydict(
+            {field.name: pa.array([], type=field.type) for field in arrow_schema},
+            schema=arrow_schema,
+        )
+        table_name = f'"{db}"."{tbl}"'
+        ctx.sql(f'CREATE SCHEMA IF NOT EXISTS "{db}"').collect()
+        ctx.register_record_batches(table_name, [[empty_batch]])
+
+        execution_context = self._context.execution_context or {}
+        df = transformer.transform(ctx, self._table_id, execution_context)
+        return df is not None
+
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
 
@@ -134,12 +164,22 @@ class OpenHouseDataLoader:
         """
         table = self._iceberg_table
 
+        table_name = f'"{self._table_id.database}"."{self._table_id.table}"'
+
+        # Resolve transform: call transformer once with empty data to check if it's active
+        transformer = self._context.table_transformer
+        transform_active = transformer is not None and self._resolve_transform(transformer)
+        if not transform_active:
+            transformer = None
+
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
-        if self._columns:
+
+        # When a transform is active, skip column projection — the transform may need all columns
+        if self._columns and transformer is None:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
         scan = table.scan(**scan_kwargs)
@@ -150,6 +190,7 @@ class OpenHouseDataLoader:
             table_metadata=table.metadata,
             io=table.io,
             projected_schema=scan.projection(),
+            table_name=table_name,
             row_filter=row_filter,
         )
 
@@ -159,8 +200,14 @@ class OpenHouseDataLoader:
             lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
         )
 
+        execution_context = self._context.execution_context or {}
+
         for scan_task in scan_tasks:
             yield DataLoaderSplit(
                 file_scan_task=scan_task,
                 scan_context=scan_context,
+                transformer=transformer,
+                table_id=self._table_id,
+                execution_context=execution_context,
+                udf_registry=self._context.udf_registry,
             )

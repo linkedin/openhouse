@@ -4,12 +4,13 @@ import hashlib
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
-from datafusion.plan import LogicalPlan
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
+from openhouse.dataloader.table_identifier import TableIdentifier
+from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 
@@ -20,13 +21,17 @@ class DataLoaderSplit:
         self,
         file_scan_task: FileScanTask,
         scan_context: TableScanContext,
-        plan: LogicalPlan | None = None,
+        transformer: TableTransformer | None = None,
+        table_id: TableIdentifier | None = None,
+        execution_context: Mapping[str, str] | None = None,
         udf_registry: UDFRegistry | None = None,
     ):
-        self._plan = plan
         self._file_scan_task = file_scan_task
-        self._udf_registry = udf_registry or NoOpRegistry()
         self._scan_context = scan_context
+        self._transformer = transformer
+        self._table_id = table_id
+        self._execution_context = execution_context or {}
+        self._udf_registry = udf_registry or NoOpRegistry()
 
     @property
     def id(self) -> str:
@@ -54,4 +59,33 @@ class DataLoaderSplit:
             projected_schema=ctx.projected_schema,
             row_filter=ctx.row_filter,
         )
-        yield from arrow_scan.to_record_batches([self._file_scan_task])
+
+        if self._transformer is None:
+            yield from arrow_scan.to_record_batches([self._file_scan_task])
+            return
+
+        for batch in arrow_scan.to_record_batches([self._file_scan_task]):
+            yield from self._apply_transform(batch)
+
+    def _apply_transform(self, batch: RecordBatch) -> Iterator[RecordBatch]:
+        """Apply the TableTransformer to a single RecordBatch."""
+        from datafusion.context import SessionContext
+
+        assert self._transformer is not None
+        assert self._table_id is not None
+
+        session = SessionContext()
+        self._udf_registry.register_udfs(session)
+
+        table_name = self._scan_context.table_name
+        parts = table_name.split(".")
+        schema_name = parts[0]
+        session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema_name}").collect()
+        session.register_record_batches(table_name, [[batch]])
+
+        df = self._transformer.transform(session, self._table_id, self._execution_context)
+        if df is None:
+            yield batch
+            return
+
+        yield from df.collect()

@@ -7,7 +7,6 @@ import pyarrow as pa
 import pyarrow.orc as orc
 import pyarrow.parquet as pq
 import pytest
-from datafusion.context import SessionContext
 from pyiceberg.io import load_file_io
 from pyiceberg.manifest import DataFile, FileFormat
 from pyiceberg.partitioning import UNPARTITIONED_PARTITION_SPEC
@@ -19,6 +18,7 @@ from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
 from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, StringType
 
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext
+from openhouse.dataloader.table_identifier import TableIdentifier
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
 
@@ -70,10 +70,8 @@ def _create_test_split(
         table_metadata=metadata,
         io=load_file_io(properties=io_properties or {}, location=file_path),
         projected_schema=iceberg_schema,
+        table_name='"db"."tbl"',
     )
-
-    ctx = SessionContext()
-    plan = ctx.sql("SELECT 1 as a").logical_plan()
 
     data_file = DataFile.from_args(
         file_path=file_path,
@@ -85,7 +83,6 @@ def _create_test_split(
     task = FileScanTask(data_file=data_file)
 
     return DataLoaderSplit(
-        plan=plan,
         file_scan_task=task,
         scan_context=scan_context,
     )
@@ -199,3 +196,90 @@ def test_split_id_ignores_default_netloc(tmp_path):
         split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
         list(split)
         split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
+
+
+# --- Transform tests ---
+
+_TRANSFORM_SCHEMA = Schema(
+    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+    NestedField(field_id=2, name="name", field_type=StringType(), required=False),
+)
+
+
+class _MaskingTransformer:
+    """Test transformer that masks the name column."""
+
+    def transform(self, session_context, table, context):
+        tbl_name = f'"{table.database}"."{table.table}"'
+        return session_context.sql(f"SELECT id, 'MASKED' as name FROM {tbl_name}")
+
+
+def _make_transform_split(tmp_path, table, transformer, table_name='"db"."tbl"'):
+    """Create a DataLoaderSplit with a transformer for testing."""
+    file_path = str(tmp_path / "test.parquet")
+    fields = [field.with_metadata({b"PARQUET:field_id": str(i + 1).encode()}) for i, field in enumerate(table.schema)]
+    pq.write_table(table.cast(pa.schema(fields)), file_path)
+
+    metadata = new_table_metadata(
+        schema=_TRANSFORM_SCHEMA,
+        partition_spec=UNPARTITIONED_PARTITION_SPEC,
+        sort_order=UNSORTED_SORT_ORDER,
+        location=str(tmp_path),
+        properties={},
+    )
+
+    scan_context = TableScanContext(
+        table_metadata=metadata,
+        io=load_file_io(properties={}, location=file_path),
+        projected_schema=_TRANSFORM_SCHEMA,
+        table_name=table_name,
+    )
+
+    data_file = DataFile.from_args(
+        file_path=file_path,
+        file_format=FileFormat.PARQUET,
+        record_count=table.num_rows,
+        file_size_in_bytes=os.path.getsize(file_path),
+    )
+    data_file._spec_id = 0
+    task = FileScanTask(data_file=data_file)
+
+    return DataLoaderSplit(
+        file_scan_task=task,
+        scan_context=scan_context,
+        transformer=transformer,
+        table_id=TableIdentifier("db", "tbl"),
+        execution_context={},
+    )
+
+
+def test_split_with_transformer_transforms_batches(tmp_path):
+    """A transformer that masks a column is applied to each batch."""
+    table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["alice", "bob"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MaskingTransformer())
+    result = pa.Table.from_batches(list(split))
+
+    assert result.num_rows == 2
+    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+def test_split_with_transformer_and_empty_batches(tmp_path):
+    """An empty batch with a transformer yields no rows."""
+    table = pa.table(
+        {
+            "id": pa.array([], type=pa.int64()),
+            "name": pa.array([], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MaskingTransformer())
+    batches = list(split)
+    total_rows = sum(b.num_rows for b in batches)
+    assert total_rows == 0

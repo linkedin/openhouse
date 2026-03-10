@@ -18,6 +18,7 @@ from requests import HTTPError, Response, Timeout
 from openhouse.dataloader import DataLoaderContext, OpenHouseDataLoader, __version__
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.filters import col
+from openhouse.dataloader.table_transformer import TableTransformer
 
 
 def test_package_imports():
@@ -322,3 +323,78 @@ def test_snapshot_id_with_columns_and_filters(tmp_path):
     assert scan_kwargs["snapshot_id"] == 99
     assert scan_kwargs["selected_fields"] == (COL_ID,)
     assert "row_filter" in scan_kwargs
+
+
+# --- Transformer tests ---
+
+
+class _NoneTransformer(TableTransformer):
+    """Transformer that returns None (no transformation)."""
+
+    def transform(self, session_context, table, context):
+        return None
+
+
+class _MaskingTransformer(TableTransformer):
+    """Transformer that masks the name column."""
+
+    def transform(self, session_context, table, context):
+        tbl_name = f'"{table.database}"."{table.table}"'
+        return session_context.sql(f"SELECT id, 'MASKED' as name, value FROM {tbl_name}")
+
+
+def test_iter_with_transformer_returning_none(tmp_path):
+    """Transformer returns None → native Iceberg path, selected_fields still passed."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID, COL_NAME],
+        context=DataLoaderContext(table_transformer=_NoneTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {COL_ID, COL_NAME}
+    mock_table.scan.assert_called_once()
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert scan_kwargs["selected_fields"] == (COL_ID, COL_NAME)
+
+
+def test_iter_with_transformer_returning_dataframe(tmp_path):
+    """Transformer returns a DataFrame → plan is applied to splits."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
+
+
+def test_iter_with_transformer_skips_column_projection(tmp_path):
+    """columns + transformer → Iceberg scan is called WITHOUT selected_fields."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    mock_table.scan.assert_called_once()
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert "selected_fields" not in scan_kwargs
