@@ -35,10 +35,7 @@ def _write_parquet(tmp_path: object, table: pa.Table) -> str:
     return file_path
 
 
-def _make_arrow_scan_and_task(tmp_path: object, table: pa.Table) -> tuple[ArrowScan, FileScanTask]:
-    """Create an ArrowScan and FileScanTask from a PyArrow table written to disk."""
-    file_path = _write_parquet(tmp_path, table)
-
+def _make_arrow_scan(tmp_path: object, file_path: str) -> ArrowScan:
     metadata = new_table_metadata(
         schema=_SCHEMA,
         partition_spec=UNPARTITIONED_PARTITION_SPEC,
@@ -46,14 +43,15 @@ def _make_arrow_scan_and_task(tmp_path: object, table: pa.Table) -> tuple[ArrowS
         location=str(tmp_path),
         properties={},
     )
-
-    arrow_scan = ArrowScan(
+    return ArrowScan(
         table_metadata=metadata,
         io=load_file_io(properties={}, location=file_path),
         projected_schema=_SCHEMA,
         row_filter=AlwaysTrue(),
     )
 
+
+def _make_file_scan_task(file_path: str, table: pa.Table) -> FileScanTask:
     data_file = DataFile.from_args(
         file_path=file_path,
         file_format=FileFormat.PARQUET,
@@ -61,9 +59,7 @@ def _make_arrow_scan_and_task(tmp_path: object, table: pa.Table) -> tuple[ArrowS
         file_size_in_bytes=os.path.getsize(file_path),
     )
     data_file._spec_id = 0
-    task = FileScanTask(data_file=data_file)
-
-    return arrow_scan, task
+    return FileScanTask(data_file=data_file)
 
 
 def _sample_table() -> pa.Table:
@@ -113,19 +109,28 @@ class TestToRecordBatchesOrder:
 
     def test_default_order_returns_all_rows(self, tmp_path: object) -> None:
         """Default (TaskOrder) still works — backward compatible."""
-        arrow_scan, task = _make_arrow_scan_and_task(tmp_path, _sample_table())
+        table = _sample_table()
+        file_path = _write_parquet(tmp_path, table)
+        arrow_scan = _make_arrow_scan(tmp_path, file_path)
+        task = _make_file_scan_task(file_path, table)
         batches = list(arrow_scan.to_record_batches([task]))
         result = pa.Table.from_batches(batches).sort_by("id")
         assert result.column("id").to_pylist() == [1, 2, 3]
 
     def test_explicit_task_order_returns_all_rows(self, tmp_path: object) -> None:
-        arrow_scan, task = _make_arrow_scan_and_task(tmp_path, _sample_table())
+        table = _sample_table()
+        file_path = _write_parquet(tmp_path, table)
+        arrow_scan = _make_arrow_scan(tmp_path, file_path)
+        task = _make_file_scan_task(file_path, table)
         batches = list(arrow_scan.to_record_batches([task], order=TaskOrder()))
         result = pa.Table.from_batches(batches).sort_by("id")
         assert result.column("id").to_pylist() == [1, 2, 3]
 
     def test_arrival_order_returns_all_rows(self, tmp_path: object) -> None:
-        arrow_scan, task = _make_arrow_scan_and_task(tmp_path, _sample_table())
+        table = _sample_table()
+        file_path = _write_parquet(tmp_path, table)
+        arrow_scan = _make_arrow_scan(tmp_path, file_path)
+        task = _make_file_scan_task(file_path, table)
         batches = list(arrow_scan.to_record_batches([task], order=ArrivalOrder(concurrent_streams=2)))
         result = pa.Table.from_batches(batches).sort_by("id")
         assert result.column("id").to_pylist() == [1, 2, 3]

@@ -356,13 +356,13 @@ _BATCH_SCHEMA = Schema(
 )
 
 
-def _make_large_table(num_rows: int) -> pa.Table:
+def _make_table(num_rows: int) -> pa.Table:
     return pa.table({"id": pa.array(list(range(num_rows)), type=pa.int64())})
 
 
 def test_split_batch_size_limits_rows_per_batch(tmp_path):
     """When batch_size is set, each RecordBatch has at most that many rows."""
-    table = _make_large_table(100)
+    table = _make_table(100)
     split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=10)
 
     batches = list(split)
@@ -375,7 +375,7 @@ def test_split_batch_size_limits_rows_per_batch(tmp_path):
 
 def test_split_batch_size_none_returns_all_rows(tmp_path):
     """Default batch_size (None) returns all data correctly."""
-    table = _make_large_table(50)
+    table = _make_table(50)
     split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA)
 
     result = pa.Table.from_batches(list(split))
@@ -385,7 +385,7 @@ def test_split_batch_size_none_returns_all_rows(tmp_path):
 
 def test_split_batch_size_preserves_data(tmp_path):
     """batch_size controls chunking but all data is preserved."""
-    table = _make_large_table(25)
+    table = _make_table(25)
     split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=7)
 
     result = pa.Table.from_batches(list(split))
