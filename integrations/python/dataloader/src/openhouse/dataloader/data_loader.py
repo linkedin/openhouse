@@ -91,7 +91,9 @@ class OpenHouseDataLoader:
             context: Data loader context
             max_attempts: Total number of attempts including the initial try (default 3)
         """
-        if branch and snapshot_id is not None:
+        if branch is not None and branch.strip() == "":
+            raise ValueError("branch must not be empty or whitespace")
+        if branch is not None and snapshot_id is not None:
             raise ValueError("Cannot specify both branch and snapshot_id")
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
