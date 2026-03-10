@@ -1345,4 +1345,166 @@ public class TablesValidatorTest {
                     .tableType(TableType.PRIMARY_TABLE)
                     .build()));
   }
+
+  @Test
+  public void validateCreateTable_memberIdLongColumnSucceeds() {
+    String schemaJson =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"memberId\",\"type\":\"long\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"name\",\"type\":\"string\"}"
+            + "]}";
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaJson)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTable_memberIdIntColumnFails() {
+    String schemaJson =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"memberId\",\"type\":\"int\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"name\",\"type\":\"string\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaJson)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTable_nonMemberIdIntColumnSucceeds() {
+    String schemaJson =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"retryCount\",\"type\":\"int\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"name\",\"type\":\"string\"}"
+            + "]}";
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaJson)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTable_memberIdNewPatternsFail() {
+    String schemaJson =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"customerId\",\"type\":\"int\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"sourceId\",\"type\":\"int\"},"
+            + "{\"id\":3,\"required\":true,\"name\":\"destId\",\"type\":\"int\"},"
+            + "{\"id\":4,\"required\":true,\"name\":\"name\",\"type\":\"string\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaJson)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTable_exactMatchMidFails() {
+    String schemaJson =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"mid\",\"type\":\"int\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"name\",\"type\":\"string\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaJson)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTable_underscoreMemberIdFails() {
+    String schemaJson =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"member_id\",\"type\":\"int\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"name\",\"type\":\"string\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaJson)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateUpdateTable_memberIdIntColumnFails() {
+    String schemaJson =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"memberId\",\"type\":\"int\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"name\",\"type\":\"string\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaJson)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
 }
