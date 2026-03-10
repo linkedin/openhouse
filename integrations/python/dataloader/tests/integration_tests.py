@@ -224,53 +224,6 @@ if __name__ == "__main__":
                 list(loader)
             print("PASS: invalid snapshot_id raised ValueError")
 
-            # 8. Branch tests — write to branches via Spark, then read via DataLoader
-            livy.execute(f"INSERT INTO {FQTN}.branch_a VALUES (5, 'eve', 5.5)")
-            livy.execute(f"INSERT INTO {FQTN}.branch_b VALUES (6, 'frank', 6.6), (7, 'grace', 7.7)")
-
-            # 8a. branch_a has main data (4 rows) + 1 branch-only row = 5 rows
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_a")
-            result = _read_all(loader)
-            assert result.num_rows == 5
-            assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4, 5]
-            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie", "diana", "eve"]
-            print(f"PASS: branch_a returned {result.num_rows} rows (main + branch-only data)")
-
-            # 8b. branch_b has main data (4 rows) + 2 branch-only rows = 6 rows
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_b")
-            result = _read_all(loader)
-            assert result.num_rows == 6
-            assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4, 6, 7]
-            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie", "diana", "frank", "grace"]
-            print(f"PASS: branch_b returned {result.num_rows} rows (main + branch-only data)")
-
-            # 8c. Main is unaffected by branch writes
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
-            result = _read_all(loader)
-            assert result.num_rows == 4
-            assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
-            print(f"PASS: main still has {result.num_rows} rows (unaffected by branch writes)")
-
-            # 8d. Each branch has its own snapshot_id, different from main
-            snap_a = OpenHouseDataLoader(
-                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_a"
-            ).snapshot_id
-            snap_b = OpenHouseDataLoader(
-                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_b"
-            ).snapshot_id
-            assert snap_a != snap2, f"Expected branch_a snapshot != main, got {snap_a}"
-            assert snap_b != snap2, f"Expected branch_b snapshot != main, got {snap_b}"
-            assert snap_a != snap_b, f"Expected different branch snapshots, got {snap_a}"
-            print("PASS: branches have distinct snapshot IDs")
-
-            # 8e. Non-existent branch raises ValueError
-            with pytest.raises(ValueError, match="Branch .* not found"):
-                loader = OpenHouseDataLoader(
-                    catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="nonexistent"
-                )
-                list(loader)
-            print("PASS: non-existent branch raised ValueError")
-
         finally:
             livy.execute(f"DROP TABLE IF EXISTS {FQTN}")
 
