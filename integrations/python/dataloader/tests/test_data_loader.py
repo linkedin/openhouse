@@ -397,3 +397,23 @@ def test_iter_with_transformer_skips_column_projection(tmp_path):
     mock_table.scan.assert_called_once()
     scan_kwargs = mock_table.scan.call_args.kwargs
     assert "selected_fields" not in scan_kwargs
+
+
+def test_iter_with_transformer_and_special_char_database(tmp_path):
+    """Transformer works when the database name contains special characters."""
+    catalog = _make_real_catalog(tmp_path)
+
+    class _QuotedMaskingTransformer(TableTransformer):
+        def transform(self, table, context):
+            return f"SELECT id, 'MASKED' as name, value FROM {table.sql_name}"
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database='my"db',
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_QuotedMaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]

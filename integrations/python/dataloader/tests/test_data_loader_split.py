@@ -31,6 +31,8 @@ def _create_test_split(
     iceberg_schema: Schema,
     io_properties: dict[str, str] | None = None,
     filename: str | None = None,
+    transform_sql: str | None = None,
+    table_id: TableIdentifier | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -41,6 +43,8 @@ def _create_test_split(
         iceberg_schema: Iceberg schema with field IDs for column mapping
         io_properties: Optional properties passed to load_file_io (e.g. DEFAULT_SCHEME, DEFAULT_NETLOC)
         filename: Optional filename override (default: test.<ext>)
+        transform_sql: Optional SQL transformation to apply
+        table_id: Optional table identifier (required when transform_sql is set)
 
     Returns:
         DataLoaderSplit configured to read the written test file
@@ -85,6 +89,8 @@ def _create_test_split(
     return DataLoaderSplit(
         file_scan_task=task,
         scan_context=scan_context,
+        transform_sql=transform_sql,
+        table_id=table_id,
     )
 
 
@@ -210,40 +216,15 @@ _TABLE_ID = TableIdentifier("db", "tbl")
 _MASKING_SQL = f"SELECT id, 'MASKED' as name FROM {_TABLE_ID.sql_name}"
 
 
-def _make_transform_split(tmp_path, table, transform_sql):
+def _make_transform_split(tmp_path, table, transform_sql, table_id=_TABLE_ID):
     """Create a DataLoaderSplit with a transform SQL string for testing."""
-    file_path = str(tmp_path / "test.parquet")
-    fields = [field.with_metadata({b"PARQUET:field_id": str(i + 1).encode()}) for i, field in enumerate(table.schema)]
-    pq.write_table(table.cast(pa.schema(fields)), file_path)
-
-    metadata = new_table_metadata(
-        schema=_TRANSFORM_SCHEMA,
-        partition_spec=UNPARTITIONED_PARTITION_SPEC,
-        sort_order=UNSORTED_SORT_ORDER,
-        location=str(tmp_path),
-        properties={},
-    )
-
-    scan_context = TableScanContext(
-        table_metadata=metadata,
-        io=load_file_io(properties={}, location=file_path),
-        projected_schema=_TRANSFORM_SCHEMA,
-    )
-
-    data_file = DataFile.from_args(
-        file_path=file_path,
-        file_format=FileFormat.PARQUET,
-        record_count=table.num_rows,
-        file_size_in_bytes=os.path.getsize(file_path),
-    )
-    data_file._spec_id = 0
-    task = FileScanTask(data_file=data_file)
-
-    return DataLoaderSplit(
-        file_scan_task=task,
-        scan_context=scan_context,
+    return _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
         transform_sql=transform_sql,
-        table_id=_TABLE_ID,
+        table_id=table_id,
     )
 
 
@@ -321,5 +302,43 @@ def test_pickle_double_round_trip(tmp_path):
     restored = pickle.loads(pickle.dumps(pickle.loads(pickle.dumps(split))))
 
     result = pa.Table.from_batches(list(restored))
+    assert result.num_rows == 1
+    assert result.column("name").to_pylist() == ["MASKED"]
+
+
+# --- Constructor validation tests ---
+
+
+def test_transform_sql_without_table_id_raises():
+    """Passing transform_sql without table_id raises ValueError at construction."""
+    scan_context = MagicMock()
+    task = MagicMock()
+    with pytest.raises(ValueError, match="table_id is required"):
+        DataLoaderSplit(file_scan_task=task, scan_context=scan_context, transform_sql="SELECT 1")
+
+
+# --- Identifier escaping tests ---
+
+
+def test_sql_name_escapes_double_quotes():
+    """TableIdentifier.sql_name escapes embedded double quotes."""
+    table_id = TableIdentifier('my"db', 'my"tbl')
+    assert table_id.sql_name == '"my""db"."my""tbl"'
+
+
+def test_transform_with_quoted_identifier(tmp_path):
+    """A transform works when the table identifier contains characters that need escaping."""
+    table_id = TableIdentifier('test"db', "tbl")
+    sql = f"SELECT id, 'MASKED' as name FROM {table_id.sql_name}"
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, sql, table_id=table_id)
+    result = pa.Table.from_batches(list(split))
+
     assert result.num_rows == 1
     assert result.column("name").to_pylist() == ["MASKED"]

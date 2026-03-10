@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
+from typing import Any
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
@@ -126,14 +127,13 @@ class OpenHouseDataLoader:
         else:
             logger.info("No snapshot found for table %s", self._table_id)
 
-    def _build_transform_sql(self, transformer: TableTransformer) -> str | None:
+    def _build_transform_sql(self, transformer: TableTransformer, context: Mapping[str, str]) -> str | None:
         """Call the transformer to get the SQL string for the transformation.
 
         Returns the SQL string if the transformer returned one,
         or ``None`` if no transformation is needed.
         """
-        execution_context = self._context.execution_context or {}
-        return transformer.transform(self._table_id, execution_context)
+        return transformer.transform(self._table_id, context)
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -145,11 +145,12 @@ class OpenHouseDataLoader:
 
         # Build transform SQL: call transformer once to get the SQL string
         transformer = self._context.table_transformer
-        transform_sql = self._build_transform_sql(transformer) if transformer is not None else None
+        execution_context = self._context.execution_context or {}
+        transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
 
         row_filter = _to_pyiceberg(self._filters)
 
-        scan_kwargs: dict = {"row_filter": row_filter}
+        scan_kwargs: dict[str, Any] = {"row_filter": row_filter}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
