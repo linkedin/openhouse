@@ -124,7 +124,10 @@ class OpenHouseDataLoader:
         if self._table_id.branch:
             snapshot = self._iceberg_table.snapshot_by_name(self._table_id.branch)
             if snapshot is None:
-                raise ValueError(f"Branch '{self._table_id.branch}' not found for table {self._table_id}")
+                raise ValueError(
+                    f"Branch '{self._table_id.branch}' not found for table "
+                    f"{self._table_id.database}.{self._table_id.table}"
+                )
             return snapshot.snapshot_id
         return self._iceberg_table.metadata.current_snapshot_id
 
