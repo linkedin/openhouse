@@ -3,6 +3,7 @@ package com.linkedin.openhouse.spark.catalogtest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
@@ -215,6 +216,90 @@ public class SnapshotExpirationRefsTest extends OpenHouseSparkITest {
     }
   }
 
+  /**
+   * Demonstrates that expire_snapshots can break the ancestor chain on a branch, causing
+   * fast-forward to fail. This is an existing Iceberg behavior unrelated to max-ref-age-ms.
+   *
+   * <p>Setup: main at S1, branch blue with S1 -> S2 -> S3 -> S4. Aggressively expire intermediate
+   * snapshots so only S1 (main tip) and S4 (blue tip) remain. Then attempt fast-forward.
+   */
+  @Test
+  public void testFastForwardFailsWhenAncestorChainBroken() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String tableId = TEST_PREFIX + System.currentTimeMillis();
+      String tableName = "openhouse." + DATABASE + "." + tableId;
+
+      // Create table and initial commit on main (S1)
+      spark.sql("CREATE TABLE " + tableName + " (member_id bigint, event_type string)");
+      spark.sql("INSERT INTO " + tableName + " VALUES (1001, 'login')");
+      long s1 = getLatestSnapshotId(spark, tableName);
+
+      // Create a branch from main's current snapshot
+      spark.sql("ALTER TABLE " + tableName + " CREATE BRANCH blue AS OF VERSION " + s1);
+
+      // Write 3 commits to the branch: S2, S3, S4
+      spark.sql("INSERT INTO " + tableName + ".branch_blue VALUES (2001, 'click')");
+      spark.sql("INSERT INTO " + tableName + ".branch_blue VALUES (3001, 'view')");
+      spark.sql("INSERT INTO " + tableName + ".branch_blue VALUES (4001, 'purchase')");
+
+      long s4 = getRefSnapshotId(spark, tableName, "blue");
+
+      // Verify we have 4 snapshots: S1, S2, S3, S4
+      List<Long> snapshotsBefore = getSnapshotIds(spark, tableName);
+      assertEquals(4, snapshotsBefore.size(), "Should have 4 snapshots before expiration");
+
+      // Set table properties to expire aggressively: keep only 1 snapshot per branch,
+      // max snapshot age = 1ms. This will expire S2 and S3 (intermediate branch snapshots).
+      spark.sql(
+          "ALTER TABLE "
+              + tableName
+              + " SET TBLPROPERTIES ("
+              + "'history.expire.min-snapshots-to-keep' = '1', "
+              + "'history.expire.max-snapshot-age-ms' = '1')");
+
+      // Wait so all snapshots are older than 1ms
+      Thread.sleep(10);
+
+      // Expire snapshots — should keep only the tip of each branch (S1 for main, S4 for blue)
+      spark.sql(
+          "CALL openhouse.system.expire_snapshots(table => '"
+              + tableName
+              + "', older_than => TIMESTAMP '2099-01-01 00:00:00', retain_last => 1)");
+
+      // Assert that only S1 and S4 remain
+      List<Long> snapshotsAfter = getSnapshotIds(spark, tableName);
+      assertEquals(2, snapshotsAfter.size(), "Only S1 (main tip) and S4 (blue tip) should remain");
+      assertTrue(snapshotsAfter.contains(s1), "S1 (main tip) should be retained");
+      assertTrue(snapshotsAfter.contains(s4), "S4 (blue tip) should be retained");
+
+      // Both branches still exist
+      List<String> refs = getRefNames(spark, tableName);
+      assertTrue(refs.contains("main"), "main should still exist");
+      assertTrue(refs.contains("blue"), "blue should still exist");
+
+      // Data on both branches is still queryable
+      assertEquals(1, spark.sql("SELECT * FROM " + tableName).count(), "main should have 1 row");
+      assertEquals(
+          4,
+          spark.sql("SELECT * FROM " + tableName + " VERSION AS OF 'blue'").count(),
+          "blue should have 4 rows");
+
+      // Attempt fast-forward: main -> blue
+      // The ancestor chain S4 -> S3 -> S2 -> S1 is broken (S2, S3 expired).
+      // fast_forward walks from S4 backward and cannot reach S1, so it should fail.
+      try {
+        spark.sql("CALL openhouse.system.fast_forward('" + tableName + "', 'main', 'blue')");
+        // If we get here, the ancestor chain was NOT broken — fast-forward succeeded.
+        // This would mean our assumption about intermediate expiration was wrong.
+        fail("Expected fast-forward to fail due to broken ancestor chain, but it succeeded");
+      } catch (Exception e) {
+        assertTrue(
+            e.getMessage().contains("not an ancestor"),
+            "Fast-forward should fail with ancestor error, got: " + e.getMessage());
+      }
+    }
+  }
+
   private static long getLatestSnapshotId(SparkSession spark, String tableName) {
     List<Row> snapshots =
         spark
@@ -228,6 +313,14 @@ public class SnapshotExpirationRefsTest extends OpenHouseSparkITest {
         .collectAsList().stream()
         .map(r -> r.getLong(0))
         .collect(Collectors.toList());
+  }
+
+  private static long getRefSnapshotId(SparkSession spark, String tableName, String refName) {
+    return spark
+        .sql("SELECT snapshot_id FROM " + tableName + ".refs WHERE name = '" + refName + "'")
+        .collectAsList()
+        .get(0)
+        .getLong(0);
   }
 
   private static List<String> getRefNames(SparkSession spark, String tableName) {
