@@ -1,6 +1,7 @@
 """Tests for DataLoaderSplit functionality."""
 
 import os
+import pickle
 from unittest.mock import MagicMock
 
 import pyarrow as pa
@@ -19,7 +20,6 @@ from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, Stri
 
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext
 from openhouse.dataloader.table_identifier import TableIdentifier
-from openhouse.dataloader.table_transformer import TableTransformer
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
 
@@ -205,16 +205,13 @@ _TRANSFORM_SCHEMA = Schema(
     NestedField(field_id=2, name="name", field_type=StringType(), required=False),
 )
 
+_TABLE_ID = TableIdentifier("db", "tbl")
 
-class _MaskingTransformer(TableTransformer):
-    """Test transformer that masks the name column."""
-
-    def transform(self, session_context, table, context):
-        return session_context.sql(f"SELECT id, 'MASKED' as name FROM {table.sql_name}")
+_MASKING_SQL = f"SELECT id, 'MASKED' as name FROM {_TABLE_ID.sql_name}"
 
 
-def _make_transform_split(tmp_path, table, transformer):
-    """Create a DataLoaderSplit with a transformer for testing."""
+def _make_transform_split(tmp_path, table, transform_sql):
+    """Create a DataLoaderSplit with a transform SQL string for testing."""
     file_path = str(tmp_path / "test.parquet")
     fields = [field.with_metadata({b"PARQUET:field_id": str(i + 1).encode()}) for i, field in enumerate(table.schema)]
     pq.write_table(table.cast(pa.schema(fields)), file_path)
@@ -245,9 +242,8 @@ def _make_transform_split(tmp_path, table, transformer):
     return DataLoaderSplit(
         file_scan_task=task,
         scan_context=scan_context,
-        transformer=transformer,
-        table_id=TableIdentifier("db", "tbl"),
-        execution_context={},
+        transform_sql=transform_sql,
+        table_id=_TABLE_ID,
     )
 
 
@@ -260,7 +256,7 @@ def test_split_with_transformer_transforms_batches(tmp_path):
         }
     )
 
-    split = _make_transform_split(tmp_path, table, _MaskingTransformer())
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
     result = pa.Table.from_batches(list(split))
 
     assert result.num_rows == 2
@@ -277,7 +273,53 @@ def test_split_with_transformer_and_empty_batches(tmp_path):
         }
     )
 
-    split = _make_transform_split(tmp_path, table, _MaskingTransformer())
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
     batches = list(split)
     total_rows = sum(b.num_rows for b in batches)
     assert total_rows == 0
+
+
+# --- Pickle tests ---
+
+
+def test_pickle_round_trip_no_plan(tmp_path):
+    """A split without a transform survives pickle round-trip."""
+    split = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    restored = pickle.loads(pickle.dumps(split))
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.column("x").to_pylist() == [1]
+
+
+def test_pickle_round_trip_with_transform(tmp_path):
+    """A split with transform SQL survives pickle round-trip."""
+    table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["alice", "bob"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    restored = pickle.loads(pickle.dumps(split))
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.num_rows == 2
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+def test_pickle_double_round_trip(tmp_path):
+    """A split survives two pickle round-trips."""
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    restored = pickle.loads(pickle.dumps(pickle.loads(pickle.dumps(split))))
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.num_rows == 1
+    assert result.column("name").to_pylist() == ["MASKED"]

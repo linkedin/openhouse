@@ -331,15 +331,15 @@ def test_snapshot_id_with_columns_and_filters(tmp_path):
 class _NoneTransformer(TableTransformer):
     """Transformer that returns None (no transformation)."""
 
-    def transform(self, session_context, table, context):
+    def transform(self, table, context):
         return None
 
 
 class _MaskingTransformer(TableTransformer):
     """Transformer that masks the name column."""
 
-    def transform(self, session_context, table, context):
-        return session_context.sql(f"SELECT id, 'MASKED' as name, value FROM {table.sql_name}")
+    def transform(self, table, context):
+        return f"SELECT id, 'MASKED' as name, value FROM {table.sql_name}"
 
 
 def test_iter_with_transformer_returning_none(tmp_path):
@@ -363,8 +363,8 @@ def test_iter_with_transformer_returning_none(tmp_path):
     assert scan_kwargs["selected_fields"] == (COL_ID, COL_NAME)
 
 
-def test_iter_with_transformer_returning_dataframe(tmp_path):
-    """Transformer returns a DataFrame → plan is applied to splits."""
+def test_iter_with_transformer_returning_sql(tmp_path):
+    """Transformer returns SQL → transform is applied to splits."""
     catalog = _make_real_catalog(tmp_path)
 
     loader = OpenHouseDataLoader(

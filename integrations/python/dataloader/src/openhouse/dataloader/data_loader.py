@@ -4,9 +4,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
 
-import pyarrow as pa
 from pyiceberg.catalog import Catalog
-from pyiceberg.io.pyarrow import schema_to_pyarrow
 from pyiceberg.table import Table
 from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
@@ -14,11 +12,11 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
-from openhouse.dataloader.data_loader_split import DataLoaderSplit, _create_transform_session
+from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
-from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -128,25 +126,14 @@ class OpenHouseDataLoader:
         else:
             logger.info("No snapshot found for table %s", self._table_id)
 
-    def _resolve_transform(self, transformer: TableTransformer) -> bool:
-        """Call the transformer with an empty table to check if it returns a DataFrame.
+    def _build_transform_sql(self, transformer: TableTransformer) -> str | None:
+        """Call the transformer to get the SQL string for the transformation.
 
-        Returns True if the transformer wants to transform (returned non-None),
-        False if it returned None (no transformation needed).
+        Returns the SQL string if the transformer returned one,
+        or ``None`` if no transformation is needed.
         """
-        full_schema = self._iceberg_table.metadata.schema()
-        arrow_schema = schema_to_pyarrow(full_schema, include_field_ids=False)
-        empty_batch = pa.RecordBatch.from_pydict(
-            {field.name: pa.array([], type=field.type) for field in arrow_schema},
-            schema=arrow_schema,
-        )
-
-        udf_registry = self._context.udf_registry or NoOpRegistry()
-        ctx = _create_transform_session(empty_batch, self._table_id, udf_registry)
-
         execution_context = self._context.execution_context or {}
-        df = transformer.transform(ctx, self._table_id, execution_context)
-        return df is not None
+        return transformer.transform(self._table_id, execution_context)
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -156,11 +143,9 @@ class OpenHouseDataLoader:
         """
         table = self._iceberg_table
 
-        # Resolve transform: call transformer once with empty data to check if it's active
+        # Build transform SQL: call transformer once to get the SQL string
         transformer = self._context.table_transformer
-        transform_active = transformer is not None and self._resolve_transform(transformer)
-        if not transform_active:
-            transformer = None
+        transform_sql = self._build_transform_sql(transformer) if transformer is not None else None
 
         row_filter = _to_pyiceberg(self._filters)
 
@@ -169,7 +154,8 @@ class OpenHouseDataLoader:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
         # When a transform is active, skip column projection — the transform may need all columns
-        if self._columns and transformer is None:
+        # TODO: extract projected columns from the plan instead of skipping projection
+        if self._columns and transform_sql is None:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
         scan = table.scan(**scan_kwargs)
@@ -189,14 +175,11 @@ class OpenHouseDataLoader:
             lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
         )
 
-        execution_context = self._context.execution_context or {}
-
         for scan_task in scan_tasks:
             yield DataLoaderSplit(
                 file_scan_task=scan_task,
                 scan_context=scan_context,
-                transformer=transformer,
+                transform_sql=transform_sql,
                 table_id=self._table_id,
-                execution_context=execution_context,
                 udf_registry=self._context.udf_registry,
             )

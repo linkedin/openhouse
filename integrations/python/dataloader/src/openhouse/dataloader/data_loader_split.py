@@ -11,7 +11,6 @@ from pyiceberg.table import FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.table_identifier import TableIdentifier
-from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 
@@ -41,16 +40,14 @@ class DataLoaderSplit:
         self,
         file_scan_task: FileScanTask,
         scan_context: TableScanContext,
-        transformer: TableTransformer | None = None,
+        transform_sql: str | None = None,
         table_id: TableIdentifier | None = None,
-        execution_context: Mapping[str, str] | None = None,
         udf_registry: UDFRegistry | None = None,
     ):
         self._file_scan_task = file_scan_task
         self._scan_context = scan_context
-        self._transformer = transformer
+        self._transform_sql = transform_sql
         self._table_id = table_id
-        self._execution_context = execution_context or {}
         self._udf_registry = udf_registry or NoOpRegistry()
 
     @property
@@ -80,7 +77,7 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
 
-        if self._transformer is None:
+        if self._transform_sql is None:
             yield from arrow_scan.to_record_batches([self._file_scan_task])
             return
 
@@ -88,15 +85,10 @@ class DataLoaderSplit:
             yield from self._apply_transform(batch)
 
     def _apply_transform(self, batch: RecordBatch) -> Iterator[RecordBatch]:
-        """Apply the TableTransformer to a single RecordBatch."""
-        assert self._transformer is not None
+        """Execute the transform SQL against a single RecordBatch."""
+        assert self._transform_sql is not None
         assert self._table_id is not None
 
         session = _create_transform_session(batch, self._table_id, self._udf_registry)
-
-        df = self._transformer.transform(session, self._table_id, self._execution_context)
-        if df is None:
-            yield batch
-            return
-
+        df = session.sql(self._transform_sql)
         yield from df.collect()
