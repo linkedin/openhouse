@@ -14,9 +14,6 @@ import pyarrow as pa
 import pytest
 import requests
 from pyiceberg.exceptions import NoSuchTableError
-from pyiceberg.io import load_file_io
-from pyiceberg.serializers import ToOutputFile
-from pyiceberg.table.refs import SnapshotRef, SnapshotRefType
 
 from openhouse.dataloader import OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
@@ -116,23 +113,6 @@ def _read_all(loader: OpenHouseDataLoader) -> pa.Table:
     if not batches:
         return pa.table({})
     return pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
-
-
-def _create_branch(catalog: OpenHouseCatalog, branch_name: str, snapshot_id: int) -> None:
-    """Create a named branch on a table by writing updated metadata with the new ref.
-
-    Spark 3.1 does not support ALTER TABLE ... CREATE BRANCH, so we manipulate
-    the Iceberg metadata directly: load metadata, add a branch SnapshotRef, and
-    write the updated metadata back to the same location.
-    """
-    table = catalog.load_table(f"{DATABASE_ID}.{TABLE_ID}")
-    metadata = table.metadata
-    branch_ref = SnapshotRef(snapshot_id=snapshot_id, snapshot_ref_type=SnapshotRefType.BRANCH)
-    new_refs = {**metadata.refs, branch_name: branch_ref}
-    updated_metadata = metadata.model_copy(update={"refs": new_refs})
-    io = load_file_io(properties=catalog.properties, location=table.metadata_location)
-    ToOutputFile.table_metadata(updated_metadata, io.new_output(table.metadata_location), overwrite=True)
-    print(f"  Created branch '{branch_name}' at snapshot {snapshot_id}")
 
 
 def read_token() -> str:
@@ -244,34 +224,46 @@ if __name__ == "__main__":
                 list(loader)
             print("PASS: invalid snapshot_id raised ValueError")
 
-            # 8. Branch tests — create branch_a at snap1, branch_b at snap2
-            _create_branch(catalog, "branch_a", snap1)
-            _create_branch(catalog, "branch_b", snap2)
+            # 8. Branch tests — write to branches via Spark, then read via DataLoader
+            livy.execute(f"INSERT INTO {FQTN}.branch_a VALUES (5, 'eve', 5.5)")
+            livy.execute(f"INSERT INTO {FQTN}.branch_b VALUES (6, 'frank', 6.6), (7, 'grace', 7.7)")
 
-            # 8a. branch_a returns only snap1 data (3 rows)
+            # 8a. branch_a has main data (4 rows) + 1 branch-only row = 5 rows
             loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_a")
             result = _read_all(loader)
-            assert result.num_rows == 3
-            assert result.column(COL_ID).to_pylist() == [1, 2, 3]
-            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
-            print(f"PASS: branch_a returned {result.num_rows} rows (snap1 data)")
+            assert result.num_rows == 5
+            assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4, 5]
+            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie", "diana", "eve"]
+            print(f"PASS: branch_a returned {result.num_rows} rows (main + branch-only data)")
 
-            # 8b. branch_b returns all 4 rows (snap2 data)
+            # 8b. branch_b has main data (4 rows) + 2 branch-only rows = 6 rows
             loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_b")
+            result = _read_all(loader)
+            assert result.num_rows == 6
+            assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4, 6, 7]
+            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie", "diana", "frank", "grace"]
+            print(f"PASS: branch_b returned {result.num_rows} rows (main + branch-only data)")
+
+            # 8c. Main is unaffected by branch writes
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
             result = _read_all(loader)
             assert result.num_rows == 4
             assert result.column(COL_ID).to_pylist() == [1, 2, 3, 4]
-            assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie", "diana"]
-            print(f"PASS: branch_b returned {result.num_rows} rows (snap2 data)")
+            print(f"PASS: main still has {result.num_rows} rows (unaffected by branch writes)")
 
-            # 8c. Branch resolves to the correct snapshot_id
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_a")
-            assert loader.snapshot_id == snap1, f"Expected branch_a snapshot_id={snap1}, got {loader.snapshot_id}"
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_b")
-            assert loader.snapshot_id == snap2, f"Expected branch_b snapshot_id={snap2}, got {loader.snapshot_id}"
-            print("PASS: branches resolve to correct snapshot IDs")
+            # 8d. Each branch has its own snapshot_id, different from main
+            snap_a = OpenHouseDataLoader(
+                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_a"
+            ).snapshot_id
+            snap_b = OpenHouseDataLoader(
+                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="branch_b"
+            ).snapshot_id
+            assert snap_a != snap2, f"Expected branch_a snapshot != main, got {snap_a}"
+            assert snap_b != snap2, f"Expected branch_b snapshot != main, got {snap_b}"
+            assert snap_a != snap_b, f"Expected different branch snapshots, got {snap_a}"
+            print("PASS: branches have distinct snapshot IDs")
 
-            # 8d. Non-existent branch raises ValueError
+            # 8e. Non-existent branch raises ValueError
             with pytest.raises(ValueError, match="Branch .* not found"):
                 loader = OpenHouseDataLoader(
                     catalog=catalog, database=DATABASE_ID, table=TABLE_ID, branch="nonexistent"
