@@ -18,7 +18,13 @@ class TableTransformer(ABC):
     ) -> DataFrame | None:
         """Applies transformation logic to the base table that is being loaded.
 
+        This method is first probed with an empty table (zero rows) to determine
+        whether a transformation is active.  The decision to return a ``DataFrame``
+        or ``None`` **must not** depend on row data — it should be based solely on
+        the table identifier and context.
+
         Args:
+            session_context: DataFusion session with the base table already registered
             table: Identifier for the table
             context: Dictionary of context information (e.g. tenant, environment, etc.)
 

@@ -339,8 +339,7 @@ class _MaskingTransformer(TableTransformer):
     """Transformer that masks the name column."""
 
     def transform(self, session_context, table, context):
-        tbl_name = f'"{table.database}"."{table.table}"'
-        return session_context.sql(f"SELECT id, 'MASKED' as name, value FROM {tbl_name}")
+        return session_context.sql(f"SELECT id, 'MASKED' as name, value FROM {table.sql_name}")
 
 
 def test_iter_with_transformer_returning_none(tmp_path):

@@ -4,6 +4,7 @@ import hashlib
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
+from datafusion.context import SessionContext
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
@@ -12,6 +13,25 @@ from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+
+
+def _create_transform_session(
+    batch: RecordBatch,
+    table_id: TableIdentifier,
+    udf_registry: UDFRegistry,
+) -> SessionContext:
+    """Create a DataFusion SessionContext with the batch registered as a table.
+
+    Returns a ready-to-query SessionContext where *batch* is available under
+    ``table_id.sql_name``.
+    """
+    session = SessionContext()
+    udf_registry.register_udfs(session)
+
+    session.sql(f'CREATE SCHEMA IF NOT EXISTS "{table_id.database}"').collect()
+    session.register_record_batches(table_id.sql_name, [[batch]])
+
+    return session
 
 
 class DataLoaderSplit:
@@ -69,19 +89,10 @@ class DataLoaderSplit:
 
     def _apply_transform(self, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Apply the TableTransformer to a single RecordBatch."""
-        from datafusion.context import SessionContext
-
         assert self._transformer is not None
         assert self._table_id is not None
 
-        session = SessionContext()
-        self._udf_registry.register_udfs(session)
-
-        table_name = self._scan_context.table_name
-        parts = table_name.split(".")
-        schema_name = parts[0]
-        session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema_name}").collect()
-        session.register_record_batches(table_name, [[batch]])
+        session = _create_transform_session(batch, self._table_id, self._udf_registry)
 
         df = self._transformer.transform(session, self._table_id, self._execution_context)
         if df is None:

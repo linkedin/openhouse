@@ -5,7 +5,6 @@ from functools import cached_property
 from types import MappingProxyType
 
 import pyarrow as pa
-from datafusion.context import SessionContext
 from pyiceberg.catalog import Catalog
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 from pyiceberg.table import Table
@@ -15,11 +14,11 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
-from openhouse.dataloader.data_loader_split import DataLoaderSplit
+from openhouse.dataloader.data_loader_split import DataLoaderSplit, _create_transform_session
 from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
-from openhouse.dataloader.udf_registry import UDFRegistry
+from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -135,22 +134,15 @@ class OpenHouseDataLoader:
         Returns True if the transformer wants to transform (returned non-None),
         False if it returned None (no transformation needed).
         """
-        ctx = SessionContext()
-
-        if self._context.udf_registry is not None:
-            self._context.udf_registry.register_udfs(ctx)
-
-        db = self._table_id.database
-        tbl = self._table_id.table
         full_schema = self._iceberg_table.metadata.schema()
         arrow_schema = schema_to_pyarrow(full_schema, include_field_ids=False)
         empty_batch = pa.RecordBatch.from_pydict(
             {field.name: pa.array([], type=field.type) for field in arrow_schema},
             schema=arrow_schema,
         )
-        table_name = f'"{db}"."{tbl}"'
-        ctx.sql(f'CREATE SCHEMA IF NOT EXISTS "{db}"').collect()
-        ctx.register_record_batches(table_name, [[empty_batch]])
+
+        udf_registry = self._context.udf_registry or NoOpRegistry()
+        ctx = _create_transform_session(empty_batch, self._table_id, udf_registry)
 
         execution_context = self._context.execution_context or {}
         df = transformer.transform(ctx, self._table_id, execution_context)
@@ -163,8 +155,6 @@ class OpenHouseDataLoader:
             DataLoaderSplit for each file scan task in the table
         """
         table = self._iceberg_table
-
-        table_name = f'"{self._table_id.database}"."{self._table_id.table}"'
 
         # Resolve transform: call transformer once with empty data to check if it's active
         transformer = self._context.table_transformer
@@ -190,7 +180,6 @@ class OpenHouseDataLoader:
             table_metadata=table.metadata,
             io=table.io,
             projected_schema=scan.projection(),
-            table_name=table_name,
             row_filter=row_filter,
         )
 

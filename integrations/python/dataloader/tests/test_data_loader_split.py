@@ -19,6 +19,7 @@ from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, Stri
 
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext
 from openhouse.dataloader.table_identifier import TableIdentifier
+from openhouse.dataloader.table_transformer import TableTransformer
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
 
@@ -70,7 +71,6 @@ def _create_test_split(
         table_metadata=metadata,
         io=load_file_io(properties=io_properties or {}, location=file_path),
         projected_schema=iceberg_schema,
-        table_name='"db"."tbl"',
     )
 
     data_file = DataFile.from_args(
@@ -206,15 +206,14 @@ _TRANSFORM_SCHEMA = Schema(
 )
 
 
-class _MaskingTransformer:
+class _MaskingTransformer(TableTransformer):
     """Test transformer that masks the name column."""
 
     def transform(self, session_context, table, context):
-        tbl_name = f'"{table.database}"."{table.table}"'
-        return session_context.sql(f"SELECT id, 'MASKED' as name FROM {tbl_name}")
+        return session_context.sql(f"SELECT id, 'MASKED' as name FROM {table.sql_name}")
 
 
-def _make_transform_split(tmp_path, table, transformer, table_name='"db"."tbl"'):
+def _make_transform_split(tmp_path, table, transformer):
     """Create a DataLoaderSplit with a transformer for testing."""
     file_path = str(tmp_path / "test.parquet")
     fields = [field.with_metadata({b"PARQUET:field_id": str(i + 1).encode()}) for i, field in enumerate(table.schema)]
@@ -232,7 +231,6 @@ def _make_transform_split(tmp_path, table, transformer, table_name='"db"."tbl"')
         table_metadata=metadata,
         io=load_file_io(properties={}, location=file_path),
         projected_schema=_TRANSFORM_SCHEMA,
-        table_name=table_name,
     )
 
     data_file = DataFile.from_args(
