@@ -70,6 +70,7 @@ class LivySession:
             if time.monotonic() > deadline:
                 raise RuntimeError(f"Livy session not idle after {SESSION_TIMEOUT}s")
             resp = requests.get(self._session_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
             state = resp.json()["state"]
             if state == "idle":
                 return
@@ -91,6 +92,7 @@ class LivySession:
             if time.monotonic() > deadline:
                 raise RuntimeError(f"SQL statement not complete after {STATEMENT_TIMEOUT}s: {sql}")
             resp = requests.get(stmt_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
             state = resp.json()["state"]
             if state == "available":
                 output = resp.json()["output"]
