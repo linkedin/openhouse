@@ -322,3 +322,76 @@ def test_snapshot_id_with_columns_and_filters(tmp_path):
     assert scan_kwargs["snapshot_id"] == 99
     assert scan_kwargs["selected_fields"] == (COL_ID,)
     assert "row_filter" in scan_kwargs
+
+
+# --- batch_size tests ---
+
+
+def test_batch_size_default_returns_all_data(tmp_path):
+    """Without batch_size, all data is returned correctly (backwards compatibility)."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    result = result.sort_by(COL_ID)
+    assert result.column(COL_ID).to_pylist() == TEST_DATA[COL_ID]
+
+
+def test_batch_size_limits_rows_per_batch(tmp_path):
+    """When batch_size is set, each RecordBatch has at most batch_size rows."""
+    many_rows = {
+        COL_ID: list(range(100)),
+        COL_NAME: [f"name_{i}" for i in range(100)],
+        COL_VALUE: [float(i) for i in range(100)],
+    }
+    catalog = _make_real_catalog(tmp_path, data=many_rows)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", batch_size=10)
+    batches = [batch for split in loader for batch in split]
+
+    assert len(batches) >= 2, "Expected multiple batches with batch_size=10 and 100 rows"
+    for batch in batches:
+        assert batch.num_rows <= 10, f"Batch has {batch.num_rows} rows, expected at most 10"
+
+    total_rows = sum(b.num_rows for b in batches)
+    assert total_rows == 100
+
+
+def test_batch_size_returns_correct_data(tmp_path):
+    """batch_size controls chunking but doesn't alter the data returned."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", batch_size=1)
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    result = result.sort_by(COL_ID)
+    assert result.column(COL_ID).to_pylist() == TEST_DATA[COL_ID]
+    assert result.column(COL_NAME).to_pylist() == TEST_DATA[COL_NAME]
+    assert result.column(COL_VALUE).to_pylist() == TEST_DATA[COL_VALUE]
+
+
+def test_batch_size_with_columns_and_filters(tmp_path):
+    """batch_size works alongside column selection and row filters."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog, database="db", table="tbl", columns=[COL_ID], filters=col(COL_ID) == 1, batch_size=1
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 1
+    assert set(result.column_names) == {COL_ID}
+    assert result.column(COL_ID).to_pylist() == [1]
+
+
+def test_batch_size_with_empty_table(tmp_path):
+    """batch_size on an empty table yields no batches."""
+    catalog = _make_real_catalog(tmp_path, data=EMPTY_DATA)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", batch_size=10)
+    result = _materialize(loader)
+
+    assert result.num_rows == 0

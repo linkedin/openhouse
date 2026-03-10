@@ -30,6 +30,7 @@ def _create_test_split(
     iceberg_schema: Schema,
     io_properties: dict[str, str] | None = None,
     filename: str | None = None,
+    batch_size: int | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -88,6 +89,7 @@ def _create_test_split(
         plan=plan,
         file_scan_task=task,
         scan_context=scan_context,
+        batch_size=batch_size,
     )
 
 
@@ -199,3 +201,47 @@ def test_split_id_ignores_default_netloc(tmp_path):
         split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
         list(split)
         split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
+
+
+# --- batch_size tests ---
+
+_BATCH_SCHEMA = Schema(
+    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+)
+
+
+def _make_large_table(num_rows: int) -> pa.Table:
+    return pa.table({"id": pa.array(list(range(num_rows)), type=pa.int64())})
+
+
+def test_split_batch_size_limits_rows_per_batch(tmp_path):
+    """When batch_size is set, each RecordBatch has at most that many rows."""
+    table = _make_large_table(100)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=10)
+
+    batches = list(split)
+
+    assert len(batches) >= 2, "Expected multiple batches with batch_size=10 and 100 rows"
+    for batch in batches:
+        assert batch.num_rows <= 10
+    assert sum(b.num_rows for b in batches) == 100
+
+
+def test_split_batch_size_none_returns_all_rows(tmp_path):
+    """Default batch_size (None) returns all data correctly."""
+    table = _make_large_table(50)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 50
+    assert sorted(result.column("id").to_pylist()) == list(range(50))
+
+
+def test_split_batch_size_preserves_data(tmp_path):
+    """batch_size controls chunking but all data is preserved."""
+    table = _make_large_table(25)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=7)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 25
+    assert sorted(result.column("id").to_pylist()) == list(range(25))
