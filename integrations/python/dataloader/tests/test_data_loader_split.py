@@ -199,3 +199,26 @@ def test_split_id_ignores_default_netloc(tmp_path):
         split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
         list(split)
         split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
+
+
+def test_split_logs_progress_periodically_and_at_end(tmp_path, caplog):
+    """Progress is logged every log_every_n_rows rows and once at the end."""
+    iceberg_schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
+    num_rows = 100
+    table = pa.table({"x": pa.array(range(num_rows), type=pa.int64())})
+
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, iceberg_schema)
+    split._log_every_n_rows = 30
+
+    with caplog.at_level("INFO", logger="openhouse.dataloader.data_loader_split"):
+        list(split)
+
+    log_messages = [r.message for r in caplog.records if r.name == "openhouse.dataloader.data_loader_split"]
+    # At least one periodic log before the final one, plus the final log
+    assert len(log_messages) >= 2, f"Expected at least 2 log messages, got {len(log_messages)}: {log_messages}"
+    # Final log should contain total row count
+    assert f"{num_rows} rows" in log_messages[-1]
+    # All messages should contain throughput info
+    for msg in log_messages:
+        assert "rows/s" in msg
+        assert "/s" in msg
