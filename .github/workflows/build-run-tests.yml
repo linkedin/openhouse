@@ -34,19 +34,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Run Data Loader Tests
-        working-directory: integrations/python/dataloader
-        run: make sync verify
-
-      - name: Run Data Loader Integration Tests
-        working-directory: integrations/python/dataloader
-        run: make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
-
       - name: Install dependencies
         run: pip install -r scripts/python/requirements.txt
 

@@ -1,4 +1,4 @@
-.PHONY: help sync clean lint format format-check typecheck check test verify build package-check integration-tests
+.PHONY: help sync clean lint format format-check typecheck check test verify build package-check build-itest integration-tests
 
 help:
 	@echo "Available commands:"
@@ -41,13 +41,27 @@ build:
 package-check:
 	uv run twine check dist/*
 
-integration-tests:
-	uv run python tests/integration_tests.py $(TOKEN_FILE)
+ITEST_IMAGE ?= oh-dataloader-itest
+DOCKER_NETWORK ?= oh-hadoop-spark_default
+ITEST_SITE = build/itest-site-packages
+
+build-itest: $(ITEST_SITE)
+
+$(ITEST_SITE): pyproject.toml uv.lock src/
+	rm -rf $(ITEST_SITE)
+	SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 uv pip install --target $(ITEST_SITE) --python-platform x86_64-unknown-linux-gnu --python-version 3.12 ".[dev]"
+
+integration-tests: $(ITEST_SITE)
+	docker build --platform linux/amd64 -t $(ITEST_IMAGE) -f tests/Dockerfile .
+	docker run --rm --platform linux/amd64 --network $(DOCKER_NETWORK) \
+		-e OH_TOKEN="$$(cat $(TOKEN_FILE))" \
+		$(ITEST_IMAGE) python3 tests/integration_tests.py
 
 clean:
 	rm -rf build/
 	rm -rf dist/
 	rm -rf *.egg-info
 	rm -rf .venv/
+	rm -rf $(ITEST_SITE)
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete

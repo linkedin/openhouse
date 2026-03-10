@@ -29,7 +29,7 @@ Run `make format` before pushing to avoid CI formatting failures.
 
 ```bash
 # From the repo root, start Docker services (once per session):
-docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d
+docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d
 
 # From the dataloader directory:
 make format
@@ -39,13 +39,13 @@ make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixt
 
 ## Integration Tests
 
-Integration tests run against an OpenHouse instance in Docker. To run them:
+Integration tests run inside a Docker container on the same network as the oh-hadoop-spark services. The `make integration-tests` target builds a test image and runs it automatically. Tables are created and populated via Spark SQL submitted through Livy.
 
 1. Start the Docker services from the repo root:
    ```bash
-   docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d
+   docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d
    ```
-2. Run the tests with the dummy token (uses `DummyTokenInterceptor`, no real auth needed):
+2. Wait for all services to be healthy (especially Livy and namenode), then run:
    ```bash
    make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
    ```

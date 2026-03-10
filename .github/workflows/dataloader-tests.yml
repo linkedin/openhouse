@@ -1,0 +1,75 @@
+name: Dataloader Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+    paths:
+      - 'integrations/python/dataloader/**'
+
+concurrency:
+  group: dataloader-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Dataloader Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project sources
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Run Data Loader Tests
+        working-directory: integrations/python/dataloader
+        run: make sync verify
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build project and Spark uber JARs
+        run: ./gradlew clean build shadowJar -x test
+
+      - name: Start Docker Containers
+        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml up -d --build
+
+      - name: Wait for Docker Containers to be ready
+        run: |
+          echo "Waiting for openhouse-tables and spark-livy..."
+          for i in $(seq 1 120); do
+            tables_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/databases 2>&1 || echo "000")
+            livy_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9003/sessions 2>&1 || echo "000")
+            echo "Poll $i: tables=$tables_status livy=$livy_status"
+            if [ "$tables_status" != "000" ] && [ "$livy_status" != "000" ]; then
+              echo "Services ready after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for services after 600s"
+          docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml ps
+          exit 1
+
+      - name: Run Data Loader Integration Tests
+        working-directory: integrations/python/dataloader
+        run: make integration-tests TOKEN_FILE=../../../tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
+
+      - name: Stop Docker Containers
+        if: always()
+        run: docker compose -f infra/recipes/docker-compose/oh-hadoop-spark/docker-compose.yml down
