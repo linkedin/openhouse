@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import time
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
@@ -11,6 +13,8 @@ from pyiceberg.table import FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class DataLoaderSplit:
@@ -54,4 +58,33 @@ class DataLoaderSplit:
             projected_schema=ctx.projected_schema,
             row_filter=ctx.row_filter,
         )
-        yield from arrow_scan.to_record_batches([self._file_scan_task])
+
+        total_rows = 0
+        total_bytes = 0
+        batch_count = 0
+        elapsed = 0.0
+
+        it = iter(arrow_scan.to_record_batches([self._file_scan_task]))
+        while True:
+            start_time = time.monotonic()
+            try:
+                batch = next(it)
+            except StopIteration:
+                elapsed += time.monotonic() - start_time
+                break
+            elapsed += time.monotonic() - start_time
+            total_rows += batch.num_rows
+            total_bytes += batch.nbytes
+            batch_count += 1
+            yield batch
+
+        logger.info(
+            "Split %s: %d batches, %d rows, %.1f MiB materialized in %.3fs (%.0f rows/s, %.1f MiB/s)",
+            self.id[:12],
+            batch_count,
+            total_rows,
+            total_bytes / (1024**2),
+            elapsed,
+            total_rows / elapsed if elapsed > 0 else 0,
+            total_bytes / elapsed / (1024**2) if elapsed > 0 else 0,
+        )
