@@ -4,10 +4,12 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.extract
 
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
-import com.linkedin.openhouse.tables.generated.iceberg.api.IcebergReadOnlyApi;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
+import com.linkedin.openhouse.tables.generated.iceberg.api.CatalogApiApi;
+import com.linkedin.openhouse.tables.generated.iceberg.api.ConfigurationApiApi;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -18,18 +20,29 @@ import org.apache.iceberg.rest.RESTUtil;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.NativeWebRequest;
 
 /**
  * Read-only Iceberg REST Catalog surface.
  *
- * <p>First iteration intentionally supports only config/list/load paths required for read
- * operations.
+ * <p>Implements the generated {@link CatalogApiApi} and {@link ConfigurationApiApi} interfaces from
+ * the upstream Iceberg REST OpenAPI spec. Only config/list/load/exists are overridden; all other
+ * endpoints inherit the generated 501 (Not Implemented) default.
+ *
+ * <p>The {@code /v1/config} endpoint returns a {@code prefix} override so that the Iceberg REST
+ * client addresses all subsequent requests via {@code /v1/{prefix}/namespaces/...}, keeping them
+ * separate from the existing OpenHouse API routes under {@code /v1/databases/...}.
+ *
+ * <p>Serialization of Iceberg REST types is handled by {@link IcebergRestHttpMessageConverter},
+ * registered in {@link IcebergRestSerdeConfig}.
  */
 @RestController
-public class IcebergRestCatalogController implements IcebergReadOnlyApi {
+public class IcebergRestCatalogController implements CatalogApiApi, ConfigurationApiApi {
+
+  /** Prefix returned by {@code /v1/config} and used in all Iceberg REST routes. */
+  public static final String ICEBERG_REST_PREFIX = "iceberg";
 
   private final OpenHouseInternalCatalog openHouseInternalCatalog;
 
@@ -46,16 +59,22 @@ public class IcebergRestCatalogController implements IcebergReadOnlyApi {
     this.tablesApiValidator = tablesApiValidator;
   }
 
+  /** Resolves the diamond-inherited {@code getRequest()} from both interfaces. */
   @Override
-  public ResponseEntity<String> getConfig(String warehouse) {
-    ConfigResponse response = ConfigResponse.builder().build();
-    return ResponseEntity.ok()
-        .contentType(MediaType.APPLICATION_JSON)
-        .body(IcebergRestSerde.toJson(response));
+  public Optional<NativeWebRequest> getRequest() {
+    return Optional.empty();
   }
 
   @Override
-  public ResponseEntity<String> listTables(String namespace) {
+  public ResponseEntity<ConfigResponse> getConfig(String warehouse) {
+    ConfigResponse response =
+        ConfigResponse.builder().withOverride("prefix", ICEBERG_REST_PREFIX).build();
+    return ResponseEntity.ok(response);
+  }
+
+  @Override
+  public ResponseEntity<ListTablesResponse> listTables(
+      String prefix, String namespace, String pageToken, Integer pageSize) {
     Namespace icebergNamespace = decodeSingleLevelNamespace(namespace);
     String databaseId = icebergNamespace.level(0);
     tablesApiValidator.validateSearchTables(databaseId);
@@ -65,14 +84,17 @@ public class IcebergRestCatalogController implements IcebergReadOnlyApi {
             .map(table -> TableIdentifier.of(icebergNamespace, table.getTableId()))
             .collect(Collectors.toList());
     ListTablesResponse response = ListTablesResponse.builder().addAll(tableIdentifiers).build();
-    return ResponseEntity.ok()
-        .contentType(MediaType.APPLICATION_JSON)
-        .body(IcebergRestSerde.toJson(response));
+    return ResponseEntity.ok(response);
   }
 
   @Override
-  public ResponseEntity<String> loadTable(
-      String namespace, String table, String snapshots) {
+  public ResponseEntity<LoadTableResponse> loadTable(
+      String prefix,
+      String namespace,
+      String table,
+      String xIcebergAccessDelegation,
+      String ifNoneMatch,
+      String snapshots) {
     Namespace icebergNamespace = decodeSingleLevelNamespace(namespace);
     String databaseId = icebergNamespace.level(0);
     tablesApiValidator.validateGetTable(databaseId, table);
@@ -87,13 +109,11 @@ public class IcebergRestCatalogController implements IcebergReadOnlyApi {
     LoadTableResponse response =
         CatalogHandlers.loadTable(
             openHouseInternalCatalog, TableIdentifier.of(icebergNamespace, table));
-    return ResponseEntity.ok()
-        .contentType(MediaType.APPLICATION_JSON)
-        .body(IcebergRestSerde.toJson(response));
+    return ResponseEntity.ok(response);
   }
 
   @Override
-  public ResponseEntity<Void> headTable(String namespace, String table) {
+  public ResponseEntity<Void> tableExists(String prefix, String namespace, String table) {
     Namespace icebergNamespace = decodeSingleLevelNamespace(namespace);
     String databaseId = icebergNamespace.level(0);
     tablesApiValidator.validateGetTable(databaseId, table);

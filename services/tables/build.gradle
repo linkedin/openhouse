@@ -30,11 +30,86 @@ openApi {
   apiDocsUrl.set("http://localhost:8000/v3/api-docs")
 }
 
-def canonicalIcebergRestSpec = "${rootDir}/spec/openhouse-iceberg-rest-readonly-v1.yaml"
+def canonicalIcebergRestSpec = "${rootDir}/spec/iceberg-rest-catalog-open-api.yaml"
 def openApiCliVersion = "7.12.0"
 def openApiCliDir = "${buildDir}/openapi-cli"
 def openApiCliJar = "${openApiCliDir}/openapi-generator-cli-${openApiCliVersion}.jar"
 def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server"
+
+/**
+ * Map OpenAPI spec schema names to existing Iceberg library types so the generated interfaces
+ * use real Iceberg request/response classes instead of generating new model classes.
+ * This follows the same pattern as Apache Polaris.
+ */
+/**
+ * Map OpenAPI spec schema names to existing Iceberg library types so the generated interfaces
+ * use real Iceberg request/response classes instead of generating new model classes.
+ * This follows the same pattern as Apache Polaris (see polaris/api/iceberg-service/build.gradle.kts).
+ *
+ * importMappings replace the import statement for a given schema name.
+ * typeMappings replace the type name used in generated code (simple class name only).
+ *
+ * Types that exist in Iceberg 1.10+ but not in our 1.5.2 fork (e.g., scan planning, credentials)
+ * are mapped to Object so the generated default-501 methods still compile.
+ */
+def icebergImportMappings = [
+    // Iceberg REST responses
+    "CatalogConfig=org.apache.iceberg.rest.responses.ConfigResponse",
+    "CommitTableResponse=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "CreateNamespaceResponse=org.apache.iceberg.rest.responses.CreateNamespaceResponse",
+    "ErrorModel=org.apache.iceberg.rest.responses.ErrorResponse",
+    "GetNamespaceResponse=org.apache.iceberg.rest.responses.GetNamespaceResponse",
+    "IcebergErrorResponse=org.apache.iceberg.rest.responses.ErrorResponse",
+    "ListNamespacesResponse=org.apache.iceberg.rest.responses.ListNamespacesResponse",
+    "ListTablesResponse=org.apache.iceberg.rest.responses.ListTablesResponse",
+    "LoadTableResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "LoadViewResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "OAuthError=org.apache.iceberg.rest.responses.ErrorResponse",
+    "OAuthErrorResponse=org.apache.iceberg.rest.responses.OAuthErrorResponse",
+    "OAuthTokenResponse=org.apache.iceberg.rest.responses.OAuthTokenResponse",
+    "UpdateNamespacePropertiesResponse=org.apache.iceberg.rest.responses.UpdateNamespacePropertiesResponse",
+    // Iceberg REST requests
+    "CreateNamespaceRequest=org.apache.iceberg.rest.requests.CreateNamespaceRequest",
+    "CreateTableRequest=org.apache.iceberg.rest.requests.CreateTableRequest",
+    "CreateViewRequest=org.apache.iceberg.rest.requests.CreateViewRequest",
+    "CommitTransactionRequest=org.apache.iceberg.rest.requests.CommitTransactionRequest",
+    "RegisterTableRequest=org.apache.iceberg.rest.requests.RegisterTableRequest",
+    "RenameTableRequest=org.apache.iceberg.rest.requests.RenameTableRequest",
+    "ReportMetricsRequest=org.apache.iceberg.rest.requests.ReportMetricsRequest",
+    "UpdateNamespacePropertiesRequest=org.apache.iceberg.rest.requests.UpdateNamespacePropertiesRequest",
+    // Types not in Iceberg 1.5.2 — mapped to Object so unimplemented default methods compile
+    "CommitTableRequest=java.lang.Object",
+    "CommitViewRequest=java.lang.Object",
+    "FetchPlanningResult=java.lang.Object",
+    "FetchScanTasksRequest=java.lang.Object",
+    "FetchScanTasksResult=java.lang.Object",
+    "LoadCredentialsResponse=java.lang.Object",
+    "PlanTableScanRequest=java.lang.Object",
+    "PlanTableScanResult=java.lang.Object",
+    // OAuth2 model type suppressed by models=false
+    "TokenType=java.lang.String",
+].join(",")
+
+def icebergTypeMappings = [
+    "CatalogConfig=org.apache.iceberg.rest.responses.ConfigResponse",
+    "CommitTableResponse=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "ErrorModel=org.apache.iceberg.rest.responses.ErrorResponse",
+    "IcebergErrorResponse=org.apache.iceberg.rest.responses.ErrorResponse",
+    "LoadTableResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "LoadViewResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "OAuthError=org.apache.iceberg.rest.responses.ErrorResponse",
+    // Types not in Iceberg 1.5.2 — must also be in typeMappings for @Schema annotations
+    "CommitTableRequest=java.lang.Object",
+    "CommitViewRequest=java.lang.Object",
+    "FetchPlanningResult=java.lang.Object",
+    "FetchScanTasksRequest=java.lang.Object",
+    "FetchScanTasksResult=java.lang.Object",
+    "LoadCredentialsResponse=java.lang.Object",
+    "PlanTableScanRequest=java.lang.Object",
+    "PlanTableScanResult=java.lang.Object",
+    "TokenType=java.lang.String",
+].join(",")
+
 
 dependencies {
   compileOnly "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
@@ -81,8 +156,31 @@ tasks.register('generateIcebergRestOpenApiServer', Exec) {
       "-o", generatedIcebergRestDir,
       "--api-package", "com.linkedin.openhouse.tables.generated.iceberg.api",
       "--model-package", "com.linkedin.openhouse.tables.generated.iceberg.model",
-      "--global-property", "apis,models,apiTests=false,apiDocs=false,modelTests=false,modelDocs=false,supportingFiles=",
-      "--additional-properties", "interfaceOnly=true,useTags=true,skipDefaultInterface=true,hideGenerationTimestamp=true,useSpringBoot3=false"
+      "--import-mappings", icebergImportMappings,
+      "--type-mappings", icebergTypeMappings,
+      "--global-property", "apis,models=false,apiTests=false,apiDocs=false,modelTests=false,modelDocs=false,supportingFiles=",
+      "--additional-properties", "interfaceOnly=true,useTags=true,skipDefaultInterface=false,hideGenerationTimestamp=true,useSpringBoot3=false"
+  // Post-process: typeMappings does not replace @RequestBody parameter types when models=false.
+  // Replace remaining Iceberg 1.10-only request/response types with Object so the code compiles.
+  doLast {
+    def replacements = [
+        'CommitTableRequest': 'Object',
+        'CommitViewRequest': 'Object',
+        'FetchScanTasksRequest': 'Object',
+        'PlanTableScanRequest': 'Object',
+    ]
+    fileTree(generatedIcebergRestDir).matching { include '**/*.java' }.each { File f ->
+      def text = f.text
+      def original = text
+      replacements.each { from, to ->
+        // Replace bare type references in method parameters (e.g. "CommitTableRequest commitTableRequest")
+        text = text.replaceAll("\\b${from}\\b(?=\\s+\\w)", to)
+      }
+      if (text != original) {
+        f.text = text
+      }
+    }
+  }
   inputs.file(canonicalIcebergRestSpec)
   inputs.file(openApiCliJar)
   outputs.dir(generatedIcebergRestDir)

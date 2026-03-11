@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
+import static com.linkedin.openhouse.tables.controller.IcebergRestCatalogController.ICEBERG_REST_PREFIX;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -11,6 +12,7 @@ import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.controller.IcebergRestCatalogController;
 import com.linkedin.openhouse.tables.controller.IcebergRestExceptionHandler;
+import com.linkedin.openhouse.tables.controller.IcebergRestHttpMessageConverter;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.Arrays;
@@ -29,6 +31,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -51,6 +54,8 @@ public class IcebergRestCatalogControllerTest {
     mvc =
         MockMvcBuilders.standaloneSetup(icebergRestCatalogController)
             .setControllerAdvice(new IcebergRestExceptionHandler())
+            .setMessageConverters(
+                new IcebergRestHttpMessageConverter(), new StringHttpMessageConverter())
             .build();
   }
 
@@ -59,7 +64,8 @@ public class IcebergRestCatalogControllerTest {
     mvc.perform(MockMvcRequestBuilders.get("/v1/config"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.defaults").exists())
-        .andExpect(jsonPath("$.overrides").exists());
+        .andExpect(jsonPath("$.overrides").exists())
+        .andExpect(jsonPath("$.overrides.prefix").value(ICEBERG_REST_PREFIX));
   }
 
   @Test
@@ -70,7 +76,8 @@ public class IcebergRestCatalogControllerTest {
                 TableDto.builder().databaseId("db").tableId("tb1").build(),
                 TableDto.builder().databaseId("db").tableId("tb2").build()));
 
-    mvc.perform(MockMvcRequestBuilders.get("/v1/namespaces/db/tables"))
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/{prefix}/namespaces/db/tables", ICEBERG_REST_PREFIX))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.identifiers[0].namespace[0]").value("db"))
         .andExpect(jsonPath("$.identifiers[0].name").value("tb1"))
@@ -86,10 +93,11 @@ public class IcebergRestCatalogControllerTest {
     TableOperations tableOperations = org.mockito.Mockito.mock(TableOperations.class);
     when(tableOperations.current()).thenReturn(metadata);
     BaseTable baseTable = new BaseTable(tableOperations, "openhouse.db.tb1");
-    when(openHouseInternalCatalog.loadTable(TableIdentifier.of("db", "tb1")))
-        .thenReturn(baseTable);
+    when(openHouseInternalCatalog.loadTable(TableIdentifier.of("db", "tb1"))).thenReturn(baseTable);
 
-    mvc.perform(MockMvcRequestBuilders.get("/v1/namespaces/db/tables/tb1"))
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                "/v1/{prefix}/namespaces/db/tables/tb1", ICEBERG_REST_PREFIX))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.metadata-location").value(metadata.metadataFileLocation()))
         .andExpect(jsonPath("$.metadata").exists());
@@ -100,7 +108,9 @@ public class IcebergRestCatalogControllerTest {
     when(tablesService.getTable(eq("db"), eq("missing"), anyString()))
         .thenThrow(new NoSuchUserTableException("db", "missing"));
 
-    mvc.perform(MockMvcRequestBuilders.get("/v1/namespaces/db/tables/missing"))
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                "/v1/{prefix}/namespaces/db/tables/missing", ICEBERG_REST_PREFIX))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.error.code").value(404))
         .andExpect(jsonPath("$.error.type").value("NoSuchTableException"));
@@ -111,7 +121,9 @@ public class IcebergRestCatalogControllerTest {
     when(tablesService.getTable(eq("db"), eq("tb1"), anyString()))
         .thenReturn(TableDto.builder().databaseId("db").tableId("tb1").build());
 
-    mvc.perform(MockMvcRequestBuilders.head("/v1/namespaces/db/tables/tb1"))
+    mvc.perform(
+            MockMvcRequestBuilders.head(
+                "/v1/{prefix}/namespaces/db/tables/tb1", ICEBERG_REST_PREFIX))
         .andExpect(status().isNoContent());
   }
 
@@ -120,13 +132,14 @@ public class IcebergRestCatalogControllerTest {
     when(tablesService.getTable(eq("db"), eq("missing"), anyString()))
         .thenThrow(new NoSuchUserTableException("db", "missing"));
 
-    mvc.perform(MockMvcRequestBuilders.head("/v1/namespaces/db/tables/missing"))
+    mvc.perform(
+            MockMvcRequestBuilders.head(
+                "/v1/{prefix}/namespaces/db/tables/missing", ICEBERG_REST_PREFIX))
         .andExpect(status().isNotFound());
   }
 
   private static TableMetadata testMetadata(String location) {
-    Schema schema =
-        new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
+    Schema schema = new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
     return TableMetadata.newTableMetadata(
         schema,
         PartitionSpec.unpartitioned(),

@@ -25,14 +25,12 @@ public class IcebergRestExceptionHandler {
 
   @ExceptionHandler(NoSuchNamespaceException.class)
   public ResponseEntity<String> handleNoSuchNamespace(NoSuchNamespaceException e) {
-    return errorResponse(
-        404, e.getMessage(), NoSuchNamespaceException.class.getSimpleName(), e);
+    return errorResponse(404, e.getMessage(), NoSuchNamespaceException.class.getSimpleName(), e);
   }
 
   @ExceptionHandler({RequestValidationFailureException.class, IllegalArgumentException.class})
   public ResponseEntity<String> handleBadRequest(Exception e) {
-    return errorResponse(
-        400, e.getMessage(), IllegalArgumentException.class.getSimpleName(), e);
+    return errorResponse(400, e.getMessage(), IllegalArgumentException.class.getSimpleName(), e);
   }
 
   @ExceptionHandler(AccessDeniedException.class)
