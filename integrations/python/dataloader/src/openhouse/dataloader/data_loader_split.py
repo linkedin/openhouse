@@ -9,7 +9,6 @@ from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
 
-from openhouse.dataloader._exceptions import DataLoaderRuntimeError
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.table_identifier import TableIdentifier, _quote_identifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
@@ -96,9 +95,7 @@ class DataLoaderSplit:
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
-        if self._transform_sql is None:
-            raise DataLoaderRuntimeError("transform_sql is required for _apply_transform")
-
+        assert self._transform_sql is not None  # guaranteed by caller
         _bind_batch_table(session, self._scan_context.table_id, batch)
         df = session.sql(self._transform_sql)
         yield from df.collect()
