@@ -417,3 +417,30 @@ def test_iter_with_transformer_and_special_char_database(tmp_path):
 
     assert result.num_rows == 3
     assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
+
+
+# --- batch_size tests ---
+
+
+def test_batch_size_forwarded_to_splits(tmp_path):
+    """batch_size is correctly passed through to each DataLoaderSplit."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", batch_size=32768)
+    splits = list(loader)
+
+    assert len(splits) >= 1
+    for split in splits:
+        assert split._batch_size == 32768
+
+
+def test_batch_size_default_is_none(tmp_path):
+    """Omitting batch_size defaults to None in each split."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    splits = list(loader)
+
+    assert len(splits) >= 1
+    for split in splits:
+        assert split._batch_size is None

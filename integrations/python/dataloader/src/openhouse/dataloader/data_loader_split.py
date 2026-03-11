@@ -7,7 +7,7 @@ from types import MappingProxyType
 from datafusion.context import SessionContext
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
-from pyiceberg.table import FileScanTask
+from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.table_identifier import TableIdentifier, _quote_identifier
@@ -45,6 +45,7 @@ class DataLoaderSplit:
         scan_context: TableScanContext,
         transform_sql: str | None = None,
         udf_registry: UDFRegistry | None = None,
+        batch_size: int | None = None,
     ):
         if transform_sql is not None and scan_context.table_id is None:
             raise ValueError("scan_context.table_id is required when transform_sql is provided")
@@ -52,6 +53,7 @@ class DataLoaderSplit:
         self._scan_context = scan_context
         self._transform_sql = transform_sql
         self._udf_registry = udf_registry or NoOpRegistry()
+        self._batch_size = batch_size
 
     @property
     def id(self) -> str:
@@ -70,7 +72,8 @@ class DataLoaderSplit:
         """Reads the file scan task and yields Arrow RecordBatches.
 
         Uses PyIceberg's ArrowScan to handle format dispatch, schema resolution,
-        delete files, and partition spec lookups.
+        delete files, and partition spec lookups. The number of batches loaded
+        into memory at once is bounded to prevent using too much memory at once.
         """
         ctx = self._scan_context
         arrow_scan = ArrowScan(
@@ -80,7 +83,10 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
 
-        batches = arrow_scan.to_record_batches([self._file_scan_task])
+        batches = arrow_scan.to_record_batches(
+            [self._file_scan_task],
+            order=ArrivalOrder(concurrent_streams=1, batch_size=self._batch_size),
+        )
 
         if self._transform_sql is None:
             yield from batches

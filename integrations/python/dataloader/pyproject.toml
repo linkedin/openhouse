@@ -2,6 +2,9 @@
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [project]
 name = "openhouse.dataloader"
 dynamic = ["version"]
@@ -10,7 +13,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "BSD-2-Clause"}
 keywords = ["openhouse", "data-loader", "lakehouse", "iceberg", "datafusion"]
-dependencies = ["datafusion==51.0.0", "pyiceberg~=0.11.0", "requests>=2.31.0", "tenacity>=8.0.0"]
+dependencies = ["datafusion==51.0.0", "pyiceberg @ git+https://github.com/sumedhsakdeo/iceberg-python@75ba28bfc6d8bbeac398357c6db80327632a2dc8", "requests>=2.31.0", "tenacity>=8.0.0"]
 
 [project.optional-dependencies]
 dev = ["responses>=0.25.0", "ruff>=0.9.0", "pytest>=8.0.0", "twine>=6.0.0", "mypy>=1.14.0", "types-requests>=2.31.0"]

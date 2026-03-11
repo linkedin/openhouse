@@ -78,6 +78,7 @@ class OpenHouseDataLoader:
         filters: Filter | None = None,
         context: DataLoaderContext | None = None,
         max_attempts: int = 3,
+        batch_size: int | None = None,
     ):
         """
         Args:
@@ -90,6 +91,10 @@ class OpenHouseDataLoader:
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
             max_attempts: Total number of attempts including the initial try (default 3)
+            batch_size: Maximum number of rows per RecordBatch yielded by each split.
+                Passed to PyArrow's Scanner which produces batches of at most this many
+                rows. Smaller values reduce peak memory but increase per-batch overhead.
+                None uses the PyArrow default (~131K rows).
         """
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
@@ -98,6 +103,7 @@ class OpenHouseDataLoader:
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
+        self._batch_size = batch_size
 
     @cached_property
     def _iceberg_table(self) -> Table:
@@ -182,4 +188,5 @@ class OpenHouseDataLoader:
                 scan_context=scan_context,
                 transform_sql=transform_sql,
                 udf_registry=self._context.udf_registry,
+                batch_size=self._batch_size,
             )
