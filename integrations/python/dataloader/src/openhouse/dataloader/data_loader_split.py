@@ -44,15 +44,13 @@ class DataLoaderSplit:
         file_scan_task: FileScanTask,
         scan_context: TableScanContext,
         transform_sql: str | None = None,
-        table_id: TableIdentifier | None = None,
         udf_registry: UDFRegistry | None = None,
     ):
-        if transform_sql is not None and table_id is None:
-            raise ValueError("table_id is required when transform_sql is provided")
+        if transform_sql is not None and scan_context.table_id is None:
+            raise ValueError("scan_context.table_id is required when transform_sql is provided")
         self._file_scan_task = file_scan_task
         self._scan_context = scan_context
         self._transform_sql = transform_sql
-        self._table_id = table_id
         self._udf_registry = udf_registry or NoOpRegistry()
 
     @property
@@ -87,17 +85,17 @@ class DataLoaderSplit:
         if self._transform_sql is None:
             yield from batches
         else:
-            if self._table_id is None:
+            if self._scan_context.table_id is None:
                 raise RuntimeError("table_id is required when transform_sql is provided")
-            session = _create_transform_session(self._table_id, self._udf_registry)
+            session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
             for batch in batches:
                 yield from self._apply_transform(session, batch)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
-        if self._transform_sql is None or self._table_id is None:
+        if self._transform_sql is None or self._scan_context.table_id is None:
             raise RuntimeError("transform_sql and table_id are required for _apply_transform")
 
-        _bind_batch_table(session, self._table_id, batch)
+        _bind_batch_table(session, self._scan_context.table_id, batch)
         df = session.sql(self._transform_sql)
         yield from df.collect()

@@ -79,6 +79,7 @@ def _create_test_split(
         table_metadata=metadata,
         io=load_file_io(properties=io_properties or {}, location=file_path),
         projected_schema=iceberg_schema,
+        table_id=table_id,
     )
 
     data_file = DataFile.from_args(
@@ -94,7 +95,6 @@ def _create_test_split(
         file_scan_task=task,
         scan_context=scan_context,
         transform_sql=transform_sql,
-        table_id=table_id,
         udf_registry=udf_registry,
     )
 
@@ -368,8 +368,9 @@ def test_pickle_double_round_trip(tmp_path):
 
 
 def test_transform_sql_without_table_id_raises():
-    """Passing transform_sql without table_id raises ValueError at construction."""
+    """Passing transform_sql without table_id in scan_context raises ValueError at construction."""
     scan_context = MagicMock()
+    scan_context.table_id = None
     task = MagicMock()
     with pytest.raises(ValueError, match="table_id is required"):
         DataLoaderSplit(file_scan_task=task, scan_context=scan_context, transform_sql="SELECT 1")

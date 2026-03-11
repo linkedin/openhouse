@@ -168,6 +168,7 @@ class OpenHouseDataLoader:
             io=table.io,
             projected_schema=scan.projection(),
             row_filter=row_filter,
+            table_id=self._table_id,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
@@ -181,6 +182,5 @@ class OpenHouseDataLoader:
                 file_scan_task=scan_task,
                 scan_context=scan_context,
                 transform_sql=transform_sql,
-                table_id=self._table_id,
                 udf_registry=self._context.udf_registry,
             )
