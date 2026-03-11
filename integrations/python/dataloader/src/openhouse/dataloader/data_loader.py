@@ -3,7 +3,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
-from typing import Any
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
@@ -150,7 +149,7 @@ class OpenHouseDataLoader:
 
         row_filter = _to_pyiceberg(self._filters)
 
-        scan_kwargs: dict[str, Any] = {"row_filter": row_filter}
+        scan_kwargs: dict = {"row_filter": row_filter}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
