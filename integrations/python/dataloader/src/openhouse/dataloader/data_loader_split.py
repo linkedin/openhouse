@@ -61,8 +61,8 @@ class DataLoaderSplit:
         """Reads the file scan task and yields Arrow RecordBatches.
 
         Uses PyIceberg's ArrowScan to handle format dispatch, schema resolution,
-        delete files, and partition spec lookups.  Batches are streamed
-        incrementally (not materialized into memory) via ArrivalOrder.
+        delete files, and partition spec lookups. The number of batches loaded
+        into memory at once is bounded to prevent using too much memory at once.
         """
         ctx = self._scan_context
         arrow_scan = ArrowScan(
