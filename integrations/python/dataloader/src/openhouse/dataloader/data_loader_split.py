@@ -9,6 +9,7 @@ from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
 
+from openhouse.dataloader._exceptions import DataLoaderRuntimeError
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.table_identifier import TableIdentifier, _quote_identifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
@@ -47,8 +48,6 @@ class DataLoaderSplit:
         udf_registry: UDFRegistry | None = None,
         batch_size: int | None = None,
     ):
-        if transform_sql is not None and scan_context.table_id is None:
-            raise ValueError("scan_context.table_id is required when transform_sql is provided")
         self._file_scan_task = file_scan_task
         self._scan_context = scan_context
         self._transform_sql = transform_sql
@@ -91,16 +90,14 @@ class DataLoaderSplit:
         if self._transform_sql is None:
             yield from batches
         else:
-            if self._scan_context.table_id is None:
-                raise RuntimeError("table_id is required when transform_sql is provided")
             session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
             for batch in batches:
                 yield from self._apply_transform(session, batch)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
-        if self._transform_sql is None or self._scan_context.table_id is None:
-            raise RuntimeError("transform_sql and table_id are required for _apply_transform")
+        if self._transform_sql is None:
+            raise DataLoaderRuntimeError("transform_sql is required for _apply_transform")
 
         _bind_batch_table(session, self._scan_context.table_id, batch)
         df = session.sql(self._transform_sql)

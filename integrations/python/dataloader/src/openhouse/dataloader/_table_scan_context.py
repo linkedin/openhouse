@@ -15,7 +15,7 @@ def _unpickle_scan_context(
     io_properties: dict[str, str],
     projected_schema: Schema,
     row_filter: BooleanExpression,
-    table_id: TableIdentifier | None,
+    table_id: TableIdentifier,
 ) -> TableScanContext:
     return TableScanContext(
         table_metadata=table_metadata,
@@ -37,15 +37,15 @@ class TableScanContext:
         table_metadata: Full Iceberg table metadata (schema, properties, partition specs, etc.)
         io: FileIO configured for the table's storage location
         projected_schema: Subset of columns to read (equals table schema when no projection)
-        row_filter: Row-level filter expression pushed down to the scan
         table_id: Identifier for the table being scanned
+        row_filter: Row-level filter expression pushed down to the scan
     """
 
     table_metadata: TableMetadata
     io: FileIO
     projected_schema: Schema
+    table_id: TableIdentifier
     row_filter: BooleanExpression = AlwaysTrue()
-    table_id: TableIdentifier | None = None
 
     def __reduce__(self) -> tuple:
         return (

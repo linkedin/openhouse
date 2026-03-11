@@ -25,6 +25,8 @@ from openhouse.dataloader.udf_registry import UDFRegistry
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
 
+_DEFAULT_TABLE_ID = TableIdentifier("test_db", "test_tbl")
+
 
 def _create_test_split(
     tmp_path,
@@ -34,7 +36,7 @@ def _create_test_split(
     io_properties: dict[str, str] | None = None,
     filename: str | None = None,
     transform_sql: str | None = None,
-    table_id: TableIdentifier | None = None,
+    table_id: TableIdentifier = _DEFAULT_TABLE_ID,
     udf_registry: UDFRegistry | None = None,
     batch_size: int | None = None,
 ) -> DataLoaderSplit:
@@ -48,7 +50,7 @@ def _create_test_split(
         io_properties: Optional properties passed to load_file_io (e.g. DEFAULT_SCHEME, DEFAULT_NETLOC)
         filename: Optional filename override (default: test.<ext>)
         transform_sql: Optional SQL transformation to apply
-        table_id: Optional table identifier (required when transform_sql is set)
+        table_id: Table identifier for the scan context
         udf_registry: Optional UDF registry for transform execution
 
     Returns:
@@ -364,18 +366,6 @@ def test_pickle_double_round_trip(tmp_path):
     result = pa.Table.from_batches(list(restored))
     assert result.num_rows == 1
     assert result.column("name").to_pylist() == ["MASKED"]
-
-
-# --- Constructor validation tests ---
-
-
-def test_transform_sql_without_table_id_raises():
-    """Passing transform_sql without table_id in scan_context raises ValueError at construction."""
-    scan_context = MagicMock()
-    scan_context.table_id = None
-    task = MagicMock()
-    with pytest.raises(ValueError, match="table_id is required"):
-        DataLoaderSplit(file_scan_task=task, scan_context=scan_context, transform_sql="SELECT 1")
 
 
 # --- Identifier escaping tests ---
