@@ -14,11 +14,9 @@ def _unpickle_scan_context(
     projected_schema: Schema,
     row_filter: BooleanExpression,
 ) -> TableScanContext:
-    """Reconstruct a TableScanContext from its pickled components."""
-    io = load_file_io(properties=io_properties)
     return TableScanContext(
         table_metadata=table_metadata,
-        io=io,
+        io=load_file_io(properties=io_properties, location=table_metadata.location),
         projected_schema=projected_schema,
         row_filter=row_filter,
     )
