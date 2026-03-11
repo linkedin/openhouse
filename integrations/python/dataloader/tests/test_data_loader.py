@@ -322,3 +322,30 @@ def test_snapshot_id_with_columns_and_filters(tmp_path):
     assert scan_kwargs["snapshot_id"] == 99
     assert scan_kwargs["selected_fields"] == (COL_ID,)
     assert "row_filter" in scan_kwargs
+
+
+# --- batch_size tests ---
+
+
+def test_batch_size_forwarded_to_splits(tmp_path):
+    """batch_size is correctly passed through to each DataLoaderSplit."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", batch_size=32768)
+    splits = list(loader)
+
+    assert len(splits) >= 1
+    for split in splits:
+        assert split._batch_size == 32768
+
+
+def test_batch_size_default_is_none(tmp_path):
+    """Omitting batch_size defaults to None in each split."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    splits = list(loader)
+
+    assert len(splits) >= 1
+    for split in splits:
+        assert split._batch_size is None
