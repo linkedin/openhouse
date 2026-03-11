@@ -193,19 +193,34 @@ public class ChangelogViewTest extends OpenHouseSparkITest {
               .sql("SELECT * FROM changelog_net_changes ORDER BY _change_type, id")
               .collectAsList();
 
-      // Net changes: id=1 was deleted then re-inserted → net UPDATE
-      // id=2 unchanged → no change
-      // id=3 inserted → net INSERT
-      Set<String> changeTypes =
-          changes.stream().map(r -> r.getAs("_change_type").toString()).collect(Collectors.toSet());
+      // With compute_updates=false, net changes for each id:
+      //   id=1: deleted then re-inserted → separate DELETE + INSERT (not collapsed into UPDATE)
+      //   id=2: unchanged → no change
+      //   id=3: inserted → INSERT
+      assertEquals(3, changes.size(), "Should have 3 net changes");
 
-      // id=3 should appear as INSERT
-      List<Row> inserts =
-          changes.stream()
-              .filter(r -> "INSERT".equals(r.getAs("_change_type")))
-              .collect(Collectors.toList());
+      // id=1 DELETE (old value)
+      Row delete1 = changes.get(0);
+      assertEquals("DELETE", delete1.getAs("_change_type"));
+      assertEquals(1, (int) delete1.getAs("id"));
+      assertEquals("a", delete1.getAs("data"));
+
+      // id=1 INSERT (new value)
+      Row insert1 = changes.get(1);
+      assertEquals("INSERT", insert1.getAs("_change_type"));
+      assertEquals(1, (int) insert1.getAs("id"));
+      assertEquals("a_updated", insert1.getAs("data"));
+
+      // id=3 INSERT
+      Row insert3 = changes.get(2);
+      assertEquals("INSERT", insert3.getAs("_change_type"));
+      assertEquals(3, (int) insert3.getAs("id"));
+      assertEquals("c", insert3.getAs("data"));
+
+      // id=2 should not appear (unchanged across the range)
       assertTrue(
-          inserts.stream().anyMatch(r -> (int) r.getAs("id") == 3), "id=3 should be a net INSERT");
+          changes.stream().noneMatch(r -> (int) r.getAs("id") == 2),
+          "id=2 should not appear in net changes (unchanged)");
 
       spark.sql("DROP TABLE openhouse." + name);
     }
