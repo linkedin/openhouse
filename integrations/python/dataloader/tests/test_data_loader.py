@@ -362,56 +362,13 @@ def test_branch_snapshot_id_not_found_raises():
 
 def test_branch_reads_data_from_branch_snapshot(tmp_path):
     """Branch reads return data from the branch's snapshot, not the main snapshot."""
-    main_data = {COL_ID: [1, 2], COL_NAME: ["alice", "bob"], COL_VALUE: [1.1, 2.2]}
     branch_data = {COL_ID: [10, 20, 30], COL_NAME: ["x", "y", "z"], COL_VALUE: [10.0, 20.0, 30.0]}
-
-    main_path = _write_parquet(tmp_path, main_data, "main.parquet")
-    branch_path = _write_parquet(tmp_path, branch_data, "branch.parquet")
-
-    metadata = new_table_metadata(
-        schema=TEST_SCHEMA,
-        partition_spec=UNPARTITIONED_PARTITION_SPEC,
-        sort_order=UNSORTED_SORT_ORDER,
-        location=str(tmp_path),
-        properties={},
-    )
-    io = load_file_io(properties={}, location=main_path)
-
-    main_snapshot_id = 100
-    branch_snapshot_id = 200
-
-    def _make_task(path):
-        data_file = DataFile.from_args(
-            file_path=path,
-            file_format=FileFormat.PARQUET,
-            record_count=len(next(iter(main_data.values()))),
-            file_size_in_bytes=os.path.getsize(path),
-        )
-        data_file._spec_id = 0
-        return FileScanTask(data_file=data_file)
-
-    tasks_by_snapshot = {
-        main_snapshot_id: _make_task(main_path),
-        branch_snapshot_id: _make_task(branch_path),
-    }
-
-    def fake_scan(**kwargs):
-        scan = MagicMock()
-        scan.projection.return_value = TEST_SCHEMA
-        scan.plan_files.return_value = [tasks_by_snapshot[kwargs["snapshot_id"]]]
-        return scan
+    catalog = _make_real_catalog(tmp_path, data=branch_data)
 
     mock_snapshot = MagicMock()
-    mock_snapshot.snapshot_id = branch_snapshot_id
-
-    mock_table = MagicMock()
-    mock_table.metadata = metadata
-    mock_table.io = io
-    mock_table.scan.side_effect = fake_scan
+    mock_snapshot.snapshot_id = 200
+    mock_table = catalog.load_table.return_value
     mock_table.snapshot_by_name.side_effect = lambda name: mock_snapshot if name == "my-branch" else None
-
-    catalog = MagicMock()
-    catalog.load_table.return_value = mock_table
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch")
     result = _materialize(loader)
