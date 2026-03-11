@@ -230,29 +230,19 @@ public class IncrementalReadTest {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh
     mockTableService.enqueue(mockResponse(200, mockResponseBody)); // doRefresh
 
-    // Incremental append scan only supports append snapshots.
-    // Iceberg 1.2 (Spark 3.1) rejects non-append snapshots with UnsupportedOperationException.
-    // Iceberg 1.5 (Spark 3.5) skips non-append snapshots and returns only appended data.
-    try {
-      List<String> incrementalRows =
-          spark.read().format("iceberg").option("start-snapshot-id", String.valueOf(snap1))
-              .option("end-snapshot-id", String.valueOf(snap3)).load("openhouse.dbIncr.tblOvw")
-              .collectAsList().stream()
-              .map(row -> row.mkString("."))
-              .collect(Collectors.toList());
-
-      // Iceberg 1.5+: IncrementalAppendScan silently skips non-append snapshots and only
-      // returns data from append operations. The overwrite data ('3','c') is NOT returned —
-      // only the append in snapshot 3 contributes to the result.
-      Assertions.assertEquals(
-          1, incrementalRows.size(), "Should return only appended rows, skipping the overwrite");
-      Assertions.assertTrue(
-          incrementalRows.contains("4.d"), "Should contain only the row from the append snapshot");
-    } catch (UnsupportedOperationException e) {
-      // Iceberg 1.2: rejects incremental scan with non-append snapshots in range
-      Assertions.assertTrue(
-          e.getMessage().contains("overwrite"),
-          "Error should mention the non-append operation type");
-    }
+    // Iceberg 1.2 (Spark 3.1): IncrementalAppendScan rejects non-append snapshots in range
+    UnsupportedOperationException e =
+        Assertions.assertThrows(
+            UnsupportedOperationException.class,
+            () ->
+                spark
+                    .read()
+                    .format("iceberg")
+                    .option("start-snapshot-id", String.valueOf(snap1))
+                    .option("end-snapshot-id", String.valueOf(snap3))
+                    .load("openhouse.dbIncr.tblOvw")
+                    .collectAsList());
+    Assertions.assertTrue(
+        e.getMessage().contains("overwrite"), "Error should mention the non-append operation type");
   }
 }
