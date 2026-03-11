@@ -3,9 +3,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyiceberg.expressions import AlwaysTrue, BooleanExpression
-from pyiceberg.io import FileIO
+from pyiceberg.io import FileIO, load_file_io
 from pyiceberg.schema import Schema
 from pyiceberg.table.metadata import TableMetadata
+
+
+def _unpickle_scan_context(
+    table_metadata: TableMetadata,
+    io_properties: dict[str, str],
+    projected_schema: Schema,
+    row_filter: BooleanExpression,
+) -> TableScanContext:
+    return TableScanContext(
+        table_metadata=table_metadata,
+        io=load_file_io(properties=io_properties, location=table_metadata.location),
+        projected_schema=projected_schema,
+        row_filter=row_filter,
+    )
 
 
 @dataclass(frozen=True)
@@ -26,3 +40,9 @@ class TableScanContext:
     io: FileIO
     projected_schema: Schema
     row_filter: BooleanExpression = AlwaysTrue()
+
+    def __reduce__(self) -> tuple:
+        return (
+            _unpickle_scan_context,
+            (self.table_metadata, dict(self.io.properties), self.projected_schema, self.row_filter),
+        )

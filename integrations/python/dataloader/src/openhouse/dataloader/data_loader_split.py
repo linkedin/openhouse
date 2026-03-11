@@ -4,7 +4,9 @@ import hashlib
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
+from datafusion.context import SessionContext
 from datafusion.plan import LogicalPlan
+from datafusion.substrait import Producer
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
@@ -21,12 +23,24 @@ class DataLoaderSplit:
         file_scan_task: FileScanTask,
         scan_context: TableScanContext,
         plan: LogicalPlan | None = None,
+        session_context: SessionContext | None = None,
         udf_registry: UDFRegistry | None = None,
     ):
-        self._plan = plan
         self._file_scan_task = file_scan_task
         self._udf_registry = udf_registry or NoOpRegistry()
         self._scan_context = scan_context
+
+        if (plan is None) != (session_context is None):
+            raise ValueError("plan and session_context must both be provided or both be None")
+
+        if plan is not None:
+            # TODO: Deserialize back to a LogicalPlan once we integrate with DataFusion for execution.
+            # The UDF registry is retained so UDFs can be re-registered on remote workers.
+            assert session_context is not None  # guaranteed by the guard above
+            self._udf_registry.register_udfs(session_context)
+            self._plan_substrait_bytes: bytes | None = Producer.to_substrait_plan(plan, session_context).encode()
+        else:
+            self._plan_substrait_bytes = None
 
     @property
     def id(self) -> str:
