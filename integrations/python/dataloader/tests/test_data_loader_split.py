@@ -1,7 +1,8 @@
 """Tests for DataLoaderSplit functionality."""
 
 import os
-from unittest.mock import MagicMock
+import pickle
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import pyarrow.orc as orc
@@ -30,6 +31,7 @@ def _create_test_split(
     iceberg_schema: Schema,
     io_properties: dict[str, str] | None = None,
     filename: str | None = None,
+    batch_size: int | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -73,7 +75,8 @@ def _create_test_split(
     )
 
     ctx = SessionContext()
-    plan = ctx.sql("SELECT 1 as a").logical_plan()
+    ctx.register_record_batches("test_table", [table.to_batches()])
+    plan = ctx.sql("SELECT * FROM test_table").logical_plan()
 
     data_file = DataFile.from_args(
         file_path=file_path,
@@ -86,8 +89,10 @@ def _create_test_split(
 
     return DataLoaderSplit(
         plan=plan,
+        session_context=ctx,
         file_scan_task=task,
         scan_context=scan_context,
+        batch_size=batch_size,
     )
 
 
@@ -199,3 +204,190 @@ def test_split_id_ignores_default_netloc(tmp_path):
         split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
         list(split)
         split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
+
+
+@FILE_FORMATS
+def test_split_is_picklable_and_yields_correct_data(tmp_path, file_format):
+    """Test that DataLoaderSplit can be pickled/unpickled and still yields correct data."""
+    iceberg_schema = Schema(
+        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+        NestedField(field_id=2, name="name", field_type=StringType(), required=False),
+    )
+
+    expected_data = {
+        "id": [1, 2, 3],
+        "name": ["alice", "bob", "charlie"],
+    }
+    table = pa.table(
+        {
+            "id": pa.array(expected_data["id"], type=pa.int64()),
+            "name": pa.array(expected_data["name"], type=pa.string()),
+        }
+    )
+
+    split = _create_test_split(tmp_path, table, file_format, iceberg_schema)
+    assert not hasattr(split, "_plan"), "Plan should not be stored as an instance field"
+    assert not hasattr(split, "_session_context"), "Session context should not be stored as an instance field"
+    assert isinstance(split._plan_substrait_bytes, bytes), "Substrait bytes should be eagerly serialized in __init__"
+    assert len(split._plan_substrait_bytes) > 0, "Substrait bytes should be non-empty"
+
+    restored = pickle.loads(pickle.dumps(split))
+
+    assert not hasattr(restored, "_plan"), "Plan should not exist after unpickling"
+    assert not hasattr(restored, "_session_context"), "Session context should not exist after unpickling"
+    assert restored._plan_substrait_bytes == split._plan_substrait_bytes, "Substrait bytes mismatch after round-trip"
+
+    result = pa.Table.from_batches(list(restored)).sort_by("id")
+    assert result.column("id").to_pylist() == expected_data["id"]
+    assert result.column("name").to_pylist() == expected_data["name"]
+
+
+@FILE_FORMATS
+def test_split_pickle_double_round_trip(tmp_path, file_format):
+    """Substrait bytes survive two consecutive pickle round-trips."""
+    iceberg_schema = Schema(
+        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+    )
+    table = pa.table({"id": pa.array([1, 2], type=pa.int64())})
+
+    split = _create_test_split(tmp_path, table, file_format, iceberg_schema)
+    restored_once = pickle.loads(pickle.dumps(split))
+    restored_twice = pickle.loads(pickle.dumps(restored_once))
+
+    assert restored_twice._plan_substrait_bytes == split._plan_substrait_bytes
+
+
+def test_split_pickle_without_plan(tmp_path):
+    """A split constructed without a plan pickles and iterates correctly."""
+    iceberg_schema = Schema(
+        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+    )
+    table = pa.table({"id": pa.array([1], type=pa.int64())})
+    file_path = str(tmp_path / "test.parquet")
+    fields = [field.with_metadata({b"PARQUET:field_id": b"1"}) for field in table.schema]
+    pq.write_table(table.cast(pa.schema(fields)), file_path)
+
+    metadata = new_table_metadata(
+        schema=iceberg_schema,
+        partition_spec=UNPARTITIONED_PARTITION_SPEC,
+        sort_order=UNSORTED_SORT_ORDER,
+        location=str(tmp_path),
+        properties={},
+    )
+    scan_context = TableScanContext(
+        table_metadata=metadata,
+        io=load_file_io(properties={}, location=file_path),
+        projected_schema=iceberg_schema,
+    )
+    data_file = DataFile.from_args(
+        file_path=file_path,
+        file_format=FileFormat.PARQUET,
+        record_count=1,
+        file_size_in_bytes=os.path.getsize(file_path),
+    )
+    data_file._spec_id = 0
+    task = FileScanTask(data_file=data_file)
+
+    split = DataLoaderSplit(file_scan_task=task, scan_context=scan_context)
+    assert split._plan_substrait_bytes is None
+
+    restored = pickle.loads(pickle.dumps(split))
+    assert restored._plan_substrait_bytes is None
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.column("id").to_pylist() == [1]
+
+
+def test_split_plan_without_session_context_raises():
+    """Passing plan without session_context raises ValueError."""
+    mock_plan = MagicMock()
+    mock_task = MagicMock()
+    mock_ctx = MagicMock()
+
+    with pytest.raises(ValueError, match="plan and session_context must both be provided or both be None"):
+        DataLoaderSplit(file_scan_task=mock_task, scan_context=mock_ctx, plan=mock_plan)
+
+
+def test_split_session_context_without_plan_raises():
+    """Passing session_context without plan raises ValueError."""
+    mock_session_context = MagicMock()
+    mock_task = MagicMock()
+    mock_ctx = MagicMock()
+
+    with pytest.raises(ValueError, match="plan and session_context must both be provided or both be None"):
+        DataLoaderSplit(file_scan_task=mock_task, scan_context=mock_ctx, session_context=mock_session_context)
+
+
+def test_split_registers_udfs_before_substrait_serialization():
+    """UDFs are registered before serializing the logical plan to Substrait."""
+    mock_plan = MagicMock()
+    mock_task = MagicMock()
+    mock_scan_ctx = MagicMock()
+    session_context = SessionContext()
+    mock_udf_registry = MagicMock()
+
+    def _to_substrait(plan, ctx):
+        assert mock_udf_registry.register_udfs.call_count == 1
+        assert plan is mock_plan
+        assert ctx is session_context
+        return "serialized-plan"
+
+    with patch(
+        "openhouse.dataloader.data_loader_split.Producer.to_substrait_plan",
+        side_effect=_to_substrait,
+    ) as producer:
+        split = DataLoaderSplit(
+            file_scan_task=mock_task,
+            scan_context=mock_scan_ctx,
+            plan=mock_plan,
+            session_context=session_context,
+            udf_registry=mock_udf_registry,
+        )
+
+    mock_udf_registry.register_udfs.assert_called_once_with(session_context)
+    producer.assert_called_once_with(mock_plan, session_context)
+    assert split._plan_substrait_bytes == b"serialized-plan"
+
+
+# --- batch_size tests ---
+
+_BATCH_SCHEMA = Schema(
+    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+)
+
+
+def _make_table(num_rows: int) -> pa.Table:
+    return pa.table({"id": pa.array(list(range(num_rows)), type=pa.int64())})
+
+
+def test_split_batch_size_limits_rows_per_batch(tmp_path):
+    """When batch_size is set, each RecordBatch has at most that many rows."""
+    table = _make_table(100)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=10)
+
+    batches = list(split)
+
+    assert len(batches) >= 2, "Expected multiple batches with batch_size=10 and 100 rows"
+    for batch in batches:
+        assert batch.num_rows <= 10
+    assert sum(b.num_rows for b in batches) == 100
+
+
+def test_split_batch_size_none_returns_all_rows(tmp_path):
+    """Default batch_size (None) returns all data correctly."""
+    table = _make_table(50)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 50
+    assert sorted(result.column("id").to_pylist()) == list(range(50))
+
+
+def test_split_batch_size_preserves_data(tmp_path):
+    """batch_size controls chunking but all data is preserved."""
+    table = _make_table(25)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=7)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 25
+    assert sorted(result.column("id").to_pylist()) == list(range(25))
