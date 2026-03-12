@@ -96,6 +96,10 @@ class OpenHouseDataLoader:
                 rows. Smaller values reduce peak memory but increase per-batch overhead.
                 None uses the PyArrow default (~131K rows).
         """
+        if branch is not None and branch.strip() == "":
+            raise ValueError("branch must not be empty or whitespace")
+        if branch is not None and snapshot_id is not None:
+            raise ValueError("Cannot specify both branch and snapshot_id")
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
         self._snapshot_id = snapshot_id
@@ -121,7 +125,17 @@ class OpenHouseDataLoader:
     @cached_property
     def snapshot_id(self) -> int | None:
         """Snapshot ID of the loaded table, or None if the table has no snapshots"""
-        return self._snapshot_id if self._snapshot_id is not None else self._iceberg_table.metadata.current_snapshot_id
+        if self._snapshot_id is not None:
+            return self._snapshot_id
+        if self._table_id.branch:
+            snapshot = self._iceberg_table.snapshot_by_name(self._table_id.branch)
+            if snapshot is None:
+                raise ValueError(
+                    f"Branch '{self._table_id.branch}' not found for table "
+                    f"{self._table_id.database}.{self._table_id.table}"
+                )
+            return snapshot.snapshot_id
+        return self._iceberg_table.metadata.current_snapshot_id
 
     def _verify_snapshot(self, snapshot: Snapshot | None) -> None:
         """Log the resolved snapshot or raise if a user-provided snapshot_id was not found."""
