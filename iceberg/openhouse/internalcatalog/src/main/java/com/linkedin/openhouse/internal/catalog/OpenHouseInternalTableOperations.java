@@ -22,6 +22,12 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCa
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
@@ -92,6 +98,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     return this.fileIO;
   }
 
+  @WithSpan("IcebergTableOps.doRefresh")
   @Override
   protected void doRefresh() {
     Optional<HouseTable> houseTable = Optional.empty();
@@ -120,6 +127,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /** A wrapper function to encapsulate timer logic for loading metadata. */
+  @WithSpan("IcebergTableOps.refreshMetadata")
   protected void refreshMetadata(final String metadataLoc) {
     long startTime = System.currentTimeMillis();
     boolean needToReload = !Objects.equal(currentMetadataLocation(), metadataLoc);
@@ -217,6 +225,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
+  @WithSpan("IcebergTableOps.doCommit")
   @SuppressWarnings("checkstyle:MissingSwitchDefault")
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
@@ -318,8 +327,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
 
       final TableMetadata updatedMtDataRef = metadataToCommit;
+      Tracer tracer = GlobalOpenTelemetry.getTracer("openhouse-tables");
+      Span writeSpan = tracer.spanBuilder("IcebergTableOps.writeMetadata").startSpan();
       long metadataUpdateStartTime = System.currentTimeMillis();
-      try {
+      try (Scope ignored = writeSpan.makeCurrent()) {
         metricsReporter.executeWithStats(
             () ->
                 TableMetadataParser.write(
@@ -331,12 +342,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             newMetadataLocation,
             System.currentTimeMillis() - metadataUpdateStartTime);
       } catch (Exception e) {
+        writeSpan.recordException(e);
+        writeSpan.setStatus(StatusCode.ERROR);
         log.error(
             "updateMetadata to location {} failed after {} ms",
             newMetadataLocation,
             System.currentTimeMillis() - metadataUpdateStartTime,
             e);
         throw e;
+      } finally {
+        writeSpan.end();
       }
 
       houseTable = houseTableMapper.toHouseTable(metadataToCommit, fileIO);
@@ -356,7 +371,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             properties.get(CatalogConstants.OPENHOUSE_TABLEID_KEY),
             newMetadataLocation);
       } else if (!isStageCreate) {
-        houseTableRepository.save(houseTable);
+        Span htsSpan = tracer.spanBuilder("IcebergTableOps.saveHouseTable").startSpan();
+        try (Scope ignored = htsSpan.makeCurrent()) {
+          houseTableRepository.save(houseTable);
+        } catch (Exception e) {
+          htsSpan.recordException(e);
+          htsSpan.setStatus(StatusCode.ERROR);
+          throw e;
+        } finally {
+          htsSpan.end();
+        }
       } else {
         /**
          * Refresh current metadata for staged tables from newly created metadata file and disable

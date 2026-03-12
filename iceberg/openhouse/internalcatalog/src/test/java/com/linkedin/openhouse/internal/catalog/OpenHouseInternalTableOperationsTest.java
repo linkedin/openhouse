@@ -19,6 +19,12 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.data.SpanData;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -1813,6 +1819,46 @@ public class OpenHouseInternalTableOperationsTest {
               || message.contains("concurrent"),
           "Exception message should indicate stale snapshot or sequence number issue: "
               + exception.getMessage());
+    }
+  }
+
+  /**
+   * Tests that doCommit creates the expected programmatic OpenTelemetry spans
+   * (IcebergTableOps.writeMetadata and IcebergTableOps.saveHouseTable). Note: @WithSpan annotations
+   * require the OTEL Java Agent at runtime and cannot be verified in unit tests.
+   */
+  @Test
+  void testDoCommitCreatesOtelSpans() {
+    InMemorySpanExporter spanExporter = InMemorySpanExporter.create();
+    SdkTracerProvider tracerProvider =
+        SdkTracerProvider.builder()
+            .addSpanProcessor(SimpleSpanProcessor.create(spanExporter))
+            .build();
+    GlobalOpenTelemetry.resetForTest();
+    OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).buildAndRegisterGlobal();
+
+    try {
+      try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+          Mockito.mockStatic(TableMetadataParser.class)) {
+        Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+        TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+        openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
+      }
+
+      List<String> spanNames =
+          spanExporter.getFinishedSpanItems().stream()
+              .map(SpanData::getName)
+              .collect(Collectors.toList());
+
+      Assertions.assertTrue(
+          spanNames.contains("IcebergTableOps.writeMetadata"),
+          "Expected IcebergTableOps.writeMetadata span, found: " + spanNames);
+      Assertions.assertTrue(
+          spanNames.contains("IcebergTableOps.saveHouseTable"),
+          "Expected IcebergTableOps.saveHouseTable span, found: " + spanNames);
+    } finally {
+      GlobalOpenTelemetry.resetForTest();
+      tracerProvider.close();
     }
   }
 }

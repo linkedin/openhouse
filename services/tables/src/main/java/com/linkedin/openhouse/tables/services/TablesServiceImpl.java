@@ -26,6 +26,7 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -85,6 +86,7 @@ public class TablesServiceImpl implements TablesService {
     return openHouseInternalRepository.searchTables(databaseId, pageable);
   }
 
+  @WithSpan("TablesService.putTable")
   @Override
   public Pair<TableDto, Boolean> putTable(
       CreateUpdateTableRequestBody createUpdateTableRequestBody,

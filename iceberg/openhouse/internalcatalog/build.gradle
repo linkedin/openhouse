@@ -25,6 +25,8 @@ dependencies {
   testImplementation "com.squareup.okhttp3:okhttp:" + ok_http3_version
   testImplementation "com.squareup.okhttp3:mockwebserver:" + ok_http3_version
   testImplementation "org.mockito:mockito-inline:4.11.0"
+  testImplementation "io.opentelemetry:opentelemetry-sdk:1.47.0"
+  testImplementation "io.opentelemetry:opentelemetry-sdk-testing:1.47.0"
 }
 
 spotbugsTestFixtures.enabled = false

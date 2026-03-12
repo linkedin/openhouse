@@ -34,6 +34,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -99,6 +100,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
+  @WithSpan("InternalRepository.save")
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
   public TableDto save(TableDto tableDto) {
@@ -263,6 +265,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * Check the eligibility of table updates. Throw exceptions when invalidate behaviors detected for
    * {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal with
    */
+  @WithSpan("InternalRepository.updateEligibilityCheck")
   protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
     if (!skipEligibilityCheck(existingTable.properties(), tableDto.getTableProperties())) {
       // eligibility check is relaxed for request from replication flow since preserved properties
