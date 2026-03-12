@@ -2,7 +2,7 @@
 
 import os
 import pickle
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.orc as orc
@@ -19,9 +19,13 @@ from pyiceberg.table.name_mapping import create_mapping_from_schema
 from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
 from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, StringType
 
-from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext
+from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext, _bind_batch_table
+from openhouse.dataloader.table_identifier import TableIdentifier
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
+
+_DEFAULT_TABLE_ID = TableIdentifier("test_db", "test_tbl")
 
 
 def _create_test_split(
@@ -31,6 +35,9 @@ def _create_test_split(
     iceberg_schema: Schema,
     io_properties: dict[str, str] | None = None,
     filename: str | None = None,
+    transform_sql: str | None = None,
+    table_id: TableIdentifier = _DEFAULT_TABLE_ID,
+    udf_registry: UDFRegistry | None = None,
     batch_size: int | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
@@ -42,6 +49,9 @@ def _create_test_split(
         iceberg_schema: Iceberg schema with field IDs for column mapping
         io_properties: Optional properties passed to load_file_io (e.g. DEFAULT_SCHEME, DEFAULT_NETLOC)
         filename: Optional filename override (default: test.<ext>)
+        transform_sql: Optional SQL transformation to apply
+        table_id: Table identifier for the scan context
+        udf_registry: Optional UDF registry for transform execution
 
     Returns:
         DataLoaderSplit configured to read the written test file
@@ -72,11 +82,8 @@ def _create_test_split(
         table_metadata=metadata,
         io=load_file_io(properties=io_properties or {}, location=file_path),
         projected_schema=iceberg_schema,
+        table_id=table_id,
     )
-
-    ctx = SessionContext()
-    ctx.register_record_batches("test_table", [table.to_batches()])
-    plan = ctx.sql("SELECT * FROM test_table").logical_plan()
 
     data_file = DataFile.from_args(
         file_path=file_path,
@@ -88,10 +95,10 @@ def _create_test_split(
     task = FileScanTask(data_file=data_file)
 
     return DataLoaderSplit(
-        plan=plan,
-        session_context=ctx,
         file_scan_task=task,
         scan_context=scan_context,
+        transform_sql=transform_sql,
+        udf_registry=udf_registry,
         batch_size=batch_size,
     )
 
@@ -206,147 +213,186 @@ def test_split_id_ignores_default_netloc(tmp_path):
         split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
 
 
-@FILE_FORMATS
-def test_split_is_picklable_and_yields_correct_data(tmp_path, file_format):
-    """Test that DataLoaderSplit can be pickled/unpickled and still yields correct data."""
-    iceberg_schema = Schema(
-        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
-        NestedField(field_id=2, name="name", field_type=StringType(), required=False),
+# --- Transform tests ---
+
+_TRANSFORM_SCHEMA = Schema(
+    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+    NestedField(field_id=2, name="name", field_type=StringType(), required=False),
+)
+
+_TABLE_ID = TableIdentifier("db", "tbl")
+
+_MASKING_SQL = f"SELECT id, 'MASKED' as name FROM {_TABLE_ID.sql_name}"
+
+
+def _make_transform_split(tmp_path, table, transform_sql, table_id=_TABLE_ID):
+    """Create a DataLoaderSplit with a transform SQL string for testing."""
+    return _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
+        transform_sql=transform_sql,
+        table_id=table_id,
     )
 
-    expected_data = {
-        "id": [1, 2, 3],
-        "name": ["alice", "bob", "charlie"],
-    }
+
+class _CountingRegistry(UDFRegistry):
+    def __init__(self):
+        self.calls = 0
+
+    def register_udfs(self, session_context: SessionContext) -> None:
+        self.calls += 1
+
+
+def test_split_with_transformer_transforms_batches(tmp_path):
+    """A transformer that masks a column is applied to each batch."""
     table = pa.table(
         {
-            "id": pa.array(expected_data["id"], type=pa.int64()),
-            "name": pa.array(expected_data["name"], type=pa.string()),
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["alice", "bob"], type=pa.string()),
         }
     )
 
-    split = _create_test_split(tmp_path, table, file_format, iceberg_schema)
-    assert not hasattr(split, "_plan"), "Plan should not be stored as an instance field"
-    assert not hasattr(split, "_session_context"), "Session context should not be stored as an instance field"
-    assert isinstance(split._plan_substrait_bytes, bytes), "Substrait bytes should be eagerly serialized in __init__"
-    assert len(split._plan_substrait_bytes) > 0, "Substrait bytes should be non-empty"
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    result = pa.Table.from_batches(list(split))
 
+    assert result.num_rows == 2
+    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+def test_split_with_transformer_and_empty_batches(tmp_path):
+    """An empty batch with a transformer yields no rows."""
+    table = pa.table(
+        {
+            "id": pa.array([], type=pa.int64()),
+            "name": pa.array([], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    batches = list(split)
+    total_rows = sum(b.num_rows for b in batches)
+    assert total_rows == 0
+
+
+def test_bind_batch_table_rebinds_each_batch():
+    """Batch binding always deregisters before registering to avoid collisions."""
+    session = MagicMock(spec=SessionContext)
+    batch = MagicMock(spec=pa.RecordBatch)
+
+    _bind_batch_table(session, _TABLE_ID, batch)
+
+    session.deregister_table.assert_called_once_with(_TABLE_ID.sql_name)
+    session.register_record_batches.assert_called_once_with(_TABLE_ID.sql_name, [[batch]])
+
+
+def test_split_transform_reuses_session_per_split_and_rebinds_per_batch(tmp_path, monkeypatch):
+    """Transform path uses one session per split and rebinds table for each batch."""
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+    registry = _CountingRegistry()
+    split = _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
+        transform_sql=_MASKING_SQL,
+        table_id=_TABLE_ID,
+        udf_registry=registry,
+    )
+
+    batch_one = pa.record_batch({"id": pa.array([1], type=pa.int64()), "name": pa.array(["alice"], type=pa.string())})
+    batch_two = pa.record_batch({"id": pa.array([2], type=pa.int64()), "name": pa.array(["bob"], type=pa.string())})
+
+    def _fake_to_record_batches(self, scan_tasks, **kwargs):
+        return iter([batch_one, batch_two])
+
+    monkeypatch.setattr("openhouse.dataloader.data_loader_split.ArrowScan.to_record_batches", _fake_to_record_batches)
+
+    result = pa.Table.from_batches(list(split)).sort_by("id")
+
+    assert registry.calls == 1
+    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+# --- Pickle tests ---
+
+
+def test_pickle_round_trip_no_plan(tmp_path):
+    """A split without a transform survives pickle round-trip."""
+    split = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
     restored = pickle.loads(pickle.dumps(split))
-
-    assert not hasattr(restored, "_plan"), "Plan should not exist after unpickling"
-    assert not hasattr(restored, "_session_context"), "Session context should not exist after unpickling"
-    assert restored._plan_substrait_bytes == split._plan_substrait_bytes, "Substrait bytes mismatch after round-trip"
-
-    result = pa.Table.from_batches(list(restored)).sort_by("id")
-    assert result.column("id").to_pylist() == expected_data["id"]
-    assert result.column("name").to_pylist() == expected_data["name"]
-
-
-@FILE_FORMATS
-def test_split_pickle_double_round_trip(tmp_path, file_format):
-    """Substrait bytes survive two consecutive pickle round-trips."""
-    iceberg_schema = Schema(
-        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
-    )
-    table = pa.table({"id": pa.array([1, 2], type=pa.int64())})
-
-    split = _create_test_split(tmp_path, table, file_format, iceberg_schema)
-    restored_once = pickle.loads(pickle.dumps(split))
-    restored_twice = pickle.loads(pickle.dumps(restored_once))
-
-    assert restored_twice._plan_substrait_bytes == split._plan_substrait_bytes
-
-
-def test_split_pickle_without_plan(tmp_path):
-    """A split constructed without a plan pickles and iterates correctly."""
-    iceberg_schema = Schema(
-        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
-    )
-    table = pa.table({"id": pa.array([1], type=pa.int64())})
-    file_path = str(tmp_path / "test.parquet")
-    fields = [field.with_metadata({b"PARQUET:field_id": b"1"}) for field in table.schema]
-    pq.write_table(table.cast(pa.schema(fields)), file_path)
-
-    metadata = new_table_metadata(
-        schema=iceberg_schema,
-        partition_spec=UNPARTITIONED_PARTITION_SPEC,
-        sort_order=UNSORTED_SORT_ORDER,
-        location=str(tmp_path),
-        properties={},
-    )
-    scan_context = TableScanContext(
-        table_metadata=metadata,
-        io=load_file_io(properties={}, location=file_path),
-        projected_schema=iceberg_schema,
-    )
-    data_file = DataFile.from_args(
-        file_path=file_path,
-        file_format=FileFormat.PARQUET,
-        record_count=1,
-        file_size_in_bytes=os.path.getsize(file_path),
-    )
-    data_file._spec_id = 0
-    task = FileScanTask(data_file=data_file)
-
-    split = DataLoaderSplit(file_scan_task=task, scan_context=scan_context)
-    assert split._plan_substrait_bytes is None
-
-    restored = pickle.loads(pickle.dumps(split))
-    assert restored._plan_substrait_bytes is None
 
     result = pa.Table.from_batches(list(restored))
-    assert result.column("id").to_pylist() == [1]
+    assert result.column("x").to_pylist() == [1]
 
 
-def test_split_plan_without_session_context_raises():
-    """Passing plan without session_context raises ValueError."""
-    mock_plan = MagicMock()
-    mock_task = MagicMock()
-    mock_ctx = MagicMock()
+def test_pickle_round_trip_with_transform(tmp_path):
+    """A split with transform SQL survives pickle round-trip."""
+    table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["alice", "bob"], type=pa.string()),
+        }
+    )
 
-    with pytest.raises(ValueError, match="plan and session_context must both be provided or both be None"):
-        DataLoaderSplit(file_scan_task=mock_task, scan_context=mock_ctx, plan=mock_plan)
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    restored = pickle.loads(pickle.dumps(split))
 
-
-def test_split_session_context_without_plan_raises():
-    """Passing session_context without plan raises ValueError."""
-    mock_session_context = MagicMock()
-    mock_task = MagicMock()
-    mock_ctx = MagicMock()
-
-    with pytest.raises(ValueError, match="plan and session_context must both be provided or both be None"):
-        DataLoaderSplit(file_scan_task=mock_task, scan_context=mock_ctx, session_context=mock_session_context)
+    result = pa.Table.from_batches(list(restored))
+    assert result.num_rows == 2
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
 
 
-def test_split_registers_udfs_before_substrait_serialization():
-    """UDFs are registered before serializing the logical plan to Substrait."""
-    mock_plan = MagicMock()
-    mock_task = MagicMock()
-    mock_scan_ctx = MagicMock()
-    session_context = SessionContext()
-    mock_udf_registry = MagicMock()
+def test_pickle_double_round_trip(tmp_path):
+    """A split survives two pickle round-trips."""
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
 
-    def _to_substrait(plan, ctx):
-        assert mock_udf_registry.register_udfs.call_count == 1
-        assert plan is mock_plan
-        assert ctx is session_context
-        return "serialized-plan"
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    restored = pickle.loads(pickle.dumps(pickle.loads(pickle.dumps(split))))
 
-    with patch(
-        "openhouse.dataloader.data_loader_split.Producer.to_substrait_plan",
-        side_effect=_to_substrait,
-    ) as producer:
-        split = DataLoaderSplit(
-            file_scan_task=mock_task,
-            scan_context=mock_scan_ctx,
-            plan=mock_plan,
-            session_context=session_context,
-            udf_registry=mock_udf_registry,
-        )
+    result = pa.Table.from_batches(list(restored))
+    assert result.num_rows == 1
+    assert result.column("name").to_pylist() == ["MASKED"]
 
-    mock_udf_registry.register_udfs.assert_called_once_with(session_context)
-    producer.assert_called_once_with(mock_plan, session_context)
-    assert split._plan_substrait_bytes == b"serialized-plan"
+
+# --- Identifier escaping tests ---
+
+
+def test_sql_name_escapes_double_quotes():
+    """TableIdentifier.sql_name escapes embedded double quotes."""
+    table_id = TableIdentifier('my"db', 'my"tbl')
+    assert table_id.sql_name == '"my""db"."my""tbl"'
+
+
+def test_transform_with_quoted_identifier(tmp_path):
+    """A transform works when the table identifier contains characters that need escaping."""
+    table_id = TableIdentifier('test"db', "tbl")
+    sql = f"SELECT id, 'MASKED' as name FROM {table_id.sql_name}"
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, sql, table_id=table_id)
+    result = pa.Table.from_batches(list(split))
+
+    assert result.num_rows == 1
+    assert result.column("name").to_pylist() == ["MASKED"]
 
 
 # --- batch_size tests ---
