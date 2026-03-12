@@ -80,6 +80,13 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
+  public List<TableDto> searchTables(String databaseId, String actingPrincipal) {
+    authorizationUtils.checkDatabasePrivilege(
+        databaseId, actingPrincipal, Privileges.GET_TABLE_METADATA);
+    return searchTables(databaseId);
+  }
+
+  @Override
   public Page<TableDto> searchTables(String databaseId, int page, int size, String sortBy) {
     Pageable pageable = createPageable(page, size, sortBy, null);
     return openHouseInternalRepository.searchTables(databaseId, pageable);
