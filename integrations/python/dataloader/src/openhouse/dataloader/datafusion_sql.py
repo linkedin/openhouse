@@ -97,13 +97,10 @@ class DataFusion(Dialect):
         }
 
 
-SUPPORTED_SOURCE_DIALECTS = sorted(Dialect.classes)
-
-
 def to_datafusion_sql(sql: str, source_dialect: str) -> str:
     if source_dialect not in Dialect.classes:
         raise ValueError(
-            f"Unsupported source dialect '{source_dialect}'. Supported dialects: {', '.join(SUPPORTED_SOURCE_DIALECTS)}"
+            f"Unsupported source dialect '{source_dialect}'. Supported dialects: {', '.join(sorted(Dialect.classes))}"
         )
     if source_dialect == "datafusion":
         return sql
