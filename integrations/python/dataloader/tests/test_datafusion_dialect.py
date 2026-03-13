@@ -4,7 +4,7 @@ import pytest
 import sqlglot
 
 import openhouse.dataloader.datafusion_dialect  # noqa: F401
-from openhouse.dataloader.sql_translator import SparkToDataFusionSQLTranslator
+from openhouse.dataloader.sql_translator import DataFusionSQLTranslator
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -172,13 +172,13 @@ class TestTypeMappings:
 
 
 # ---------------------------------------------------------------------------
-# SparkToDataFusionSQLTranslator tests
+# DataFusionSQLTranslator tests
 # ---------------------------------------------------------------------------
 
 
 class TestTranslator:
     def setup_method(self) -> None:
-        self.translator = SparkToDataFusionSQLTranslator()
+        self.translator = DataFusionSQLTranslator(source_dialect="spark")
 
     def test_simple_translate(self) -> None:
         result = self.translator.translate("SELECT 1")
@@ -187,6 +187,15 @@ class TestTranslator:
     def test_multi_statement_raises(self) -> None:
         with pytest.raises(ValueError, match="Expected exactly one"):
             self.translator.translate("SELECT 1; SELECT 2")
+
+    def test_unsupported_dialect_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported source dialect 'nosuchdialect'"):
+            DataFusionSQLTranslator(source_dialect="nosuchdialect")
+
+    def test_different_source_dialect(self) -> None:
+        translator = DataFusionSQLTranslator(source_dialect="postgres")
+        result = translator.translate("SELECT 1")
+        assert "SELECT" in result
 
 
 # ---------------------------------------------------------------------------
