@@ -27,48 +27,41 @@ def _spark_to_df(sql: str) -> str:
 
 class TestSparkToDataFusion:
     def test_backtick_to_double_quote(self) -> None:
-        result = _spark_to_df("SELECT `col1`, `col2` FROM `my_table`")
-        assert "`" not in result
-        assert '"col1"' in result
+        assert _spark_to_df("SELECT `col1`, `col2` FROM `my_table`") == 'SELECT "col1", "col2" FROM "my_table"'
 
     def test_size_to_cardinality(self) -> None:
-        result = _spark_to_df("SELECT SIZE(arr) FROM t")
-        assert "cardinality" in result.lower()
+        assert _spark_to_df("SELECT SIZE(arr) FROM t") == "SELECT cardinality(arr) FROM t"
 
     def test_array_to_make_array(self) -> None:
-        result = _spark_to_df("SELECT ARRAY(1, 2, 3)")
-        assert "make_array" in result.lower()
+        assert _spark_to_df("SELECT ARRAY(1, 2, 3)") == "SELECT make_array(1, 2, 3)"
 
     def test_function_names_lowercased(self) -> None:
-        result = _spark_to_df("SELECT UPPER(name) FROM t")
-        assert "upper" in result
+        assert _spark_to_df("SELECT UPPER(name) FROM t") == "SELECT upper(name) FROM t"
 
     def test_udf_passthrough(self) -> None:
-        result = _spark_to_df("SELECT my_udf(col1, col2) FROM t")
-        assert "my_udf" in result.lower()
+        assert _spark_to_df("SELECT my_udf(col1, col2) FROM t") == "SELECT my_udf(col1, col2) FROM t"
 
     def test_if_expression(self) -> None:
-        result = _spark_to_df("SELECT IF(x > 0, 'pos', 'neg') FROM t")
-        assert result  # Should not error
+        assert _spark_to_df("SELECT IF(x > 0, 'pos', 'neg') FROM t") == (
+            "SELECT CASE WHEN x > 0 THEN 'pos' ELSE 'neg' END FROM t"
+        )
 
     def test_case_when(self) -> None:
-        sql = "SELECT CASE WHEN status = 1 THEN 'active' ELSE 'inactive' END FROM t"
-        result = _spark_to_df(sql)
-        assert "CASE" in result
-        assert "WHEN" in result
+        assert _spark_to_df("SELECT CASE WHEN status = 1 THEN 'active' ELSE 'inactive' END FROM t") == (
+            "SELECT CASE WHEN status = 1 THEN 'active' ELSE 'inactive' END FROM t"
+        )
 
     def test_nested_subquery(self) -> None:
-        sql = "SELECT * FROM (SELECT id, name FROM t WHERE id > 10) sub WHERE sub.name IS NOT NULL"
-        result = _spark_to_df(sql)
-        assert "SELECT" in result
+        assert (
+            _spark_to_df("SELECT * FROM (SELECT id, name FROM t WHERE id > 10) sub WHERE sub.name IS NOT NULL")
+            == "SELECT * FROM (SELECT id, name FROM t WHERE id > 10) AS sub WHERE NOT sub.name IS NULL"
+        )
 
     def test_string_literal_not_rewritten(self) -> None:
-        result = _spark_to_df("SELECT 'hello world' AS greeting")
-        assert "'hello world'" in result
+        assert _spark_to_df("SELECT 'hello world' AS greeting") == "SELECT 'hello world' AS greeting"
 
     def test_current_timestamp(self) -> None:
-        result = _spark_to_df("SELECT CURRENT_TIMESTAMP()")
-        assert "now()" in result.lower()
+        assert _spark_to_df("SELECT CURRENT_TIMESTAMP()") == "SELECT now()"
 
 
 # ---------------------------------------------------------------------------
@@ -78,73 +71,58 @@ class TestSparkToDataFusion:
 
 class TestDataFusionIdentity:
     def test_basic_select(self) -> None:
-        assert "SELECT" in _identity("SELECT 1")
+        assert _identity("SELECT 1") == "SELECT 1"
 
     def test_where_clause(self) -> None:
-        result = _identity("SELECT x FROM t WHERE x > 10")
-        assert "WHERE" in result
+        assert _identity("SELECT x FROM t WHERE x > 10") == "SELECT x FROM t WHERE x > 10"
 
     def test_order_by_limit(self) -> None:
-        result = _identity("SELECT x FROM t ORDER BY x LIMIT 5")
-        assert "ORDER BY" in result
-        assert "LIMIT" in result
+        assert _identity("SELECT x FROM t ORDER BY x LIMIT 5") == "SELECT x FROM t ORDER BY x LIMIT 5"
 
     def test_group_by_all(self) -> None:
-        result = _identity("SELECT x, COUNT(*) FROM t GROUP BY ALL")
-        assert "GROUP BY ALL" in result.upper()
+        assert _identity("SELECT x, COUNT(*) FROM t GROUP BY ALL") == "SELECT x, count(*) FROM t GROUP BY ALL"
 
     def test_cast_varchar(self) -> None:
-        result = _identity("SELECT CAST(x AS VARCHAR) FROM t")
-        assert "VARCHAR" in result
+        assert _identity("SELECT CAST(x AS VARCHAR) FROM t") == "SELECT CAST(x AS VARCHAR) FROM t"
 
     def test_cast_timestamp(self) -> None:
-        result = _identity("SELECT CAST(x AS TIMESTAMP) FROM t")
-        assert "TIMESTAMP" in result
+        assert _identity("SELECT CAST(x AS TIMESTAMP) FROM t") == "SELECT CAST(x AS TIMESTAMP) FROM t"
 
     def test_cardinality(self) -> None:
-        result = _identity("SELECT cardinality(arr) FROM t")
-        assert "cardinality" in result.lower()
+        assert _identity("SELECT cardinality(arr) FROM t") == "SELECT cardinality(arr) FROM t"
 
     def test_make_array(self) -> None:
-        result = _identity("SELECT make_array(1, 2, 3)")
-        assert "make_array" in result.lower()
+        assert _identity("SELECT make_array(1, 2, 3)") == "SELECT make_array(1, 2, 3)"
 
     def test_array_sort(self) -> None:
-        result = _identity("SELECT array_sort(arr) FROM t")
-        assert "array_sort" in result.lower()
+        assert _identity("SELECT array_sort(arr) FROM t") == "SELECT array_sort(arr) FROM t"
 
     def test_array_has(self) -> None:
-        result = _identity("SELECT array_has(arr, 1) FROM t")
-        assert "array_has" in result.lower()
+        assert _identity("SELECT array_has(arr, 1) FROM t") == "SELECT array_has(arr, 1) FROM t"
 
     def test_bool_and(self) -> None:
-        result = _identity("SELECT bool_and(flag) FROM t")
-        assert "bool_and" in result.lower()
+        assert _identity("SELECT bool_and(flag) FROM t") == "SELECT bool_and(flag) FROM t"
 
     def test_bool_or(self) -> None:
-        result = _identity("SELECT bool_or(flag) FROM t")
-        assert "bool_or" in result.lower()
+        assert _identity("SELECT bool_or(flag) FROM t") == "SELECT bool_or(flag) FROM t"
 
     def test_string_agg(self) -> None:
-        result = _identity("SELECT string_agg(name, ',') FROM t")
-        assert "string_agg" in result.lower()
+        assert _identity("SELECT string_agg(name, ',') FROM t") == "SELECT string_agg(name, ',') FROM t"
 
     def test_now(self) -> None:
-        result = _identity("SELECT now()")
-        assert "now()" in result.lower()
+        assert _identity("SELECT now()") == "SELECT now()"
 
     def test_date_trunc(self) -> None:
-        result = _identity("SELECT DATE_TRUNC('month', ts) FROM t")
-        assert "date_trunc" in result.lower()
+        assert _identity("SELECT DATE_TRUNC('month', ts) FROM t") == "SELECT date_trunc('MONTH', ts) FROM t"
 
     def test_window_row_number(self) -> None:
-        result = _identity("SELECT ROW_NUMBER() OVER (PARTITION BY x ORDER BY y) FROM t")
-        assert "ROW_NUMBER" in result.upper()
-        assert "OVER" in result.upper()
+        assert (
+            _identity("SELECT ROW_NUMBER() OVER (PARTITION BY x ORDER BY y) FROM t")
+            == "SELECT row_number() OVER (PARTITION BY x ORDER BY y) FROM t"
+        )
 
     def test_window_rank(self) -> None:
-        result = _identity("SELECT RANK() OVER (ORDER BY x) FROM t")
-        assert "RANK" in result.upper()
+        assert _identity("SELECT RANK() OVER (ORDER BY x) FROM t") == "SELECT rank() OVER (ORDER BY x) FROM t"
 
 
 # ---------------------------------------------------------------------------
@@ -154,20 +132,24 @@ class TestDataFusionIdentity:
 
 class TestTypeMappings:
     def test_char_to_varchar(self) -> None:
-        result = sqlglot.transpile("SELECT CAST(x AS CHAR)", read="mysql", write="datafusion")[0]
-        assert "VARCHAR" in result
+        assert sqlglot.transpile("SELECT CAST(x AS CHAR)", read="mysql", write="datafusion")[0] == (
+            "SELECT CAST(x AS VARCHAR)"
+        )
 
     def test_text_to_varchar(self) -> None:
-        result = sqlglot.transpile("SELECT CAST(x AS TEXT)", read="postgres", write="datafusion")[0]
-        assert "VARCHAR" in result
+        assert sqlglot.transpile("SELECT CAST(x AS TEXT)", read="postgres", write="datafusion")[0] == (
+            "SELECT CAST(x AS VARCHAR)"
+        )
 
     def test_binary_to_bytea(self) -> None:
-        result = sqlglot.transpile("SELECT CAST(x AS BINARY)", read="spark", write="datafusion")[0]
-        assert "BYTEA" in result
+        assert sqlglot.transpile("SELECT CAST(x AS BINARY)", read="spark", write="datafusion")[0] == (
+            "SELECT TRY_CAST(x AS BYTEA)"
+        )
 
     def test_datetime_to_timestamp(self) -> None:
-        result = sqlglot.transpile("SELECT CAST(x AS DATETIME)", read="mysql", write="datafusion")[0]
-        assert "TIMESTAMP" in result
+        assert sqlglot.transpile("SELECT CAST(x AS DATETIME)", read="mysql", write="datafusion")[0] == (
+            "SELECT CAST(x AS TIMESTAMP)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +159,7 @@ class TestTypeMappings:
 
 class TestTranslator:
     def test_simple_translate(self) -> None:
-        result = to_datafusion_sql("SELECT 1", source_dialect="spark")
-        assert "SELECT" in result
+        assert to_datafusion_sql("SELECT 1", source_dialect="spark") == "SELECT 1"
 
     def test_multi_statement_raises(self) -> None:
         with pytest.raises(ValueError, match="Expected exactly one"):
@@ -189,8 +170,7 @@ class TestTranslator:
             to_datafusion_sql("SELECT 1", source_dialect="nosuchdialect")
 
     def test_different_source_dialect(self) -> None:
-        result = to_datafusion_sql("SELECT 1", source_dialect="postgres")
-        assert "SELECT" in result
+        assert to_datafusion_sql("SELECT 1", source_dialect="postgres") == "SELECT 1"
 
     def test_datafusion_dialect_is_noop(self) -> None:
         sql = "SELECT make_array(1, 2, 3)"
