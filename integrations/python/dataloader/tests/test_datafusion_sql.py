@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-import sqlglot
 
 from openhouse.dataloader.datafusion_sql import to_datafusion_sql
 
@@ -10,11 +9,6 @@ from openhouse.dataloader.datafusion_sql import to_datafusion_sql
 # ---------------------------------------------------------------------------
 
 SPARK = "spark"
-
-
-def _identity(sql: str) -> str:
-    """Round-trip: parse as DataFusion, generate as DataFusion."""
-    return sqlglot.transpile(sql, read="datafusion", write="datafusion")[0]
 
 
 # ---------------------------------------------------------------------------
@@ -50,20 +44,16 @@ def _identity(sql: str) -> str:
         ("SELECT CAST(x AS DATETIME)", "mysql", "SELECT CAST(x AS TIMESTAMP)"),
         # Postgres → DataFusion
         ("SELECT CAST(x AS TEXT)", "postgres", "SELECT CAST(x AS VARCHAR)"),
+        # DataFusion → DataFusion (noop)
+        (
+            "SELECT cardinality(arr) FROM t WHERE x > 10 ORDER BY x LIMIT 5",
+            "datafusion",
+            "SELECT cardinality(arr) FROM t WHERE x > 10 ORDER BY x LIMIT 5",
+        ),
     ],
 )
 def test_transpilation(sql: str, dialect: str, expected: str) -> None:
     assert to_datafusion_sql(sql, dialect) == expected
-
-
-# ---------------------------------------------------------------------------
-# DataFusion identity / round-trip test
-# ---------------------------------------------------------------------------
-
-
-def test_datafusion_identity() -> None:
-    sql = "SELECT cardinality(arr) FROM t WHERE x > 10 ORDER BY x LIMIT 5"
-    assert _identity(sql) == sql
 
 
 # ---------------------------------------------------------------------------
