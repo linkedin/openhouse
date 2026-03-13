@@ -38,7 +38,6 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
-import org.apache.iceberg.ExpireSnapshots;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
@@ -46,6 +45,8 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
+import org.apache.iceberg.actions.ExpireSnapshots;
+import org.apache.iceberg.actions.ImmutableExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -249,7 +250,26 @@ public final class Operations implements AutoCloseable {
 
   /** Expire snapshots on a given fully-qualified table name. */
   public void expireSnapshots(String fqtn, int maxAge, String granularity, int versions) {
-    expireSnapshots(getTable(fqtn), maxAge, granularity, versions);
+    expireSnapshots(fqtn, maxAge, granularity, versions, false);
+  }
+
+  /** Expire snapshots on a given fully-qualified table name with deleteFiles parameter. */
+  public ExpireSnapshots.Result expireSnapshots(
+      String fqtn, int maxAge, String granularity, int versions, boolean deleteFiles) {
+    return expireSnapshots(fqtn, maxAge, granularity, versions, deleteFiles, false, ".backup");
+  }
+
+  /** Expire snapshots with backup support. */
+  public ExpireSnapshots.Result expireSnapshots(
+      String fqtn,
+      int maxAge,
+      String granularity,
+      int versions,
+      boolean deleteFiles,
+      boolean backupEnabled,
+      String backupDir) {
+    return expireSnapshots(
+        getTable(fqtn), maxAge, granularity, versions, deleteFiles, backupEnabled, backupDir);
   }
 
   /**
@@ -259,26 +279,192 @@ public final class Operations implements AutoCloseable {
    * number of snapshots younger than the maxAge
    */
   public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
-    ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
+    // Call the Result-returning version but ignore the result for backward compatibility
+    expireSnapshots(table, maxAge, granularity, versions, false);
+  }
 
-    // maxAge will always be defined
+  /**
+   * Expire snapshots on a given {@link Table} with deleteFiles parameter. If maxAge is provided, it
+   * will expire snapshots older than maxAge in granularity timeunit. If versions is provided, it
+   * will retain the last versions snapshots. If both are provided, it will prioritize maxAge; only
+   * retain up to versions number of snapshots younger than the maxAge. Returns {@link
+   * ExpireSnapshots.Result} containing metrics about deleted files.
+   */
+  public ExpireSnapshots.Result expireSnapshots(
+      Table table, int maxAge, String granularity, int versions, boolean deleteFiles) {
+    return expireSnapshots(table, maxAge, granularity, versions, deleteFiles, false, ".backup");
+  }
+
+  /**
+   * Expire snapshots with backup support. Main orchestration method that delegates to helper
+   * methods based on deleteFiles flag.
+   */
+  public ExpireSnapshots.Result expireSnapshots(
+      Table table,
+      int maxAge,
+      String granularity,
+      int versions,
+      boolean deleteFiles,
+      boolean backupEnabled,
+      String backupDir) {
+
     ChronoUnit timeUnitGranularity =
         ChronoUnit.valueOf(
             SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
     long expireBeforeTimestampMs =
         System.currentTimeMillis()
             - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
-    log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
-    expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
 
+    log.info(
+        "Expiring snapshots for table: {} older than {}ms with deleteFiles={}, backupEnabled={}, backupDir={}",
+        table,
+        expireBeforeTimestampMs,
+        deleteFiles,
+        backupEnabled,
+        backupDir);
+
+    // First expiration: based on maxAge
+    ExpireSnapshots.Result result =
+        deleteFiles
+            ? expireSnapshotsWithFiles(
+                table, expireBeforeTimestampMs, null, backupEnabled, backupDir)
+            : expireSnapshotsMetadataOnly(table, expireBeforeTimestampMs, null);
+
+    // Second expiration: based on versions (if needed)
     if (versions > 0 && Iterators.size(table.snapshots().iterator()) > versions) {
       log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
-      // Note: retainLast keeps the last N snapshots that WOULD be expired, hence expireOlderThan
-      // currentTime
-      expireSnapshotsCommand
-          .expireOlderThan(System.currentTimeMillis())
-          .retainLast(versions)
-          .commit();
+      result =
+          deleteFiles
+              ? expireSnapshotsWithFiles(
+                  table, System.currentTimeMillis(), versions, backupEnabled, backupDir)
+              : expireSnapshotsMetadataOnly(table, System.currentTimeMillis(), versions);
+    }
+
+    return result;
+  }
+
+  /**
+   * Expire snapshots using Table API (metadata-only, no file deletion). Efficient - skips file
+   * enumeration entirely.
+   */
+  private ExpireSnapshots.Result expireSnapshotsMetadataOnly(
+      Table table, long expireBeforeTimestampMs, Integer versions) {
+
+    org.apache.iceberg.ExpireSnapshots expireSnapshots =
+        table.expireSnapshots().cleanExpiredFiles(false).expireOlderThan(expireBeforeTimestampMs);
+
+    if (versions != null) {
+      expireSnapshots = expireSnapshots.retainLast(versions);
+    }
+
+    expireSnapshots.commit();
+
+    // Return empty result for metadata-only operation
+    return ImmutableExpireSnapshots.Result.builder()
+        .deletedDataFilesCount(0L)
+        .deletedManifestsCount(0L)
+        .deletedManifestListsCount(0L)
+        .deletedPositionDeleteFilesCount(0L)
+        .deletedEqualityDeleteFilesCount(0L)
+        .build();
+  }
+
+  /**
+   * Expire snapshots using SparkActions API with file deletion. Distributed execution via Spark,
+   * with optional backup support.
+   */
+  private ExpireSnapshots.Result expireSnapshotsWithFiles(
+      Table table,
+      long expireBeforeTimestampMs,
+      Integer versions,
+      boolean backupEnabled,
+      String backupDir) {
+
+    ExpireSnapshots expireSnapshotsAction =
+        backupEnabled
+            ? createExpireSnapshotsActionWithBackup(table, backupDir)
+            : SparkActions.get(spark).expireSnapshots(table);
+
+    expireSnapshotsAction = expireSnapshotsAction.expireOlderThan(expireBeforeTimestampMs);
+
+    if (versions != null) {
+      expireSnapshotsAction = expireSnapshotsAction.retainLast(versions);
+    }
+
+    return expireSnapshotsAction.execute();
+  }
+
+  /**
+   * Create ExpireSnapshots action with custom backup logic for data files. Backup logic runs
+   * distributed on Spark executors.
+   */
+  private ExpireSnapshots createExpireSnapshotsActionWithBackup(Table table, String backupDir) {
+    Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
+    Path backupDirRoot = new Path(table.location(), backupDir);
+    Path dataDirRoot = new Path(table.location(), "data");
+
+    return SparkActions.get(spark)
+        .expireSnapshots(table)
+        .deleteWith(
+            file ->
+                processExpiredFileWithBackup(
+                    file, table, backupDir, backupDirRoot, dataDirRoot, dataManifestsCache));
+  }
+
+  /**
+   * Process a single expired file: backup if needed, otherwise delete. This method runs on Spark
+   * executors in a distributed manner.
+   */
+  private void processExpiredFileWithBackup(
+      String file,
+      Table table,
+      String backupDir,
+      Path backupDirRoot,
+      Path dataDirRoot,
+      Map<String, Boolean> dataManifestsCache) {
+
+    log.info("Processing expired file {}", file);
+
+    // Skip metadata.json - Iceberg commits handle these
+    if (file.endsWith("metadata.json")) {
+      log.info("Skipped deleting metadata file {}", file);
+      return;
+    }
+
+    // Skip files already in backup directory
+    if (file.contains(backupDirRoot.toString())) {
+      log.info("Skipped deleting backup file {}", file);
+      return;
+    }
+
+    // Backup data files with manifests, delete everything else
+    if (file.contains(dataDirRoot.toString())
+        && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
+      backupDataFile(file, table, backupDir);
+    } else {
+      deleteFile(file);
+    }
+  }
+
+  /** Move a data file to the backup directory. */
+  private void backupDataFile(String file, Table table, String backupDir) {
+    Path backupFilePath = getTrashPath(table, file, backupDir);
+    log.info("Moving expired data file {} to {}", file, backupFilePath);
+    try {
+      rename(new Path(file), backupFilePath);
+      fs().setTimes(backupFilePath, System.currentTimeMillis(), -1);
+    } catch (IOException e) {
+      log.error(String.format("Move operation failed for file: %s", file), e);
+    }
+  }
+
+  /** Delete a file directly (manifests, manifest lists, data files without manifests). */
+  private void deleteFile(String file) {
+    log.info("Deleting expired file {}", file);
+    try {
+      fs().delete(new Path(file), false);
+    } catch (IOException e) {
+      log.error(String.format("Delete operation failed for file: %s", file), e);
     }
   }
 
