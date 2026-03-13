@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import sqlglot
 
-from openhouse.dataloader.datafusion_dialect import translate_to_datafusion
+from openhouse.dataloader.datafusion_sql import to_datafusion_sql
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -171,25 +171,25 @@ class TestTypeMappings:
 
 
 # ---------------------------------------------------------------------------
-# translate_to_datafusion tests
+# to_datafusion_sql tests
 # ---------------------------------------------------------------------------
 
 
 class TestTranslator:
     def test_simple_translate(self) -> None:
-        result = translate_to_datafusion("SELECT 1", source_dialect="spark")
+        result = to_datafusion_sql("SELECT 1", source_dialect="spark")
         assert "SELECT" in result
 
     def test_multi_statement_raises(self) -> None:
         with pytest.raises(ValueError, match="Expected exactly one"):
-            translate_to_datafusion("SELECT 1; SELECT 2", source_dialect="spark")
+            to_datafusion_sql("SELECT 1; SELECT 2", source_dialect="spark")
 
     def test_unsupported_dialect_raises(self) -> None:
         with pytest.raises(ValueError, match="Unsupported source dialect 'nosuchdialect'"):
-            translate_to_datafusion("SELECT 1", source_dialect="nosuchdialect")
+            to_datafusion_sql("SELECT 1", source_dialect="nosuchdialect")
 
     def test_different_source_dialect(self) -> None:
-        result = translate_to_datafusion("SELECT 1", source_dialect="postgres")
+        result = to_datafusion_sql("SELECT 1", source_dialect="postgres")
         assert "SELECT" in result
 
 
