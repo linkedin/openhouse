@@ -192,6 +192,10 @@ class TestTranslator:
         result = to_datafusion_sql("SELECT 1", source_dialect="postgres")
         assert "SELECT" in result
 
+    def test_datafusion_dialect_is_noop(self) -> None:
+        sql = "SELECT make_array(1, 2, 3)"
+        assert to_datafusion_sql(sql, source_dialect="datafusion") is sql
+
 
 # ---------------------------------------------------------------------------
 # DataFusion execution tests (requires datafusion package)

@@ -105,7 +105,9 @@ def to_datafusion_sql(sql: str, source_dialect: str) -> str:
         raise ValueError(
             f"Unsupported source dialect '{source_dialect}'. Supported dialects: {', '.join(SUPPORTED_SOURCE_DIALECTS)}"
         )
+    if source_dialect == "datafusion":
+        return sql
     statements = sqlglot.transpile(sql, read=source_dialect, write="datafusion")
     if len(statements) != 1:
-        raise ValueError(f"Expected exactly one SQL statement, got {len(statements)}")
+        raise ValueError(f"Expected exactly one SQL statement, got {len(statements)}: {statements}")
     return statements[0]
