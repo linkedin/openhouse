@@ -13,6 +13,7 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
+from openhouse.dataloader.datafusion_sql import to_datafusion_sql
 from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -149,10 +150,14 @@ class OpenHouseDataLoader:
     def _build_transform_sql(self, transformer: TableTransformer, context: Mapping[str, str]) -> str | None:
         """Call the transformer to get the SQL string for the transformation.
 
-        Returns the SQL string if the transformer returned one,
-        or ``None`` if no transformation is needed.
+        Returns the DataFusion SQL string if the transformer returned one,
+        or ``None`` if no transformation is needed. If the transformer's dialect
+        is not DataFusion, the SQL is transpiled via SQLGlot.
         """
-        return transformer.transform(self._table_id, context)
+        sql = transformer.transform(self._table_id, context)
+        if sql is None:
+            return None
+        return to_datafusion_sql(sql, transformer.dialect)
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
