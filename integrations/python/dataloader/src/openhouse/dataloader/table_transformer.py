@@ -6,8 +6,21 @@ from openhouse.dataloader.table_identifier import TableIdentifier
 
 class TableTransformer(ABC):
     """Interface for applying additional transformation logic to the data
-    being loaded (e.g. column masking, row filtering)
+    being loaded (e.g. column masking, row filtering).
+
+    Subclasses must call ``super().__init__(dialect=...)`` to declare the SQL
+    dialect used by their ``transform()`` method.  Common values are
+    ``"datafusion"`` and ``"spark"``, but any dialect accepted by SQLGlot may
+    be used.
+
+    Args:
+        dialect: The SQL dialect that ``transform()`` produces.
+            When not ``"datafusion"``, the data loader transpiles the
+            returned SQL from this dialect to DataFusion via SQLGlot.
     """
+
+    def __init__(self, dialect: str) -> None:
+        self.dialect: str = dialect
 
     @abstractmethod
     def transform(self, table: TableIdentifier, context: Mapping[str, str]) -> str | None:
@@ -25,6 +38,6 @@ class TableTransformer(ABC):
             context: Dictionary of context information (e.g. tenant, environment, etc.)
 
         Returns:
-            A SQL string to execute against each batch, or None if no transformation is needed.
+            A SQL string in ``self.dialect``, or None if no transformation is needed.
         """
         pass

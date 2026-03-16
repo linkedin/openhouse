@@ -148,16 +148,16 @@ class OpenHouseDataLoader:
             logger.info("No snapshot found for table %s", self._table_id)
 
     def _build_transform_sql(self, transformer: TableTransformer, context: Mapping[str, str]) -> str | None:
-        """Call the transformer to get the SQL string for the transformation.
+        """Return DataFusion-compatible SQL for the transformation, or ``None``.
 
-        Returns the DataFusion SQL string if the transformer returned one,
-        or ``None`` if no transformation is needed. The SQL is validated
-        by transpiling through SQLGlot's DataFusion dialect.
+        Calls the transformer's ``transform()`` method and, when the
+        transformer's dialect is not ``"datafusion"``, transpiles the
+        result to DataFusion SQL via SQLGlot.
         """
         sql = transformer.transform(self._table_id, context)
         if sql is None:
             return None
-        return to_datafusion_sql(sql, "datafusion")
+        return to_datafusion_sql(sql, transformer.dialect)
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.

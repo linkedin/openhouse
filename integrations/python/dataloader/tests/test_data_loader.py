@@ -331,12 +331,18 @@ def test_snapshot_id_with_columns_and_filters(tmp_path):
 class _NoneTransformer(TableTransformer):
     """Transformer that returns None (no transformation)."""
 
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
     def transform(self, table, context):
         return None
 
 
 class _MaskingTransformer(TableTransformer):
     """Transformer that masks the name column."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
 
     def transform(self, table, context):
         return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
@@ -395,11 +401,62 @@ def test_iter_with_transformer_and_columns_raises(tmp_path):
         _materialize(loader)
 
 
+class _SparkMaskingTransformer(TableTransformer):
+    """Transformer using Spark SQL dialect."""
+
+    def __init__(self):
+        super().__init__(dialect="spark")
+
+    def transform(self, table, context):
+        return f"SELECT id, CAST('MASKED' AS STRING) AS name, value FROM {to_sql_identifier(table)}"
+
+
+def test_iter_with_spark_dialect_transformer_transpiles(tmp_path):
+    """Spark-dialect transformer SQL is transpiled to DataFusion and applied."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_SparkMaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
+
+
+def test_iter_with_invalid_dialect_raises(tmp_path):
+    """Unsupported dialect raises ValueError during iteration."""
+
+    class _BadDialectTransformer(TableTransformer):
+        def __init__(self):
+            super().__init__(dialect="not_a_real_dialect")
+
+        def transform(self, table, context):
+            return f"SELECT * FROM {to_sql_identifier(table)}"
+
+    catalog = _make_real_catalog(tmp_path)
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_BadDialectTransformer()),
+    )
+
+    with pytest.raises(ValueError, match="Unsupported source dialect"):
+        _materialize(loader)
+
+
 def test_iter_with_transformer_and_special_char_database(tmp_path):
     """Transformer works when the database name contains special characters."""
     catalog = _make_real_catalog(tmp_path)
 
     class _QuotedMaskingTransformer(TableTransformer):
+        def __init__(self):
+            super().__init__(dialect="datafusion")
+
         def transform(self, table, context):
             return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
 
