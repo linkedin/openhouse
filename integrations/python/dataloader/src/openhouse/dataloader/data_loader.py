@@ -151,13 +151,13 @@ class OpenHouseDataLoader:
         """Call the transformer to get the SQL string for the transformation.
 
         Returns the DataFusion SQL string if the transformer returned one,
-        or ``None`` if no transformation is needed. If the transformer's dialect
-        is not DataFusion, the SQL is transpiled via SQLGlot.
+        or ``None`` if no transformation is needed. The SQL is validated
+        by transpiling through SQLGlot's DataFusion dialect.
         """
         sql = transformer.transform(self._table_id, context)
         if sql is None:
             return None
-        return to_datafusion_sql(sql, transformer.dialect)
+        return to_datafusion_sql(sql, "datafusion")
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.

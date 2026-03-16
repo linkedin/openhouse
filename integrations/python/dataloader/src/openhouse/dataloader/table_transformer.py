@@ -9,16 +9,6 @@ class TableTransformer(ABC):
     being loaded (e.g. column masking, row filtering)
     """
 
-    @property
-    def dialect(self) -> str:
-        """The SQL dialect of the SQL returned by ``transform()``.
-
-        Defaults to ``"datafusion"``. Override to return a different dialect
-        (e.g. ``"spark"``, ``"postgres"``) and the data loader will transpile
-        the SQL to DataFusion automatically via SQLGlot.
-        """
-        return "datafusion"
-
     @abstractmethod
     def transform(self, table: TableIdentifier, context: Mapping[str, str]) -> str | None:
         """Builds a SQL string representing the transformation to apply.
@@ -35,6 +25,6 @@ class TableTransformer(ABC):
             context: Dictionary of context information (e.g. tenant, environment, etc.)
 
         Returns:
-            A SQL string in ``self.dialect``, or None if no transformation is needed.
+            A SQL string to execute against each batch, or None if no transformation is needed.
         """
         pass
