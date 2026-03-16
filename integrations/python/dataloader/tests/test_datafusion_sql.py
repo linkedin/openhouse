@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datafusion
+import pyarrow as pa
 import pytest
 
 from openhouse.dataloader.datafusion_sql import to_datafusion_sql
@@ -113,3 +114,17 @@ def test_datafusion_execution_approx_percentile_cont() -> None:
     assert translated == "SELECT approx_percentile_cont(x, 0.5) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)"
     batch = ctx.sql(translated).collect()[0]
     assert batch.column(0)[0].as_py() == 3
+
+
+def test_datafusion_execution_udf() -> None:
+    ctx = datafusion.SessionContext()
+
+    def double_it(arr: pa.Array) -> pa.Array:
+        return pa.array([x * 2 for x in arr.to_pylist()])
+
+    ctx.register_udf(datafusion.udf(double_it, [pa.int64()], pa.int64(), "stable", name="double_it"))
+
+    translated = to_datafusion_sql("SELECT double_it(x) FROM (VALUES (5)) AS t(x)", "spark")
+    assert translated == "SELECT double_it(x) FROM (VALUES (5)) AS t(x)"
+    batch = ctx.sql(translated).collect()[0]
+    assert batch.column(0)[0].as_py() == 10
