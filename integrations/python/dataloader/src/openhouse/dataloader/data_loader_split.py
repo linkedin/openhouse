@@ -10,8 +10,18 @@ from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
-from openhouse.dataloader.table_identifier import TableIdentifier, _quote_identifier
+from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+
+
+def _quote_identifier(name: str) -> str:
+    """Escape a SQL identifier by doubling embedded double quotes and wrapping in double quotes."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def to_sql_identifier(table_id: TableIdentifier) -> str:
+    """Return the quoted DataFusion SQL identifier, e.g. ``"db"."tbl"``."""
+    return f"{_quote_identifier(table_id.database)}.{_quote_identifier(table_id.table)}"
 
 
 def _create_transform_session(
@@ -32,8 +42,9 @@ def _create_transform_session(
 
 def _bind_batch_table(session: SessionContext, table_id: TableIdentifier, batch: RecordBatch) -> None:
     """Bind a single batch to the table name used by transform SQL."""
-    session.deregister_table(table_id.sql_name)
-    session.register_record_batches(table_id.sql_name, [[batch]])
+    name = to_sql_identifier(table_id)
+    session.deregister_table(name)
+    session.register_record_batches(name, [[batch]])
 
 
 class DataLoaderSplit:
@@ -95,7 +106,6 @@ class DataLoaderSplit:
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
-        assert self._transform_sql is not None  # guaranteed by caller
         _bind_batch_table(session, self._scan_context.table_id, batch)
-        df = session.sql(self._transform_sql)
+        df = session.sql(self._transform_sql)  # type: ignore[arg-type]  # caller guarantees not None
         yield from df.collect()

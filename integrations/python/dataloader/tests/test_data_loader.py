@@ -16,7 +16,7 @@ from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
 from openhouse.dataloader import DataLoaderContext, OpenHouseDataLoader, __version__
-from openhouse.dataloader.data_loader_split import DataLoaderSplit
+from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import col
 from openhouse.dataloader.table_transformer import TableTransformer
 
@@ -339,7 +339,7 @@ class _MaskingTransformer(TableTransformer):
     """Transformer that masks the name column."""
 
     def transform(self, table, context):
-        return f"SELECT id, 'MASKED' as name, value FROM {table.sql_name}"
+        return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
 
 
 def test_iter_with_transformer_returning_none(tmp_path):
@@ -379,10 +379,9 @@ def test_iter_with_transformer_returning_sql(tmp_path):
     assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
 
 
-def test_iter_with_transformer_skips_column_projection(tmp_path):
-    """columns + transformer → Iceberg scan is called WITHOUT selected_fields."""
+def test_iter_with_transformer_and_columns_raises(tmp_path):
+    """columns + transformer → raises ValueError."""
     catalog = _make_real_catalog(tmp_path)
-    mock_table = catalog.load_table.return_value
 
     loader = OpenHouseDataLoader(
         catalog=catalog,
@@ -391,12 +390,9 @@ def test_iter_with_transformer_skips_column_projection(tmp_path):
         columns=[COL_ID],
         context=DataLoaderContext(table_transformer=_MaskingTransformer()),
     )
-    result = _materialize(loader)
 
-    assert result.num_rows == 3
-    mock_table.scan.assert_called_once()
-    scan_kwargs = mock_table.scan.call_args.kwargs
-    assert "selected_fields" not in scan_kwargs
+    with pytest.raises(ValueError, match="Column projections with table transformers are not supported yet"):
+        _materialize(loader)
 
 
 def test_iter_with_transformer_and_special_char_database(tmp_path):
@@ -405,7 +401,7 @@ def test_iter_with_transformer_and_special_char_database(tmp_path):
 
     class _QuotedMaskingTransformer(TableTransformer):
         def transform(self, table, context):
-            return f"SELECT id, 'MASKED' as name, value FROM {table.sql_name}"
+            return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
 
     loader = OpenHouseDataLoader(
         catalog=catalog,

@@ -15,7 +15,7 @@ class TableTransformer(ABC):
 
         Called once to extract the SQL.  The SQL is then executed per batch in
         each split against a DataFusion session where the batch is registered
-        under ``table.sql_name``.
+        under ``to_sql_identifier(table)`` (from ``data_loader_split.to_sql_identifier``).
 
         The decision to return a SQL string or ``None`` **must not** depend on
         row data — it should be based solely on the table identifier and context.

@@ -167,15 +167,16 @@ class OpenHouseDataLoader:
         execution_context = self._context.execution_context or {}
         transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
 
+        if self._columns and transform_sql is not None:
+            raise ValueError("Column projections with table transformers are not supported yet")
+
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
-        # When a transform is active, skip column projection — the transform may need all columns
-        # TODO: extract projected columns from the plan instead of skipping projection
-        if self._columns and transform_sql is None:
+        if self._columns:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
         scan = table.scan(**scan_kwargs)

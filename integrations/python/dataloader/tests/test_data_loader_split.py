@@ -19,7 +19,12 @@ from pyiceberg.table.name_mapping import create_mapping_from_schema
 from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
 from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, StringType
 
-from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext, _bind_batch_table
+from openhouse.dataloader.data_loader_split import (
+    DataLoaderSplit,
+    TableScanContext,
+    _bind_batch_table,
+    to_sql_identifier,
+)
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import UDFRegistry
 
@@ -222,7 +227,7 @@ _TRANSFORM_SCHEMA = Schema(
 
 _TABLE_ID = TableIdentifier("db", "tbl")
 
-_MASKING_SQL = f"SELECT id, 'MASKED' as name FROM {_TABLE_ID.sql_name}"
+_MASKING_SQL = f"SELECT id, 'MASKED' as name FROM {to_sql_identifier(_TABLE_ID)}"
 
 
 def _make_transform_split(tmp_path, table, transform_sql, table_id=_TABLE_ID):
@@ -284,8 +289,8 @@ def test_bind_batch_table_rebinds_each_batch():
 
     _bind_batch_table(session, _TABLE_ID, batch)
 
-    session.deregister_table.assert_called_once_with(_TABLE_ID.sql_name)
-    session.register_record_batches.assert_called_once_with(_TABLE_ID.sql_name, [[batch]])
+    session.deregister_table.assert_called_once_with(to_sql_identifier(_TABLE_ID))
+    session.register_record_batches.assert_called_once_with(to_sql_identifier(_TABLE_ID), [[batch]])
 
 
 def test_split_transform_reuses_session_per_split_and_rebinds_per_batch(tmp_path, monkeypatch):
@@ -371,16 +376,16 @@ def test_pickle_double_round_trip(tmp_path):
 # --- Identifier escaping tests ---
 
 
-def test_sql_name_escapes_double_quotes():
-    """TableIdentifier.sql_name escapes embedded double quotes."""
+def test_to_sql_identifier_escapes_double_quotes():
+    """to_sql_identifier escapes embedded double quotes."""
     table_id = TableIdentifier('my"db', 'my"tbl')
-    assert table_id.sql_name == '"my""db"."my""tbl"'
+    assert to_sql_identifier(table_id) == '"my""db"."my""tbl"'
 
 
 def test_transform_with_quoted_identifier(tmp_path):
     """A transform works when the table identifier contains characters that need escaping."""
     table_id = TableIdentifier('test"db', "tbl")
-    sql = f"SELECT id, 'MASKED' as name FROM {table_id.sql_name}"
+    sql = f"SELECT id, 'MASKED' as name FROM {to_sql_identifier(table_id)}"
     table = pa.table(
         {
             "id": pa.array([1], type=pa.int64()),
