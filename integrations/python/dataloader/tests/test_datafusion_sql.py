@@ -63,6 +63,10 @@ class TestTranslatorEdgeCases:
         with pytest.raises(ValueError, match="Unsupported source dialect 'nosuchdialect'"):
             to_datafusion_sql("SELECT 1", "nosuchdialect")
 
+    def test_syntax_error_raises(self) -> None:
+        with pytest.raises(ValueError, match="Failed to transpile SQL from 'spark' to DataFusion"):
+            to_datafusion_sql("SELECT * FROM", "spark")
+
     def test_datafusion_dialect_is_noop(self) -> None:
         sql = "SELECT make_array(1, 2, 3)"
         assert to_datafusion_sql(sql, "datafusion") is sql
