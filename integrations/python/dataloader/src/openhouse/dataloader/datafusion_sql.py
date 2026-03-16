@@ -96,6 +96,17 @@ class DataFusion(Dialect):
 
 
 def to_datafusion_sql(sql: str, source_dialect: str) -> str:
+    """Transpile a single SQL statement to the DataFusion dialect.
+
+    Args:
+        sql: SQL statement in the source dialect.
+        source_dialect: sqlglot dialect name (e.g. "spark", "postgres"). Use
+            "datafusion" to skip transpilation and return the input unchanged.
+
+    Raises:
+        ValueError: If the dialect is unsupported, the SQL is invalid, or the
+            input contains more than one statement.
+    """
     if source_dialect not in Dialect.classes:
         raise ValueError(
             f"Unsupported source dialect '{source_dialect}'. Supported dialects: {', '.join(sorted(Dialect.classes))}"
