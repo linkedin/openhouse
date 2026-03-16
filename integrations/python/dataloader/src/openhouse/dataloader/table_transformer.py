@@ -25,10 +25,6 @@ class TableTransformer(ABC):
     def transform(self, table: TableIdentifier, context: Mapping[str, str]) -> str | None:
         """Builds a SQL string representing the transformation to apply.
 
-        Called once to extract the SQL.  The SQL is then executed per batch in
-        each split against a DataFusion session where the batch is registered
-        under ``to_sql_identifier(table)`` (from ``data_loader_split.to_sql_identifier``).
-
         The decision to return a SQL string or ``None`` **must not** depend on
         row data — it should be based solely on the table identifier and context.
 
