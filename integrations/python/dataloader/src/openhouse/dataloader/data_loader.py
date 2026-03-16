@@ -13,6 +13,7 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
+from openhouse.dataloader.datafusion_sql import to_datafusion_sql
 from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -146,6 +147,13 @@ class OpenHouseDataLoader:
         else:
             logger.info("No snapshot found for table %s", self._table_id)
 
+    def _build_transform_sql(self, transformer: TableTransformer, context: Mapping[str, str]) -> str | None:
+        """Return DataFusion-compatible SQL for the transformation, or ``None``."""
+        sql = transformer.transform(self._table_id, context)
+        if sql is None:
+            return None
+        return to_datafusion_sql(sql, transformer.dialect)
+
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
 
@@ -154,11 +162,20 @@ class OpenHouseDataLoader:
         """
         table = self._iceberg_table
 
+        # Build transform SQL: call transformer once to get the SQL string
+        transformer = self._context.table_transformer
+        execution_context = self._context.execution_context or {}
+        transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
+
+        if self._columns and transform_sql is not None:
+            raise ValueError("Column projections with table transformers are not supported yet")
+
         row_filter = _to_pyiceberg(self._filters)
 
         scan_kwargs: dict = {"row_filter": row_filter}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
+
         if self._columns:
             scan_kwargs["selected_fields"] = tuple(self._columns)
 
@@ -171,6 +188,7 @@ class OpenHouseDataLoader:
             io=table.io,
             projected_schema=scan.projection(),
             row_filter=row_filter,
+            table_id=self._table_id,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
@@ -183,5 +201,7 @@ class OpenHouseDataLoader:
             yield DataLoaderSplit(
                 file_scan_task=scan_task,
                 scan_context=scan_context,
+                transform_sql=transform_sql,
+                udf_registry=self._context.udf_registry,
                 batch_size=self._batch_size,
             )

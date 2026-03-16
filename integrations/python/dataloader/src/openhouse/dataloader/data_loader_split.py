@@ -5,14 +5,46 @@ from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
 from datafusion.context import SessionContext
-from datafusion.plan import LogicalPlan
-from datafusion.substrait import Producer
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
+from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+
+
+def _quote_identifier(name: str) -> str:
+    """Escape a SQL identifier by doubling embedded double quotes and wrapping in double quotes."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def to_sql_identifier(table_id: TableIdentifier) -> str:
+    """Return the quoted DataFusion SQL identifier, e.g. ``"db"."tbl"``."""
+    return f"{_quote_identifier(table_id.database)}.{_quote_identifier(table_id.table)}"
+
+
+def _create_transform_session(
+    table_id: TableIdentifier,
+    udf_registry: UDFRegistry,
+) -> SessionContext:
+    """Create a DataFusion SessionContext for running split-level transforms.
+
+    Returns a ready-to-query SessionContext where UDFs are registered and the
+    target schema exists.
+    """
+    session = SessionContext()
+    udf_registry.register_udfs(session)
+
+    session.sql(f"CREATE SCHEMA IF NOT EXISTS {_quote_identifier(table_id.database)}").collect()
+    return session
+
+
+def _bind_batch_table(session: SessionContext, table_id: TableIdentifier, batch: RecordBatch) -> None:
+    """Bind a single batch to the table name used by transform SQL."""
+    name = to_sql_identifier(table_id)
+    session.deregister_table(name)
+    session.register_record_batches(name, [[batch]])
 
 
 class DataLoaderSplit:
@@ -22,27 +54,15 @@ class DataLoaderSplit:
         self,
         file_scan_task: FileScanTask,
         scan_context: TableScanContext,
-        plan: LogicalPlan | None = None,
-        session_context: SessionContext | None = None,
+        transform_sql: str | None = None,
         udf_registry: UDFRegistry | None = None,
         batch_size: int | None = None,
     ):
         self._file_scan_task = file_scan_task
-        self._udf_registry = udf_registry or NoOpRegistry()
         self._scan_context = scan_context
+        self._transform_sql = transform_sql
+        self._udf_registry = udf_registry or NoOpRegistry()
         self._batch_size = batch_size
-
-        if (plan is None) != (session_context is None):
-            raise ValueError("plan and session_context must both be provided or both be None")
-
-        if plan is not None:
-            # TODO: Deserialize back to a LogicalPlan once we integrate with DataFusion for execution.
-            # The UDF registry is retained so UDFs can be re-registered on remote workers.
-            assert session_context is not None  # guaranteed by the guard above
-            self._udf_registry.register_udfs(session_context)
-            self._plan_substrait_bytes: bytes | None = Producer.to_substrait_plan(plan, session_context).encode()
-        else:
-            self._plan_substrait_bytes = None
 
     @property
     def id(self) -> str:
@@ -71,7 +91,21 @@ class DataLoaderSplit:
             projected_schema=ctx.projected_schema,
             row_filter=ctx.row_filter,
         )
-        yield from arrow_scan.to_record_batches(
+
+        batches = arrow_scan.to_record_batches(
             [self._file_scan_task],
             order=ArrivalOrder(concurrent_streams=1, batch_size=self._batch_size),
         )
+
+        if self._transform_sql is None:
+            yield from batches
+        else:
+            session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
+            for batch in batches:
+                yield from self._apply_transform(session, batch)
+
+    def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
+        """Execute the transform SQL against a single RecordBatch."""
+        _bind_batch_table(session, self._scan_context.table_id, batch)
+        df = session.sql(self._transform_sql)  # type: ignore[arg-type]  # caller guarantees not None
+        yield from df.collect()

@@ -16,8 +16,9 @@ from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
 from openhouse.dataloader import DataLoaderContext, OpenHouseDataLoader, __version__
-from openhouse.dataloader.data_loader_split import DataLoaderSplit
+from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import col
+from openhouse.dataloader.table_transformer import TableTransformer
 
 
 def test_package_imports():
@@ -322,6 +323,153 @@ def test_snapshot_id_with_columns_and_filters(tmp_path):
     assert scan_kwargs["snapshot_id"] == 99
     assert scan_kwargs["selected_fields"] == (COL_ID,)
     assert "row_filter" in scan_kwargs
+
+
+# --- Transformer tests ---
+
+
+class _NoneTransformer(TableTransformer):
+    """Transformer that returns None (no transformation)."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return None
+
+
+class _MaskingTransformer(TableTransformer):
+    """Transformer that masks the name column."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
+
+
+def test_iter_with_transformer_returning_none(tmp_path):
+    """Transformer returns None → native Iceberg path, selected_fields still passed."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID, COL_NAME],
+        context=DataLoaderContext(table_transformer=_NoneTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {COL_ID, COL_NAME}
+    mock_table.scan.assert_called_once()
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert scan_kwargs["selected_fields"] == (COL_ID, COL_NAME)
+
+
+def test_iter_with_transformer_returning_sql(tmp_path):
+    """Transformer returns SQL → transform is applied to splits."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
+
+
+def test_iter_with_transformer_and_columns_raises(tmp_path):
+    """columns + transformer → raises ValueError."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+
+    with pytest.raises(ValueError, match="Column projections with table transformers are not supported yet"):
+        _materialize(loader)
+
+
+class _SparkMaskingTransformer(TableTransformer):
+    """Transformer using Spark SQL dialect."""
+
+    def __init__(self):
+        super().__init__(dialect="spark")
+
+    def transform(self, table, context):
+        return f"SELECT id, CAST('MASKED' AS STRING) AS name, value FROM {to_sql_identifier(table)}"
+
+
+def test_iter_with_spark_dialect_transformer_transpiles(tmp_path):
+    """Spark-dialect transformer SQL is transpiled to DataFusion and applied."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_SparkMaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
+
+
+def test_iter_with_invalid_dialect_raises(tmp_path):
+    """Unsupported dialect raises ValueError during iteration."""
+
+    class _BadDialectTransformer(TableTransformer):
+        def __init__(self):
+            super().__init__(dialect="not_a_real_dialect")
+
+        def transform(self, table, context):
+            return f"SELECT * FROM {to_sql_identifier(table)}"
+
+    catalog = _make_real_catalog(tmp_path)
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_BadDialectTransformer()),
+    )
+
+    with pytest.raises(ValueError, match="Unsupported source dialect"):
+        _materialize(loader)
+
+
+def test_iter_with_transformer_and_special_char_database(tmp_path):
+    """Transformer works when the database name contains special characters."""
+    catalog = _make_real_catalog(tmp_path)
+
+    class _QuotedMaskingTransformer(TableTransformer):
+        def __init__(self):
+            super().__init__(dialect="datafusion")
+
+        def transform(self, table, context):
+            return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database='my"db',
+        table="tbl",
+        context=DataLoaderContext(table_transformer=_QuotedMaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
 
 
 # --- branch tests ---
