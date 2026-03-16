@@ -116,9 +116,7 @@ def to_datafusion_sql(sql: str, source_dialect: str) -> str:
     try:
         statements = sqlglot.transpile(sql, read=source_dialect, write="datafusion")
     except sqlglot.errors.SqlglotError as e:
-        raise ValueError(
-            f"Failed to transpile SQL from '{source_dialect}' to DataFusion: {e}"
-        ) from e
+        raise ValueError(f"Failed to transpile SQL from '{source_dialect}' to DataFusion: {e}") from e
     if len(statements) != 1:
         raise ValueError(f"Expected exactly one SQL statement, got {len(statements)}: {statements}")
     return statements[0]

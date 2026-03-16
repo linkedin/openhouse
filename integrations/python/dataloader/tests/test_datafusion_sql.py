@@ -100,7 +100,11 @@ def test_datafusion_execution_percentile_cont() -> None:
         "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)",
         "spark",
     )
-    assert translated == "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY x NULLS FIRST) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)"
+    expected = (
+        "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY x NULLS FIRST)"
+        " FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)"
+    )
+    assert translated == expected
     batch = ctx.sql(translated).collect()[0]
     assert batch.column(0)[0].as_py() == 3.0
 
