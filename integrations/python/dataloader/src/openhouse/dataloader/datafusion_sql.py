@@ -44,8 +44,7 @@ class DataFusion(Dialect):
             "COVAR_POP": exp.CovarPop.from_arg_list,
             "COVAR_SAMP": exp.CovarSamp.from_arg_list,
             "APPROX_DISTINCT": exp.ApproxDistinct.from_arg_list,
-            "APPROX_MEDIAN": exp.Median.from_arg_list,
-            "APPROX_PERCENTILE_CONT": exp.PercentileCont.from_arg_list,
+            "APPROX_PERCENTILE_CONT": exp.ApproxQuantile.from_arg_list,
             "STRING_AGG": exp.GroupConcat.from_arg_list,
             "NOW": exp.CurrentTimestamp.from_arg_list,
         }
@@ -89,8 +88,7 @@ class DataFusion(Dialect):
             exp.CovarPop: rename_func("covar_pop"),
             exp.CovarSamp: rename_func("covar_samp"),
             exp.ApproxDistinct: rename_func("approx_distinct"),
-            exp.Median: rename_func("approx_median"),
-            exp.PercentileCont: rename_func("approx_percentile_cont"),
+            exp.ApproxQuantile: rename_func("approx_percentile_cont"),
             exp.GroupConcat: rename_func("string_agg"),
             # Datetime
             exp.CurrentTimestamp: lambda *_: "now()",

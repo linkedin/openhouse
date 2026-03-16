@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datafusion
 import pytest
 
 from openhouse.dataloader.datafusion_sql import to_datafusion_sql
@@ -78,9 +79,37 @@ class TestTranslatorEdgeCases:
 
 
 def test_datafusion_execution() -> None:
-    import datafusion
-
     ctx = datafusion.SessionContext()
     translated = to_datafusion_sql("SELECT SIZE(ARRAY(1, 2, 3))", "spark")
+    batch = ctx.sql(translated).collect()[0]
+    assert batch.column(0)[0].as_py() == 3
+
+
+def test_datafusion_execution_median() -> None:
+    ctx = datafusion.SessionContext()
+    translated = to_datafusion_sql("SELECT MEDIAN(x) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)", "spark")
+    assert translated == "SELECT median(x) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)"
+    batch = ctx.sql(translated).collect()[0]
+    assert batch.column(0)[0].as_py() == 3
+
+
+def test_datafusion_execution_percentile_cont() -> None:
+    ctx = datafusion.SessionContext()
+    translated = to_datafusion_sql(
+        "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)",
+        "spark",
+    )
+    assert translated == "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY x NULLS FIRST) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)"
+    batch = ctx.sql(translated).collect()[0]
+    assert batch.column(0)[0].as_py() == 3.0
+
+
+def test_datafusion_execution_approx_percentile_cont() -> None:
+    ctx = datafusion.SessionContext()
+    translated = to_datafusion_sql(
+        "SELECT PERCENTILE_APPROX(x, 0.5) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)",
+        "spark",
+    )
+    assert translated == "SELECT approx_percentile_cont(x, 0.5) FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)"
     batch = ctx.sql(translated).collect()[0]
     assert batch.column(0)[0].as_py() == 3
