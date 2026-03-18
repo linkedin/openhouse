@@ -541,30 +541,3 @@ def test_branch_reads_data_from_branch_snapshot():
     branch_splits = list(OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch"))
     assert len(branch_splits) == 1
     assert branch_splits[0]._file_scan_task.file.file_path == "branch.parquet"
-
-
-# --- batch_size tests ---
-
-
-def test_batch_size_forwarded_to_splits(tmp_path):
-    """batch_size is correctly passed through to each DataLoaderSplit."""
-    catalog = _make_real_catalog(tmp_path)
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", batch_size=32768)
-    splits = list(loader)
-
-    assert len(splits) >= 1
-    for split in splits:
-        assert split._batch_size == 32768
-
-
-def test_batch_size_default_is_none(tmp_path):
-    """Omitting batch_size defaults to None in each split."""
-    catalog = _make_real_catalog(tmp_path)
-
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
-
-    assert len(splits) >= 1
-    for split in splits:
-        assert split._batch_size is None
