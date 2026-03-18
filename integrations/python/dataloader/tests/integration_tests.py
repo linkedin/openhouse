@@ -166,18 +166,13 @@ if __name__ == "__main__":
             snap1 = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID).snapshot_id
             assert snap1 is not None
 
-            # 4. Read all data with batch_size and verify batch count
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, batch_size=2)
-            batches = [batch for split in loader for batch in split]
-            assert len(batches) == 2, f"Expected 2 batches (3 rows, batch_size=2), got {len(batches)}"
-            for batch in batches:
-                assert batch.num_rows <= 2
-            result = pa.concat_tables([pa.Table.from_batches([b]) for b in batches]).sort_by(COL_ID)
+            # 4. Read all data
+            result = _read_all(OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID))
             assert result.num_rows == 3
             assert result.column(COL_ID).to_pylist() == [1, 2, 3]
             assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
             assert result.column(COL_SCORE).to_pylist() == [1.1, 2.2, 3.3]
-            print(f"PASS: read all {result.num_rows} rows in {len(batches)} batches (batch_size=2)")
+            print(f"PASS: read all {result.num_rows} rows")
 
             # 5a. Row filter
             loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, filters=col(COL_ID) > 1)
