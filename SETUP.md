@@ -234,7 +234,8 @@ docker exec -it local.spark-master /bin/bash
 Start `spark-shell` with the following command: Available users are `openhouse` and `u_tableowner`.
 
 ```
-bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
+bin/spark-shell --master spark://spark-master:7077 \
+  --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
   --jars openhouse-spark-runtime_2.12-*-all.jar  \
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions   \
   --conf spark.sql.catalog.openhouse=org.apache.iceberg.spark.SparkCatalog   \
@@ -244,6 +245,10 @@ bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2
   --conf spark.sql.catalog.openhouse.auth-token=$(cat /var/config/$(whoami).token) \
   --conf spark.sql.catalog.openhouse.cluster=LocalHadoopCluster
 ```
+
+> **Note:** `--master spark://spark-master:7077` connects to the Spark standalone cluster
+> instead of using the default `local[*]` mode. Without this, Spark actions that scan
+> HDFS (e.g. orphan file deletion) may hang.
 
 If you are integrating with ADLS, use this `spark-shell` command instead:
 
