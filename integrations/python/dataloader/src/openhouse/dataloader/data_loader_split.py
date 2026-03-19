@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Iterator
 from types import MappingProxyType
@@ -107,4 +108,14 @@ class DataLoaderSplit:
         session.register_table(table_name, provider)
 
         df = session.sql(self._transform_sql)  # type: ignore[arg-type]
-        yield from df.collect()
+
+        loop = asyncio.new_event_loop()
+        try:
+            stream = loop.run_until_complete(df.execute_stream())
+            while True:
+                try:
+                    yield loop.run_until_complete(stream.__anext__())
+                except StopAsyncIteration:
+                    break
+        finally:
+            loop.close()

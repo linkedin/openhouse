@@ -172,10 +172,9 @@ class OpenHouseDataLoader:
 
         if transform_sql is not None:
             combined_sql = self._build_combined_sql(transform_sql, self._columns, self._filters)
-            # DataFusion handles all projection and filter pushdown via the TableProvider.
-            # User filters target the transformed output, so pass AlwaysTrue to PyIceberg.
-            row_filter = _to_pyiceberg(AlwaysTrue())
-            scan_kwargs: dict = {"row_filter": row_filter}
+            # Filters and selected columns part of the SQL executed during split materialization.
+            # No manual filtering is required.
+            scan_kwargs: dict = {}
         else:
             row_filter = _to_pyiceberg(self._filters)
             scan_kwargs = {"row_filter": row_filter}
