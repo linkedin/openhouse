@@ -80,7 +80,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired private PoliciesSpecMapper policiesMapper;
 
-  @Autowired private TablePolicyUpdater tablePolicyUpdater;
+  @Autowired private TablePolicyManager tablePolicyManager;
 
   @Autowired PartitionSpecMapper partitionSpecMapper;
 
@@ -124,6 +124,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           writeSchema,
           partitionSpec);
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
+      tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       String tableLocation =
           storageSelector
               .selectStorage(tableDto.getDatabaseId(), tableDto.getTableId())
@@ -153,7 +154,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
-          tablePolicyUpdater.updatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+          tablePolicyManager.managePoliciesOnUpdateIfNeeded(
+              updateProperties, tableDto, table.properties());
       boolean sortOrderUpdated =
           doUpdateSortOrderIfNeeded(updateProperties, tableDto, table, writeSchema);
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
