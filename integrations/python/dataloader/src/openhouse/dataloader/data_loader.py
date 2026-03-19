@@ -10,6 +10,7 @@ from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
+from openhouse.dataloader._query_builder import build_combined_query
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
@@ -167,7 +168,8 @@ class OpenHouseDataLoader:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
         if transform_sql is not None:
-            plan = optimize_scan(transform_sql, self._columns, self._filters)
+            combined_sql = build_combined_query(transform_sql, self._columns, self._filters)
+            plan = optimize_scan(combined_sql)
             transform_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
             if plan.source_columns is not None:
