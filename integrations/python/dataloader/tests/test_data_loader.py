@@ -385,8 +385,8 @@ def test_iter_with_transformer_returning_sql(tmp_path):
     assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
 
 
-def test_iter_with_transformer_and_columns_raises(tmp_path):
-    """columns + transformer → raises ValueError."""
+def test_iter_with_transformer_and_columns_projects(tmp_path):
+    """columns + transformer → pushdown selects only needed columns from scan."""
     catalog = _make_real_catalog(tmp_path)
 
     loader = OpenHouseDataLoader(
@@ -396,9 +396,12 @@ def test_iter_with_transformer_and_columns_raises(tmp_path):
         columns=[COL_ID],
         context=DataLoaderContext(table_transformer=_MaskingTransformer()),
     )
+    result = _materialize(loader)
 
-    with pytest.raises(ValueError, match="Column projections with table transformers are not supported yet"):
-        _materialize(loader)
+    assert result.num_rows == 3
+    assert set(result.column_names) == {COL_ID}
+    result = result.sort_by(COL_ID)
+    assert result.column(COL_ID).to_pylist() == TEST_DATA[COL_ID]
 
 
 class _SparkMaskingTransformer(TableTransformer):

@@ -10,6 +10,7 @@ from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
+from openhouse.dataloader._pushdown import ScanPushdown, analyze_pushdown
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
@@ -148,6 +149,16 @@ class OpenHouseDataLoader:
             return None
         return to_datafusion_sql(sql, transformer.dialect)
 
+    def _analyze_pushdown(self, transform_sql: str) -> ScanPushdown:
+        """Determine which projections and filters can be pushed through the transformer."""
+        return analyze_pushdown(
+            transform_sql=transform_sql,
+            table_schema=self._iceberg_table.metadata.schema(),
+            table_id=self._table_id,
+            columns=self._columns,
+            filters=self._filters,
+        )
+
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
 
@@ -161,17 +172,22 @@ class OpenHouseDataLoader:
         execution_context = self._context.execution_context or {}
         transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
 
-        if self._columns and transform_sql is not None:
-            raise ValueError("Column projections with table transformers are not supported yet")
+        if transform_sql is not None:
+            pushdown = self._analyze_pushdown(transform_sql)
+            row_filter = pushdown.scan_filter
+            scan_kwargs: dict = {"row_filter": row_filter}
+            if pushdown.scan_columns:
+                scan_kwargs["selected_fields"] = pushdown.scan_columns
+            combined_sql = pushdown.combined_sql
+        else:
+            row_filter = _to_pyiceberg(self._filters)
+            scan_kwargs = {"row_filter": row_filter}
+            if self._columns:
+                scan_kwargs["selected_fields"] = tuple(self._columns)
+            combined_sql = None
 
-        row_filter = _to_pyiceberg(self._filters)
-
-        scan_kwargs: dict = {"row_filter": row_filter}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
-
-        if self._columns:
-            scan_kwargs["selected_fields"] = tuple(self._columns)
 
         scan = table.scan(**scan_kwargs)
 
@@ -195,6 +211,6 @@ class OpenHouseDataLoader:
             yield DataLoaderSplit(
                 file_scan_task=scan_task,
                 scan_context=scan_context,
-                transform_sql=transform_sql,
+                transform_sql=combined_sql,
                 udf_registry=self._context.udf_registry,
             )
