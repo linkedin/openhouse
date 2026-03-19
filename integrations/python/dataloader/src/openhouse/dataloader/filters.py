@@ -307,6 +307,85 @@ class Not(Filter):
         return f"~{self.operand!r}"
 
 
+# ---------------------------------------------------------------------------
+# Filter → SQL conversion
+# ---------------------------------------------------------------------------
+
+_COMPARISON_OPS: dict[type, str] = {
+    EqualTo: "=",
+    NotEqualTo: "!=",
+    GreaterThan: ">",
+    GreaterThanOrEqual: ">=",
+    LessThan: "<",
+    LessThanOrEqual: "<=",
+}
+
+
+def _sql_literal(value: Any) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    raise TypeError(f"Unsupported literal type: {type(value).__name__}")
+
+
+def _escape_like(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _quote_sql_identifier(name: str) -> str:
+    """Escape a SQL identifier by doubling embedded double quotes and wrapping in double quotes."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _filter_to_sql(f: Filter) -> str:
+    """Convert a Filter to a SQL WHERE clause."""
+    for filter_type, op in _COMPARISON_OPS.items():
+        if isinstance(f, filter_type):
+            return f"{_quote_sql_identifier(f.column)} {op} {_sql_literal(f.value)}"  # type: ignore[attr-defined]
+
+    match f:
+        case AlwaysTrue():
+            return "TRUE"
+        case IsNull(column=col):
+            return f"{_quote_sql_identifier(col)} IS NULL"
+        case IsNotNull(column=col):
+            return f"{_quote_sql_identifier(col)} IS NOT NULL"
+        case IsNaN(column=col):
+            return f"isnan({_quote_sql_identifier(col)})"
+        case IsNotNaN(column=col):
+            return f"NOT isnan({_quote_sql_identifier(col)})"
+        case In(column=col, values=vals):
+            items = ", ".join(_sql_literal(v) for v in vals)
+            return f"{_quote_sql_identifier(col)} IN ({items})"
+        case NotIn(column=col, values=vals):
+            items = ", ".join(_sql_literal(v) for v in vals)
+            return f"{_quote_sql_identifier(col)} NOT IN ({items})"
+        case StartsWith(column=col, prefix=pfx):
+            return f"{_quote_sql_identifier(col)} LIKE '{_escape_like(pfx)}%'"
+        case NotStartsWith(column=col, prefix=pfx):
+            return f"{_quote_sql_identifier(col)} NOT LIKE '{_escape_like(pfx)}%'"
+        case Between(column=col, lower=lo, upper=hi):
+            return f"{_quote_sql_identifier(col)} BETWEEN {_sql_literal(lo)} AND {_sql_literal(hi)}"
+        case And(left=left, right=right):
+            return f"({_filter_to_sql(left)} AND {_filter_to_sql(right)})"
+        case Or(left=left, right=right):
+            return f"({_filter_to_sql(left)} OR {_filter_to_sql(right)})"
+        case Not(operand=inner):
+            return f"NOT ({_filter_to_sql(inner)})"
+        case _:
+            raise TypeError(f"Unsupported filter type: {type(f).__name__}")
+
+
+# ---------------------------------------------------------------------------
+# Filter → PyIceberg conversion
+# ---------------------------------------------------------------------------
+
+
 def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:
     """Convert a Filter expression tree to a PyIceberg BooleanExpression.
 

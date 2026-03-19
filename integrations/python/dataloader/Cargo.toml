@@ -1,0 +1,32 @@
+[package]
+name = "openhouse-dataloader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+datafusion-catalog = { version = "53" }
+datafusion-common = { version = "53" }
+datafusion-expr = { version = "53" }
+datafusion-ffi = { version = "53" }
+datafusion-physical-expr = { version = "53" }
+datafusion-physical-plan = { version = "53" }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3", "abi3-py39"] }
+arrow = { version = "58", features = ["pyarrow"] }
+arrow-schema = { version = "58" }
+async-trait = "0.1"
+futures = "0.3"
+tokio = { version = "1", features = ["rt"] }
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+path = "rust/lib.rs"
+
+# TODO: remove when datafusion 53 is released on crates.io
+[patch.crates-io]
+datafusion-catalog = { git = "https://github.com/apache/datafusion.git", rev = "35749607f585b3bf25b66b7d2289c56c18d03e4f" }
+datafusion-common = { git = "https://github.com/apache/datafusion.git", rev = "35749607f585b3bf25b66b7d2289c56c18d03e4f" }
+datafusion-expr = { git = "https://github.com/apache/datafusion.git", rev = "35749607f585b3bf25b66b7d2289c56c18d03e4f" }
+datafusion-ffi = { git = "https://github.com/apache/datafusion.git", rev = "35749607f585b3bf25b66b7d2289c56c18d03e4f" }
+datafusion-physical-expr = { git = "https://github.com/apache/datafusion.git", rev = "35749607f585b3bf25b66b7d2289c56c18d03e4f" }
+datafusion-physical-plan = { git = "https://github.com/apache/datafusion.git", rev = "35749607f585b3bf25b66b7d2289c56c18d03e4f" }

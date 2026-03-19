@@ -15,6 +15,7 @@ help:
 
 sync:
 	uv sync --all-extras
+	maturin develop
 
 lint:
 	uv run ruff check src/ tests/

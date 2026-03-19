@@ -291,8 +291,8 @@ def test_bind_batch_table_rebinds_each_batch():
     session.register_record_batches.assert_called_once_with(to_sql_identifier(_TABLE_ID), [[batch]])
 
 
-def test_split_transform_reuses_session_per_split_and_rebinds_per_batch(tmp_path, monkeypatch):
-    """Transform path uses one session per split and rebinds table for each batch."""
+def test_split_transform_creates_one_session_and_applies_transform(tmp_path, monkeypatch):
+    """Transform path creates one DataFusion session with registered UDFs via the TableProvider."""
     table = pa.table(
         {
             "id": pa.array([1], type=pa.int64()),
@@ -316,7 +316,9 @@ def test_split_transform_reuses_session_per_split_and_rebinds_per_batch(tmp_path
     def _fake_to_record_batches(self, scan_tasks, **kwargs):
         return iter([batch_one, batch_two])
 
-    monkeypatch.setattr("openhouse.dataloader.data_loader_split.ArrowScan.to_record_batches", _fake_to_record_batches)
+    monkeypatch.setattr(
+        "openhouse.dataloader._iceberg_scan_delegate.ArrowScan.to_record_batches", _fake_to_record_batches
+    )
 
     result = pa.Table.from_batches(list(split)).sort_by("id")
 

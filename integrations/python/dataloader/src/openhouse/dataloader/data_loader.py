@@ -10,12 +10,11 @@ from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
-from openhouse.dataloader._pushdown import ScanPushdown, analyze_pushdown
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
-from openhouse.dataloader.data_loader_split import DataLoaderSplit
+from openhouse.dataloader.data_loader_split import DataLoaderSplit, _quote_identifier
 from openhouse.dataloader.datafusion_sql import to_datafusion_sql
-from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
+from openhouse.dataloader.filters import AlwaysTrue, Filter, _filter_to_sql, _to_pyiceberg, always_true
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
@@ -149,15 +148,14 @@ class OpenHouseDataLoader:
             return None
         return to_datafusion_sql(sql, transformer.dialect)
 
-    def _analyze_pushdown(self, transform_sql: str) -> ScanPushdown:
-        """Determine which projections and filters can be pushed through the transformer."""
-        return analyze_pushdown(
-            transform_sql=transform_sql,
-            table_schema=self._iceberg_table.metadata.schema(),
-            table_id=self._table_id,
-            columns=self._columns,
-            filters=self._filters,
-        )
+    @staticmethod
+    def _build_combined_sql(transform_sql: str, columns: Sequence[str] | None, filters: Filter) -> str:
+        """Wrap the transform SQL with user column selection and filters."""
+        col_list = ", ".join(_quote_identifier(c) for c in columns) if columns else "*"
+        sql = f"SELECT {col_list} FROM ({transform_sql}) AS _oh_transformed"
+        if not isinstance(filters, AlwaysTrue):
+            sql += f" WHERE {_filter_to_sql(filters)}"
+        return sql
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -173,12 +171,11 @@ class OpenHouseDataLoader:
         transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
 
         if transform_sql is not None:
-            pushdown = self._analyze_pushdown(transform_sql)
-            row_filter = pushdown.scan_filter
+            combined_sql = self._build_combined_sql(transform_sql, self._columns, self._filters)
+            # DataFusion handles all projection and filter pushdown via the TableProvider.
+            # User filters target the transformed output, so pass AlwaysTrue to PyIceberg.
+            row_filter = _to_pyiceberg(AlwaysTrue())
             scan_kwargs: dict = {"row_filter": row_filter}
-            if pushdown.scan_columns:
-                scan_kwargs["selected_fields"] = pushdown.scan_columns
-            combined_sql = pushdown.combined_sql
         else:
             row_filter = _to_pyiceberg(self._filters)
             scan_kwargs = {"row_filter": row_filter}

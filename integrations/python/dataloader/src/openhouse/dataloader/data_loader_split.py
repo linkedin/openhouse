@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from types import MappingProxyType
 
 from datafusion.context import SessionContext
@@ -82,24 +82,29 @@ class DataLoaderSplit:
         delete files, and partition spec lookups.
         """
         ctx = self._scan_context
-        arrow_scan = ArrowScan(
-            table_metadata=ctx.table_metadata,
-            io=ctx.io,
-            projected_schema=ctx.projected_schema,
-            row_filter=ctx.row_filter,
-        )
-
-        batches = arrow_scan.to_record_batches([self._file_scan_task])
 
         if self._transform_sql is None:
-            yield from batches
+            arrow_scan = ArrowScan(
+                table_metadata=ctx.table_metadata,
+                io=ctx.io,
+                projected_schema=ctx.projected_schema,
+                row_filter=ctx.row_filter,
+            )
+            yield from arrow_scan.to_record_batches([self._file_scan_task])
         else:
-            session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
-            for batch in batches:
-                yield from self._apply_transform(session, batch)
+            yield from self._apply_transform_via_provider()
 
-    def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
-        """Execute the transform SQL against a single RecordBatch."""
-        _bind_batch_table(session, self._scan_context.table_id, batch)
-        df = session.sql(self._transform_sql)  # type: ignore[arg-type]  # caller guarantees not None
+    def _apply_transform_via_provider(self) -> Iterator[RecordBatch]:
+        """Register Iceberg as a custom TableProvider and run the full transform SQL."""
+        from openhouse.dataloader._iceberg_scan_delegate import IcebergScanDelegate
+        from openhouse.dataloader._native import PythonTableProvider
+
+        delegate = IcebergScanDelegate(self._scan_context, self._file_scan_task)
+        provider = PythonTableProvider(delegate)
+
+        session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
+        table_name = to_sql_identifier(self._scan_context.table_id)
+        session.register_table(table_name, provider)
+
+        df = session.sql(self._transform_sql)  # type: ignore[arg-type]
         yield from df.collect()

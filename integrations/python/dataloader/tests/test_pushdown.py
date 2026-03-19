@@ -1,26 +1,19 @@
-"""Tests for the _pushdown module."""
+"""Tests for filter-to-SQL conversion and combined SQL building."""
 
-from pyiceberg import expressions as ice
-from pyiceberg.schema import Schema
-from pyiceberg.types import DoubleType, LongType, NestedField, StringType
+from collections.abc import Sequence
 
-from openhouse.dataloader._pushdown import (
-    _build_combined_sql,
-    _filter_to_sql,
-    analyze_pushdown,
-)
+from openhouse.dataloader.data_loader import OpenHouseDataLoader
 from openhouse.dataloader.data_loader_split import to_sql_identifier
-from openhouse.dataloader.filters import AlwaysTrue, col
+from openhouse.dataloader.filters import AlwaysTrue, Filter, _filter_to_sql, col
 from openhouse.dataloader.table_identifier import TableIdentifier
 
 TABLE_ID = TableIdentifier("db", "tbl")
 TABLE_REF = to_sql_identifier(TABLE_ID)
 
-TEST_SCHEMA = Schema(
-    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
-    NestedField(field_id=2, name="name", field_type=StringType(), required=False),
-    NestedField(field_id=3, name="value", field_type=DoubleType(), required=False),
-)
+
+def _combined(transform_sql: str, columns: Sequence[str] | None = None, filters: Filter | None = None) -> str:
+    """Build combined SQL the same way the data loader does."""
+    return OpenHouseDataLoader._build_combined_sql(transform_sql, columns, filters or AlwaysTrue())
 
 
 # ---------------------------------------------------------------------------
@@ -103,149 +96,17 @@ class TestFilterToSql:
 
 class TestBuildCombinedSql:
     def test_no_columns_no_filters(self):
-        sql = _build_combined_sql(f"SELECT id FROM {TABLE_REF}", None, AlwaysTrue())
+        sql = _combined(f"SELECT id FROM {TABLE_REF}")
         assert sql == f"SELECT * FROM (SELECT id FROM {TABLE_REF}) AS _oh_transformed"
 
     def test_with_columns(self):
-        sql = _build_combined_sql(f"SELECT id, name FROM {TABLE_REF}", ["id"], AlwaysTrue())
+        sql = _combined(f"SELECT id, name FROM {TABLE_REF}", ["id"])
         assert sql == f'SELECT "id" FROM (SELECT id, name FROM {TABLE_REF}) AS _oh_transformed'
 
     def test_with_filters(self):
-        sql = _build_combined_sql(f"SELECT id FROM {TABLE_REF}", None, col("id") > 10)
+        sql = _combined(f"SELECT id FROM {TABLE_REF}", filters=col("id") > 10)
         assert sql == f'SELECT * FROM (SELECT id FROM {TABLE_REF}) AS _oh_transformed WHERE "id" > 10'
 
     def test_with_columns_and_filters(self):
-        sql = _build_combined_sql(f"SELECT id, name FROM {TABLE_REF}", ["id"], col("id") > 10)
+        sql = _combined(f"SELECT id, name FROM {TABLE_REF}", ["id"], col("id") > 10)
         assert sql == f'SELECT "id" FROM (SELECT id, name FROM {TABLE_REF}) AS _oh_transformed WHERE "id" > 10'
-
-
-# ---------------------------------------------------------------------------
-# analyze_pushdown tests
-# ---------------------------------------------------------------------------
-
-
-class TestAnalyzePushdown:
-    def _transform(self, select: str) -> str:
-        return f"SELECT {select} FROM {TABLE_REF}"
-
-    def test_projection_passthrough(self):
-        """All columns pass through → scan includes only referenced columns."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, name, value"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=AlwaysTrue(),
-        )
-        assert set(result.scan_columns) == {"id", "name", "value"}
-
-    def test_projection_pruning_by_transformer(self):
-        """Transformer only references a subset of base table columns."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, name"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=AlwaysTrue(),
-        )
-        assert set(result.scan_columns) == {"id", "name"}
-        assert "value" not in result.scan_columns
-
-    def test_user_columns_do_not_prune_transformer_columns(self):
-        """User selects subset of transformer output, but scan includes all transformer columns."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, name, value"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=["id"],
-            filters=AlwaysTrue(),
-        )
-        # Scan must include all columns the transformer references, not just user's selection
-        assert set(result.scan_columns) == {"id", "name", "value"}
-
-    def test_computed_column_includes_source_columns(self):
-        """Transformer computes a column from base columns → scan includes source columns."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, CONCAT(name, ' ', name) AS full_name"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=AlwaysTrue(),
-        )
-        assert "id" in result.scan_columns
-        assert "name" in result.scan_columns
-        assert "value" not in result.scan_columns
-
-    def test_filter_pushdown_passthrough_column(self):
-        """Filter on a passthrough column is pushed to the scan."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, name, value"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=col("id") > 10,
-        )
-        assert not isinstance(result.scan_filter, ice.AlwaysTrue)
-        assert isinstance(result.scan_filter, ice.GreaterThan)
-
-    def test_filter_pushdown_adds_column_to_scan(self):
-        """Filter references a column not in the transformer SELECT → still pushed if base col."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, name"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=col("id") > 10,
-        )
-        assert "id" in result.scan_columns
-
-    def test_no_filter_pushdown_on_computed_column(self):
-        """Filter on a computed column cannot be pushed to the scan."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, CONCAT(name, '_masked') AS masked_name"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=col("masked_name") == "alice_masked",
-        )
-        # The filter references a computed column, so it can't be pushed as a simple predicate
-        # DataFusion may expand the alias and push the expression, but _df_expr_to_pyiceberg
-        # won't convert function calls → falls back to AlwaysTrue
-        assert isinstance(result.scan_filter, ice.AlwaysTrue)
-
-    def test_combined_sql_wraps_transformer(self):
-        """Combined SQL wraps the transformer with user projection and filter."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, name"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=["id"],
-            filters=col("id") > 10,
-        )
-        assert "_oh_transformed" in result.combined_sql
-        assert '"id" > 10' in result.combined_sql
-
-    def test_transformer_with_inner_filter(self):
-        """Transformer has its own WHERE clause → scan includes filter column."""
-        transform = f"SELECT id, name FROM {TABLE_REF} WHERE value > 1.0"
-        result = analyze_pushdown(
-            transform_sql=transform,
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=AlwaysTrue(),
-        )
-        assert "value" in result.scan_columns
-
-    def test_mixed_filters(self):
-        """AND of pushable + non-pushable: pushable part is extracted."""
-        result = analyze_pushdown(
-            transform_sql=self._transform("id, CONCAT(name, '_x') AS computed"),
-            table_schema=TEST_SCHEMA,
-            table_id=TABLE_ID,
-            columns=None,
-            filters=(col("id") > 10) & (col("computed") == "alice_x"),
-        )
-        # id > 10 should be pushed, computed filter should not
-        if not isinstance(result.scan_filter, ice.AlwaysTrue):
-            assert isinstance(result.scan_filter, (ice.GreaterThan, ice.And))
