@@ -1,9 +1,11 @@
-FROM openjdk:11.0.11-jdk-slim-buster as builder
+FROM eclipse-temurin:11-jdk-jammy as builder
 
-RUN apt-get update && apt-get install -y \
-    git curl vim zip software-properties-common ssh net-tools ca-certificates \
+# Update package lists and install packages with proper security
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl vim zip unzip software-properties-common ssh net-tools ca-certificates \
     # Add Dependencies for PySpark \
-    python3 python3-pip python3-numpy python3-matplotlib python3-scipy python3-pandas python3-simpy
+    python3 python3-pip python3-numpy python3-matplotlib python3-scipy python3-pandas python3-simpy && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN update-alternatives --install "/usr/bin/python" "python" "$(which python3)" 1
 
@@ -25,7 +27,7 @@ RUN curl --no-verbose -o apache-spark.tgz \
   && rm apache-spark.tgz
 
 # install maven to build apache livy
-RUN curl --no-verbose -o maven.tgz https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
+RUN curl --no-verbose -o maven.tgz https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
   && mkdir -p /opt/maven \
   && tar -xf maven.tgz -C /opt/maven --strip-components=1 \
   && rm maven.tgz
