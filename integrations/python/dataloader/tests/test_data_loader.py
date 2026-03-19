@@ -405,6 +405,7 @@ def test_iter_with_transformer_and_columns_projects(tmp_path):
     # Verify scan received only the source columns needed for the outer SELECT
     scan_kwargs = mock_table.scan.call_args.kwargs
     assert scan_kwargs["selected_fields"] == (COL_ID,)
+    assert "row_filter" in scan_kwargs
 
 
 def test_iter_with_transformer_and_all_columns(tmp_path):
@@ -564,3 +565,77 @@ def test_branch_reads_data_from_branch_snapshot():
     branch_splits = list(OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch"))
     assert len(branch_splits) == 1
     assert branch_splits[0]._file_scan_task.file.file_path == "branch.parquet"
+
+
+# --- Predicate pushdown with transformer tests ---
+
+
+class _FilteringTransformer(TableTransformer):
+    """Transformer that has a WHERE clause filtering on status."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT id, name, value, status FROM {to_sql_identifier(table)} WHERE status = 'active'"
+
+
+def test_iter_with_transformer_where_extracts_predicate(tmp_path):
+    """Transform with WHERE status='active' + columns=[id] → status not in selected_fields, row_filter has predicate."""
+    extra_schema = Schema(
+        NestedField(field_id=1, name=COL_ID, field_type=LongType(), required=False),
+        NestedField(field_id=2, name=COL_NAME, field_type=StringType(), required=False),
+        NestedField(field_id=3, name=COL_VALUE, field_type=DoubleType(), required=False),
+        NestedField(field_id=4, name="status", field_type=StringType(), required=False),
+    )
+    data = {
+        COL_ID: [1, 2],
+        COL_NAME: ["alice", "bob"],
+        COL_VALUE: [1.1, 2.2],
+        "status": ["active", "inactive"],
+    }
+    catalog = _make_real_catalog(tmp_path, data=data, iceberg_schema=extra_schema)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        context=DataLoaderContext(table_transformer=_FilteringTransformer()),
+    )
+    list(loader)
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    # status should NOT be in selected_fields — it was only in the pushed WHERE
+    selected = scan_kwargs.get("selected_fields", ())
+    assert "status" not in selected
+    # row_filter should not be AlwaysTrue (it should contain the extracted predicate)
+    from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
+
+    assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
+
+
+def test_iter_with_transformer_and_user_filter_on_passthrough(tmp_path):
+    """Transform + user filter on passthrough column → pushed to Iceberg."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        filters=col(COL_VALUE) > 2.0,
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    list(loader)
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    # value is a passthrough in _MaskingTransformer, so the filter should be pushed
+    from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
+
+    assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
+    # value should NOT be in selected_fields since it's only used in the pushed predicate
+    selected = scan_kwargs.get("selected_fields", ())
+    assert COL_VALUE not in selected

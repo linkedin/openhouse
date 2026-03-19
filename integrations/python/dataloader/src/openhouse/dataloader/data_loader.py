@@ -15,7 +15,7 @@ from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.datafusion_sql import to_datafusion_sql
 from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
-from openhouse.dataloader.scan_optimizer import compute_scan_projection
+from openhouse.dataloader.scan_optimizer import optimize_scan
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
@@ -162,17 +162,22 @@ class OpenHouseDataLoader:
         execution_context = self._context.execution_context or {}
         transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
 
-        row_filter = _to_pyiceberg(self._filters)
-        scan_kwargs: dict = {"row_filter": row_filter}
+        scan_kwargs: dict = {}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
-        if self._columns and transform_sql is not None:
-            transform_sql, source_columns = compute_scan_projection(transform_sql, self._columns)
-            if source_columns is not None:
-                scan_kwargs["selected_fields"] = tuple(source_columns)
-        elif self._columns:
-            scan_kwargs["selected_fields"] = tuple(self._columns)
+        if transform_sql is not None:
+            plan = optimize_scan(transform_sql, self._columns, self._filters)
+            transform_sql = plan.sql
+            row_filter = _to_pyiceberg(plan.row_filter)
+            if plan.source_columns is not None:
+                scan_kwargs["selected_fields"] = tuple(plan.source_columns)
+        else:
+            row_filter = _to_pyiceberg(self._filters)
+            if self._columns:
+                scan_kwargs["selected_fields"] = tuple(self._columns)
+
+        scan_kwargs["row_filter"] = row_filter
 
         scan = table.scan(**scan_kwargs)
 
