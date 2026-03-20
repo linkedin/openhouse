@@ -18,29 +18,7 @@ from openhouse.dataloader.filters import (
     Not,
     NotEqualTo,
     Or,
-    always_true,
 )
-
-
-def convert_where(where: exp.Where) -> Filter:
-    """Convert a WHERE clause to a Filter, skipping non-convertible conjuncts.
-
-    Each AND-separated conjunct is independently converted. Conjuncts that
-    cannot be expressed as a Filter (e.g. function calls on columns) are
-    silently skipped — they remain in the SQL for DataFusion to evaluate.
-    """
-    filters: list[Filter] = []
-    for conjunct in _flatten_and(where.this):
-        f = convert(conjunct)
-        if f is not None:
-            filters.append(f)
-
-    if not filters:
-        return always_true()
-    result = filters[0]
-    for f in filters[1:]:
-        result = result & f
-    return result
 
 
 def convert(node: exp.Expression) -> Filter | None:
@@ -140,10 +118,3 @@ def _literal_to_python(node: exp.Literal) -> object:
     if node.is_int:
         return int(node.this)
     return float(node.this)
-
-
-def _flatten_and(node: exp.Expression) -> list[exp.Expression]:
-    """Flatten nested AND expressions into a list of conjuncts."""
-    if isinstance(node, exp.And):
-        return _flatten_and(node.left) + _flatten_and(node.right)
-    return [node]

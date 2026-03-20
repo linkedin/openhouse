@@ -4,9 +4,8 @@ import pytest
 import sqlglot
 from sqlglot import exp
 
-from openhouse.dataloader._filter_converter import convert, convert_where
+from openhouse.dataloader._filter_converter import convert
 from openhouse.dataloader.filters import (
-    AlwaysTrue,
     And,
     EqualTo,
     GreaterThan,
@@ -148,61 +147,16 @@ def test_is_null_on_expression_returns_none():
     assert convert(_parse_expr('upper("x") IS NULL')) is None
 
 
-# --- convert_where: multiple conjuncts ---
-
-
-def test_convert_where_all_convertible():
-    where = _parse_where('"x" > 1 AND "y" = 2')
-    result = convert_where(where)
-    assert result == And(GreaterThan("x", 1), EqualTo("y", 2))
-
-
-def test_convert_where_skips_non_convertible():
-    """Non-convertible conjuncts are skipped, convertible ones are extracted."""
-    where = _parse_where('"x" > 1 AND upper("z") = \'FOO\'')
-    result = convert_where(where)
-    assert result == GreaterThan("x", 1)
-
-
-def test_convert_where_all_non_convertible():
-    where = _parse_where("upper(\"x\") = 'FOO'")
-    result = convert_where(where)
-    assert isinstance(result, AlwaysTrue)
-
-
-def test_convert_where_three_conjuncts():
-    where = _parse_where('"a" = 1 AND "b" > 2 AND "c" < 3')
-    result = convert_where(where)
-    # Flattened AND tree
-    assert result == And(And(EqualTo("a", 1), GreaterThan("b", 2)), LessThan("c", 3))
-
-
-def test_convert_where_top_level_or():
-    """Top-level OR is not flattened — returned as a single Or filter."""
-    where = _parse_where('"x" > 1 OR "y" = 2')
-    result = convert_where(where)
-    assert result == Or(GreaterThan("x", 1), EqualTo("y", 2))
-
-
-def test_convert_where_top_level_or_non_convertible():
-    """Top-level OR with a non-convertible side → always_true (skipped)."""
-    where = _parse_where('"x" > 1 OR upper("y") = \'FOO\'')
-    result = convert_where(where)
-    assert isinstance(result, AlwaysTrue)
-
-
 # --- Filter DSL → SQL → AST → Filter round trip ---
 
 
 def test_filter_to_sql_round_trip():
-    """Filter DSL → SQL → parse → convert_where → equivalent Filter."""
+    """Filter DSL → SQL → parse → convert → equivalent Filter."""
     from openhouse.dataloader._query_builder import _filter_to_sql
     from openhouse.dataloader.filters import col
 
     original = (col("a") > 5) & (col("b") == "hello")
     sql = _filter_to_sql(original)
-    where = _parse_where(sql)
-    extracted = convert_where(where)
+    result = convert(_parse_expr(sql))
 
-    assert GreaterThan("a", 5) in {extracted.left, extracted.right} if isinstance(extracted, And) else False
-    assert EqualTo("b", "hello") in {extracted.left, extracted.right} if isinstance(extracted, And) else False
+    assert result == And(GreaterThan("a", 5), EqualTo("b", "hello"))

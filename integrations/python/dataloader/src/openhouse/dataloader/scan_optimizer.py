@@ -16,7 +16,7 @@ from sqlglot import exp
 from sqlglot.optimizer import pushdown_predicates, pushdown_projections, qualify
 from sqlglot.optimizer.scope import build_scope
 
-from openhouse.dataloader._filter_converter import convert_where
+from openhouse.dataloader._filter_converter import convert
 from openhouse.dataloader.filters import Filter, always_true
 
 
@@ -57,7 +57,7 @@ def optimize_scan(sql: str, dialect: str) -> ScanPlan:
     table_scan = _find_table_scan(ast, sql)
 
     where = table_scan.args.get("where")
-    row_filter: Filter = convert_where(where) if where else always_true()
+    row_filter = _extract_row_filter(where) if where else always_true()
     source_columns = _collect_source_columns(table_scan)
 
     return ScanPlan(
@@ -86,6 +86,33 @@ def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
     if len(table_scans) != 1:
         raise ValueError(f"Expected exactly 1 table scan, found {len(table_scans)} in: {original_sql}")
     return table_scans[0]
+
+
+def _extract_row_filter(where: exp.Where) -> Filter:
+    """Extract pushable predicates from a WHERE clause.
+
+    Flattens top-level ANDs and converts each conjunct independently via
+    the filter converter. Non-convertible conjuncts are skipped — they
+    remain in the SQL for DataFusion to evaluate.
+    """
+    filters: list[Filter] = []
+    for conjunct in _flatten_and(where.this):
+        f = convert(conjunct)
+        if f is not None:
+            filters.append(f)
+    if not filters:
+        return always_true()
+    result = filters[0]
+    for f in filters[1:]:
+        result = result & f
+    return result
+
+
+def _flatten_and(node: exp.Expression) -> list[exp.Expression]:
+    """Flatten nested AND expressions into a list of conjuncts."""
+    if isinstance(node, exp.And):
+        return _flatten_and(node.left) + _flatten_and(node.right)
+    return [node]
 
 
 def _collect_source_columns(select: exp.Expression) -> set[str]:
