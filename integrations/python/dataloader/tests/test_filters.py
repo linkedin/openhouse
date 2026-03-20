@@ -340,5 +340,8 @@ class TestPyIcebergUnsupportedType:
             def __repr__(self) -> str:
                 return "custom"
 
+            def _to_datafusion_sql(self) -> str:
+                return "custom"
+
         with pytest.raises(TypeError, match="Unsupported filter type"):
             _to_pyiceberg(CustomFilter())

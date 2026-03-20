@@ -150,13 +150,43 @@ def test_is_null_on_expression_returns_none():
 # --- Filter DSL → SQL → AST → Filter round trip ---
 
 
-def test_filter_to_sql_round_trip():
-    """Filter DSL → SQL → parse → convert → equivalent Filter."""
-    from openhouse.dataloader._query_builder import _filter_to_sql
-    from openhouse.dataloader.filters import col
-
-    original = (col("a") > 5) & (col("b") == "hello")
-    sql = _filter_to_sql(original)
+@pytest.mark.parametrize(
+    "filter_dsl,expected",
+    [
+        (EqualTo("a", 1), EqualTo("a", 1)),
+        (NotEqualTo("a", 1), NotEqualTo("a", 1)),
+        (GreaterThan("a", 1), GreaterThan("a", 1)),
+        (GreaterThanOrEqual("a", 1), GreaterThanOrEqual("a", 1)),
+        (LessThan("a", 1), LessThan("a", 1)),
+        (LessThanOrEqual("a", 1), LessThanOrEqual("a", 1)),
+        (EqualTo("a", "hello"), EqualTo("a", "hello")),
+        (EqualTo("a", 3.14), EqualTo("a", 3.14)),
+        (IsNull("a"), IsNull("a")),
+        (IsNotNull("a"), IsNotNull("a")),
+        (In("a", (1, 2, 3)), In("a", (1, 2, 3))),
+        (Not(GreaterThan("a", 1)), Not(GreaterThan("a", 1))),
+        (And(GreaterThan("a", 1), LessThan("b", 5)), And(GreaterThan("a", 1), LessThan("b", 5))),
+        (Or(EqualTo("a", 1), EqualTo("b", 2)), Or(EqualTo("a", 1), EqualTo("b", 2))),
+    ],
+    ids=[
+        "eq",
+        "neq",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "string",
+        "float",
+        "is_null",
+        "is_not_null",
+        "in",
+        "not",
+        "and",
+        "or",
+    ],
+)
+def test_filter_to_sql_round_trip(filter_dsl, expected):
+    """Each filter type survives _to_datafusion_sql → parse → convert round trip."""
+    sql = filter_dsl._to_datafusion_sql()
     result = convert(_parse_expr(sql))
-
-    assert result == And(GreaterThan("a", 5), EqualTo("b", "hello"))
+    assert result == expected, f"Round trip failed for {filter_dsl!r}: got {result!r}"
