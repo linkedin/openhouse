@@ -170,6 +170,15 @@ def test_double_nested():
     )
 
 
+def test_double_nested_with_non_pushable():
+    plan = optimize_scan(
+        'SELECT "a" FROM "db"."tbl" WHERE ("x" > 1 OR (upper("y") = \'FOO\' AND "z" < 3)) AND "w" >= 4'
+    )
+
+    assert plan.source_columns == ["a", "w", "x", "y", "z"]
+    assert plan.row_filter == GreaterThanOrEqual("w", 4)
+
+
 def test_and_of_ors():
     plan = optimize_scan(
         'SELECT "a" FROM "db"."tbl" WHERE "x" > 1 AND ("y" = 2 OR "z" < 3) AND "w" >= 4'
