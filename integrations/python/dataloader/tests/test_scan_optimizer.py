@@ -22,7 +22,7 @@ from openhouse.dataloader.filters import (
     Or,
     col,
 )
-from openhouse.dataloader.scan_optimizer import _extract_pushable_predicates, optimize_scan
+from openhouse.dataloader.scan_optimizer import _extract_row_filter, optimize_scan
 
 # --- Helper ---
 
@@ -123,8 +123,7 @@ def test_full_example_transform_with_columns_and_filters():
     # source_columns should include what's needed for the rewritten inner SELECT
     assert "a" in plan.source_columns
     assert "b" in plan.source_columns
-    # Pushed predicate columns should NOT be in source_columns
-    assert "c" not in plan.source_columns
+    # d is not referenced by any output or predicate
     assert "d" not in plan.source_columns
 
 
@@ -132,13 +131,11 @@ def test_full_example_transform_with_columns_and_filters():
 
 
 def test_inner_where_extracted():
-    """Inner WHERE with simple predicate → extracted to row_filter, WHERE removed."""
+    """Inner WHERE with simple predicate → extracted to row_filter."""
     plan = _optimize('SELECT "a", "b" FROM "db"."tbl" WHERE "e" = \'foo\'')
 
     filters = _collect_filters(plan.row_filter)
     assert EqualTo("e", "foo") in filters
-    # e should not be in source_columns since it's only in the pushed WHERE
-    assert "e" not in (plan.source_columns or [])
 
 
 def test_inner_where_columns_preserved_when_not_pushable():
@@ -234,8 +231,8 @@ def test_or_one_non_pushable_stays():
 # --- Projection excludes pushed columns ---
 
 
-def test_pushed_predicate_columns_not_in_source():
-    """Columns only used in pushed predicates are excluded from source_columns."""
+def test_pushed_predicate_extracted_to_row_filter():
+    """Predicates on passthrough columns are extracted to row_filter."""
     plan = _optimize(
         'SELECT "a", "b", "c" FROM "db"."tbl"',
         ["a"],
@@ -244,8 +241,8 @@ def test_pushed_predicate_columns_not_in_source():
 
     filters = _collect_filters(plan.row_filter)
     assert GreaterThan("b", 5) in filters
-    # b was only needed for the pushed filter, not for SELECT
-    assert "b" not in plan.source_columns
+    # c is not referenced by any output or predicate
+    assert "c" not in plan.source_columns
 
 
 # --- Each comparison type ---
@@ -283,14 +280,13 @@ def test_comparison_type_round_trip(filter_expr, expected_type):
 
 
 def test_filter_to_sql_round_trip():
-    """Filter DSL → SQL → parse → extract → equivalent Filter."""
+    """Filter DSL → SQL → parse → _where_to_filter → equivalent Filter."""
     original = (col("a") > 5) & (col("b") == "hello")
     sql = _filter_to_sql(original)
     parsed = sqlglot.parse_one(f"SELECT * FROM t WHERE {sql}", dialect="datafusion")
     where = parsed.find(exp.Where)
-    extracted, remaining = _extract_pushable_predicates(where)
+    extracted = _extract_row_filter(where)
 
-    assert remaining is None
     filters = _collect_filters(extracted)
     assert GreaterThan("a", 5) in filters
     assert EqualTo("b", "hello") in filters
@@ -303,16 +299,16 @@ def test_datafusion_execution_with_source_columns():
     """Final SQL runs with only source_columns in the batch."""
     plan = _optimize('SELECT "id", "name", "value" FROM "db"."tbl"', ["id"], filters=col("name") == "alice")
 
-    # name is passthrough → pushed; only id needed in source_columns
-    assert plan.source_columns == ["id"]
+    # name is in source_columns because the predicate stays in SQL
+    assert plan.source_columns == ["id", "name"]
 
     result = _run_sql(
         plan.sql,
-        pa.schema([pa.field("id", pa.int64())]),
-        {"id": [1, 2]},
+        pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())]),
+        {"id": [1, 2], "name": ["alice", "bob"]},
     )
     assert len(result) == 1
-    assert result[0].schema.names == ["id"]
+    assert set(result[0].schema.names) == {"id"}
 
 
 # --- No columns, no filters ---
@@ -324,7 +320,6 @@ def test_no_columns_no_filters_inner_where_extraction():
 
     filters = _collect_filters(plan.row_filter)
     assert EqualTo("c", 1) in filters
-    assert plan.source_columns == ["a", "b"]
 
 
 def test_no_columns_no_filters_no_where():
@@ -344,4 +339,29 @@ def test_flat_query_predicate_extraction():
 
     filters = _collect_filters(plan.row_filter)
     assert EqualTo("c", 1) in filters
-    assert plan.source_columns == ["a", "b"]
+
+
+# --- BETWEEN decomposition ---
+
+
+def test_between_decomposes_and_executes():
+    """BETWEEN is decomposed by sqlglot into >= AND <=, both pushed and SQL still runs."""
+    plan = _optimize(
+        'SELECT "id", "value" FROM "db"."tbl"',
+        ["id"],
+        filters=col("value").between(1, 10),
+    )
+
+    filters = _collect_filters(plan.row_filter)
+    assert GreaterThanOrEqual("value", 1) in filters
+    assert LessThanOrEqual("value", 10) in filters
+
+    result = _run_sql(
+        plan.sql,
+        pa.schema([pa.field("id", pa.int64()), pa.field("value", pa.int64())]),
+        {"id": [1, 2, 3], "value": [5, 15, 8]},
+    )
+    assert len(result) == 1
+    assert result[0].schema.names == ["id"]
+    # Only rows where value is between 1 and 10 (ids 1 and 3)
+    assert sorted(result[0].column("id").to_pylist()) == [1, 3]

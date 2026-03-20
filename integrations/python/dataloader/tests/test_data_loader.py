@@ -607,9 +607,6 @@ def test_iter_with_transformer_where_extracts_predicate(tmp_path):
     list(loader)
 
     scan_kwargs = mock_table.scan.call_args.kwargs
-    # status should NOT be in selected_fields — it was only in the pushed WHERE
-    selected = scan_kwargs.get("selected_fields", ())
-    assert "status" not in selected
     # row_filter should not be AlwaysTrue (it should contain the extracted predicate)
     from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
 
@@ -636,6 +633,3 @@ def test_iter_with_transformer_and_user_filter_on_passthrough(tmp_path):
     from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
 
     assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
-    # value should NOT be in selected_fields since it's only used in the pushed predicate
-    selected = scan_kwargs.get("selected_fields", ())
-    assert COL_VALUE not in selected

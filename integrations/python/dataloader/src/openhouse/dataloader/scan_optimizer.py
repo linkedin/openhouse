@@ -20,7 +20,6 @@ from sqlglot.optimizer.scope import build_scope
 import openhouse.dataloader.datafusion_sql  # noqa: F401 — registers DataFusion dialect
 from openhouse.dataloader.filters import (
     And,
-    Between,
     EqualTo,
     Filter,
     GreaterThan,
@@ -79,14 +78,11 @@ def optimize_scan(sql: str) -> ScanPlan:
         if table_scan is None:
             return ScanPlan(sql=ast.sql(dialect=_DIALECT), source_columns=None, row_filter=always_true())
 
-        # Extract pushable predicates from the table scan's WHERE
+        # Extract convertible predicates from the table scan's WHERE as Iceberg row_filter
         where = table_scan.args.get("where")
         row_filter: Filter = always_true()
         if where:
-            pushed, remaining = _extract_pushable_predicates(where)
-            table_scan.set("where", remaining)
-            if pushed:
-                row_filter = pushed
+            row_filter = _extract_row_filter(where)
 
         # Source columns = what the table scan's SELECT references
         source_columns = _collect_source_columns(table_scan)
@@ -147,39 +143,25 @@ def _flatten_and(node: exp.Expression) -> list[exp.Expression]:
     return [node]
 
 
-def _extract_pushable_predicates(
-    where: exp.Where,
-) -> tuple[Filter | None, exp.Where | None]:
-    """Extract simple column-op-literal predicates from a WHERE clause.
+def _extract_row_filter(where: exp.Where) -> Filter:
+    """Extract convertible predicates from a WHERE clause as a Filter.
 
-    Returns (pushed_filter, remaining_where). remaining_where is None if all
-    predicates were pushed.
+    Converts each conjunct that is a simple column-op-literal predicate.
+    Non-convertible predicates (e.g. function calls) are skipped — they remain
+    in the SQL for DataFusion to evaluate.
     """
-    conjuncts = _flatten_and(where.this)
-    pushed: list[Filter] = []
-    remaining: list[exp.Expression] = []
-
-    for conjunct in conjuncts:
+    filters: list[Filter] = []
+    for conjunct in _flatten_and(where.this):
         f = _ast_to_filter(conjunct)
         if f is not None:
-            pushed.append(f)
-        else:
-            remaining.append(conjunct)
+            filters.append(f)
 
-    pushed_filter: Filter | None = None
-    if pushed:
-        pushed_filter = pushed[0]
-        for f in pushed[1:]:
-            pushed_filter = pushed_filter & f
-
-    remaining_where: exp.Where | None = None
-    if remaining:
-        combined = remaining[0]
-        for r in remaining[1:]:
-            combined = exp.And(this=combined, expression=r)
-        remaining_where = exp.Where(this=combined)
-
-    return pushed_filter, remaining_where
+    if not filters:
+        return always_true()
+    result = filters[0]
+    for f in filters[1:]:
+        result = result & f
+    return result
 
 
 # --- AST → Filter conversion ---
@@ -274,20 +256,6 @@ def _ast_to_filter(node: exp.Expression) -> Filter | None:
                 else:
                     return None
             return In(node.this.name, tuple(values))
-        return None
-
-    # BETWEEN
-    if isinstance(node, exp.Between):
-        if (
-            isinstance(node.this, exp.Column)
-            and isinstance(node.args.get("low"), exp.Literal)
-            and isinstance(node.args.get("high"), exp.Literal)
-        ):
-            return Between(
-                node.this.name,
-                _literal_to_python(node.args["low"]),
-                _literal_to_python(node.args["high"]),
-            )
         return None
 
     return None
