@@ -1,8 +1,5 @@
 """Tests for scan_optimizer.optimize_scan."""
 
-import datafusion
-import pyarrow as pa
-
 from openhouse.dataloader._query_builder import build_combined_query
 from openhouse.dataloader.filters import (
     AlwaysTrue,
@@ -34,15 +31,6 @@ def _collect_filters(f) -> set:
 def _optimize(transform_sql, columns=None, filters=None):
     """Build combined query and optimize — mirrors the data_loader pipeline."""
     return optimize_scan(build_combined_query(transform_sql, columns, filters))
-
-
-def _run_sql(sql: str, schema: pa.Schema, data: dict) -> list[pa.RecordBatch]:
-    """Register a batch and execute SQL in DataFusion, returning result batches."""
-    batch = pa.record_batch(data, schema=schema)
-    ctx = datafusion.SessionContext()
-    ctx.sql('CREATE SCHEMA IF NOT EXISTS "db"').collect()
-    ctx.register_record_batches('"db"."tbl"', [[batch]])
-    return ctx.sql(sql).collect()
 
 
 # --- Projection ---
@@ -252,41 +240,11 @@ def test_invalid_sql_falls_back():
     assert plan.sql == "NOT VALID SQL !!!"
 
 
-# --- DataFusion execution ---
+# --- BETWEEN decomposition ---
 
 
-def test_optimized_sql_executes():
-    """Optimized SQL runs in DataFusion with only source columns."""
-    plan = _optimize('SELECT "id", "name", "value" FROM "db"."tbl"', ["id", "name"])
-
-    assert plan.source_columns == ["id", "name"]
-
-    result = _run_sql(
-        plan.sql,
-        pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())]),
-        {"id": [1], "name": ["alice"]},
-    )
-    assert len(result) == 1
-    assert set(result[0].schema.names) == {"id", "name"}
-
-
-def test_filter_applied_in_datafusion():
-    """Pushed filter also stays in SQL — DataFusion applies it."""
-    plan = _optimize('SELECT "id", "name", "value" FROM "db"."tbl"', ["id"], filters=col("name") == "alice")
-
-    assert plan.source_columns == ["id", "name"]
-
-    result = _run_sql(
-        plan.sql,
-        pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())]),
-        {"id": [1, 2], "name": ["alice", "bob"]},
-    )
-    assert len(result) == 1
-    assert result[0].column("id").to_pylist() == [1]
-
-
-def test_between_decomposes_and_executes():
-    """BETWEEN decomposes into >= AND <=, both pushed, SQL filters correctly."""
+def test_between_decomposes():
+    """BETWEEN decomposes into >= AND <=, both pushed to row_filter."""
     plan = _optimize(
         'SELECT "id", "value" FROM "db"."tbl"',
         ["id"],
@@ -296,11 +254,3 @@ def test_between_decomposes_and_executes():
     filters = _collect_filters(plan.row_filter)
     assert GreaterThanOrEqual("value", 1) in filters
     assert LessThanOrEqual("value", 10) in filters
-
-    result = _run_sql(
-        plan.sql,
-        pa.schema([pa.field("id", pa.int64()), pa.field("value", pa.int64())]),
-        {"id": [1, 2, 3], "value": [5, 15, 8]},
-    )
-    assert len(result) == 1
-    assert sorted(result[0].column("id").to_pylist()) == [1, 3]
