@@ -9,7 +9,6 @@ down to the table scan, then extracts:
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 import sqlglot
@@ -20,8 +19,6 @@ from sqlglot.optimizer.scope import build_scope
 import openhouse.dataloader.datafusion_sql  # noqa: F401 — registers DataFusion dialect
 from openhouse.dataloader._filter_converter import convert_where
 from openhouse.dataloader.filters import Filter, always_true
-
-logger = logging.getLogger(__name__)
 
 _DIALECT = "datafusion"
 
@@ -54,14 +51,10 @@ def optimize_scan(sql: str) -> ScanPlan:
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
-    try:
-        ast = sqlglot.parse_one(sql, dialect=_DIALECT)
-        ast = qualify.qualify(ast, dialect=_DIALECT)
-        ast = pushdown_predicates.pushdown_predicates(ast, dialect=_DIALECT)
-        ast = pushdown_projections.pushdown_projections(ast, dialect=_DIALECT)
-    except sqlglot.errors.SqlglotError:
-        logger.warning("Failed to optimize scan; falling back", exc_info=True)
-        return ScanPlan(sql=sql, source_columns=None, row_filter=always_true())
+    ast = sqlglot.parse_one(sql, dialect=_DIALECT)
+    ast = qualify.qualify(ast, dialect=_DIALECT)
+    ast = pushdown_predicates.pushdown_predicates(ast, dialect=_DIALECT)
+    ast = pushdown_projections.pushdown_projections(ast, dialect=_DIALECT)
 
     table_scan = _find_table_scan(ast, sql)
 

@@ -1,7 +1,8 @@
 """Tests for scan_optimizer.optimize_scan."""
 
+import sqlglot
+
 from openhouse.dataloader.filters import (
-    AlwaysTrue,
     And,
     EqualTo,
     GreaterThan,
@@ -167,12 +168,11 @@ def test_comparison_types():
 # --- Fallback ---
 
 
-def test_invalid_sql_falls_back():
-    plan = optimize_scan("NOT VALID SQL !!!")
+def test_invalid_sql_raises():
+    import pytest
 
-    assert plan.source_columns is None
-    assert isinstance(plan.row_filter, AlwaysTrue)
-    assert plan.sql == "NOT VALID SQL !!!"
+    with pytest.raises(sqlglot.errors.SqlglotError):
+        optimize_scan("NOT VALID SQL !!!")
 
 
 def test_no_table_raises():
