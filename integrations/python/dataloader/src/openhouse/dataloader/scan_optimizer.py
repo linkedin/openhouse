@@ -59,41 +59,39 @@ def optimize_scan(sql: str) -> ScanPlan:
         ast = qualify.qualify(ast, dialect=_DIALECT)
         ast = pushdown_predicates.pushdown_predicates(ast, dialect=_DIALECT)
         ast = pushdown_projections.pushdown_projections(ast, dialect=_DIALECT)
-
-        table_scan = _find_table_scan(ast, sql)
-
-        where = table_scan.args.get("where")
-        row_filter: Filter = convert_where(where) if where else always_true()
-        source_columns = _collect_source_columns(table_scan)
-
-        return ScanPlan(
-            sql=ast.sql(dialect=_DIALECT),
-            source_columns=sorted(source_columns) if source_columns else None,
-            row_filter=row_filter,
-        )
-    except Exception:
+    except sqlglot.errors.SqlglotError:
         logger.warning("Failed to optimize scan; falling back", exc_info=True)
         return ScanPlan(sql=sql, source_columns=None, row_filter=always_true())
 
+    table_scan = _find_table_scan(ast, sql)
+
+    where = table_scan.args.get("where")
+    row_filter: Filter = convert_where(where) if where else always_true()
+    source_columns = _collect_source_columns(table_scan)
+
+    return ScanPlan(
+        sql=ast.sql(dialect=_DIALECT),
+        source_columns=sorted(source_columns) if source_columns else None,
+        row_filter=row_filter,
+    )
+
 
 def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
-    """Find the single SELECT that reads directly from a table (not a subquery).
+    """Find the single SELECT that reads directly from one table (not a subquery).
 
-    Raises ValueError if the query does not contain exactly one table scan.
+    Raises ValueError if the query does not contain exactly one single-table scan.
+    A JOIN (multiple table sources in one scope) is not a single-table scan.
     """
     root = build_scope(ast)
     if root is None:
         raise ValueError(f"Expected exactly 1 table scan, found 0 in: {original_sql}")
     table_scans: list[exp.Select] = []
     for scope in root.traverse():
-        select = scope.expression
-        from_clause = select.find(exp.From)
-        if from_clause is None:
-            continue
-        has_table = bool(list(from_clause.find_all(exp.Table)))
-        has_subquery = bool(list(from_clause.find_all(exp.Subquery)))
-        if has_table and not has_subquery:
-            table_scans.append(select)
+        table_sources = [s for s in scope.sources.values() if isinstance(s, exp.Table)]
+        subquery_sources = [s for s in scope.sources.values() if not isinstance(s, exp.Table)]
+        if len(table_sources) == 1 and not subquery_sources:
+            result: exp.Select = scope.expression
+            table_scans.append(result)
     if len(table_scans) != 1:
         raise ValueError(f"Expected exactly 1 table scan, found {len(table_scans)} in: {original_sql}")
     return table_scans[0]

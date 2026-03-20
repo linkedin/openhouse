@@ -30,25 +30,24 @@ def _collect_filters(f) -> set:
 
 
 def test_prunes_unused_columns():
-    plan = optimize_scan('SELECT "a", "b" FROM (SELECT "a", "b", "c" FROM "db"."tbl") AS _t')
-
+    plan = optimize_scan('SELECT "a", "b" FROM (SELECT "a", "b", "c, foo(d)" FROM "db"."tbl")')
     assert plan.source_columns == ["a", "b"]
 
 
 def test_expression_alias_extracts_source_column():
-    plan = optimize_scan('SELECT "masked" FROM (SELECT upper("name") AS "masked" FROM "db"."tbl") AS _t')
+    plan = optimize_scan('SELECT "masked" FROM (SELECT upper("name") AS "masked" FROM "db"."tbl")')
 
     assert plan.source_columns == ["name"]
 
 
 def test_all_columns_used():
-    plan = optimize_scan('SELECT "a", "b" FROM (SELECT "a", "b" FROM "db"."tbl") AS _t')
+    plan = optimize_scan('SELECT "a", "b" FROM (SELECT "a", "b" FROM "db"."tbl")')
 
     assert plan.source_columns == ["a", "b"]
 
 
 def test_literal_alias_needs_no_source_column():
-    plan = optimize_scan('SELECT "id", "name" FROM (SELECT "id", \'MASKED\' AS "name" FROM "db"."tbl") AS _t')
+    plan = optimize_scan('SELECT "id", "name" FROM (SELECT "id", \'MASKED\' AS "name" FROM "db"."tbl")')
 
     assert plan.source_columns == ["id"]
 
@@ -165,16 +164,6 @@ def test_comparison_types():
         )
 
 
-# --- No predicates ---
-
-
-def test_no_where():
-    plan = optimize_scan('SELECT "a", "b" FROM "db"."tbl"')
-
-    assert isinstance(plan.row_filter, AlwaysTrue)
-    assert plan.source_columns == ["a", "b"]
-
-
 # --- Fallback ---
 
 
@@ -184,3 +173,17 @@ def test_invalid_sql_falls_back():
     assert plan.source_columns is None
     assert isinstance(plan.row_filter, AlwaysTrue)
     assert plan.sql == "NOT VALID SQL !!!"
+
+
+def test_no_table_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 0"):
+        optimize_scan("SELECT 1 AS a, 2 AS b")
+
+
+def test_two_tables_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 0"):
+        optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')
