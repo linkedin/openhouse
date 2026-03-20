@@ -10,12 +10,11 @@ from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
-from openhouse.dataloader._query_builder import build_combined_query
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.datafusion_sql import to_datafusion_sql
-from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
+from openhouse.dataloader.filters import AlwaysTrue, Filter, _quote_identifier, _to_pyiceberg, always_true
 from openhouse.dataloader.scan_optimizer import optimize_scan
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -143,6 +142,14 @@ class OpenHouseDataLoader:
         else:
             logger.info("No snapshot found for table %s", self._table_id)
 
+    def _build_combined_query(self, transform_sql: str) -> str:
+        """Wrap transform SQL as a subquery and apply user columns and filters."""
+        outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
+        sql = f"SELECT {outer_cols} FROM ({transform_sql}) AS _t"
+        if self._filters and not isinstance(self._filters, AlwaysTrue):
+            sql += f" WHERE {self._filters._to_datafusion_sql()}"
+        return sql
+
     def _build_transform_sql(self, transformer: TableTransformer, context: Mapping[str, str]) -> str | None:
         """Return DataFusion-compatible SQL for the transformation, or ``None``."""
         sql = transformer.transform(self._table_id, context)
@@ -169,7 +176,7 @@ class OpenHouseDataLoader:
 
         full_optimized_sql = None
         if transform_sql is not None:
-            combined_sql = build_combined_query(transform_sql, self._columns, self._filters)
+            combined_sql = self._build_combined_query(transform_sql)
             plan = optimize_scan(combined_sql, dialect="datafusion")
             full_optimized_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
