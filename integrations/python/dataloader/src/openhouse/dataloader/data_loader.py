@@ -167,13 +167,22 @@ class OpenHouseDataLoader:
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
+        full_optimized_sql = None
         if transform_sql is not None:
             combined_sql = build_combined_query(transform_sql, self._columns, self._filters)
             plan = optimize_scan(combined_sql, dialect="datafusion")
-            transform_sql = plan.sql
+            full_optimized_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
             if plan.source_columns is not None:
                 scan_kwargs["selected_fields"] = tuple(plan.source_columns)
+
+            logger.info(
+                "Split SQL to execute optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
+                combined_sql,
+                full_optimized_sql,
+                row_filter,
+                plan.source_columns,
+            )
         else:
             row_filter = _to_pyiceberg(self._filters)
             if self._columns:
@@ -203,6 +212,6 @@ class OpenHouseDataLoader:
             yield DataLoaderSplit(
                 file_scan_task=scan_task,
                 scan_context=scan_context,
-                transform_sql=transform_sql,
+                transform_sql=full_optimized_sql,
                 udf_registry=self._context.udf_registry,
             )
