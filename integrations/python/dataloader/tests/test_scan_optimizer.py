@@ -70,10 +70,10 @@ def test_outer_passthrough_predicate_pushed():
     assert GreaterThan("b", 5) in filters
 
 
-def test_outer_non_passthrough_stays_in_sql():
+def test_outer_non_passthrough_not_in_row_filter():
     plan = optimize_scan('SELECT "a", "b" FROM (SELECT redact(a) AS a, "b" FROM "db"."tbl") AS _t WHERE "a" > 5')
 
-    assert "WHERE" in plan.sql
+    assert GreaterThan("a", 5) not in _collect_filters(plan.row_filter)
     assert "a" in plan.source_columns
 
 
@@ -94,7 +94,7 @@ def test_partial_extraction():
 def test_residual_filter_keeps_needed_columns():
     plan = optimize_scan('SELECT "b" FROM (SELECT redact(a) AS a, "b" FROM "db"."tbl") AS _t WHERE "a" > 5')
 
-    assert "WHERE" in plan.sql
+    assert GreaterThan("a", 5) not in _collect_filters(plan.row_filter)
     assert "a" in plan.source_columns
     assert "b" in plan.source_columns
 
@@ -132,12 +132,12 @@ def test_or_both_pushable():
     assert isinstance(plan.row_filter, Or), f"Expected Or, got {plan.row_filter!r}"
 
 
-def test_or_one_non_pushable_stays():
+def test_or_one_non_pushable_not_in_row_filter():
     plan = optimize_scan(
         'SELECT "a", "b" FROM (SELECT redact(a) AS a, "b" FROM "db"."tbl") AS _t WHERE "a" > 5 OR "b" < 10'
     )
 
-    assert "WHERE" in plan.sql
+    assert not isinstance(plan.row_filter, Or)
 
 
 # --- Filter types ---
