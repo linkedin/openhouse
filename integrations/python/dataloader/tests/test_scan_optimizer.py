@@ -143,6 +143,45 @@ def test_comparison_types():
         assert plan.row_filter == expected_filter, f"row_filter mismatch for: {where_clause}"
 
 
+# --- Complex filter combinations ---
+
+
+def test_or_of_ands():
+    plan = optimize_scan(
+        'SELECT "a" FROM "db"."tbl" WHERE ("x" > 1 AND "y" = 2) OR ("z" < 3 AND "w" >= 4)'
+    )
+
+    assert plan.source_columns == ["a", "w", "x", "y", "z"]
+    assert plan.row_filter == Or(
+        And(GreaterThanOrEqual("w", 4), LessThan("z", 3)),
+        And(GreaterThan("x", 1), EqualTo("y", 2)),
+    )
+
+
+def test_double_nested():
+    plan = optimize_scan(
+        'SELECT "a" FROM "db"."tbl" WHERE ("x" > 1 OR ("y" = 2 AND "z" < 3)) AND "w" >= 4'
+    )
+
+    assert plan.source_columns == ["a", "w", "x", "y", "z"]
+    assert plan.row_filter == And(
+        GreaterThanOrEqual("w", 4),
+        Or(GreaterThan("x", 1), And(EqualTo("y", 2), LessThan("z", 3))),
+    )
+
+
+def test_and_of_ors():
+    plan = optimize_scan(
+        'SELECT "a" FROM "db"."tbl" WHERE "x" > 1 AND ("y" = 2 OR "z" < 3) AND "w" >= 4'
+    )
+
+    assert plan.source_columns == ["a", "w", "x", "y", "z"]
+    assert plan.row_filter == And(
+        And(GreaterThanOrEqual("w", 4), GreaterThan("x", 1)),
+        Or(EqualTo("y", 2), LessThan("z", 3)),
+    )
+
+
 # --- No predicates ---
 
 
