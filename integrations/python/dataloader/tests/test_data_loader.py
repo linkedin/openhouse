@@ -613,10 +613,22 @@ def test_iter_with_transformer_where_extracts_predicate(tmp_path):
     assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
 
 
-def test_iter_with_transformer_projects_subset_of_transform_columns(tmp_path):
-    """columns=[id] with transformer referencing id, name, value → only id in output.
+class _MaskingFilteringTransformer(TableTransformer):
+    """Transformer that masks name and filters on value."""
 
-    The transform SQL references all three columns, but the user only requests id.
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)} WHERE value > 1.5"
+
+
+def test_iter_with_transformer_projects_subset_of_transform_columns(tmp_path):
+    """columns=[id] with transformer referencing id, name, value and WHERE on value → only id in output.
+
+    The transform SQL references all three columns and has a WHERE clause,
+    but the user only requests id. The optimizer should prune unused columns
+    from the SQL and extract the WHERE predicate for Iceberg pushdown.
     """
     catalog = _make_real_catalog(tmp_path)
 
@@ -625,13 +637,14 @@ def test_iter_with_transformer_projects_subset_of_transform_columns(tmp_path):
         database="db",
         table="tbl",
         columns=[COL_ID],
-        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+        context=DataLoaderContext(table_transformer=_MaskingFilteringTransformer()),
     )
     result = _materialize(loader)
 
-    assert result.num_rows == 3
+    # value > 1.5 filters out id=1 (value=1.1), keeps id=2 (2.2) and id=3 (3.3)
+    assert result.num_rows == 2
     assert result.column_names == [COL_ID]
-    assert result.column(COL_ID).to_pylist() == [1, 2, 3]
+    assert sorted(result.column(COL_ID).to_pylist()) == [2, 3]
 
 
 def test_iter_with_transformer_and_user_filter_on_passthrough(tmp_path):
