@@ -175,3 +175,34 @@ def test_convert_where_three_conjuncts():
     result = convert_where(where)
     # Flattened AND tree
     assert result == And(And(EqualTo("a", 1), GreaterThan("b", 2)), LessThan("c", 3))
+
+
+def test_convert_where_top_level_or():
+    """Top-level OR is not flattened — returned as a single Or filter."""
+    where = _parse_where('"x" > 1 OR "y" = 2')
+    result = convert_where(where)
+    assert result == Or(GreaterThan("x", 1), EqualTo("y", 2))
+
+
+def test_convert_where_top_level_or_non_convertible():
+    """Top-level OR with a non-convertible side → always_true (skipped)."""
+    where = _parse_where('"x" > 1 OR upper("y") = \'FOO\'')
+    result = convert_where(where)
+    assert isinstance(result, AlwaysTrue)
+
+
+# --- Filter DSL → SQL → AST → Filter round trip ---
+
+
+def test_filter_to_sql_round_trip():
+    """Filter DSL → SQL → parse → convert_where → equivalent Filter."""
+    from openhouse.dataloader._query_builder import _filter_to_sql
+    from openhouse.dataloader.filters import col
+
+    original = (col("a") > 5) & (col("b") == "hello")
+    sql = _filter_to_sql(original)
+    where = _parse_where(sql)
+    extracted = convert_where(where)
+
+    assert GreaterThan("a", 5) in {extracted.left, extracted.right} if isinstance(extracted, And) else False
+    assert EqualTo("b", "hello") in {extracted.left, extracted.right} if isinstance(extracted, And) else False

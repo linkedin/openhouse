@@ -60,9 +60,7 @@ def optimize_scan(sql: str) -> ScanPlan:
         ast = pushdown_predicates.pushdown_predicates(ast, dialect=_DIALECT)
         ast = pushdown_projections.pushdown_projections(ast, dialect=_DIALECT)
 
-        table_scan = _find_table_scan(ast)
-        if table_scan is None:
-            return ScanPlan(sql=ast.sql(dialect=_DIALECT), source_columns=None, row_filter=always_true())
+        table_scan = _find_table_scan(ast, sql)
 
         where = table_scan.args.get("where")
         row_filter: Filter = convert_where(where) if where else always_true()
@@ -78,11 +76,15 @@ def optimize_scan(sql: str) -> ScanPlan:
         return ScanPlan(sql=sql, source_columns=None, row_filter=always_true())
 
 
-def _find_table_scan(ast: exp.Expression) -> exp.Select | None:
-    """Find the SELECT that reads directly from a table (not a subquery)."""
+def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
+    """Find the single SELECT that reads directly from a table (not a subquery).
+
+    Raises ValueError if the query does not contain exactly one table scan.
+    """
     root = build_scope(ast)
     if root is None:
-        return None
+        raise ValueError(f"Expected exactly 1 table scan, found 0 in: {original_sql}")
+    table_scans: list[exp.Select] = []
     for scope in root.traverse():
         select = scope.expression
         from_clause = select.find(exp.From)
@@ -91,9 +93,10 @@ def _find_table_scan(ast: exp.Expression) -> exp.Select | None:
         has_table = bool(list(from_clause.find_all(exp.Table)))
         has_subquery = bool(list(from_clause.find_all(exp.Subquery)))
         if has_table and not has_subquery:
-            result: exp.Select = select
-            return result
-    return None
+            table_scans.append(select)
+    if len(table_scans) != 1:
+        raise ValueError(f"Expected exactly 1 table scan, found {len(table_scans)} in: {original_sql}")
+    return table_scans[0]
 
 
 def _collect_source_columns(select: exp.Expression) -> set[str]:
