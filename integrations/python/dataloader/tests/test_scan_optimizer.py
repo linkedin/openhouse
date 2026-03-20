@@ -134,21 +134,58 @@ def test_or_one_non_pushable():
 def test_comparison_types():
     """Each comparison type is extracted to the correct Filter."""
     cases = [
-        ('"x" = 1', ["a", "x"], EqualTo("x", 1)),
-        ('"x" <> 1', ["a", "x"], NotEqualTo("x", 1)),
-        ('"x" > 1', ["a", "x"], GreaterThan("x", 1)),
-        ('"x" >= 1', ["a", "x"], GreaterThanOrEqual("x", 1)),
-        ('"x" < 1', ["a", "x"], LessThan("x", 1)),
-        ('"x" <= 1', ["a", "x"], LessThanOrEqual("x", 1)),
-        ('"x" IS NULL', ["a", "x"], IsNull("x")),
-        ('"x" IS NOT NULL', ["a", "x"], IsNotNull("x")),
-        ('"x" IN (1, 2, 3)', ["a", "x"], In("x", (1, 2, 3))),
-        ('"x" BETWEEN 1 AND 10', ["a", "x"], And(LessThanOrEqual("x", 10), GreaterThanOrEqual("x", 1))),
+        ('"x" = 1', EqualTo("x", 1)),
+        ('"x" <> 1', NotEqualTo("x", 1)),
+        ('"x" > 1', GreaterThan("x", 1)),
+        ('"x" >= 1', GreaterThanOrEqual("x", 1)),
+        ('"x" < 1', LessThan("x", 1)),
+        ('"x" <= 1', LessThanOrEqual("x", 1)),
+        ('"x" IS NULL', IsNull("x")),
+        ('"x" IS NOT NULL', IsNotNull("x")),
+        ('"x" IN (1, 2, 3)', In("x", (1, 2, 3))),
+        ("\"x\" IN ('a', 'b')", In("x", ("a", "b"))),
+        ('"x" BETWEEN 1 AND 10', And(LessThanOrEqual("x", 10), GreaterThanOrEqual("x", 1))),
+        ("\"x\" = 'hello'", EqualTo("x", "hello")),
+        ('"x" > 3.14', GreaterThan("x", 3.14)),
     ]
-    for where_clause, expected_cols, expected_filter in cases:
+    for where_clause, expected_filter in cases:
         plan = optimize_scan(f'SELECT "a" FROM "db"."tbl" WHERE {where_clause}')
-        assert plan.source_columns == expected_cols, f"source_columns mismatch for: {where_clause}"
+        assert plan.source_columns == ["a", "x"], f"source_columns mismatch for: {where_clause}"
         assert plan.row_filter == expected_filter, f"row_filter mismatch for: {where_clause}"
+
+
+def test_non_convertible_predicates_not_pushed():
+    """Predicates with functions or column-vs-column are not pushed."""
+    cases = [
+        "upper(\"x\") = 'FOO'",
+        '"x" > "y"',
+    ]
+    for where_clause in cases:
+        plan = optimize_scan(f'SELECT "a" FROM "db"."tbl" WHERE {where_clause}')
+        assert isinstance(plan.row_filter, AlwaysTrue), f"Expected AlwaysTrue for: {where_clause}"
+
+
+def test_filter_dsl_to_sql_round_trip():
+    """Each Filter type survives _to_datafusion_sql → optimize_scan round trip."""
+    cases = [
+        EqualTo("x", 1),
+        NotEqualTo("x", 1),
+        GreaterThan("x", 1),
+        GreaterThanOrEqual("x", 1),
+        LessThan("x", 1),
+        LessThanOrEqual("x", 1),
+        EqualTo("x", "hello"),
+        EqualTo("x", 3.14),
+        IsNull("x"),
+        IsNotNull("x"),
+        In("x", (1, 2, 3)),
+        And(LessThan("x", 5), GreaterThan("x", 1)),  # sqlglot may reorder operands
+        Or(EqualTo("x", 1), EqualTo("x", 2)),
+    ]
+    for filter_dsl in cases:
+        sql = f'SELECT "a" FROM "db"."tbl" WHERE {filter_dsl._to_datafusion_sql()}'
+        plan = optimize_scan(sql)
+        assert plan.row_filter == filter_dsl, f"Round trip failed for {filter_dsl!r}: got {plan.row_filter!r}"
 
 
 # --- Complex filter combinations ---

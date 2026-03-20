@@ -16,8 +16,22 @@ from sqlglot import exp
 from sqlglot.optimizer import pushdown_predicates, pushdown_projections, qualify
 from sqlglot.optimizer.scope import build_scope
 
-from openhouse.dataloader._filter_converter import convert
-from openhouse.dataloader.filters import Filter, always_true
+from openhouse.dataloader.filters import (
+    And,
+    EqualTo,
+    Filter,
+    GreaterThan,
+    GreaterThanOrEqual,
+    In,
+    IsNotNull,
+    IsNull,
+    LessThan,
+    LessThanOrEqual,
+    Not,
+    NotEqualTo,
+    Or,
+    always_true,
+)
 
 
 @dataclass
@@ -97,7 +111,7 @@ def _extract_row_filter(where: exp.Where) -> Filter:
     """
     filters: list[Filter] = []
     for conjunct in _flatten_and(where.this):
-        f = convert(conjunct)
+        f = _convert_ast_to_filter(conjunct)
         if f is not None:
             filters.append(f)
     if not filters:
@@ -125,3 +139,101 @@ def _collect_source_columns(select: exp.Expression) -> set[str]:
         if clause:
             source_columns.update(c.name for c in clause.find_all(exp.Column))
     return source_columns
+
+
+# --- AST → Filter conversion ---
+
+
+def _convert_ast_to_filter(node: exp.Expression) -> Filter | None:
+    """Convert a sqlglot AST expression to a Filter, or None if not convertible."""
+    if isinstance(node, exp.And):
+        left = _convert_ast_to_filter(node.left)
+        right = _convert_ast_to_filter(node.right)
+        if left and right:
+            return And(left, right)
+        return None
+
+    if isinstance(node, exp.Or):
+        left = _convert_ast_to_filter(node.left)
+        right = _convert_ast_to_filter(node.right)
+        if left and right:
+            return Or(left, right)
+        return None
+
+    if isinstance(node, exp.Not):
+        inner_expr = node.this
+        if isinstance(inner_expr, exp.Paren):
+            inner_expr = inner_expr.this
+        if (
+            isinstance(inner_expr, exp.Is)
+            and isinstance(inner_expr.this, exp.Column)
+            and isinstance(inner_expr.expression, exp.Null)
+        ):
+            return IsNotNull(inner_expr.this.name)
+        inner = _convert_ast_to_filter(node.this)
+        if inner:
+            return Not(inner)
+        return None
+
+    if isinstance(node, exp.Paren):
+        return _convert_ast_to_filter(node.this)
+
+    if isinstance(node, exp.Is):
+        if isinstance(node.this, exp.Column) and isinstance(node.expression, exp.Null):
+            return IsNull(node.this.name)
+        return None
+
+    if isinstance(node, (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE)):
+        return _convert_comparison(node)
+
+    if isinstance(node, exp.In):
+        if isinstance(node.this, exp.Column):
+            values = []
+            for v in node.expressions:
+                if isinstance(v, exp.Literal):
+                    values.append(_literal_to_python(v))
+                else:
+                    return None
+            return In(node.this.name, tuple(values))
+        return None
+
+    return None
+
+
+def _convert_comparison(node: exp.EQ | exp.NEQ | exp.GT | exp.GTE | exp.LT | exp.LTE) -> Filter | None:
+    """Convert a comparison AST node (column op literal) to a Filter."""
+    left, right = node.this, node.expression
+    col_node = lit_node = None
+    flipped = False
+    if isinstance(left, exp.Column) and isinstance(right, exp.Literal):
+        col_node, lit_node = left, right
+    elif isinstance(right, exp.Column) and isinstance(left, exp.Literal):
+        col_node, lit_node = right, left
+        flipped = True
+    if col_node is None or lit_node is None:
+        return None
+    col_name = col_node.name
+    value = _literal_to_python(lit_node)
+    match node:
+        case exp.EQ():
+            return EqualTo(col_name, value)
+        case exp.NEQ():
+            return NotEqualTo(col_name, value)
+        case exp.GT():
+            return LessThan(col_name, value) if flipped else GreaterThan(col_name, value)
+        case exp.GTE():
+            return LessThanOrEqual(col_name, value) if flipped else GreaterThanOrEqual(col_name, value)
+        case exp.LT():
+            return GreaterThan(col_name, value) if flipped else LessThan(col_name, value)
+        case exp.LTE():
+            return GreaterThanOrEqual(col_name, value) if flipped else LessThanOrEqual(col_name, value)
+    return None  # pragma: no cover
+
+
+def _literal_to_python(node: exp.Literal) -> object:
+    """Convert a sqlglot Literal AST node to a Python value."""
+    if node.is_string:
+        return node.this
+    if node.is_int:
+        return int(node.this)
+    return float(node.this)
