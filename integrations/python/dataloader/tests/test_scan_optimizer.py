@@ -3,6 +3,7 @@
 import pytest
 import sqlglot
 
+import openhouse.dataloader.datafusion_sql  # noqa: F401 — registers DataFusion dialect
 from openhouse.dataloader.filters import (
     AlwaysTrue,
     And,
@@ -17,7 +18,14 @@ from openhouse.dataloader.filters import (
     NotEqualTo,
     Or,
 )
-from openhouse.dataloader.scan_optimizer import optimize_scan
+from openhouse.dataloader.scan_optimizer import optimize_scan as _optimize_scan
+
+_DIALECT = "datafusion"
+
+
+def optimize_scan(sql: str) -> object:
+    return _optimize_scan(sql, _DIALECT)
+
 
 # --- Projection ---
 
@@ -147,9 +155,7 @@ def test_comparison_types():
 
 
 def test_or_of_ands():
-    plan = optimize_scan(
-        'SELECT "a" FROM "db"."tbl" WHERE ("x" > 1 AND "y" = 2) OR ("z" < 3 AND "w" >= 4)'
-    )
+    plan = optimize_scan('SELECT "a" FROM "db"."tbl" WHERE ("x" > 1 AND "y" = 2) OR ("z" < 3 AND "w" >= 4)')
 
     assert plan.source_columns == ["a", "w", "x", "y", "z"]
     assert plan.row_filter == Or(
@@ -159,9 +165,7 @@ def test_or_of_ands():
 
 
 def test_double_nested():
-    plan = optimize_scan(
-        'SELECT "a" FROM "db"."tbl" WHERE ("x" > 1 OR ("y" = 2 AND "z" < 3)) AND "w" >= 4'
-    )
+    plan = optimize_scan('SELECT "a" FROM "db"."tbl" WHERE ("x" > 1 OR ("y" = 2 AND "z" < 3)) AND "w" >= 4')
 
     assert plan.source_columns == ["a", "w", "x", "y", "z"]
     assert plan.row_filter == And(
@@ -180,9 +184,7 @@ def test_double_nested_with_non_pushable():
 
 
 def test_and_of_ors():
-    plan = optimize_scan(
-        'SELECT "a" FROM "db"."tbl" WHERE "x" > 1 AND ("y" = 2 OR "z" < 3) AND "w" >= 4'
-    )
+    plan = optimize_scan('SELECT "a" FROM "db"."tbl" WHERE "x" > 1 AND ("y" = 2 OR "z" < 3) AND "w" >= 4')
 
     assert plan.source_columns == ["a", "w", "x", "y", "z"]
     assert plan.row_filter == And(

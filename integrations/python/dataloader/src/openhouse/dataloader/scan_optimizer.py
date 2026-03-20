@@ -16,11 +16,8 @@ from sqlglot import exp
 from sqlglot.optimizer import pushdown_predicates, pushdown_projections, qualify
 from sqlglot.optimizer.scope import build_scope
 
-import openhouse.dataloader.datafusion_sql  # noqa: F401 — registers DataFusion dialect
 from openhouse.dataloader._filter_converter import convert_where
 from openhouse.dataloader.filters import Filter, always_true
-
-_DIALECT = "datafusion"
 
 
 @dataclass
@@ -38,7 +35,7 @@ class ScanPlan:
     row_filter: Filter
 
 
-def optimize_scan(sql: str) -> ScanPlan:
+def optimize_scan(sql: str, dialect: str) -> ScanPlan:
     """Optimize a SQL query by extracting projections and pushable predicates.
 
     Uses sqlglot's optimizer to push predicates and projections down to the
@@ -46,15 +43,16 @@ def optimize_scan(sql: str) -> ScanPlan:
     Iceberg row_filter and determines the minimal source column set.
 
     Args:
-        sql: DataFusion-dialect SQL to optimize.
+        sql: SQL query to optimize.
+        dialect: SQL dialect for parsing and generation (e.g. "datafusion").
 
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
-    ast = sqlglot.parse_one(sql, dialect=_DIALECT)
-    ast = qualify.qualify(ast, dialect=_DIALECT)
-    ast = pushdown_predicates.pushdown_predicates(ast, dialect=_DIALECT)
-    ast = pushdown_projections.pushdown_projections(ast, dialect=_DIALECT)
+    ast = sqlglot.parse_one(sql, dialect=dialect)
+    ast = qualify.qualify(ast, dialect=dialect)
+    ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
+    ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
 
     table_scan = _find_table_scan(ast, sql)
 
@@ -63,7 +61,7 @@ def optimize_scan(sql: str) -> ScanPlan:
     source_columns = _collect_source_columns(table_scan)
 
     return ScanPlan(
-        sql=ast.sql(dialect=_DIALECT),
+        sql=ast.sql(dialect=dialect),
         source_columns=sorted(source_columns) if source_columns else None,
         row_filter=row_filter,
     )

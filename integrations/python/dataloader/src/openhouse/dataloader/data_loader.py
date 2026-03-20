@@ -169,7 +169,7 @@ class OpenHouseDataLoader:
 
         if transform_sql is not None:
             combined_sql = build_combined_query(transform_sql, self._columns, self._filters)
-            plan = optimize_scan(combined_sql)
+            plan = optimize_scan(combined_sql, dialect="datafusion")
             transform_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
             if plan.source_columns is not None:
