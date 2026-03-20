@@ -613,6 +613,27 @@ def test_iter_with_transformer_where_extracts_predicate(tmp_path):
     assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
 
 
+def test_iter_with_transformer_projects_subset_of_transform_columns(tmp_path):
+    """columns=[id] with transformer referencing id, name, value → only id in output.
+
+    The transform SQL references all three columns, but the user only requests id.
+    """
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert result.column_names == [COL_ID]
+    assert result.column(COL_ID).to_pylist() == [1, 2, 3]
+
+
 def test_iter_with_transformer_and_user_filter_on_passthrough(tmp_path):
     """Transform + user filter on passthrough column → pushed to Iceberg."""
     catalog = _make_real_catalog(tmp_path)
