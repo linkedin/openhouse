@@ -22,7 +22,7 @@ from openhouse.dataloader.filters import (
     Or,
     col,
 )
-from openhouse.dataloader.scan_optimizer import _extract_row_filter, optimize_scan
+from openhouse.dataloader.scan_optimizer import optimize_scan
 
 # --- Helper ---
 
@@ -280,12 +280,14 @@ def test_comparison_type_round_trip(filter_expr, expected_type):
 
 
 def test_filter_to_sql_round_trip():
-    """Filter DSL → SQL → parse → _where_to_filter → equivalent Filter."""
+    """Filter DSL → SQL → parse → convert_where → equivalent Filter."""
+    from openhouse.dataloader._filter_converter import convert_where
+
     original = (col("a") > 5) & (col("b") == "hello")
     sql = _filter_to_sql(original)
     parsed = sqlglot.parse_one(f"SELECT * FROM t WHERE {sql}", dialect="datafusion")
     where = parsed.find(exp.Where)
-    extracted = _extract_row_filter(where)
+    extracted = convert_where(where)
 
     filters = _collect_filters(extracted)
     assert GreaterThan("a", 5) in filters
