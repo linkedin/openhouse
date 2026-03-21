@@ -18,6 +18,11 @@ configurations {
   // Standardizing on slf4j + log4j2 as implementation.
   all*.exclude module : 'spring-boot-starter-logging'
   all*.exclude module : 'logback-classic'
+  // Exclude Log4j 1.x and its SLF4J bridge so Hadoop transitive deps don't introduce
+  // a competing SLF4J binding alongside log4j-slf4j-impl. log4j-1.2-api below provides
+  // the Log4j 1.x API compatibility layer that routes to Log4j2 instead.
+  all*.exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+  all*.exclude group: 'log4j', module: 'log4j'
 }
 
 dependencies {
@@ -25,6 +30,11 @@ dependencies {
   api 'org.springframework.boot:spring-boot-starter-web:' + springVersion
 
   implementation 'org.springframework.boot:spring-boot-starter-log4j2:' + springLog4jVersion
+  // Bridge Log4j 1.x API calls (from Hadoop) to Log4j2, completing the logging unification.
+  // With slf4j-log4j12 and log4j:log4j excluded above, this is the sole provider of the
+  // Log4j 1.x API and routes all calls through Log4j2, making them visible to Spring
+  // Boot Actuator's /actuator/loggers endpoint.
+  implementation 'org.apache.logging.log4j:log4j-1.2-api:2.13.3'
   api 'org.springframework.boot:spring-boot-starter-actuator:2.7.8'
   api 'org.springframework.boot:spring-boot-starter-validation:' + springVersion
   annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:' + springVersion
