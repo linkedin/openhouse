@@ -142,20 +142,27 @@ class OpenHouseDataLoader:
         else:
             logger.info("No snapshot found for table %s", self._table_id)
 
-    def _build_combined_query(self, transform_sql: str) -> str:
-        """Wrap transform SQL as a subquery and apply user columns and filters."""
-        outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
-        sql = f"SELECT {outer_cols} FROM ({transform_sql}) AS _t"
-        if self._filters and not isinstance(self._filters, AlwaysTrue):
-            sql += f" WHERE {self._filters._to_datafusion_sql()}"
-        return sql
+    def _build_query(self) -> str | None:
+        """Build the combined SQL query from the transformer, user columns, and filters.
 
-    def _build_transform_sql(self, transformer: TableTransformer, context: Mapping[str, str]) -> str | None:
-        """Return DataFusion-compatible SQL for the transformation, or ``None``."""
-        sql = transformer.transform(self._table_id, context)
+        Calls the table transformer to get the transform SQL, transpiles it to
+        DataFusion dialect, and wraps it as a subquery with user column projection
+        and filter predicates. Returns ``None`` if there is no transformer or the
+        transformer returns ``None``.
+        """
+        transformer = self._context.table_transformer
+        if transformer is None:
+            return None
+        execution_context = self._context.execution_context or {}
+        sql = transformer.transform(self._table_id, execution_context)
         if sql is None:
             return None
-        return to_datafusion_sql(sql, transformer.dialect)
+        sql = to_datafusion_sql(sql, transformer.dialect)
+        outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
+        combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"
+        if self._filters and not isinstance(self._filters, AlwaysTrue):
+            combined += f" WHERE {self._filters._to_datafusion_sql()}"
+        return combined
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -165,32 +172,26 @@ class OpenHouseDataLoader:
         """
         table = self._iceberg_table
 
-        # Build transform SQL: call transformer once to get the SQL string
-        transformer = self._context.table_transformer
-        execution_context = self._context.execution_context or {}
-        transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
-
         scan_kwargs: dict = {}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
-        full_optimized_sql = None
-        if transform_sql is not None:
-            combined_sql = self._build_combined_query(transform_sql)
-            plan = optimize_scan(combined_sql, dialect="datafusion")
-            full_optimized_sql = plan.sql
+        query = self._build_query()
+        if query is not None:
+            plan = optimize_scan(query, dialect="datafusion")
+            optimized_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
             if plan.source_columns is not None:
                 scan_kwargs["selected_fields"] = tuple(plan.source_columns)
-
             logger.info(
-                "Split SQL to execute optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
-                combined_sql,
-                full_optimized_sql,
+                "Split SQL optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
+                query,
+                optimized_sql,
                 row_filter,
                 plan.source_columns,
             )
         else:
+            optimized_sql = None
             row_filter = _to_pyiceberg(self._filters)
             if self._columns:
                 scan_kwargs["selected_fields"] = tuple(self._columns)
@@ -219,6 +220,6 @@ class OpenHouseDataLoader:
             yield DataLoaderSplit(
                 file_scan_task=scan_task,
                 scan_context=scan_context,
-                transform_sql=full_optimized_sql,
+                transform_sql=optimized_sql,
                 udf_registry=self._context.udf_registry,
             )
