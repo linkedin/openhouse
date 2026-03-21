@@ -34,7 +34,7 @@ dependencies {
   // With slf4j-log4j12 and log4j:log4j excluded above, this is the sole provider of the
   // Log4j 1.x API and routes all calls through Log4j2, making them visible to Spring
   // Boot Actuator's /actuator/loggers endpoint.
-  implementation 'org.apache.logging.log4j:log4j-1.2-api:2.13.3'
+  implementation 'org.apache.logging.log4j:log4j-1.2-api:2.25.3'
   api 'org.springframework.boot:spring-boot-starter-actuator:2.7.8'
   api 'org.springframework.boot:spring-boot-starter-validation:' + springVersion
   annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:' + springVersion
