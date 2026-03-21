@@ -173,13 +173,27 @@ curl "${curlArgs[@]}" -XGET http://localhost:8000/v1/databases/d3/tables/t1
 
 #### Update a Table
 
+The PUT request requires two values from a prior GET response:
+
+- **`baseTableVersion`** — use the `tableVersion` field from GET (after the first update this becomes a metadata file path, not `"INITIAL_VERSION"`)
+- **`tableProperties`** — must include all `openhouse.*` properties from the GET response merged with any user-defined properties; omitting them causes a 500 in the server's cross-cluster eligibility check
+
+First GET the current state:
+
+```
+curl "${curlArgs[@]}" -XGET http://localhost:8000/v1/databases/d3/tables/t1
+```
+
+Then PUT with the returned `tableVersion` and `tableProperties`:
+
 ```
 curl "${curlArgs[@]}" -XPUT http://localhost:8000/v1/databases/d3/tables/t1 \
 --data-raw '{
   "tableId": "t1",
   "databaseId": "d3",
-  "baseTableVersion":<fill in previous version>
-  "clusterId": "<fill in cluster id>",
+  "clusterId": "<clusterId from GET response>",
+  "tableType": "PRIMARY_TABLE",
+  "baseTableVersion": "<tableVersion from GET response>",
   "schema": "{\"type\": \"struct\", \"fields\": [{\"id\": 1,\"required\": true,\"name\": \"id\",\"type\": \"string\"},{\"id\": 2,\"required\": true,\"name\": \"name\",\"type\": \"string\"},{\"id\": 3,\"required\": true,\"name\": \"ts\",\"type\": \"timestamp\"}, {\"id\": 4,\"required\": true,\"name\": \"country\",\"type\": \"string\"}]}",
   "timePartitioning": {
     "columnName": "ts",
@@ -191,6 +205,7 @@ curl "${curlArgs[@]}" -XPUT http://localhost:8000/v1/databases/d3/tables/t1 \
     }
   ],
   "tableProperties": {
+    "<copy all key/value pairs from tableProperties in GET response, including openhouse.* keys>": "...",
     "key": "value"
   }
 }'
