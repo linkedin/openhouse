@@ -19,10 +19,16 @@ configurations {
   all*.exclude module : 'spring-boot-starter-logging'
   all*.exclude module : 'logback-classic'
   // Exclude Log4j 1.x and its SLF4J bridge so Hadoop transitive deps don't introduce
-  // a competing SLF4J binding alongside log4j-slf4j-impl. log4j-1.2-api below provides
+  // a competing SLF4J binding alongside log4j-slf4j2-impl. log4j-1.2-api below provides
   // the Log4j 1.x API compatibility layer that routes to Log4j2 instead.
   all*.exclude group: 'org.slf4j', module: 'slf4j-log4j12'
   all*.exclude group: 'log4j', module: 'log4j'
+  // Exclude the SLF4J 1.x binding for log4j2. log4j-1.2-api:2.25.3 transitively pulls in
+  // log4j-core:2.25.3 which requires SLF4J 2.x (slf4j-api:2.0.x). log4j-slf4j-impl (1.x
+  // binding) has no SLF4JServiceProvider and causes SLF4J 2.x to fall back to Hadoop's
+  // slf4j-log4j12 at runtime, routing all logging through log4j 1.x instead of log4j2.
+  // log4j-slf4j2-impl below provides the correct SLF4J 2.x binding.
+  all*.exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
 }
 
 dependencies {
@@ -35,6 +41,12 @@ dependencies {
   // Log4j 1.x API and routes all calls through Log4j2, making them visible to Spring
   // Boot Actuator's /actuator/loggers endpoint.
   implementation 'org.apache.logging.log4j:log4j-1.2-api:2.25.3'
+  // SLF4J 2.x binding for log4j2. log4j-1.2-api:2.25.3 transitively brings in
+  // log4j-core:2.25.3, which pulls in slf4j-api:2.0.x. The old log4j-slf4j-impl
+  // artifact only supports SLF4J 1.x (StaticLoggerBinder). log4j-slf4j2-impl provides
+  // the SLF4J 2.x ServiceProvider so SLF4J routes to log4j2 instead of falling back
+  // to Hadoop's slf4j-log4j12 at runtime.
+  implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:2.25.3'
   api 'org.springframework.boot:spring-boot-starter-actuator:2.7.8'
   api 'org.springframework.boot:spring-boot-starter-validation:' + springVersion
   annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:' + springVersion
