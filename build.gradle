@@ -30,8 +30,8 @@ ext {
   spark_version = "3.1.1"
   ok_http3_version = "4.11.0"
   junit_version = "5.11.0"
-  iceberg_1_2_version = "1.2.0.11"
-  iceberg_1_5_version = "1.5.2.8"
+  iceberg_1_2_version = "1.2.0.13"
+  iceberg_1_5_version = "1.5.2.9"
   otel_agent_version = "2.12.0" // Bundles OTel SDK 1.47.0
   otel_annotations_version = "2.12.0" // Match agent version
 }
