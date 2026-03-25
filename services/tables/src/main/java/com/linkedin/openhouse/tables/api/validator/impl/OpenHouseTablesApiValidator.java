@@ -3,6 +3,8 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.*;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -14,8 +16,11 @@ import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
@@ -92,12 +97,20 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "databaseId : provided %s, doesn't match with the RequestBody %s",
               databaseId, createUpdateTableRequestBody.getDatabaseId()));
     }
-    if (createUpdateTableRequestBody.getSchema() != null
-        && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema()).columns().isEmpty()) {
-      validationFailures.add(
-          String.format(
-              "schema : provided %s, should contain at least one column",
-              createUpdateTableRequestBody.getSchema()));
+    if (createUpdateTableRequestBody.getSchema() != null) {
+      int prevFailures = validationFailures.size();
+      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures);
+      // Only attempt Iceberg schema parsing if no duplicate columns were detected, as duplicate
+      // column names cause Iceberg's SchemaParser to throw an unchecked ValidationException.
+      if (validationFailures.size() == prevFailures
+          && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema())
+              .columns()
+              .isEmpty()) {
+        validationFailures.add(
+            String.format(
+                "schema : provided %s, should contain at least one column",
+                createUpdateTableRequestBody.getSchema()));
+      }
     }
     validateSortOrder(
         createUpdateTableRequestBody.getSortOrder(),
@@ -230,12 +243,18 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "tableId : provided %s, doesn't match with the RequestBody %s",
               tableId, createUpdateTableRequestBody.getTableId()));
     }
-    if (createUpdateTableRequestBody.getSchema() != null
-        && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema()).columns().isEmpty()) {
-      validationFailures.add(
-          String.format(
-              "schema : provided %s, should contain at least one column",
-              createUpdateTableRequestBody.getSchema()));
+    if (createUpdateTableRequestBody.getSchema() != null) {
+      int prevFailures = validationFailures.size();
+      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures);
+      if (validationFailures.size() == prevFailures
+          && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema())
+              .columns()
+              .isEmpty()) {
+        validationFailures.add(
+            String.format(
+                "schema : provided %s, should contain at least one column",
+                createUpdateTableRequestBody.getSchema()));
+      }
     }
     if (createUpdateTableRequestBody.isStageCreate()) {
       validationFailures.add(
@@ -371,6 +390,68 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     if (purgeAfterMs < 0) {
       throw new RequestValidationFailureException(
           "purgeAfterMs must be greater than or equal to 0 to purge a soft deleted table");
+    }
+  }
+
+  private void validateNoDuplicateColumns(String schemaJson, List<String> validationFailures) {
+    try {
+      checkStructForDuplicates(new ObjectMapper().readTree(schemaJson), "", validationFailures);
+    } catch (Exception e) {
+      // Schema JSON parse errors are handled by the Iceberg schema parser elsewhere
+    }
+  }
+
+  private void checkStructForDuplicates(
+      JsonNode structNode, String path, List<String> validationFailures) {
+    JsonNode fields = structNode.get("fields");
+    if (fields == null || !fields.isArray()) {
+      return;
+    }
+    Set<String> seen = new HashSet<>();
+    List<String> duplicates = new ArrayList<>();
+    for (JsonNode field : fields) {
+      JsonNode nameNode = field.get("name");
+      if (nameNode == null) {
+        continue;
+      }
+      String name = nameNode.asText();
+      if (!seen.add(name.toLowerCase(Locale.ROOT))) {
+        duplicates.add(name);
+      }
+      JsonNode typeNode = field.get("type");
+      if (typeNode != null && typeNode.isObject()) {
+        checkNestedTypeForDuplicates(
+            typeNode, path.isEmpty() ? name : path + "." + name, validationFailures);
+      }
+    }
+    if (!duplicates.isEmpty()) {
+      String location = path.isEmpty() ? "top-level" : "struct field '" + path + "'";
+      validationFailures.add(
+          String.format(
+              "schema : duplicate column names found %s in %s. Column names must be unique (case-insensitive).",
+              duplicates, location));
+    }
+  }
+
+  private void checkNestedTypeForDuplicates(
+      JsonNode typeNode, String path, List<String> validationFailures) {
+    String typeName = typeNode.has("type") ? typeNode.get("type").asText() : "";
+    if ("struct".equals(typeName)) {
+      checkStructForDuplicates(typeNode, path, validationFailures);
+    } else if ("list".equals(typeName)) {
+      JsonNode element = typeNode.get("element");
+      if (element != null && element.isObject()) {
+        checkNestedTypeForDuplicates(element, path + "[]", validationFailures);
+      }
+    } else if ("map".equals(typeName)) {
+      JsonNode key = typeNode.get("key");
+      if (key != null && key.isObject()) {
+        checkNestedTypeForDuplicates(key, path + "{key}", validationFailures);
+      }
+      JsonNode value = typeNode.get("value");
+      if (value != null && value.isObject()) {
+        checkNestedTypeForDuplicates(value, path + "{value}", validationFailures);
+      }
     }
   }
 
