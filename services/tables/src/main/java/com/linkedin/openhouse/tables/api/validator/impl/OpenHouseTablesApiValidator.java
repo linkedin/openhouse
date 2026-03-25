@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.UUID;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -31,6 +32,7 @@ import org.apache.iceberg.SortOrderParser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
@@ -398,6 +400,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       checkStructForDuplicates(new ObjectMapper().readTree(schemaJson), "", validationFailures);
     } catch (Exception e) {
       // Schema JSON parse errors are handled by the Iceberg schema parser elsewhere
+      log.warn("Failed to pre-parse schema JSON for duplicate column check; skipping", e);
     }
   }
 
