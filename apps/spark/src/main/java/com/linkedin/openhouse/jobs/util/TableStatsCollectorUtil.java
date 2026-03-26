@@ -902,8 +902,10 @@ public final class TableStatsCollectorUtil {
     log.info("Found {} columns with metrics for unpartitioned table", columnNames.size());
 
     if (columnNames.isEmpty()) {
-      log.warn("No columns with metrics found for unpartitioned table: {}", fullTableName);
-      return Collections.emptyList();
+      log.warn(
+          "No columns with readable_metrics found for unpartitioned table: {}. "
+              + "Will still emit rowCount and columnCount.",
+          fullTableName);
     }
 
     // Step 2: Aggregate statistics from ALL data_files (no partitioning)
@@ -946,10 +948,18 @@ public final class TableStatsCollectorUtil {
     List<String> columnAggExpressions = buildColumnAggregationExpressions(columnNames);
 
     // Build SQL query WITHOUT GROUP BY (aggregate all files)
-    String aggregationQuery =
-        String.format(
-            "SELECT sum(record_count) as total_row_count, %s FROM %s.data_files",
-            String.join(", ", columnAggExpressions), fullTableName);
+    String aggregationQuery;
+    if (columnAggExpressions.isEmpty()) {
+      // No column-level metrics available — just get row count
+      aggregationQuery =
+          String.format(
+              "SELECT sum(record_count) as total_row_count FROM %s.data_files", fullTableName);
+    } else {
+      aggregationQuery =
+          String.format(
+              "SELECT sum(record_count) as total_row_count, %s FROM %s.data_files",
+              String.join(", ", columnAggExpressions), fullTableName);
+    }
 
     log.debug("Building unpartitioned table stats aggregation query");
     Dataset<Row> statsDF = spark.sql(aggregationQuery);
