@@ -667,3 +667,83 @@ def test_iter_with_transformer_and_user_filter_on_passthrough(tmp_path):
     from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
 
     assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
+
+
+# --- Inner filter injection tests ---
+
+
+class _TransformIdTransformer(TableTransformer):
+    """Transformer that transforms the id column with a function."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT abs(id) AS id, name, value FROM {to_sql_identifier(table)}"
+
+
+def test_build_query_injects_filter_into_table_scan(tmp_path):
+    """_build_query wraps the transformer's table with a filtered subquery."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        filters=col(COL_ID) > 10,
+        context=DataLoaderContext(table_transformer=_MaskingFilteringTransformer()),
+    )
+    query = loader._build_query()
+    # Inner filtered subquery should be present
+    assert "SELECT * FROM" in query
+    # The user filter should appear both in the inner subquery and the outer WHERE
+    assert query.count('"id" > 10') == 2
+
+
+def test_iter_with_transformer_and_user_filter_on_transformed_column(tmp_path):
+    """User filter on transformed column is pushed to Iceberg via inner injection.
+
+    The transformer applies abs(id), so without inner injection sqlglot cannot
+    push ``id > 1`` through the subquery (the outer ``id`` is ``abs(id)``).
+    Inner injection places the filter directly on the table scan, so Iceberg
+    receives the predicate.
+    """
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        filters=col(COL_ID) > 1,
+        context=DataLoaderContext(table_transformer=_TransformIdTransformer()),
+    )
+    list(loader)
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    from pyiceberg.expressions import GreaterThan as IceGreaterThan
+
+    assert scan_kwargs["row_filter"] == IceGreaterThan("id", 1)
+
+
+def test_iter_with_transformer_filter_injection_produces_correct_results(tmp_path):
+    """End-to-end: transformer + user filter + projection with inner injection."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID, COL_NAME],
+        filters=col(COL_ID) > 1,
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    # id > 1 filters out id=1, keeps id=2,3; name is masked; only requested columns
+    assert result.num_rows == 2
+    assert result.column_names == [COL_ID, COL_NAME]
+    assert sorted(result.column(COL_ID).to_pylist()) == [2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["MASKED", "MASKED"]

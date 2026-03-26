@@ -13,7 +13,7 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
-from openhouse.dataloader.datafusion_sql import to_datafusion_sql
+from openhouse.dataloader.datafusion_sql import DataFusion, to_datafusion_sql
 from openhouse.dataloader.filters import AlwaysTrue, Filter, _quote_identifier, _to_pyiceberg, always_true
 from openhouse.dataloader.scan_optimizer import optimize_scan
 from openhouse.dataloader.table_identifier import TableIdentifier
@@ -147,8 +147,12 @@ class OpenHouseDataLoader:
 
         Calls the table transformer to get the transform SQL, transpiles it to
         DataFusion dialect, and wraps it as a subquery with user column projection
-        and filter predicates. Returns ``None`` if there is no transformer or the
-        transformer returns ``None``.
+        and filter predicates.  When user filters are present, they are also
+        injected into the transformer SQL's table scan so that the scan optimizer
+        can extract them for Iceberg predicate pushdown.
+
+        Returns ``None`` if there is no transformer or the transformer returns
+        ``None``.
         """
         transformer = self._context.table_transformer
         if transformer is None:
@@ -157,11 +161,13 @@ class OpenHouseDataLoader:
         sql = transformer.transform(self._table_id, execution_context)
         if sql is None:
             return None
-        sql = to_datafusion_sql(sql, transformer.dialect)
+        has_filters = self._filters and not isinstance(self._filters, AlwaysTrue)
+        filter_sql = self._filters._to_datafusion_sql() if has_filters else None
+        sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id, filter_sql=filter_sql)
         outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
         combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"
-        if self._filters and not isinstance(self._filters, AlwaysTrue):
-            combined += f" WHERE {self._filters._to_datafusion_sql()}"
+        if filter_sql is not None:
+            combined += f" WHERE {filter_sql}"
         return combined
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
@@ -178,7 +184,7 @@ class OpenHouseDataLoader:
 
         query = self._build_query()
         if query is not None:
-            plan = optimize_scan(query, dialect="datafusion")
+            plan = optimize_scan(query, dialect=DataFusion.DIALECT)
             optimized_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
             if plan.source_columns is not None:

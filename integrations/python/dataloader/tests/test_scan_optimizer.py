@@ -256,3 +256,43 @@ def test_no_table_raises():
 def test_two_tables_raises():
     with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 0"):
         optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')
+
+
+# --- Three-level nesting (injected user filter) ---
+
+
+def test_three_level_nesting_extracts_inner_filter():
+    """User filter injected into innermost subquery is extracted for Iceberg pushdown."""
+    plan = optimize_scan(
+        'SELECT "id" FROM ('
+        'SELECT "id", \'MASKED\' AS "name", "value" '
+        'FROM (SELECT * FROM "db"."tbl" WHERE "id" > 10) AS "tbl"'
+        ') AS "_t" WHERE "id" > 10'
+    )
+    assert plan.row_filter == GreaterThan("id", 10)
+    assert plan.source_columns == ["id"]
+
+
+def test_three_level_nesting_with_transformer_where():
+    """User filter injected into inner subquery is extracted alongside transformer predicates."""
+    plan = optimize_scan(
+        'SELECT "id" FROM ('
+        'SELECT "id", \'MASKED\' AS "name", "value" '
+        'FROM (SELECT * FROM "db"."tbl" WHERE "value" > 2.0) AS "tbl" '
+        'WHERE "value" > 1.5'
+        ') AS "_t" WHERE "value" > 2.0'
+    )
+    assert plan.row_filter == GreaterThan("value", 2.0)
+    assert plan.source_columns == ["id", "value"]
+
+
+def test_inner_filter_on_transformed_column_extracted():
+    """Filter injected into inner subquery is extracted even when outer can't push through transform."""
+    plan = optimize_scan(
+        'SELECT "a" FROM ('
+        'SELECT abs("a") AS "a", "b" '
+        'FROM (SELECT * FROM "db"."tbl" WHERE "a" > 5) AS "tbl"'
+        ') AS "_t" WHERE "a" > 5'
+    )
+    assert plan.row_filter == GreaterThan("a", 5)
+    assert plan.source_columns == ["a"]
