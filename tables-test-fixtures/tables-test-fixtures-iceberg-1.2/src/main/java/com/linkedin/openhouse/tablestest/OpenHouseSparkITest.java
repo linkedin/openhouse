@@ -1,8 +1,12 @@
 package com.linkedin.openhouse.tablestest;
 
 import java.net.URI;
+import java.util.HashMap;
 import java.util.Map;
+import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.spark.sql.SparkSession;
+import scala.collection.JavaConverters;
 
 /**
  * A base class for spark-based integration tests running in local container. Instruction: - Extend
@@ -109,5 +113,22 @@ public class OpenHouseSparkITest {
           "OH server is not running locally. Start it by calling getSparkSession() method.");
     }
     return URI.create(LOCALHOST + openHouseLocalServer.getPort());
+  }
+
+  protected Catalog getOpenHouseCatalog(SparkSession spark) {
+    final Map<String, String> catalogProperties = new HashMap<>();
+    final String catalogPropertyPrefix = "spark.sql.catalog.openhouse.";
+    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
+    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
+      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
+        catalogProperties.put(
+            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
+      }
+    }
+    return CatalogUtil.loadCatalog(
+        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
+        "openhouse",
+        catalogProperties,
+        spark.sparkContext().hadoopConfiguration());
   }
 }

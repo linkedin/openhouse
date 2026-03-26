@@ -99,7 +99,15 @@ public class TablesServiceImpl implements TablesService {
             TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
 
     // Special case handling
-    if (tableDto.isPresent()) {
+    if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
+      // Check if the table creators are the same
+      if (!tableDto.get().getTableCreator().equals(tableCreatorUpdater)) {
+        throw new IllegalStateException(
+            String.format(
+                "Table %s.%s can only be replaced by the same creator. Current creator: %s, request creator: %s",
+                databaseId, tableId, tableDto.get().getTableCreator(), tableCreatorUpdater));
+      }
+    } else if (tableDto.isPresent()) {
       if (failOnExist) {
         throw new AlreadyExistsException("Table", String.format("%s.%s", databaseId, tableId));
       }

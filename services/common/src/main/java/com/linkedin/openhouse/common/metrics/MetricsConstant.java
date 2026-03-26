@@ -7,6 +7,7 @@ public final class MetricsConstant {
   public static final String REPO_TABLE_CREATED_CTR = "repo_table_created";
   public static final String REPO_TABLE_CREATED_CTR_STAGED = "repo_table_created_staged";
   public static final String REPO_TABLE_CREATED_WITH_DATA_CTR = "repo_table_created_with_data";
+  public static final String REPO_TABLE_REPLACED_CTR_STAGED = "repo_table_replaced_staged";
   public static final String REPO_TABLE_UPDATED_CTR = "repo_table_updated";
   public static final String REPO_TABLE_INVALID_SCHEMA_EVOLUTION =
       "repo_table_invalid_schema_evolution";
