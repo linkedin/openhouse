@@ -66,8 +66,7 @@ CREATE TABLE IF NOT EXISTS storage_location (
 );
 
 CREATE TABLE IF NOT EXISTS table_storage_location (
-    database_id          VARCHAR(128)   NOT NULL,
-    table_id             VARCHAR(128)   NOT NULL,
+    table_uuid           VARCHAR(36)    NOT NULL,
     storage_location_id  VARCHAR(36)    NOT NULL,
-    PRIMARY KEY (database_id, table_id, storage_location_id)
+    PRIMARY KEY (table_uuid, storage_location_id)
 );

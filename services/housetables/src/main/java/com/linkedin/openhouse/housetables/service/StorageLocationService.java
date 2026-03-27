@@ -15,8 +15,8 @@ public interface StorageLocationService {
    */
   StorageLocation getStorageLocation(String storageLocationId);
 
-  /** Get all StorageLocations associated with a table. */
-  List<StorageLocation> getStorageLocationsForTable(String databaseId, String tableId);
+  /** Get all StorageLocations associated with a table by its UUID. */
+  List<StorageLocation> getStorageLocationsForTable(String tableUuid);
 
   /** Create a new StorageLocation with a generated ID and no URI. Returns the persisted entity. */
   StorageLocation createStorageLocation();
@@ -24,6 +24,6 @@ public interface StorageLocationService {
   /** Update the URI of an existing StorageLocation. Returns the updated entity. */
   StorageLocation updateStorageLocationUri(String storageLocationId, String uri);
 
-  /** Associate an existing StorageLocation with a table. */
-  void addStorageLocationToTable(String databaseId, String tableId, String storageLocationId);
+  /** Associate an existing StorageLocation with a table by its UUID. */
+  void addStorageLocationToTable(String tableUuid, String storageLocationId);
 }

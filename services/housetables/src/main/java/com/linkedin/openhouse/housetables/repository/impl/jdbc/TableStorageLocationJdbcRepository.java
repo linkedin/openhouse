@@ -12,5 +12,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface TableStorageLocationJdbcRepository
     extends JpaRepository<TableStorageLocationRow, TableStorageLocationRowPrimaryKey> {
 
-  List<TableStorageLocationRow> findByDatabaseIdAndTableId(String databaseId, String tableId);
+  List<TableStorageLocationRow> findByTableUuid(String tableUuid);
 }

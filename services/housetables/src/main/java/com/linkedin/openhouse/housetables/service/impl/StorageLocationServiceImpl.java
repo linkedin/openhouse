@@ -42,8 +42,8 @@ public class StorageLocationServiceImpl implements StorageLocationService {
   }
 
   @Override
-  public List<StorageLocation> getStorageLocationsForTable(String databaseId, String tableId) {
-    return tableStorageLocationRepo.findByDatabaseIdAndTableId(databaseId, tableId).stream()
+  public List<StorageLocation> getStorageLocationsForTable(String tableUuid) {
+    return tableStorageLocationRepo.findByTableUuid(tableUuid).stream()
         .map(join -> getStorageLocation(join.getStorageLocationId()))
         .collect(Collectors.toList());
   }
@@ -68,15 +68,13 @@ public class StorageLocationServiceImpl implements StorageLocationService {
 
   @Override
   @Transactional
-  public void addStorageLocationToTable(
-      String databaseId, String tableId, String storageLocationId) {
+  public void addStorageLocationToTable(String tableUuid, String storageLocationId) {
     if (!storageLocationRepo.existsById(storageLocationId)) {
       throw new NoSuchEntityException("StorageLocation", storageLocationId);
     }
     TableStorageLocationRow join =
         TableStorageLocationRow.builder()
-            .databaseId(databaseId)
-            .tableId(tableId)
+            .tableUuid(tableUuid)
             .storageLocationId(storageLocationId)
             .build();
     tableStorageLocationRepo.save(join);

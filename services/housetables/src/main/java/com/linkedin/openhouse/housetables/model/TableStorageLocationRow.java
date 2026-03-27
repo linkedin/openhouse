@@ -24,12 +24,8 @@ import lombok.NoArgsConstructor;
 public class TableStorageLocationRow {
 
   @Id
-  @Column(name = "database_id")
-  private String databaseId;
-
-  @Id
-  @Column(name = "table_id")
-  private String tableId;
+  @Column(name = "table_uuid")
+  private String tableUuid;
 
   @Id
   @Column(name = "storage_location_id")

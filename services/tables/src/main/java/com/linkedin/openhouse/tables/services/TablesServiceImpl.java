@@ -475,7 +475,7 @@ public class TablesServiceImpl implements TablesService {
         storageLocationRepository.getStorageLocation(storageLocationId);
 
     // Associate the new StorageLocation with this table
-    storageLocationRepository.addStorageLocationToTable(databaseId, tableId, storageLocationId);
+    storageLocationRepository.addStorageLocationToTable(tableDto.getTableUUID(), storageLocationId);
 
     // Commit the Iceberg location swap — new metadata.json written at the new URI
     openHouseInternalRepository.swapStorageLocation(databaseId, tableId, targetLocation.getUri());

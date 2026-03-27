@@ -47,7 +47,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = tableService.getTable(databaseId, tableId, actingPrincipal);
     java.util.List<com.linkedin.openhouse.internal.catalog.model.StorageLocationDto> locations;
     try {
-      locations = storageLocationRepository.getStorageLocationsForTable(databaseId, tableId);
+      locations = storageLocationRepository.getStorageLocationsForTable(tableDto.getTableUUID());
     } catch (Exception e) {
       log.warn(
           "Failed to fetch storage locations for {}.{}: {}", databaseId, tableId, e.getMessage());
@@ -135,8 +135,10 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       try {
         String baseDir = stripMetadataFilename(createdTable.getTableLocation());
         storageLocationRepository.updateStorageLocationUri(allocatedSlId, baseDir);
-        storageLocationRepository.addStorageLocationToTable(databaseId, tableId, allocatedSlId);
-        locations = storageLocationRepository.getStorageLocationsForTable(databaseId, tableId);
+        storageLocationRepository.addStorageLocationToTable(
+            createdTable.getTableUUID(), allocatedSlId);
+        locations =
+            storageLocationRepository.getStorageLocationsForTable(createdTable.getTableUUID());
       } catch (Exception e) {
         log.warn(
             "Failed to register storage location for {}.{}: {}",
@@ -216,8 +218,8 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       try {
         String baseDir = stripMetadataFilename(tableDto.getTableLocation());
         storageLocationRepository.updateStorageLocationUri(allocatedSlId, baseDir);
-        storageLocationRepository.addStorageLocationToTable(databaseId, tableId, allocatedSlId);
-        locations = storageLocationRepository.getStorageLocationsForTable(databaseId, tableId);
+        storageLocationRepository.addStorageLocationToTable(tableDto.getTableUUID(), allocatedSlId);
+        locations = storageLocationRepository.getStorageLocationsForTable(tableDto.getTableUUID());
       } catch (Exception e) {
         log.warn(
             "Failed to register storage location for {}.{}: {}",
@@ -372,7 +374,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
             .toGetTableResponseBody(updated)
             .toBuilder()
             .storageLocations(
-                storageLocationRepository.getStorageLocationsForTable(databaseId, tableId))
+                storageLocationRepository.getStorageLocationsForTable(updated.getTableUUID()))
             .build();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.OK)

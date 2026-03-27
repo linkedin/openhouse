@@ -114,6 +114,7 @@ pass "Pre-migration snapshot: $PRE_SNAP"
 
 table_json=$(curl -s -H "Authorization: Bearer $TOKEN" "$TABLES_URL/v1/databases/$DB/tables/$TABLE")
 ORIG_SL_ID=$(echo "$table_json" | jq -r '.storageLocations[0].storageLocationId')
+TABLE_UUID=$(echo "$table_json" | jq -r '.tableUUID')
 log "Original storageLocationId: $ORIG_SL_ID"
 log "Original tableLocation: $(echo "$table_json" | jq -r '.tableLocation')"
 
@@ -130,7 +131,7 @@ sl_resp=$(curl -s -X POST "$HTS_URL/hts/storageLocations" \
 NEW_SL_ID=$(echo "$sl_resp" | jq -r '.storageLocationId')
 pass "New storageLocationId: $NEW_SL_ID"
 
-curl -s -X POST "$HTS_URL/hts/storageLocations/link?databaseId=$DB&tableId=$TABLE&storageLocationId=$NEW_SL_ID" > /dev/null
+curl -s -X POST "$HTS_URL/hts/storageLocations/link?tableUuid=$TABLE_UUID&storageLocationId=$NEW_SL_ID" > /dev/null
 curl -s -X PATCH "$TABLES_URL/v1/databases/$DB/tables/$TABLE/storageLocation" \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \

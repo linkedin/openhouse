@@ -21,9 +21,9 @@ public interface StorageLocationRepository {
   /** Get a StorageLocation by its ID. */
   StorageLocationDto getStorageLocation(String storageLocationId);
 
-  /** Get all StorageLocations associated with a table. */
-  List<StorageLocationDto> getStorageLocationsForTable(String databaseId, String tableId);
+  /** Get all StorageLocations associated with a table by its UUID. */
+  List<StorageLocationDto> getStorageLocationsForTable(String tableUuid);
 
-  /** Associate an existing StorageLocation with a table. */
-  void addStorageLocationToTable(String databaseId, String tableId, String storageLocationId);
+  /** Associate an existing StorageLocation with a table by its UUID. */
+  void addStorageLocationToTable(String tableUuid, String storageLocationId);
 }

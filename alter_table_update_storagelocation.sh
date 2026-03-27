@@ -29,6 +29,7 @@ TABLE_JSON=$(curl -s -H "Authorization: Bearer $TOKEN" \
   "$TABLES_URL/v1/databases/$DB/tables/$TABLE")
 
 ORIG_SL_ID=$(echo "$TABLE_JSON" | jq -r '.storageLocations[0].storageLocationId')
+TABLE_UUID=$(echo "$TABLE_JSON" | jq -r '.tableUUID')
 TABLE_LOCATION=$(echo "$TABLE_JSON" | jq -r '.tableLocation')
 
 # Derive base prefix: strip the table-dir and metadata filename
@@ -54,7 +55,7 @@ curl -s -X PATCH "$HTS_URL/hts/storageLocations/$NEW_SL_ID" \
 
 # 4. Link the new storage location to the table
 curl -s -X POST \
-  "$HTS_URL/hts/storageLocations/link?databaseId=$DB&tableId=$TABLE&storageLocationId=$NEW_SL_ID" > /dev/null
+  "$HTS_URL/hts/storageLocations/link?tableUuid=$TABLE_UUID&storageLocationId=$NEW_SL_ID" > /dev/null
 
 # 5. Swap the table's active storage location
 curl -s -X PATCH "$TABLES_URL/v1/databases/$DB/tables/$TABLE/storageLocation" \

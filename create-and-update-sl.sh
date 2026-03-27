@@ -53,6 +53,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$TABLES_URL/v1/databases/$DB/tables/$
 
 echo ""
 echo "=== Step 2: Register new storage location and update ==="
+TABLE_UUID=$(curl -s -H "Authorization: Bearer $TOKEN" "$TABLES_URL/v1/databases/$DB/tables/$TABLE" | jq -r '.tableUUID')
 NEW_BASE="hdfs://namenode:9000/data/openhouse/${DB}/${TABLE}_v2"
 sl_resp=$(curl -s -X POST "$HTS_URL/hts/storageLocations" \
   -H 'Content-Type: application/json' \
@@ -60,7 +61,7 @@ sl_resp=$(curl -s -X POST "$HTS_URL/hts/storageLocations" \
 SL_ID=$(echo "$sl_resp" | jq -r '.storageLocationId')
 echo "New storageLocationId: $SL_ID"
 
-curl -s -X POST "$HTS_URL/hts/storageLocations/link?databaseId=$DB&tableId=$TABLE&storageLocationId=$SL_ID"
+curl -s -X POST "$HTS_URL/hts/storageLocations/link?tableUuid=$TABLE_UUID&storageLocationId=$SL_ID"
 
 curl -s -X PATCH \
   "$TABLES_URL/v1/databases/$DB/tables/$TABLE/storageLocation" \

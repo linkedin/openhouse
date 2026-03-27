@@ -86,22 +86,13 @@ public class StorageLocationControllerTest {
     storageLocationRepo.save(
         StorageLocationRow.builder().storageLocationId("sl-b").uri("hdfs://nn/data/b").build());
     tableStorageLocationRepo.save(
-        TableStorageLocationRow.builder()
-            .databaseId("db1")
-            .tableId("tb1")
-            .storageLocationId("sl-a")
-            .build());
+        TableStorageLocationRow.builder().tableUuid("uuid-1").storageLocationId("sl-a").build());
     tableStorageLocationRepo.save(
-        TableStorageLocationRow.builder()
-            .databaseId("db1")
-            .tableId("tb1")
-            .storageLocationId("sl-b")
-            .build());
+        TableStorageLocationRow.builder().tableUuid("uuid-1").storageLocationId("sl-b").build());
 
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/storageLocations")
-                .param("databaseId", "db1")
-                .param("tableId", "tb1")
+                .param("tableUuid", "uuid-1")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
@@ -112,8 +103,7 @@ public class StorageLocationControllerTest {
   public void testGetLocationsForTableEmpty() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/storageLocations")
-                .param("databaseId", "db1")
-                .param("tableId", "none")
+                .param("tableUuid", "nonexistent-uuid")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
@@ -130,16 +120,14 @@ public class StorageLocationControllerTest {
 
     mvc.perform(
             MockMvcRequestBuilders.post("/hts/storageLocations/link")
-                .param("databaseId", "db1")
-                .param("tableId", "tb1")
+                .param("tableUuid", "uuid-link")
                 .param("storageLocationId", "sl-link"))
         .andExpect(status().isNoContent());
 
     // Verify the link was persisted
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/storageLocations")
-                .param("databaseId", "db1")
-                .param("tableId", "tb1")
+                .param("tableUuid", "uuid-link")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$", hasSize(1)))
@@ -150,8 +138,7 @@ public class StorageLocationControllerTest {
   public void testLinkNonexistentLocation() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/hts/storageLocations/link")
-                .param("databaseId", "db1")
-                .param("tableId", "tb1")
+                .param("tableUuid", "uuid-bad")
                 .param("storageLocationId", "bad"))
         .andExpect(status().isNotFound());
   }

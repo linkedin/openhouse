@@ -10,7 +10,6 @@ import lombok.NoArgsConstructor;
 @EqualsAndHashCode
 @NoArgsConstructor
 public class TableStorageLocationRowPrimaryKey implements Serializable {
-  private String databaseId;
-  private String tableId;
+  private String tableUuid;
   private String storageLocationId;
 }

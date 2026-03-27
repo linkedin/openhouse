@@ -107,9 +107,8 @@ public class StorageLocationController {
       value = STORAGE_LOCATIONS_ENDPOINT,
       produces = {"application/json"})
   public ResponseEntity<List<StorageLocation>> getStorageLocationsForTable(
-      @RequestParam String databaseId, @RequestParam String tableId) {
-    return ResponseEntity.ok(
-        storageLocationService.getStorageLocationsForTable(databaseId, tableId));
+      @RequestParam String tableUuid) {
+    return ResponseEntity.ok(storageLocationService.getStorageLocationsForTable(tableUuid));
   }
 
   @Operation(
@@ -123,10 +122,8 @@ public class StorageLocationController {
       })
   @PostMapping(value = STORAGE_LOCATIONS_ENDPOINT + "/link")
   public ResponseEntity<Void> linkStorageLocationToTable(
-      @RequestParam String databaseId,
-      @RequestParam String tableId,
-      @RequestParam String storageLocationId) {
-    storageLocationService.addStorageLocationToTable(databaseId, tableId, storageLocationId);
+      @RequestParam String tableUuid, @RequestParam String storageLocationId) {
+    storageLocationService.addStorageLocationToTable(tableUuid, storageLocationId);
     return ResponseEntity.noContent().build();
   }
 }

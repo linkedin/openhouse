@@ -76,7 +76,7 @@ public class StorageLocationRepositoryImpl implements StorageLocationRepository 
   }
 
   @Override
-  public List<StorageLocationDto> getStorageLocationsForTable(String databaseId, String tableId) {
+  public List<StorageLocationDto> getStorageLocationsForTable(String tableUuid) {
     List<Map<?, ?>> response =
         htsWebClient
             .get()
@@ -84,8 +84,7 @@ public class StorageLocationRepositoryImpl implements StorageLocationRepository 
                 uriBuilder ->
                     uriBuilder
                         .path(STORAGE_LOCATIONS_PATH)
-                        .queryParam("databaseId", databaseId)
-                        .queryParam("tableId", tableId)
+                        .queryParam("tableUuid", tableUuid)
                         .build())
             .retrieve()
             .bodyToMono(new ParameterizedTypeReference<List<Map<?, ?>>>() {})
@@ -97,16 +96,14 @@ public class StorageLocationRepositoryImpl implements StorageLocationRepository 
   }
 
   @Override
-  public void addStorageLocationToTable(
-      String databaseId, String tableId, String storageLocationId) {
+  public void addStorageLocationToTable(String tableUuid, String storageLocationId) {
     htsWebClient
         .post()
         .uri(
             uriBuilder ->
                 uriBuilder
                     .path(STORAGE_LOCATIONS_PATH + "/link")
-                    .queryParam("databaseId", databaseId)
-                    .queryParam("tableId", tableId)
+                    .queryParam("tableUuid", tableUuid)
                     .queryParam("storageLocationId", storageLocationId)
                     .build())
         .retrieve()
