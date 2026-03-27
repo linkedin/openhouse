@@ -746,8 +746,9 @@ public final class TableStatsCollectorUtil {
     if (columnNames.isEmpty()) {
       log.warn(
           "No columns with readable_metrics found for partitioned table: {}. "
-              + "Will still emit rowCount and columnCount.",
-          fullTableName);
+              + "Will still emit rowCount and columnCount (schema has {} columns).",
+          fullTableName,
+          schema.columns().size());
     }
 
     Dataset<Row> partitionStatsDF =
@@ -837,7 +838,7 @@ public final class TableStatsCollectorUtil {
                 "left")
             .drop(
                 partitionStatsDF.col(
-                    "partition")); // Drop duplicate partition column from right side
+                    "partition")); // Safe with left join: Spark drops by plan reference, not value
 
     log.debug("Join operation defined (will execute on first action)");
     return joinedDF;
@@ -918,8 +919,9 @@ public final class TableStatsCollectorUtil {
     if (columnNames.isEmpty()) {
       log.warn(
           "No columns with readable_metrics found for unpartitioned table: {}. "
-              + "Will still emit rowCount and columnCount.",
-          fullTableName);
+              + "Will still emit rowCount and columnCount (schema has {} columns).",
+          fullTableName,
+          schema.columns().size());
     }
 
     // Step 2: Aggregate statistics from ALL data_files (no partitioning)

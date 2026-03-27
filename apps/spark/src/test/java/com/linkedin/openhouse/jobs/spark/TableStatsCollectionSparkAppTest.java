@@ -1297,6 +1297,76 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
     }
   }
 
+  @Test
+  public void testPartitionStatsForDeletedPartition() throws Exception {
+    final String tableName = "db.test_deleted_partition_stats";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Setup: Create partitioned table with data in two partitions
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg PARTITIONED BY (days(ts))",
+                  tableName))
+          .show();
+
+      // Insert data into two different partitions (day 0 and day 1)
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('row1', timestamp('2024-01-01')), ('row2', timestamp('2024-01-01'))",
+                  tableName))
+          .show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('row3', timestamp('2024-01-02')), ('row4', timestamp('2024-01-02'))",
+                  tableName))
+          .show();
+
+      // Delete all rows from the first partition
+      ops.spark()
+          .sql(
+              String.format(
+                  "DELETE FROM %s WHERE ts >= timestamp('2024-01-01') AND ts < timestamp('2024-01-02')",
+                  tableName))
+          .show();
+
+      // Action: Collect partition stats
+      List<com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats>
+          partitionStats = ops.collectCommitEventTablePartitionStats(tableName);
+
+      // Verify: Both partitions should have stats (LEFT JOIN retains deleted partition)
+      Assertions.assertTrue(
+          partitionStats.size() >= 2,
+          "Should have stats for both partitions including the deleted one, got: "
+              + partitionStats.size());
+
+      // Verify: At least one partition should have rowCount=0 (the deleted one)
+      boolean hasZeroRowPartition =
+          partitionStats.stream().anyMatch(stat -> stat.getRowCount() == 0L);
+      Assertions.assertTrue(
+          hasZeroRowPartition,
+          "Deleted partition should have rowCount=0 instead of being silently dropped");
+
+      // Verify: At least one partition should have positive rowCount (the surviving one)
+      boolean hasPositiveRowPartition =
+          partitionStats.stream().anyMatch(stat -> stat.getRowCount() > 0L);
+      Assertions.assertTrue(
+          hasPositiveRowPartition, "Surviving partition should have positive rowCount");
+
+      for (com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats stat :
+          partitionStats) {
+        log.info(
+            "Partition stats: partition={}, rowCount={}, columnCount={}",
+            stat.getPartitionData(),
+            stat.getRowCount(),
+            stat.getColumnCount());
+      }
+    }
+  }
+
   // ==================== Helper Methods ====================
 
   private static void prepareTable(Operations ops, String tableName) {
