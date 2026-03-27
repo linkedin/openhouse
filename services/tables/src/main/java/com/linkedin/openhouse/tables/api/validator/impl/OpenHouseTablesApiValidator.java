@@ -3,8 +3,6 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.*;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -14,21 +12,29 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
+import org.apache.iceberg.types.Types;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -397,64 +403,105 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
   private void validateNoDuplicateColumns(String schemaJson, List<String> validationFailures) {
     try {
-      checkStructForDuplicates(new ObjectMapper().readTree(schemaJson), "", validationFailures);
+      TypeUtil.visit(
+          SchemaParser.fromJson(schemaJson),
+          new TypeUtil.SchemaVisitor<Void>() {
+            final Deque<String> path = new ArrayDeque<>();
+
+            @Override
+            public void beforeField(Types.NestedField field) {
+              path.push(field.name());
+            }
+
+            @Override
+            public void afterField(Types.NestedField field) {
+              path.pop();
+            }
+
+            @Override
+            public void beforeListElement(Types.NestedField elementField) {
+              path.push("[]");
+            }
+
+            @Override
+            public void afterListElement(Types.NestedField elementField) {
+              path.pop();
+            }
+
+            @Override
+            public void beforeMapKey(Types.NestedField keyField) {
+              path.push("{key}");
+            }
+
+            @Override
+            public void afterMapKey(Types.NestedField keyField) {
+              path.pop();
+            }
+
+            @Override
+            public void beforeMapValue(Types.NestedField valueField) {
+              path.push("{value}");
+            }
+
+            @Override
+            public void afterMapValue(Types.NestedField valueField) {
+              path.pop();
+            }
+
+            @Override
+            public Void struct(Types.StructType struct, List<Void> fieldResults) {
+              Set<String> seen = new HashSet<>();
+              List<String> duplicates =
+                  struct.fields().stream()
+                      .map(Types.NestedField::name)
+                      .filter(name -> !seen.add(name.toLowerCase(Locale.ROOT)))
+                      .collect(Collectors.toList());
+              if (!duplicates.isEmpty()) {
+                List<String> parts = new ArrayList<>(path);
+                Collections.reverse(parts);
+                String location =
+                    parts.isEmpty()
+                        ? "top-level"
+                        : "struct field '" + String.join(".", parts) + "'";
+                validationFailures.add(
+                    String.format(
+                        "schema : duplicate column names found %s in %s. Column names must be unique (case-insensitive).",
+                        duplicates, location));
+              }
+              return null;
+            }
+
+            @Override
+            public Void schema(Schema schema, Void structResult) {
+              return null;
+            }
+
+            @Override
+            public Void field(Types.NestedField field, Void fieldResult) {
+              return null;
+            }
+
+            @Override
+            public Void list(Types.ListType list, Void elementResult) {
+              return null;
+            }
+
+            @Override
+            public Void map(Types.MapType map, Void keyResult, Void valueResult) {
+              return null;
+            }
+
+            @Override
+            public Void primitive(Type.PrimitiveType primitive) {
+              return null;
+            }
+          });
+    } catch (org.apache.iceberg.exceptions.ValidationException e) {
+      // Iceberg detected a structural issue (e.g. exact duplicate field names) — surface it as a
+      // validation failure so the caller's prevFailures guard skips the second SchemaParser call.
+      validationFailures.add("schema : " + e.getMessage());
     } catch (Exception e) {
-      // Schema JSON parse errors are handled by the Iceberg schema parser elsewhere
-      log.warn("Failed to pre-parse schema JSON for duplicate column check; skipping", e);
-    }
-  }
-
-  private void checkStructForDuplicates(
-      JsonNode structNode, String path, List<String> validationFailures) {
-    JsonNode fields = structNode.get("fields");
-    if (fields == null || !fields.isArray()) {
-      return;
-    }
-    Set<String> seen = new HashSet<>();
-    List<String> duplicates = new ArrayList<>();
-    for (JsonNode field : fields) {
-      JsonNode nameNode = field.get("name");
-      if (nameNode == null) {
-        continue;
-      }
-      String name = nameNode.asText();
-      if (!seen.add(name.toLowerCase(Locale.ROOT))) {
-        duplicates.add(name);
-      }
-      JsonNode typeNode = field.get("type");
-      if (typeNode != null && typeNode.isObject()) {
-        checkNestedTypeForDuplicates(
-            typeNode, path.isEmpty() ? name : path + "." + name, validationFailures);
-      }
-    }
-    if (!duplicates.isEmpty()) {
-      String location = path.isEmpty() ? "top-level" : "struct field '" + path + "'";
-      validationFailures.add(
-          String.format(
-              "schema : duplicate column names found %s in %s. Column names must be unique (case-insensitive).",
-              duplicates, location));
-    }
-  }
-
-  private void checkNestedTypeForDuplicates(
-      JsonNode typeNode, String path, List<String> validationFailures) {
-    String typeName = typeNode.has("type") ? typeNode.get("type").asText() : "";
-    if ("struct".equals(typeName)) {
-      checkStructForDuplicates(typeNode, path, validationFailures);
-    } else if ("list".equals(typeName)) {
-      JsonNode element = typeNode.get("element");
-      if (element != null && element.isObject()) {
-        checkNestedTypeForDuplicates(element, path + "[]", validationFailures);
-      }
-    } else if ("map".equals(typeName)) {
-      JsonNode key = typeNode.get("key");
-      if (key != null && key.isObject()) {
-        checkNestedTypeForDuplicates(key, path + "{key}", validationFailures);
-      }
-      JsonNode value = typeNode.get("value");
-      if (value != null && value.isObject()) {
-        checkNestedTypeForDuplicates(value, path + "{value}", validationFailures);
-      }
+      log.warn("Failed to parse schema for duplicate column check; skipping", e);
     }
   }
 
