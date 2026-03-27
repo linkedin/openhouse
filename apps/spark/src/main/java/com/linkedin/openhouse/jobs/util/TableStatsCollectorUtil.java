@@ -827,13 +827,14 @@ public final class TableStatsCollectorUtil {
       Dataset<Row> latestCommitsDF, Dataset<Row> partitionStatsDF) {
     log.info("Joining partition stats with commit metadata...");
 
-    // Perform inner join on partition
+    // Use left join so partitions with commits but no current data_files (e.g., fully
+    // deleted partitions) are still emitted with rowCount=0 instead of being silently dropped.
     Dataset<Row> joinedDF =
         latestCommitsDF
             .join(
                 partitionStatsDF,
                 latestCommitsDF.col("partition").equalTo(partitionStatsDF.col("partition")),
-                "inner")
+                "left")
             .drop(
                 partitionStatsDF.col(
                     "partition")); // Drop duplicate partition column from right side
