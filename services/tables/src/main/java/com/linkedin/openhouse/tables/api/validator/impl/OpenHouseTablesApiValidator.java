@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -106,19 +107,14 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               databaseId, createUpdateTableRequestBody.getDatabaseId()));
     }
     if (createUpdateTableRequestBody.getSchema() != null) {
-      int prevFailures = validationFailures.size();
-      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures);
-      // Only attempt Iceberg schema parsing if no duplicate columns were detected, as duplicate
-      // column names cause Iceberg's SchemaParser to throw an unchecked ValidationException.
-      if (validationFailures.size() == prevFailures
-          && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema())
-              .columns()
-              .isEmpty()) {
-        validationFailures.add(
-            String.format(
-                "schema : provided %s, should contain at least one column",
-                createUpdateTableRequestBody.getSchema()));
-      }
+      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures)
+          .filter(schema -> schema.columns().isEmpty())
+          .ifPresent(
+              schema ->
+                  validationFailures.add(
+                      String.format(
+                          "schema : provided %s, should contain at least one column",
+                          createUpdateTableRequestBody.getSchema())));
     }
     validateSortOrder(
         createUpdateTableRequestBody.getSortOrder(),
@@ -252,17 +248,14 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               tableId, createUpdateTableRequestBody.getTableId()));
     }
     if (createUpdateTableRequestBody.getSchema() != null) {
-      int prevFailures = validationFailures.size();
-      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures);
-      if (validationFailures.size() == prevFailures
-          && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema())
-              .columns()
-              .isEmpty()) {
-        validationFailures.add(
-            String.format(
-                "schema : provided %s, should contain at least one column",
-                createUpdateTableRequestBody.getSchema()));
-      }
+      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures)
+          .filter(schema -> schema.columns().isEmpty())
+          .ifPresent(
+              schema ->
+                  validationFailures.add(
+                      String.format(
+                          "schema : provided %s, should contain at least one column",
+                          createUpdateTableRequestBody.getSchema())));
     }
     if (createUpdateTableRequestBody.isStageCreate()) {
       validationFailures.add(
@@ -401,10 +394,12 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  private void validateNoDuplicateColumns(String schemaJson, List<String> validationFailures) {
+  private Optional<Schema> validateNoDuplicateColumns(
+      String schemaJson, List<String> validationFailures) {
     try {
+      Schema schema = SchemaParser.fromJson(schemaJson);
       TypeUtil.visit(
-          SchemaParser.fromJson(schemaJson),
+          schema,
           new TypeUtil.SchemaVisitor<Void>() {
             final Deque<String> path = new ArrayDeque<>();
 
@@ -496,12 +491,15 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               return null;
             }
           });
+      return Optional.of(schema);
     } catch (org.apache.iceberg.exceptions.ValidationException e) {
-      // Iceberg detected a structural issue (e.g. exact duplicate field names) — surface it as a
-      // validation failure so the caller's prevFailures guard skips the second SchemaParser call.
+      // Iceberg detected a structural issue (e.g. exact duplicate field names).
       validationFailures.add("schema : " + e.getMessage());
+      return Optional.empty();
     } catch (Exception e) {
-      log.warn("Failed to parse schema for duplicate column check; skipping", e);
+      log.warn("Failed to parse schema for duplicate column check", e);
+      validationFailures.add("schema : " + e.getMessage());
+      return Optional.empty();
     }
   }
 
