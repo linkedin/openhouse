@@ -474,11 +474,11 @@ public class TablesServiceImpl implements TablesService {
     com.linkedin.openhouse.internal.catalog.model.StorageLocationDto targetLocation =
         storageLocationRepository.getStorageLocation(storageLocationId);
 
-    // Commit the Iceberg location swap — new metadata.json written at the new URI
-    openHouseInternalRepository.swapStorageLocation(databaseId, tableId, targetLocation.getUri());
-
     // Associate the new StorageLocation with this table
     storageLocationRepository.addStorageLocationToTable(databaseId, tableId, storageLocationId);
+
+    // Commit the Iceberg location swap — new metadata.json written at the new URI
+    openHouseInternalRepository.swapStorageLocation(databaseId, tableId, targetLocation.getUri());
   }
 
   /** Check if table has lock policy defined */
