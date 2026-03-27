@@ -12,20 +12,34 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
+import org.apache.iceberg.types.Types;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
@@ -92,12 +106,15 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "databaseId : provided %s, doesn't match with the RequestBody %s",
               databaseId, createUpdateTableRequestBody.getDatabaseId()));
     }
-    if (createUpdateTableRequestBody.getSchema() != null
-        && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema()).columns().isEmpty()) {
-      validationFailures.add(
-          String.format(
-              "schema : provided %s, should contain at least one column",
-              createUpdateTableRequestBody.getSchema()));
+    if (createUpdateTableRequestBody.getSchema() != null) {
+      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures)
+          .filter(schema -> schema.columns().isEmpty())
+          .ifPresent(
+              schema ->
+                  validationFailures.add(
+                      String.format(
+                          "schema : provided %s, should contain at least one column",
+                          createUpdateTableRequestBody.getSchema())));
     }
     validateSortOrder(
         createUpdateTableRequestBody.getSortOrder(),
@@ -230,12 +247,15 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
               "tableId : provided %s, doesn't match with the RequestBody %s",
               tableId, createUpdateTableRequestBody.getTableId()));
     }
-    if (createUpdateTableRequestBody.getSchema() != null
-        && getSchemaFromSchemaJson(createUpdateTableRequestBody.getSchema()).columns().isEmpty()) {
-      validationFailures.add(
-          String.format(
-              "schema : provided %s, should contain at least one column",
-              createUpdateTableRequestBody.getSchema()));
+    if (createUpdateTableRequestBody.getSchema() != null) {
+      validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures)
+          .filter(schema -> schema.columns().isEmpty())
+          .ifPresent(
+              schema ->
+                  validationFailures.add(
+                      String.format(
+                          "schema : provided %s, should contain at least one column",
+                          createUpdateTableRequestBody.getSchema())));
     }
     if (createUpdateTableRequestBody.isStageCreate()) {
       validationFailures.add(
@@ -371,6 +391,115 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     if (purgeAfterMs < 0) {
       throw new RequestValidationFailureException(
           "purgeAfterMs must be greater than or equal to 0 to purge a soft deleted table");
+    }
+  }
+
+  private Optional<Schema> validateNoDuplicateColumns(
+      String schemaJson, List<String> validationFailures) {
+    try {
+      Schema schema = SchemaParser.fromJson(schemaJson);
+      TypeUtil.visit(
+          schema,
+          new TypeUtil.SchemaVisitor<Void>() {
+            final Deque<String> path = new ArrayDeque<>();
+
+            @Override
+            public void beforeField(Types.NestedField field) {
+              path.push(field.name());
+            }
+
+            @Override
+            public void afterField(Types.NestedField field) {
+              path.pop();
+            }
+
+            @Override
+            public void beforeListElement(Types.NestedField elementField) {
+              path.push("[]");
+            }
+
+            @Override
+            public void afterListElement(Types.NestedField elementField) {
+              path.pop();
+            }
+
+            @Override
+            public void beforeMapKey(Types.NestedField keyField) {
+              path.push("{key}");
+            }
+
+            @Override
+            public void afterMapKey(Types.NestedField keyField) {
+              path.pop();
+            }
+
+            @Override
+            public void beforeMapValue(Types.NestedField valueField) {
+              path.push("{value}");
+            }
+
+            @Override
+            public void afterMapValue(Types.NestedField valueField) {
+              path.pop();
+            }
+
+            @Override
+            public Void struct(Types.StructType struct, List<Void> fieldResults) {
+              Set<String> seen = new HashSet<>();
+              List<String> duplicates =
+                  struct.fields().stream()
+                      .map(Types.NestedField::name)
+                      .filter(name -> !seen.add(name.toLowerCase(Locale.ROOT)))
+                      .collect(Collectors.toList());
+              if (!duplicates.isEmpty()) {
+                List<String> parts = new ArrayList<>(path);
+                Collections.reverse(parts);
+                String location =
+                    parts.isEmpty()
+                        ? "top-level"
+                        : "struct field '" + String.join(".", parts) + "'";
+                validationFailures.add(
+                    String.format(
+                        "schema : duplicate column names found %s in %s. Column names must be unique (case-insensitive).",
+                        duplicates, location));
+              }
+              return null;
+            }
+
+            @Override
+            public Void schema(Schema schema, Void structResult) {
+              return null;
+            }
+
+            @Override
+            public Void field(Types.NestedField field, Void fieldResult) {
+              return null;
+            }
+
+            @Override
+            public Void list(Types.ListType list, Void elementResult) {
+              return null;
+            }
+
+            @Override
+            public Void map(Types.MapType map, Void keyResult, Void valueResult) {
+              return null;
+            }
+
+            @Override
+            public Void primitive(Type.PrimitiveType primitive) {
+              return null;
+            }
+          });
+      return Optional.of(schema);
+    } catch (org.apache.iceberg.exceptions.ValidationException e) {
+      // Iceberg detected a structural issue (e.g. exact duplicate field names).
+      validationFailures.add("schema : " + e.getMessage());
+      return Optional.empty();
+    } catch (Exception e) {
+      log.warn("Failed to parse schema for duplicate column check", e);
+      validationFailures.add("schema : " + e.getMessage());
+      return Optional.empty();
     }
   }
 

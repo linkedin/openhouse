@@ -130,7 +130,186 @@ public class TablesValidatorTest {
                     .build()));
   }
 
-  // TODO: Add a case for schema validation error.
+  @Test
+  public void validateCreateTableWithDuplicateColumns() {
+    String schemaWithDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"id\",\"type\":\"string\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"id\",\"type\":\"int\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableWithDuplicateColumnsCaseInsensitive() {
+    String schemaWithCaseDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"MyCol\",\"type\":\"string\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"mycol\",\"type\":\"int\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithCaseDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableWithDuplicateColumnsMixedCase() {
+    String schemaWithMixedCaseDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"pageLoadTime_job_home_web\",\"type\":\"string\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"pageloadtime_job_home_web\",\"type\":\"string\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithMixedCaseDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableWithDuplicateColumnsInNestedStruct() {
+    // Duplicate field names inside a nested struct type
+    String schemaWithNestedDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"address\",\"type\":{"
+            + "\"type\":\"struct\",\"fields\":["
+            + "{\"id\":2,\"required\":true,\"name\":\"street\",\"type\":\"string\"},"
+            + "{\"id\":3,\"required\":true,\"name\":\"Street\",\"type\":\"string\"}"
+            + "]}}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithNestedDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableWithDuplicateColumnsInListElementStruct() {
+    // Duplicate field names inside a struct that is the element type of a list
+    String schemaWithListStructDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"items\",\"type\":{"
+            + "\"type\":\"list\",\"element-id\":2,\"element-required\":true,"
+            + "\"element\":{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":3,\"required\":true,\"name\":\"tag\",\"type\":\"string\"},"
+            + "{\"id\":4,\"required\":true,\"name\":\"TAG\",\"type\":\"string\"}"
+            + "]}}}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithListStructDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableWithDuplicateColumnsInMapValueStruct() {
+    // Duplicate field names inside a struct that is the value type of a map
+    String schemaWithMapStructDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"metadata\",\"type\":{"
+            + "\"type\":\"map\",\"key-id\":2,\"key\":\"string\",\"value-id\":3,\"value-required\":true,"
+            + "\"value\":{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":4,\"required\":true,\"name\":\"score\",\"type\":\"double\"},"
+            + "{\"id\":5,\"required\":true,\"name\":\"Score\",\"type\":\"double\"}"
+            + "]}}}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithMapStructDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableWithDuplicateColumnsInMapKeyStruct() {
+    // Duplicate field names inside a struct used as a map key type
+    String schemaWithMapKeyStructDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"lookup\",\"type\":{"
+            + "\"type\":\"map\",\"key-id\":2,\"value-id\":3,\"value-required\":true,"
+            + "\"key\":{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":4,\"required\":true,\"name\":\"region\",\"type\":\"string\"},"
+            + "{\"id\":5,\"required\":true,\"name\":\"Region\",\"type\":\"string\"}"
+            + "]},"
+            + "\"value\":\"string\"}}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithMapKeyStructDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
 
   @Test
   public void validateCreateTableRequestParamNotMatchingRequestBody() {
@@ -376,6 +555,54 @@ public class TablesValidatorTest {
             .baseTableVersion("base")
             .tableProperties(ImmutableMap.of())
             .build());
+  }
+
+  @Test
+  public void validateUpdateTableWithDuplicateColumns() {
+    String schemaWithDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"id\",\"type\":\"string\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"id\",\"type\":\"int\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateUpdateTableWithDuplicateColumnsMixedCase() {
+    String schemaWithMixedCaseDuplicates =
+        "{\"type\":\"struct\",\"fields\":["
+            + "{\"id\":1,\"required\":true,\"name\":\"pageLoadTime_job_home_web\",\"type\":\"string\"},"
+            + "{\"id\":2,\"required\":true,\"name\":\"pageloadtime_job_home_web\",\"type\":\"string\"}"
+            + "]}";
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(schemaWithMixedCaseDuplicates)
+                    .tableProperties(ImmutableMap.of())
+                    .baseTableVersion("base")
+                    .build()));
   }
 
   @Test
