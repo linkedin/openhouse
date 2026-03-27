@@ -365,6 +365,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             .filter(entry -> preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
+    // Pass through storage location ID if set (used by allocateTableLocation for path construction)
+    String slId = tableDto.getTableProperties().get("openhouse.storageLocationId");
+    if (slId != null) {
+      propertiesMap.put("openhouse.storageLocationId", slId);
+    }
+
     // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
     // (which means either they didn't specify it, or the feature toggle filtered it out)
     if (!propertiesMap.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {

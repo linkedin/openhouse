@@ -103,27 +103,47 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String tableCreator) {
     tablesApiValidator.validateCreateTable(
         clusterProperties.getClusterName(), databaseId, createUpdateTableRequestBody);
-    Pair<TableDto, Boolean> putResult =
-        tableService.putTable(createUpdateTableRequestBody, tableCreator, true);
-    TableDto createdTable = putResult.getFirst();
     String tableId = createUpdateTableRequestBody.getTableId();
 
-    // Auto-register the initial table location as a StorageLocation in HTS.
-    java.util.List<com.linkedin.openhouse.internal.catalog.model.StorageLocationDto> locations =
-        java.util.List.of();
+    // Pre-allocate a StorageLocation so its ID can be used in the table path.
+    String allocatedSlId = null;
     try {
-      String baseDir = stripMetadataFilename(createdTable.getTableLocation());
-      com.linkedin.openhouse.internal.catalog.model.StorageLocationDto created =
-          storageLocationRepository.createStorageLocation(baseDir);
-      storageLocationRepository.addStorageLocationToTable(
-          databaseId, tableId, created.getStorageLocationId());
-      locations = storageLocationRepository.getStorageLocationsForTable(databaseId, tableId);
+      com.linkedin.openhouse.internal.catalog.model.StorageLocationDto allocated =
+          storageLocationRepository.allocateStorageLocation();
+      allocatedSlId = allocated.getStorageLocationId();
+      java.util.Map<String, String> props =
+          new java.util.HashMap<>(createUpdateTableRequestBody.getTableProperties());
+      props.put("openhouse.storageLocationId", allocatedSlId);
+      createUpdateTableRequestBody =
+          createUpdateTableRequestBody.toBuilder().tableProperties(props).build();
     } catch (Exception e) {
       log.warn(
-          "Failed to auto-register storage location for {}.{}: {}",
+          "Failed to pre-allocate storage location for {}.{}: {}",
           databaseId,
           tableId,
           e.getMessage());
+    }
+
+    Pair<TableDto, Boolean> putResult =
+        tableService.putTable(createUpdateTableRequestBody, tableCreator, true);
+    TableDto createdTable = putResult.getFirst();
+
+    // After table creation, update the StorageLocation URI and link it to the table.
+    java.util.List<com.linkedin.openhouse.internal.catalog.model.StorageLocationDto> locations =
+        java.util.List.of();
+    if (allocatedSlId != null) {
+      try {
+        String baseDir = stripMetadataFilename(createdTable.getTableLocation());
+        storageLocationRepository.updateStorageLocationUri(allocatedSlId, baseDir);
+        storageLocationRepository.addStorageLocationToTable(databaseId, tableId, allocatedSlId);
+        locations = storageLocationRepository.getStorageLocationsForTable(databaseId, tableId);
+      } catch (Exception e) {
+        log.warn(
+            "Failed to register storage location for {}.{}: {}",
+            databaseId,
+            tableId,
+            e.getMessage());
+      }
     }
 
     GetTableResponseBody responseBody =
@@ -162,26 +182,45 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String tableCreatorUpdator) {
     tablesApiValidator.validateUpdateTable(
         clusterProperties.getClusterName(), databaseId, tableId, createUpdateTableRequestBody);
+
+    // Pre-allocate a StorageLocation so its ID can be used in the table path.
+    // This only matters for new tables; for updates the property is ignored by the repo layer.
+    String allocatedSlId = null;
+    try {
+      com.linkedin.openhouse.internal.catalog.model.StorageLocationDto allocated =
+          storageLocationRepository.allocateStorageLocation();
+      allocatedSlId = allocated.getStorageLocationId();
+      java.util.Map<String, String> props =
+          new java.util.HashMap<>(createUpdateTableRequestBody.getTableProperties());
+      props.put("openhouse.storageLocationId", allocatedSlId);
+      createUpdateTableRequestBody =
+          createUpdateTableRequestBody.toBuilder().tableProperties(props).build();
+    } catch (Exception e) {
+      log.warn(
+          "Failed to pre-allocate storage location for {}.{}: {}",
+          databaseId,
+          tableId,
+          e.getMessage());
+    }
+
     Pair<TableDto, Boolean> putResult =
         tableService.putTable(createUpdateTableRequestBody, tableCreatorUpdator, false);
     boolean isCreated = putResult.getSecond();
     TableDto tableDto = putResult.getFirst();
     HttpStatus status = isCreated ? HttpStatus.CREATED : HttpStatus.OK;
 
-    // Auto-register initial StorageLocation when a new table is created via PUT.
+    // After table creation, update the StorageLocation URI and link it to the table.
     java.util.List<com.linkedin.openhouse.internal.catalog.model.StorageLocationDto> locations =
         java.util.List.of();
-    if (isCreated) {
+    if (isCreated && allocatedSlId != null) {
       try {
         String baseDir = stripMetadataFilename(tableDto.getTableLocation());
-        com.linkedin.openhouse.internal.catalog.model.StorageLocationDto created =
-            storageLocationRepository.createStorageLocation(baseDir);
-        storageLocationRepository.addStorageLocationToTable(
-            databaseId, tableId, created.getStorageLocationId());
+        storageLocationRepository.updateStorageLocationUri(allocatedSlId, baseDir);
+        storageLocationRepository.addStorageLocationToTable(databaseId, tableId, allocatedSlId);
         locations = storageLocationRepository.getStorageLocationsForTable(databaseId, tableId);
       } catch (Exception e) {
         log.warn(
-            "Failed to auto-register storage location for {}.{}: {}",
+            "Failed to register storage location for {}.{}: {}",
             databaseId,
             tableId,
             e.getMessage());

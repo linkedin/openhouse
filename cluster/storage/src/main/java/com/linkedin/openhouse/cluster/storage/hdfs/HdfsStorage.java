@@ -55,6 +55,7 @@ public class HdfsStorage extends BaseStorage {
       String tableUUID,
       String tableCreator,
       Map<String, String> tableProperties) {
-    return Paths.get(getClient().getRootPrefix(), databaseId, tableId + "-" + tableUUID).toString();
+    String locationId = calculateTableLocationId(tableId, tableUUID, tableProperties);
+    return Paths.get(getClient().getRootPrefix(), databaseId, locationId).toString();
   }
 }
