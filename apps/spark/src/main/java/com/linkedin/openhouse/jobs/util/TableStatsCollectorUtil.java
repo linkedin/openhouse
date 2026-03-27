@@ -744,8 +744,10 @@ public final class TableStatsCollectorUtil {
     List<String> columnNames = getColumnNamesFromReadableMetrics(table, spark, fullTableName);
 
     if (columnNames.isEmpty()) {
-      log.warn("No columns with metrics found for partitioned table: {}", fullTableName);
-      return Collections.emptyList();
+      log.warn(
+          "No columns with readable_metrics found for partitioned table: {}. "
+              + "Will still emit rowCount and columnCount.",
+          fullTableName);
     }
 
     Dataset<Row> partitionStatsDF =
@@ -800,10 +802,21 @@ public final class TableStatsCollectorUtil {
     List<String> columnAggExpressions = buildColumnAggregationExpressions(columnNames);
 
     // Build SQL query with GROUP BY partition
-    String aggregationQuery =
-        String.format(
-            "SELECT partition, sum(record_count) as total_row_count, %s FROM %s.data_files GROUP BY partition",
-            String.join(", ", columnAggExpressions), fullTableName);
+    String aggregationQuery;
+    if (columnAggExpressions.isEmpty()) {
+      // No column-level metrics available — just get row count per partition
+      aggregationQuery =
+          String.format(
+              "SELECT partition, sum(record_count) as total_row_count"
+                  + " FROM %s.data_files GROUP BY partition",
+              fullTableName);
+    } else {
+      aggregationQuery =
+          String.format(
+              "SELECT partition, sum(record_count) as total_row_count, %s"
+                  + " FROM %s.data_files GROUP BY partition",
+              String.join(", ", columnAggExpressions), fullTableName);
+    }
 
     log.debug("Building partition stats aggregation query");
     return spark.sql(aggregationQuery);
