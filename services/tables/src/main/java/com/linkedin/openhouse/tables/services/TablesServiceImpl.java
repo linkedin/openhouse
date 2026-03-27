@@ -11,6 +11,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.StorageLocationRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -51,6 +52,8 @@ public class TablesServiceImpl implements TablesService {
   @Autowired AuthorizationHandler authorizationHandler;
 
   @Autowired TableUUIDGenerator tableUUIDGenerator;
+
+  @Autowired StorageLocationRepository storageLocationRepository;
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -450,6 +453,32 @@ public class TablesServiceImpl implements TablesService {
               tableDto.getDatabaseId(), tableDto.getTableId(), tableDto.getTableType());
       throw new UnsupportedOperationException(errMsg);
     }
+  }
+
+  @Override
+  public void updateStorageLocation(
+      String databaseId, String tableId, String storageLocationId, String actingPrincipal) {
+    // Verify table exists
+    TableDto tableDto =
+        openHouseInternalRepository
+            .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .orElseThrow(
+                () ->
+                    new com.linkedin.openhouse.common.exception.NoSuchUserTableException(
+                        databaseId, tableId));
+
+    authorizationUtils.checkTablePrivilege(
+        tableDto, actingPrincipal, Privileges.UPDATE_TABLE_METADATA);
+
+    // Look up the target StorageLocation to get its URI
+    com.linkedin.openhouse.internal.catalog.model.StorageLocationDto targetLocation =
+        storageLocationRepository.getStorageLocation(storageLocationId);
+
+    // Commit the Iceberg location swap — new metadata.json written at the new URI
+    openHouseInternalRepository.swapStorageLocation(databaseId, tableId, targetLocation.getUri());
+
+    // Associate the new StorageLocation with this table
+    storageLocationRepository.addStorageLocationToTable(databaseId, tableId, storageLocationId);
   }
 
   /** Check if table has lock policy defined */

@@ -776,6 +776,19 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
   }
 
+  @Override
+  public void swapStorageLocation(String databaseId, String tableId, String newUri) {
+    TableIdentifier identifier = TableIdentifier.of(databaseId, tableId);
+    Table table = catalog.loadTable(identifier);
+    org.apache.iceberg.TableOperations ops =
+        ((org.apache.iceberg.HasTableOperations) table).operations();
+    org.apache.iceberg.TableMetadata current = ops.current();
+    org.apache.iceberg.TableMetadata updated =
+        org.apache.iceberg.TableMetadata.buildFrom(current).setLocation(newUri).build();
+    ops.commit(current, updated);
+    log.info("Swapped storage location for {}.{} to {}", databaseId, tableId, newUri);
+  }
+
   private UnsupportedOperationException getUnsupportedException() {
     return new UnsupportedOperationException(
         "Only save, findById, existsById supported for OpenHouseCatalog");

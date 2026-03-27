@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.api.spec.v0.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.gson.Gson;
+import com.linkedin.openhouse.internal.catalog.model.StorageLocationDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -105,6 +106,14 @@ public class GetTableResponseBody {
           "\"sortOrder\":{\"order-id\":1,\"fields\":[{\"transform\":\"identity\",\"source-id\":1,\"direction\":\"asc\",\"null-order\":\"nulls-first\"}]}")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String sortOrder;
+
+  @Schema(
+      nullable = true,
+      description =
+          "All storage locations associated with this table. The active location is the one whose "
+              + "URI is the base path of the current tableLocation.")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private List<StorageLocationDto> storageLocations;
 
   public String toJson() {
     return new Gson().toJson(this);

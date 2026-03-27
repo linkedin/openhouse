@@ -69,6 +69,25 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   }
 
   /**
+   * Exposes the HTS WebClient directly for components that make raw HTTP calls to HTS (e.g.,
+   * StorageLocationRepositoryImpl) without using the generated typed client.
+   */
+  @Bean("htsWebClient")
+  public WebClient provideHtsWebClient() {
+    String htsBasePath = clusterProperties.getClusterHouseTablesBaseUri();
+    HttpClient httpClient =
+        HttpClient.create(
+                HttpConnectionPoolProviderConfig.getCustomConnectionProvider(
+                    "tables-hts-storage-location-pool"))
+            .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)));
+    return ApiClient.buildWebClientBuilder()
+        .baseUrl(htsBasePath)
+        .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
+        .clientConnector(new ReactorClientHttpConnector(httpClient))
+        .build();
+  }
+
+  /**
    * When cluster properties are available, obtain hts base URI and inject API client
    * implementation. This also puts availability of HTS as prerequisite for /table services.
    *

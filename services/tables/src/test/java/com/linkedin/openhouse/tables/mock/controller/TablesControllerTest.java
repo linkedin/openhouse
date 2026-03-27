@@ -366,6 +366,54 @@ public class TablesControllerTest {
   }
 
   @Test
+  public void testUpdateStorageLocation2xx() throws Exception {
+    String body = "{\"storageLocationId\":\"some-uuid\"}";
+    mvc.perform(
+            MockMvcRequestBuilders.patch(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/tb1/storageLocation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(content().json(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY.toJson()));
+  }
+
+  @Test
+  public void testUpdateStorageLocation4xx() throws Exception {
+    String body = "{\"storageLocationId\":\"some-uuid\"}";
+    mvc.perform(
+            MockMvcRequestBuilders.patch(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables/tb1/storageLocation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  public void testUpdateStorageLocation401() throws Exception {
+    String body = "{\"storageLocationId\":\"some-uuid\"}";
+    mvc.perform(
+            MockMvcRequestBuilders.patch(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/tb1/storageLocation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(
+            MockMvcRequestBuilders.patch(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/tb1/storageLocation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + invalidAccessToken))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   public void testCreateUpdateResponseCodeForVariousExceptions() throws Exception {
     List<AbstractMap.SimpleEntry<String, Integer>> list =
         Arrays.asList(

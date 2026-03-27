@@ -123,6 +123,7 @@ public interface TablesMapper {
    *     com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody} to be forwarded to
    *     the client.
    */
+  @Mapping(target = "storageLocations", ignore = true)
   GetTableResponseBody toGetTableResponseBody(TableDto tableDto);
 
   @Mappings({
