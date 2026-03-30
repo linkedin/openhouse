@@ -107,6 +107,10 @@ class TestTableValidation:
         with pytest.raises(ValueError, match="exactly 1 table, found 0"):
             to_datafusion_sql("SELECT 1 AS x", "datafusion", table=_DB_TBL)
 
+    def test_case_insensitive_table_match(self) -> None:
+        result = to_datafusion_sql('SELECT id FROM "DB"."TBL"', "datafusion", table=_DB_TBL)
+        assert result == 'SELECT id FROM "DB"."TBL"'
+
     def test_spark_table_validated_after_transpilation(self) -> None:
         result = to_datafusion_sql("SELECT id FROM `db`.`tbl`", "spark", table=_DB_TBL)
         assert result == 'SELECT id FROM "db"."tbl"'

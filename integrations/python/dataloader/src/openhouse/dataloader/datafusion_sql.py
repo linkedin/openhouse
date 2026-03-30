@@ -173,7 +173,7 @@ def _find_and_validate_table(ast: exp.Expression, table: TableIdentifier, origin
     actual_db = table_node.db
     actual_name = table_node.name
     # TODO add OpenHouse branch validation
-    if actual_db != table.database or actual_name != table.table:
+    if actual_db.lower() != table.database.lower() or actual_name.lower() != table.table.lower():
         raise ValueError(
             f"Transformer SQL references {actual_db}.{actual_name}, expected {table.database}.{table.table}"
         )
