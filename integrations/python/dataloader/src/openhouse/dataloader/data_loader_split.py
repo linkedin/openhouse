@@ -10,13 +10,9 @@ from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
 
 from openhouse.dataloader._table_scan_context import TableScanContext
+from openhouse.dataloader.filters import _quote_identifier
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
-
-
-def _quote_identifier(name: str) -> str:
-    """Escape a SQL identifier by doubling embedded double quotes and wrapping in double quotes."""
-    return '"' + name.replace('"', '""') + '"'
 
 
 def to_sql_identifier(table_id: TableIdentifier) -> str:
