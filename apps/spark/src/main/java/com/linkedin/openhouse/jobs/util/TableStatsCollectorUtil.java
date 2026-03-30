@@ -744,8 +744,11 @@ public final class TableStatsCollectorUtil {
     List<String> columnNames = getColumnNamesFromReadableMetrics(table, spark, fullTableName);
 
     if (columnNames.isEmpty()) {
-      log.warn("No columns with metrics found for partitioned table: {}", fullTableName);
-      return Collections.emptyList();
+      log.warn(
+          "No columns with readable_metrics found for partitioned table: {}. "
+              + "Will still emit rowCount and columnCount (schema has {} columns).",
+          fullTableName,
+          schema.columns().size());
     }
 
     Dataset<Row> partitionStatsDF =
@@ -800,10 +803,21 @@ public final class TableStatsCollectorUtil {
     List<String> columnAggExpressions = buildColumnAggregationExpressions(columnNames);
 
     // Build SQL query with GROUP BY partition
-    String aggregationQuery =
-        String.format(
-            "SELECT partition, sum(record_count) as total_row_count, %s FROM %s.data_files GROUP BY partition",
-            String.join(", ", columnAggExpressions), fullTableName);
+    String aggregationQuery;
+    if (columnAggExpressions.isEmpty()) {
+      // No column-level metrics available — just get row count per partition
+      aggregationQuery =
+          String.format(
+              "SELECT partition, sum(record_count) as total_row_count"
+                  + " FROM %s.data_files GROUP BY partition",
+              fullTableName);
+    } else {
+      aggregationQuery =
+          String.format(
+              "SELECT partition, sum(record_count) as total_row_count, %s"
+                  + " FROM %s.data_files GROUP BY partition",
+              String.join(", ", columnAggExpressions), fullTableName);
+    }
 
     log.debug("Building partition stats aggregation query");
     return spark.sql(aggregationQuery);
@@ -814,16 +828,17 @@ public final class TableStatsCollectorUtil {
       Dataset<Row> latestCommitsDF, Dataset<Row> partitionStatsDF) {
     log.info("Joining partition stats with commit metadata...");
 
-    // Perform inner join on partition
+    // Use left join so partitions with commits but no current data_files (e.g., fully
+    // deleted partitions) are still emitted with rowCount=0 instead of being silently dropped.
     Dataset<Row> joinedDF =
         latestCommitsDF
             .join(
                 partitionStatsDF,
                 latestCommitsDF.col("partition").equalTo(partitionStatsDF.col("partition")),
-                "inner")
+                "left")
             .drop(
                 partitionStatsDF.col(
-                    "partition")); // Drop duplicate partition column from right side
+                    "partition")); // Safe with left join: Spark drops by plan reference, not value
 
     log.debug("Join operation defined (will execute on first action)");
     return joinedDF;
@@ -902,8 +917,11 @@ public final class TableStatsCollectorUtil {
     log.info("Found {} columns with metrics for unpartitioned table", columnNames.size());
 
     if (columnNames.isEmpty()) {
-      log.warn("No columns with metrics found for unpartitioned table: {}", fullTableName);
-      return Collections.emptyList();
+      log.warn(
+          "No columns with readable_metrics found for unpartitioned table: {}. "
+              + "Will still emit rowCount and columnCount (schema has {} columns).",
+          fullTableName,
+          schema.columns().size());
     }
 
     // Step 2: Aggregate statistics from ALL data_files (no partitioning)
@@ -946,10 +964,18 @@ public final class TableStatsCollectorUtil {
     List<String> columnAggExpressions = buildColumnAggregationExpressions(columnNames);
 
     // Build SQL query WITHOUT GROUP BY (aggregate all files)
-    String aggregationQuery =
-        String.format(
-            "SELECT sum(record_count) as total_row_count, %s FROM %s.data_files",
-            String.join(", ", columnAggExpressions), fullTableName);
+    String aggregationQuery;
+    if (columnAggExpressions.isEmpty()) {
+      // No column-level metrics available — just get row count
+      aggregationQuery =
+          String.format(
+              "SELECT sum(record_count) as total_row_count FROM %s.data_files", fullTableName);
+    } else {
+      aggregationQuery =
+          String.format(
+              "SELECT sum(record_count) as total_row_count, %s FROM %s.data_files",
+              String.join(", ", columnAggExpressions), fullTableName);
+    }
 
     log.debug("Building unpartitioned table stats aggregation query");
     Dataset<Row> statsDF = spark.sql(aggregationQuery);
