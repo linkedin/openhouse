@@ -326,7 +326,7 @@ def _literal_to_sql(value: object) -> str:
     if isinstance(value, str):
         return exp.Literal.string(value).sql()
     if isinstance(value, bool):
-        return exp.true_().sql() if value else exp.false_().sql()
+        return exp.Boolean(this=True).sql() if value else exp.Boolean(this=False).sql()
     if isinstance(value, (int, float)):
         return exp.Literal.number(value).sql()
     raise TypeError(f"Unsupported literal type: {type(value).__name__}")
@@ -336,7 +336,7 @@ def _to_datafusion_sql(expr: Filter) -> str:
     """Convert a Filter expression tree to a DataFusion SQL expression string."""
     match expr:
         case AlwaysTrue():
-            return exp.true_().sql()
+            return exp.Boolean(this=True).sql()
 
         # Comparison
         case EqualTo(column, value):

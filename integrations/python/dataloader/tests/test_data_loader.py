@@ -581,7 +581,7 @@ class _FilteringTransformer(TableTransformer):
 
 
 def test_iter_with_transformer_where_extracts_predicate(tmp_path):
-    """Transform with WHERE status='active' + columns=[id] → scan includes status for predicate evaluation, row_filter has predicate."""
+    """Transform with WHERE + columns=[id] → scan includes status for predicate, row_filter has predicate."""
     extra_schema = Schema(
         NestedField(field_id=1, name=COL_ID, field_type=LongType(), required=False),
         NestedField(field_id=2, name=COL_NAME, field_type=StringType(), required=False),

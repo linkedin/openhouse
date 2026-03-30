@@ -14,7 +14,14 @@ from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.datafusion_sql import DataFusion, to_datafusion_sql
-from openhouse.dataloader.filters import AlwaysTrue, Filter, _quote_identifier, _to_datafusion_sql, _to_pyiceberg, always_true
+from openhouse.dataloader.filters import (
+    AlwaysTrue,
+    Filter,
+    _quote_identifier,
+    _to_datafusion_sql,
+    _to_pyiceberg,
+    always_true,
+)
 from openhouse.dataloader.scan_optimizer import optimize_scan
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
