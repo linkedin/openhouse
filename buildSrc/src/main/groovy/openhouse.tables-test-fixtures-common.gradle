@@ -21,6 +21,11 @@ dependencies {
     exclude group: 'org.ow2.asm'
     exclude group: 'org.xerial'
     exclude group: 'javax'
+    // Keep fixtures logging-neutral so consuming apps own their logging stack.
+    exclude group: 'org.springframework.boot', module: 'spring-boot-starter-log4j2'
+    exclude group: 'org.apache.logging.log4j'
+    exclude group: 'org.slf4j'
+    exclude group: 'log4j'
   }
 
   compileOnly 'org.springframework.boot:spring-boot-starter-tomcat:' + spring_web_version
