@@ -1,4 +1,4 @@
-FROM openjdk:11.0.11-jdk-slim-buster as builder
+FROM eclipse-temurin:11-jdk as builder
 
 RUN apt-get update && apt-get install -y \
     git curl vim zip software-properties-common ssh net-tools ca-certificates \
@@ -14,7 +14,7 @@ LIVY_VERSION=0.8.0-incubating-SNAPSHOT \
 LIVY_HOME=/opt/livy \
 HADOOP_VERSION=3 \
 SPARK_HOME=/opt/spark \
-MAVEN_VERSION=3.9.4 \
+MAVEN_VERSION=3.9.9 \
 PYTHONHASHSEED=1
 
 # install apache spark
@@ -25,7 +25,7 @@ RUN curl --no-verbose -o apache-spark.tgz \
   && rm apache-spark.tgz
 
 # install maven to build apache livy
-RUN curl --no-verbose -o maven.tgz https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
+RUN curl --no-verbose -o maven.tgz https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
   && mkdir -p /opt/maven \
   && tar -xf maven.tgz -C /opt/maven --strip-components=1 \
   && rm maven.tgz
