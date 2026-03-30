@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateStorageLocationRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -202,4 +203,20 @@ public interface TablesApiHandler {
    */
   ApiResponse<Void> restoreTable(
       String databaseId, String tableId, long deletedAtMs, String actingPrincipal);
+
+  /**
+   * Swap the active storage location for a table to the StorageLocation identified by {@code
+   * requestBody.storageLocationId}. Writes a new Iceberg metadata.json at the new URI.
+   *
+   * @param databaseId database containing the table
+   * @param tableId the table to update
+   * @param requestBody contains the target storageLocationId
+   * @param actingPrincipal user performing the operation
+   * @return updated table response
+   */
+  ApiResponse<GetTableResponseBody> updateStorageLocation(
+      String databaseId,
+      String tableId,
+      UpdateStorageLocationRequestBody requestBody,
+      String actingPrincipal);
 }

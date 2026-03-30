@@ -57,3 +57,16 @@ CREATE TABLE IF NOT EXISTS soft_deleted_user_table_row (
     purge_after_ms      BIGINT          NOT NULL,
     PRIMARY KEY (database_id, table_id, deleted_at_ms)
 );
+
+CREATE TABLE IF NOT EXISTS storage_location (
+    storage_location_id  VARCHAR(36)    NOT NULL,
+    uri                  VARCHAR(2048)  NOT NULL,
+    created_at           DATETIME(6)    DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (storage_location_id)
+);
+
+CREATE TABLE IF NOT EXISTS table_storage_location (
+    table_uuid           VARCHAR(36)    NOT NULL,
+    storage_location_id  VARCHAR(36)    NOT NULL,
+    PRIMARY KEY (table_uuid, storage_location_id)
+);

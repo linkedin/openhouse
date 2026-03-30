@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateStorageLocationRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -505,6 +506,41 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.restoreTable(
             databaseId, tableId, deletedAtMs, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Update the active storage location of a Table",
+      description =
+          "Swaps the active storage location for a table to the given StorageLocation. "
+              + "All new Iceberg writes (data and metadata files) will land at the new location URI. "
+              + "Existing manifest entries remain valid at their original locations.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table storageLocation PATCH: OK"),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Table storageLocation PATCH: BAD_REQUEST"),
+        @ApiResponse(
+            responseCode = "401",
+            description = "Table storageLocation PATCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Table storageLocation PATCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Table storageLocation PATCH: NOT_FOUND")
+      })
+  @PatchMapping(
+      value = "/v1/databases/{databaseId}/tables/{tableId}/storageLocation",
+      produces = {"application/json"},
+      consumes = {"application/json"})
+  @Secured(value = Privileges.Privilege.UPDATE_TABLE_METADATA)
+  public ResponseEntity<GetTableResponseBody> updateStorageLocation(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @RequestBody UpdateStorageLocationRequestBody requestBody) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableResponseBody> apiResponse =
+        tablesApiHandler.updateStorageLocation(
+            databaseId, tableId, requestBody, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

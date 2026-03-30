@@ -33,4 +33,15 @@ public interface OpenHouseInternalRepository
   void purgeSoftDeletedTableById(TableDtoPrimaryKey tableDtoPrimaryKey, long purgeAfterMs);
 
   void restoreTable(SoftDeletedTablePrimaryKey softDeletedTablePrimaryKey);
+
+  /**
+   * Swap the Iceberg metadata.location for a table to {@code newUri}. This writes a new
+   * metadata.json at the new path, redirecting all subsequent data and metadata writes there.
+   * Existing manifest entries remain valid at their original locations.
+   *
+   * @param databaseId database containing the table
+   * @param tableId the table to update
+   * @param newUri base URI of the new storage location (the new Iceberg metadata.location)
+   */
+  void swapStorageLocation(String databaseId, String tableId, String newUri);
 }

@@ -2,10 +2,12 @@ package com.linkedin.openhouse.tables.api.handler.impl;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.internal.catalog.repository.StorageLocationRepository;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateStorageLocationRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -15,6 +17,7 @@ import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
@@ -24,6 +27,7 @@ import org.springframework.stereotype.Component;
  * Default OpenHouse Tables API Handler Implementation that is the layer between REST and Backend.
  */
 @Component
+@Slf4j
 public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Autowired private TablesApiValidator tablesApiValidator;
@@ -34,15 +38,30 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Autowired private ClusterProperties clusterProperties;
 
+  @Autowired private StorageLocationRepository storageLocationRepository;
+
   @Override
   public ApiResponse<GetTableResponseBody> getTable(
       String databaseId, String tableId, String actingPrincipal) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
+    TableDto tableDto = tableService.getTable(databaseId, tableId, actingPrincipal);
+    java.util.List<com.linkedin.openhouse.internal.catalog.model.StorageLocationDto> locations;
+    try {
+      locations = storageLocationRepository.getStorageLocationsForTable(tableDto.getTableUUID());
+    } catch (Exception e) {
+      log.warn(
+          "Failed to fetch storage locations for {}.{}: {}", databaseId, tableId, e.getMessage());
+      locations = java.util.List.of();
+    }
+    GetTableResponseBody responseBody =
+        tablesMapper
+            .toGetTableResponseBody(tableDto)
+            .toBuilder()
+            .storageLocations(locations)
+            .build();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.OK)
-        .responseBody(
-            tablesMapper.toGetTableResponseBody(
-                tableService.getTable(databaseId, tableId, actingPrincipal)))
+        .responseBody(responseBody)
         .build();
   }
 
@@ -84,12 +103,77 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String tableCreator) {
     tablesApiValidator.validateCreateTable(
         clusterProperties.getClusterName(), databaseId, createUpdateTableRequestBody);
+    String tableId = createUpdateTableRequestBody.getTableId();
+
+    // Pre-allocate a StorageLocation so its ID can be used in the table path.
+    String allocatedSlId = null;
+    try {
+      com.linkedin.openhouse.internal.catalog.model.StorageLocationDto allocated =
+          storageLocationRepository.allocateStorageLocation();
+      allocatedSlId = allocated.getStorageLocationId();
+      java.util.Map<String, String> props =
+          new java.util.HashMap<>(createUpdateTableRequestBody.getTableProperties());
+      props.put("openhouse.storageLocationId", allocatedSlId);
+      createUpdateTableRequestBody =
+          createUpdateTableRequestBody.toBuilder().tableProperties(props).build();
+    } catch (Exception e) {
+      log.warn(
+          "Failed to pre-allocate storage location for {}.{}: {}",
+          databaseId,
+          tableId,
+          e.getMessage());
+    }
+
     Pair<TableDto, Boolean> putResult =
         tableService.putTable(createUpdateTableRequestBody, tableCreator, true);
+    TableDto createdTable = putResult.getFirst();
+
+    // After table creation, update the StorageLocation URI and link it to the table.
+    java.util.List<com.linkedin.openhouse.internal.catalog.model.StorageLocationDto> locations =
+        java.util.List.of();
+    if (allocatedSlId != null) {
+      try {
+        String baseDir = stripMetadataFilename(createdTable.getTableLocation());
+        storageLocationRepository.updateStorageLocationUri(allocatedSlId, baseDir);
+        storageLocationRepository.addStorageLocationToTable(
+            createdTable.getTableUUID(), allocatedSlId);
+        locations =
+            storageLocationRepository.getStorageLocationsForTable(createdTable.getTableUUID());
+      } catch (Exception e) {
+        log.warn(
+            "Failed to register storage location for {}.{}: {}",
+            databaseId,
+            tableId,
+            e.getMessage());
+      }
+    }
+
+    GetTableResponseBody responseBody =
+        tablesMapper
+            .toGetTableResponseBody(createdTable)
+            .toBuilder()
+            .storageLocations(locations)
+            .build();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
-        .responseBody(tablesMapper.toGetTableResponseBody(putResult.getFirst()))
+        .responseBody(responseBody)
         .build();
+  }
+
+  /**
+   * Strips the metadata JSON filename from a tableLocation URI, returning the base directory. e.g.
+   * "hdfs://nn:9000/data/openhouse/db/tbl-uuid/00001-xxx.metadata.json" ->
+   * "hdfs://nn:9000/data/openhouse/db/tbl-uuid"
+   */
+  private static String stripMetadataFilename(String tableLocation) {
+    if (tableLocation == null) {
+      return "";
+    }
+    int lastSlash = tableLocation.lastIndexOf('/');
+    if (lastSlash > 0 && tableLocation.contains(".metadata.json")) {
+      return tableLocation.substring(0, lastSlash);
+    }
+    return tableLocation;
   }
 
   @Override
@@ -100,12 +184,60 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String tableCreatorUpdator) {
     tablesApiValidator.validateUpdateTable(
         clusterProperties.getClusterName(), databaseId, tableId, createUpdateTableRequestBody);
+
+    // Pre-allocate a StorageLocation so its ID can be used in the table path.
+    // This only matters for new tables; for updates the property is ignored by the repo layer.
+    String allocatedSlId = null;
+    try {
+      com.linkedin.openhouse.internal.catalog.model.StorageLocationDto allocated =
+          storageLocationRepository.allocateStorageLocation();
+      allocatedSlId = allocated.getStorageLocationId();
+      java.util.Map<String, String> props =
+          new java.util.HashMap<>(createUpdateTableRequestBody.getTableProperties());
+      props.put("openhouse.storageLocationId", allocatedSlId);
+      createUpdateTableRequestBody =
+          createUpdateTableRequestBody.toBuilder().tableProperties(props).build();
+    } catch (Exception e) {
+      log.warn(
+          "Failed to pre-allocate storage location for {}.{}: {}",
+          databaseId,
+          tableId,
+          e.getMessage());
+    }
+
     Pair<TableDto, Boolean> putResult =
         tableService.putTable(createUpdateTableRequestBody, tableCreatorUpdator, false);
-    HttpStatus status = putResult.getSecond() ? HttpStatus.CREATED : HttpStatus.OK;
+    boolean isCreated = putResult.getSecond();
+    TableDto tableDto = putResult.getFirst();
+    HttpStatus status = isCreated ? HttpStatus.CREATED : HttpStatus.OK;
+
+    // After table creation, update the StorageLocation URI and link it to the table.
+    java.util.List<com.linkedin.openhouse.internal.catalog.model.StorageLocationDto> locations =
+        java.util.List.of();
+    if (isCreated && allocatedSlId != null) {
+      try {
+        String baseDir = stripMetadataFilename(tableDto.getTableLocation());
+        storageLocationRepository.updateStorageLocationUri(allocatedSlId, baseDir);
+        storageLocationRepository.addStorageLocationToTable(tableDto.getTableUUID(), allocatedSlId);
+        locations = storageLocationRepository.getStorageLocationsForTable(tableDto.getTableUUID());
+      } catch (Exception e) {
+        log.warn(
+            "Failed to register storage location for {}.{}: {}",
+            databaseId,
+            tableId,
+            e.getMessage());
+      }
+    }
+
+    GetTableResponseBody responseBody =
+        tablesMapper
+            .toGetTableResponseBody(tableDto)
+            .toBuilder()
+            .storageLocations(locations)
+            .build();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(status)
-        .responseBody(tablesMapper.toGetTableResponseBody(putResult.getFirst()))
+        .responseBody(responseBody)
         .build();
   }
 
@@ -224,5 +356,29 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     }
     tableService.restoreTable(databaseId, tableId, deletedAtMs, actingPrincipal);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
+  public ApiResponse<GetTableResponseBody> updateStorageLocation(
+      String databaseId,
+      String tableId,
+      UpdateStorageLocationRequestBody requestBody,
+      String actingPrincipal) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.updateStorageLocation(
+        databaseId, tableId, requestBody.getStorageLocationId(), actingPrincipal);
+    // Return the updated table with refreshed storage locations
+    TableDto updated = tableService.getTable(databaseId, tableId, actingPrincipal);
+    GetTableResponseBody responseBody =
+        tablesMapper
+            .toGetTableResponseBody(updated)
+            .toBuilder()
+            .storageLocations(
+                storageLocationRepository.getStorageLocationsForTable(updated.getTableUUID()))
+            .build();
+    return ApiResponse.<GetTableResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(responseBody)
+        .build();
   }
 }

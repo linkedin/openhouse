@@ -370,6 +370,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             .filter(entry -> preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
+    // Pass through storage location ID if set (used by allocateTableLocation for path construction)
+    String slId = tableDto.getTableProperties().get("openhouse.storageLocationId");
+    if (slId != null) {
+      propertiesMap.put("openhouse.storageLocationId", slId);
+    }
+
     // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
     // (which means either they didn't specify it, or the feature toggle filtered it out)
     if (!propertiesMap.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
@@ -779,6 +785,19 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       throw new UnsupportedOperationException(
           "restoreTable is not supported for this catalog type: " + catalog.getClass().getName());
     }
+  }
+
+  @Override
+  public void swapStorageLocation(String databaseId, String tableId, String newUri) {
+    TableIdentifier identifier = TableIdentifier.of(databaseId, tableId);
+    Table table = catalog.loadTable(identifier);
+    org.apache.iceberg.TableOperations ops =
+        ((org.apache.iceberg.HasTableOperations) table).operations();
+    org.apache.iceberg.TableMetadata current = ops.current();
+    org.apache.iceberg.TableMetadata updated =
+        org.apache.iceberg.TableMetadata.buildFrom(current).setLocation(newUri).build();
+    ops.commit(current, updated);
+    log.info("Swapped storage location for {}.{} to {}", databaseId, tableId, newUri);
   }
 
   private UnsupportedOperationException getUnsupportedException() {

@@ -17,6 +17,7 @@ public abstract class BaseStorage implements Storage {
   @Autowired private StorageProperties storageProperties;
 
   private String OPENHOUSE_REPLICA_TABLE_LOCATION_ID = "openhouse.replicaTableLocationId";
+  private static final String OPENHOUSE_STORAGE_LOCATION_ID = "openhouse.storageLocationId";
   /**
    * Check if the storage is configured.
    *
@@ -96,8 +97,12 @@ public abstract class BaseStorage implements Storage {
    */
   protected String calculateTableLocationId(
       String tableId, String tableUUID, Map<String, String> tableProperties) {
-    return tableProperties.containsKey(OPENHOUSE_REPLICA_TABLE_LOCATION_ID)
-        ? tableProperties.get(OPENHOUSE_REPLICA_TABLE_LOCATION_ID)
-        : tableId + "-" + tableUUID;
+    if (tableProperties.containsKey(OPENHOUSE_REPLICA_TABLE_LOCATION_ID)) {
+      return tableProperties.get(OPENHOUSE_REPLICA_TABLE_LOCATION_ID);
+    }
+    if (tableProperties.containsKey(OPENHOUSE_STORAGE_LOCATION_ID)) {
+      return tableId + "-" + tableProperties.get(OPENHOUSE_STORAGE_LOCATION_ID);
+    }
+    return tableId + "-" + tableUUID;
   }
 }

@@ -179,4 +179,17 @@ public interface TablesService {
    * @param actingPrincipal
    */
   void restoreTable(String databaseId, String tableId, long deletedAtMs, String actingPrincipal);
+
+  /**
+   * Swap the active storage location for a table to the given StorageLocation. Looks up the
+   * StorageLocation by ID to obtain its URI, writes a new Iceberg metadata.json at the new URI, and
+   * associates the StorageLocation with the table.
+   *
+   * @param databaseId database containing the table
+   * @param tableId the table to update
+   * @param storageLocationId ID of the target StorageLocation
+   * @param actingPrincipal user performing the operation
+   */
+  void updateStorageLocation(
+      String databaseId, String tableId, String storageLocationId, String actingPrincipal);
 }

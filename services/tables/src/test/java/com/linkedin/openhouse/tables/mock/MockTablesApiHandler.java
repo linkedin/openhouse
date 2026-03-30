@@ -13,6 +13,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateStorageLocationRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -313,6 +314,25 @@ public class MockTablesApiHandler implements TablesApiHandler {
         throw new NoSuchUserTableException(databaseId, tableId);
       case "d403":
         throw new AccessDeniedException("Access denied");
+      default:
+        return null;
+    }
+  }
+
+  @Override
+  public ApiResponse<GetTableResponseBody> updateStorageLocation(
+      String databaseId,
+      String tableId,
+      UpdateStorageLocationRequestBody requestBody,
+      String actingPrincipal) {
+    switch (databaseId) {
+      case "d200":
+        return ApiResponse.<GetTableResponseBody>builder()
+            .httpStatus(HttpStatus.OK)
+            .responseBody(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY)
+            .build();
+      case "d404":
+        throw new NoSuchUserTableException(databaseId, tableId);
       default:
         return null;
     }
