@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pyiceberg import expressions as ice
+from sqlglot import exp
 
 
 class Filter(ABC):
@@ -311,8 +312,8 @@ class Not(Filter):
 
 
 def _quote_identifier(name: str) -> str:
-    """Escape a SQL identifier by doubling embedded double quotes and wrapping in double quotes."""
-    return '"' + name.replace('"', '""') + '"'
+    """Escape a SQL identifier using sqlglot."""
+    return exp.to_identifier(name, quoted=True).sql()
 
 
 def _escape_like(value: str) -> str:
@@ -321,17 +322,21 @@ def _escape_like(value: str) -> str:
 
 
 def _literal_to_sql(value: object) -> str:
-    """Convert a Python literal to a SQL literal string."""
+    """Convert a Python literal to a SQL literal string using sqlglot."""
     if isinstance(value, str):
-        return "'" + value.replace("'", "''") + "'"
-    return str(value)
+        return exp.Literal.string(value).sql()
+    if isinstance(value, bool):
+        return exp.true_().sql() if value else exp.false_().sql()
+    if isinstance(value, (int, float)):
+        return exp.Literal.number(value).sql()
+    raise TypeError(f"Unsupported literal type: {type(value).__name__}")
 
 
 def _to_datafusion_sql(expr: Filter) -> str:
     """Convert a Filter expression tree to a DataFusion SQL expression string."""
     match expr:
         case AlwaysTrue():
-            return str(True)
+            return exp.true_().sql()
 
         # Comparison
         case EqualTo(column, value):
