@@ -103,19 +103,11 @@ def to_datafusion_sql(
     source_dialect: str,
     *,
     table: TableIdentifier | None = None,
-    filter_sql: str | None = None,
 ) -> str:
     """Transpile a SQL statement to the DataFusion dialect.
 
     When *table* is provided the statement is validated to reference exactly
-    that table.  When *filter_sql* is also provided the table reference is
-    wrapped in a filtered subquery so the predicate appears at the table scan
-    level for Iceberg pushdown::
-
-        -- input (spark dialect), table=db.tbl, filter_sql = '"a" > 10'
-        SELECT foo(a), b FROM db.tbl WHERE x > 1
-        -- output
-        SELECT foo(a), b FROM (SELECT * FROM "db"."tbl" WHERE "a" > 10) AS tbl WHERE x > 1
+    that table.
 
     Args:
         sql: SQL statement in the source dialect.
@@ -123,8 +115,6 @@ def to_datafusion_sql(
         table: Expected table the SQL must reference.  When set the function
             verifies the SQL contains exactly one table matching this
             identifier.
-        filter_sql: Optional DataFusion-dialect WHERE expression to inject at
-            the table scan level.  Ignored when *table* is ``None``.
 
     Raises:
         ValueError: If the dialect is unsupported, the SQL is invalid, the
@@ -147,15 +137,7 @@ def to_datafusion_sql(
     ast = statements[0]
 
     if table is not None:
-        table_node = _find_and_validate_table(ast, table, sql)
-        if filter_sql is not None:
-            filter_ast = sqlglot.parse_one(filter_sql, dialect=DataFusion.DIALECT)
-            inner_select = exp.Select().select(exp.Star()).from_(table_node.copy()).where(filter_ast)
-            subquery = exp.Subquery(
-                this=inner_select,
-                alias=exp.TableAlias(this=exp.to_identifier(table_node.alias_or_name)),
-            )
-            table_node.replace(subquery)
+        _find_and_validate_table(ast, table, sql)
 
     return ast.sql(dialect=DataFusion.DIALECT)
 

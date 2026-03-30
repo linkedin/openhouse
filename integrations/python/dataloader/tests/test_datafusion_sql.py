@@ -116,29 +116,7 @@ class TestTableValidation:
         assert result == 'SELECT id FROM "db"."tbl"'
 
 
-class TestFilterInjection:
-    def test_injects_filter_into_table_scan(self) -> None:
-        result = to_datafusion_sql(
-            'SELECT id, \'MASKED\' AS name, value FROM "db"."tbl" WHERE value > 1.5',
-            "datafusion",
-            table=_DB_TBL,
-            filter_sql='"id" > 10',
-        )
-        assert result == (
-            "SELECT id, 'MASKED' AS name, value"
-            ' FROM (SELECT * FROM "db"."tbl" WHERE "id" > 10) AS tbl'
-            " WHERE value > 1.5"
-        )
-
-    def test_injects_filter_with_dialect_transpilation(self) -> None:
-        result = to_datafusion_sql(
-            "SELECT `id`, `name` FROM `db`.`tbl`",
-            "spark",
-            table=_DB_TBL,
-            filter_sql='"id" > 10',
-        )
-        assert result == 'SELECT "id", "name" FROM (SELECT * FROM "db"."tbl" WHERE "id" > 10) AS tbl'
-
+class TestNoOp:
     def test_no_filter_no_table_is_noop(self) -> None:
         sql = 'SELECT id FROM "db"."tbl"'
         assert to_datafusion_sql(sql, "datafusion") is sql

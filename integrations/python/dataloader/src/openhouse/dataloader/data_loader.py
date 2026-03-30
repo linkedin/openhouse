@@ -147,12 +147,8 @@ class OpenHouseDataLoader:
 
         Calls the table transformer to get the transform SQL, transpiles it to
         DataFusion dialect, and wraps it as a subquery with user column projection
-        and filter predicates.  When user filters are present, they are also
-        injected into the transformer SQL's table scan so that the scan optimizer
-        can extract them for Iceberg predicate pushdown.
-
-        Returns ``None`` if there is no transformer or the transformer returns
-        ``None``.
+        and filter predicates. Returns ``None`` if there is no transformer or the
+        transformer returns ``None``.
         """
         transformer = self._context.table_transformer
         if transformer is None:
@@ -161,13 +157,11 @@ class OpenHouseDataLoader:
         sql = transformer.transform(self._table_id, execution_context)
         if sql is None:
             return None
-        has_filters = self._filters and not isinstance(self._filters, AlwaysTrue)
-        filter_sql = _to_datafusion_sql(self._filters) if has_filters else None
-        sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id, filter_sql=filter_sql)
+        sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id)
         outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
         combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"
-        if filter_sql is not None:
-            combined += f" WHERE {filter_sql}"
+        if self._filters and not isinstance(self._filters, AlwaysTrue):
+            combined += f" WHERE {_to_datafusion_sql(self._filters)}"
         return combined
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
