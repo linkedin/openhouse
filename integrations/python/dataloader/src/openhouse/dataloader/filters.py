@@ -13,6 +13,11 @@ def _quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE-special characters so they are matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _literal_to_sql(value: object) -> str:
     """Convert a Python literal to a SQL literal string."""
     if isinstance(value, str):
@@ -313,7 +318,8 @@ class StartsWith(Filter):
         return f"col('{self.column}').starts_with({self.prefix!r})"
 
     def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} LIKE {_literal_to_sql(self.prefix + '%')}"
+        escaped = _escape_like(self.prefix)
+        return f"{_quote_identifier(self.column)} LIKE {_literal_to_sql(escaped + '%')} ESCAPE '\\'"
 
 
 @dataclass(frozen=True)
@@ -325,7 +331,8 @@ class NotStartsWith(Filter):
         return f"col('{self.column}').not_starts_with({self.prefix!r})"
 
     def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} NOT LIKE {_literal_to_sql(self.prefix + '%')}"
+        escaped = _escape_like(self.prefix)
+        return f"{_quote_identifier(self.column)} NOT LIKE {_literal_to_sql(escaped + '%')} ESCAPE '\\'"
 
 
 # --- Range filter ---

@@ -747,3 +747,60 @@ def test_iter_with_transformer_filter_injection_produces_correct_results(tmp_pat
     assert result.column_names == [COL_ID, COL_NAME]
     assert sorted(result.column(COL_ID).to_pylist()) == [2, 3]
     assert result.column(COL_NAME).to_pylist() == ["MASKED", "MASKED"]
+
+
+class _PassthroughTransformer(TableTransformer):
+    """Transformer that selects all columns unchanged."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT id, name, value FROM {to_sql_identifier(table)}"
+
+
+@pytest.mark.parametrize(
+    "filter_expr, expected_names",
+    [
+        (col(COL_NAME).starts_with("20%"), ["20%off"]),
+        (col(COL_NAME).starts_with("item_"), ["item_1"]),
+        (col(COL_NAME).starts_with("back\\"), ["back\\slash"]),
+        (col(COL_NAME).starts_with("x\\%y\\_"), ["x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("20%"), ["2000", "back\\slash", "item_1", "itemX1", "other", "x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("item_"), ["20%off", "2000", "back\\slash", "itemX1", "other", "x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("back\\"), ["20%off", "2000", "item_1", "itemX1", "other", "x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("x\\%y\\_"), ["20%off", "2000", "back\\slash", "item_1", "itemX1", "other"]),
+    ],
+    ids=[
+        "starts_with_%",
+        "starts_with__",
+        "starts_with_backslash",
+        "starts_with_combined",
+        "not_starts_with_%",
+        "not_starts_with__",
+        "not_starts_with_backslash",
+        "not_starts_with_combined",
+    ],
+)
+def test_starts_with_wildcard_literals(tmp_path, filter_expr, expected_names):
+    """StartsWith/NotStartsWith treat %, _, and \\ as literal characters, not SQL wildcards/escapes.
+
+    The data includes "2000", "itemX1", and "other" which would falsely match if %, _, or \\
+    were treated as LIKE wildcards (LIKE '20%' matches '2000', LIKE 'item_%' matches 'itemX1').
+    """
+    wildcard_data = {
+        COL_ID: [1, 2, 3, 4, 5, 6, 7],
+        COL_NAME: ["20%off", "2000", "item_1", "itemX1", "back\\slash", "x\\%y\\_z", "other"],
+        COL_VALUE: [1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7],
+    }
+    catalog = _make_real_catalog(tmp_path, data=wildcard_data)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        filters=filter_expr,
+        context=DataLoaderContext(table_transformer=_PassthroughTransformer()),
+    )
+    result = _materialize(loader)
+    assert sorted(result.column(COL_NAME).to_pylist()) == sorted(expected_names)
