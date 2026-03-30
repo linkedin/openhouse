@@ -255,5 +255,5 @@ def test_no_table_raises():
 
 
 def test_two_tables_raises():
-    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 0"):
+    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 2"):
         optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')

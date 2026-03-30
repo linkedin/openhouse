@@ -82,10 +82,10 @@ def optimize_scan(sql: str, dialect: str) -> ScanPlan:
 
 
 def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
-    """Find the single SELECT that reads directly from one table (not a subquery).
+    """Find the single SELECT that reads directly from exactly one table.
 
-    Raises ValueError if the query does not contain exactly one single-table scan.
-    A JOIN (multiple table sources in one scope) is not a single-table scan.
+    Raises ValueError if the query does not contain exactly one table scan
+    across all scopes (e.g. JOINs have multiple table sources).
     """
     root = build_scope(ast)
     if root is None:
@@ -93,10 +93,8 @@ def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
     table_scans: list[exp.Select] = []
     for scope in root.traverse():
         table_sources = [s for s in scope.sources.values() if isinstance(s, exp.Table)]
-        subquery_sources = [s for s in scope.sources.values() if not isinstance(s, exp.Table)]
-        if len(table_sources) == 1 and not subquery_sources:
-            result: exp.Select = scope.expression
-            table_scans.append(result)
+        for _ in table_sources:
+            table_scans.append(scope.expression)
     if len(table_scans) != 1:
         raise ValueError(f"Expected exactly 1 table scan, found {len(table_scans)} in: {original_sql}")
     return table_scans[0]
