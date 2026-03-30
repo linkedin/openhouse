@@ -8,23 +8,6 @@ from typing import Any
 from pyiceberg import expressions as ice
 
 
-def _quote_identifier(name: str) -> str:
-    """Escape a SQL identifier by doubling embedded double quotes and wrapping in double quotes."""
-    return '"' + name.replace('"', '""') + '"'
-
-
-def _escape_like(value: str) -> str:
-    """Escape LIKE-special characters so they are matched literally."""
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-def _literal_to_sql(value: object) -> str:
-    """Convert a Python literal to a SQL literal string."""
-    if isinstance(value, str):
-        return "'" + value.replace("'", "''") + "'"
-    return str(value)
-
-
 class Filter(ABC):
     """Abstract base for all filter expressions.
 
@@ -34,10 +17,6 @@ class Filter(ABC):
     @abstractmethod
     def __repr__(self) -> str:
         pass
-
-    @abstractmethod
-    def _to_datafusion_sql(self) -> str:
-        """Render this filter as a DataFusion SQL expression string."""
 
     def __and__(self, other: Filter) -> And:
         return And(self, other)
@@ -54,9 +33,6 @@ class AlwaysTrue(Filter):
 
     def __repr__(self) -> str:
         return "always_true()"
-
-    def _to_datafusion_sql(self) -> str:
-        return str(True)
 
 
 def always_true() -> AlwaysTrue:
@@ -166,9 +142,6 @@ class EqualTo(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}') == {self.value!r}"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} = {_literal_to_sql(self.value)}"
-
 
 @dataclass(frozen=True)
 class NotEqualTo(Filter):
@@ -177,9 +150,6 @@ class NotEqualTo(Filter):
 
     def __repr__(self) -> str:
         return f"col('{self.column}') != {self.value!r}"
-
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} <> {_literal_to_sql(self.value)}"
 
 
 @dataclass(frozen=True)
@@ -190,9 +160,6 @@ class GreaterThan(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}') > {self.value!r}"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} > {_literal_to_sql(self.value)}"
-
 
 @dataclass(frozen=True)
 class GreaterThanOrEqual(Filter):
@@ -201,9 +168,6 @@ class GreaterThanOrEqual(Filter):
 
     def __repr__(self) -> str:
         return f"col('{self.column}') >= {self.value!r}"
-
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} >= {_literal_to_sql(self.value)}"
 
 
 @dataclass(frozen=True)
@@ -214,9 +178,6 @@ class LessThan(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}') < {self.value!r}"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} < {_literal_to_sql(self.value)}"
-
 
 @dataclass(frozen=True)
 class LessThanOrEqual(Filter):
@@ -225,9 +186,6 @@ class LessThanOrEqual(Filter):
 
     def __repr__(self) -> str:
         return f"col('{self.column}') <= {self.value!r}"
-
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} <= {_literal_to_sql(self.value)}"
 
 
 # --- Null/NaN check filters ---
@@ -240,9 +198,6 @@ class IsNull(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}').is_null()"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} IS NULL"
-
 
 @dataclass(frozen=True)
 class IsNotNull(Filter):
@@ -250,9 +205,6 @@ class IsNotNull(Filter):
 
     def __repr__(self) -> str:
         return f"col('{self.column}').is_not_null()"
-
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} IS NOT NULL"
 
 
 @dataclass(frozen=True)
@@ -262,9 +214,6 @@ class IsNaN(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}').is_nan()"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} IS NAN"
-
 
 @dataclass(frozen=True)
 class IsNotNaN(Filter):
@@ -272,9 +221,6 @@ class IsNotNaN(Filter):
 
     def __repr__(self) -> str:
         return f"col('{self.column}').is_not_nan()"
-
-    def _to_datafusion_sql(self) -> str:
-        return f"{_quote_identifier(self.column)} IS NOT NAN"
 
 
 # --- Set membership filters ---
@@ -288,10 +234,6 @@ class In(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}').is_in({list(self.values)!r})"
 
-    def _to_datafusion_sql(self) -> str:
-        vals = ", ".join(_literal_to_sql(v) for v in self.values)
-        return f"{_quote_identifier(self.column)} IN ({vals})"
-
 
 @dataclass(frozen=True)
 class NotIn(Filter):
@@ -300,10 +242,6 @@ class NotIn(Filter):
 
     def __repr__(self) -> str:
         return f"col('{self.column}').is_not_in({list(self.values)!r})"
-
-    def _to_datafusion_sql(self) -> str:
-        vals = ", ".join(_literal_to_sql(v) for v in self.values)
-        return f"{_quote_identifier(self.column)} NOT IN ({vals})"
 
 
 # --- String prefix filters ---
@@ -317,10 +255,6 @@ class StartsWith(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}').starts_with({self.prefix!r})"
 
-    def _to_datafusion_sql(self) -> str:
-        escaped = _escape_like(self.prefix)
-        return f"{_quote_identifier(self.column)} LIKE {_literal_to_sql(escaped + '%')} ESCAPE '\\'"
-
 
 @dataclass(frozen=True)
 class NotStartsWith(Filter):
@@ -329,10 +263,6 @@ class NotStartsWith(Filter):
 
     def __repr__(self) -> str:
         return f"col('{self.column}').not_starts_with({self.prefix!r})"
-
-    def _to_datafusion_sql(self) -> str:
-        escaped = _escape_like(self.prefix)
-        return f"{_quote_identifier(self.column)} NOT LIKE {_literal_to_sql(escaped + '%')} ESCAPE '\\'"
 
 
 # --- Range filter ---
@@ -347,11 +277,6 @@ class Between(Filter):
     def __repr__(self) -> str:
         return f"col('{self.column}').between({self.lower!r}, {self.upper!r})"
 
-    def _to_datafusion_sql(self) -> str:
-        return (
-            f"{_quote_identifier(self.column)} BETWEEN {_literal_to_sql(self.lower)} AND {_literal_to_sql(self.upper)}"
-        )
-
 
 # --- Logical combinators ---
 
@@ -364,9 +289,6 @@ class And(Filter):
     def __repr__(self) -> str:
         return f"({self.left!r} & {self.right!r})"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"({self.left._to_datafusion_sql()} AND {self.right._to_datafusion_sql()})"
-
 
 @dataclass(frozen=True)
 class Or(Filter):
@@ -376,9 +298,6 @@ class Or(Filter):
     def __repr__(self) -> str:
         return f"({self.left!r} | {self.right!r})"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"({self.left._to_datafusion_sql()} OR {self.right._to_datafusion_sql()})"
-
 
 @dataclass(frozen=True)
 class Not(Filter):
@@ -387,8 +306,87 @@ class Not(Filter):
     def __repr__(self) -> str:
         return f"~{self.operand!r}"
 
-    def _to_datafusion_sql(self) -> str:
-        return f"NOT ({self.operand._to_datafusion_sql()})"
+
+# --- Conversion functions ---
+
+
+def _quote_identifier(name: str) -> str:
+    """Escape a SQL identifier by doubling embedded double quotes and wrapping in double quotes."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _escape_like(value: str) -> str:
+    """Escape LIKE-special characters so they are matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _literal_to_sql(value: object) -> str:
+    """Convert a Python literal to a SQL literal string."""
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    return str(value)
+
+
+def _to_datafusion_sql(expr: Filter) -> str:
+    """Convert a Filter expression tree to a DataFusion SQL expression string."""
+    match expr:
+        case AlwaysTrue():
+            return str(True)
+
+        # Comparison
+        case EqualTo(column, value):
+            return f"{_quote_identifier(column)} = {_literal_to_sql(value)}"
+        case NotEqualTo(column, value):
+            return f"{_quote_identifier(column)} <> {_literal_to_sql(value)}"
+        case GreaterThan(column, value):
+            return f"{_quote_identifier(column)} > {_literal_to_sql(value)}"
+        case GreaterThanOrEqual(column, value):
+            return f"{_quote_identifier(column)} >= {_literal_to_sql(value)}"
+        case LessThan(column, value):
+            return f"{_quote_identifier(column)} < {_literal_to_sql(value)}"
+        case LessThanOrEqual(column, value):
+            return f"{_quote_identifier(column)} <= {_literal_to_sql(value)}"
+
+        # Null / NaN
+        case IsNull(column):
+            return f"{_quote_identifier(column)} IS NULL"
+        case IsNotNull(column):
+            return f"{_quote_identifier(column)} IS NOT NULL"
+        case IsNaN(column):
+            return f"{_quote_identifier(column)} IS NAN"
+        case IsNotNaN(column):
+            return f"{_quote_identifier(column)} IS NOT NAN"
+
+        # Set membership
+        case In(column, values):
+            vals = ", ".join(_literal_to_sql(v) for v in values)
+            return f"{_quote_identifier(column)} IN ({vals})"
+        case NotIn(column, values):
+            vals = ", ".join(_literal_to_sql(v) for v in values)
+            return f"{_quote_identifier(column)} NOT IN ({vals})"
+
+        # String prefix
+        case StartsWith(column, prefix):
+            escaped = _escape_like(prefix)
+            return f"{_quote_identifier(column)} LIKE {_literal_to_sql(escaped + '%')} ESCAPE '\\'"
+        case NotStartsWith(column, prefix):
+            escaped = _escape_like(prefix)
+            return f"{_quote_identifier(column)} NOT LIKE {_literal_to_sql(escaped + '%')} ESCAPE '\\'"
+
+        # Range
+        case Between(column, lower, upper):
+            return f"{_quote_identifier(column)} BETWEEN {_literal_to_sql(lower)} AND {_literal_to_sql(upper)}"
+
+        # Logical combinators
+        case And(left, right):
+            return f"({_to_datafusion_sql(left)} AND {_to_datafusion_sql(right)})"
+        case Or(left, right):
+            return f"({_to_datafusion_sql(left)} OR {_to_datafusion_sql(right)})"
+        case Not(operand):
+            return f"NOT ({_to_datafusion_sql(operand)})"
+
+        case _:
+            raise TypeError(f"Unsupported filter type: {type(expr).__name__}")
 
 
 def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:

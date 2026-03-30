@@ -14,7 +14,7 @@ from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.datafusion_sql import DataFusion, to_datafusion_sql
-from openhouse.dataloader.filters import AlwaysTrue, Filter, _quote_identifier, _to_pyiceberg, always_true
+from openhouse.dataloader.filters import AlwaysTrue, Filter, _quote_identifier, _to_datafusion_sql, _to_pyiceberg, always_true
 from openhouse.dataloader.scan_optimizer import optimize_scan
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -162,7 +162,7 @@ class OpenHouseDataLoader:
         if sql is None:
             return None
         has_filters = self._filters and not isinstance(self._filters, AlwaysTrue)
-        filter_sql = self._filters._to_datafusion_sql() if has_filters else None
+        filter_sql = _to_datafusion_sql(self._filters) if has_filters else None
         sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id, filter_sql=filter_sql)
         outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
         combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"

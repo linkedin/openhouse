@@ -17,6 +17,7 @@ from openhouse.dataloader.filters import (
     LessThanOrEqual,
     NotEqualTo,
     Or,
+    _to_datafusion_sql,
 )
 from openhouse.dataloader.scan_optimizer import optimize_scan as _optimize_scan
 
@@ -183,7 +184,7 @@ def test_filter_dsl_to_sql_round_trip():
         Or(EqualTo("x", 1), EqualTo("x", 2)),
     ]
     for filter_dsl in cases:
-        sql = f'SELECT "a" FROM "db"."tbl" WHERE {filter_dsl._to_datafusion_sql()}'
+        sql = f'SELECT "a" FROM "db"."tbl" WHERE {_to_datafusion_sql(filter_dsl)}'
         plan = optimize_scan(sql)
         assert plan.row_filter == filter_dsl, f"Round trip failed for {filter_dsl!r}: got {plan.row_filter!r}"
 
