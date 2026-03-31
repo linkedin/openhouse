@@ -115,7 +115,7 @@ Build row filters using `col()` with comparison operators (`==`, `!=`, `>`, `>=`
 
 ## Architecture Notes
 
-- **OpenHouseDataLoader** iterates over `DataLoaderSplit` objects (one per Iceberg file scan task). Each split is independently callable and pickle-safe for distributed frameworks.
+- **OpenHouseDataLoader** iterates over `DataLoaderSplit` objects (one per Iceberg file scan task). Each split is independently callable and pickle-safe for distributed frameworks. It supports context manager usage (`with OpenHouseDataLoader(...) as loader:`) to ensure the underlying catalog is closed on exit.
 - **Transforms** are applied per-split at read time: the `TableTransformer` produces SQL in its native dialect, which is transpiled to DataFusion SQL once, then executed against each RecordBatch via a DataFusion `SessionContext`.
 - **Retry logic** in `data_loader.py` retries `OSError` (network/storage I/O) and HTTP 5xx errors with exponential backoff. Non-transient `HTTPError` (4xx) is not retried.
 - **OpenHouseCatalog** is read-only; all write operations raise `NotImplementedError`. It supports context manager usage (`with OpenHouseCatalog(...) as cat:`).

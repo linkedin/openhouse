@@ -5,21 +5,21 @@ A Python library for distributed data loading of OpenHouse tables
 ## Quickstart
 
 ```python
-from openhouse.dataloader import OpenHouseDataLoader
+from openhouse.dataloader import OpenHouseCatalog, OpenHouseDataLoader
 
-loader = OpenHouseDataLoader("my_database", "my_table")
+with OpenHouseCatalog("my_catalog", uri="https://...") as catalog:
+    with OpenHouseDataLoader(catalog, "my_database", "my_table") as loader:
+        # Access table metadata
+        loader.table_properties  # table properties as a dict
+        loader.snapshot_id        # snapshot ID of the loaded table
 
-# Access table metadata
-loader.table_properties  # table properties as a dict
-loader.snapshot_id        # snapshot ID of the loaded table
+        for split in loader:
+            # Get table properties (also available per-split)
+            split.table_properties
 
-for split in loader:
-    # Get table properties (also available per-split)
-    split.table_properties
-
-    # Load data
-    for batch in split:
-        process(batch)
+            # Load data
+            for batch in split:
+                process(batch)
 ```
 
 ## Filters
