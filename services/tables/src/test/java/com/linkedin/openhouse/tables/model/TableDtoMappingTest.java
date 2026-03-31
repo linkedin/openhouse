@@ -26,7 +26,14 @@ public class TableDtoMappingTest {
       ImmutableSet.of(
           "schema", "timePartitioning", "tableProperties", "clustering", "newIntermediateSchemas");
   private static final Set<String> FIELDS_UNMAPPABLE =
-      ImmutableSet.of("stageCreate", "jsonSnapshots", "snapshotRefs", "policies", "tableType");
+      ImmutableSet.of(
+          "stageCreate",
+          "stageReplace",
+          "replaceCommit",
+          "jsonSnapshots",
+          "snapshotRefs",
+          "policies",
+          "tableType");
 
   /** Making all fields making it to map is expected, and all expected field are making it there. */
   @Test
