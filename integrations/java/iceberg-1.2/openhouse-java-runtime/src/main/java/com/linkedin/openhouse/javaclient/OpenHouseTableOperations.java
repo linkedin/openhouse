@@ -109,9 +109,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   public void doCommit(TableMetadata base, TableMetadata metadata) {
     log.info("Calling doCommit for table: {}", tableName());
     boolean metadataUpdated = isMetadataUpdated(base, metadata);
+    boolean snapshotsUpdated = areSnapshotsUpdated(base, metadata);
     try {
-      if (areSnapshotsUpdated(base, metadata)) {
-        putSnapshots(base, metadata);
+      if (metadataUpdated && snapshotsUpdated && base != null) {
+        putSnapshots(base, metadata, true);
+      } else if (snapshotsUpdated) {
+        putSnapshots(base, metadata, false);
       } else if (metadataUpdated) {
         createUpdateTable(base, metadata);
       }
@@ -148,7 +151,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    */
   private void createUpdateTable(TableMetadata base, TableMetadata metadata) {
     CreateUpdateTableRequestBody createUpdateTableRequestBody =
-        constructMetadataRequestBody(base, metadata);
+        constructMetadataRequestBody(base, metadata, false);
 
     tableApi
         .updateTableV1(
@@ -165,7 +168,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   }
 
   protected CreateUpdateTableRequestBody constructMetadataRequestBody(
-      TableMetadata base, TableMetadata metadata) {
+      TableMetadata base, TableMetadata metadata, boolean isRtasCommit) {
     CreateUpdateTableRequestBody createUpdateTableRequestBody = new CreateUpdateTableRequestBody();
     createUpdateTableRequestBody.setBaseTableVersion(
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
@@ -206,6 +209,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
           OPENHOUSE_IS_TABLE_REPLICATED_KEY,
           base.properties().get(OPENHOUSE_IS_TABLE_REPLICATED_KEY));
       createUpdateTableRequestBody.setTableProperties(newTblProperties);
+    }
+    if (isRtasCommit) {
+      createUpdateTableRequestBody.setReplaceCommit(true);
     }
     return createUpdateTableRequestBody;
   }
@@ -321,10 +327,10 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    * @param base the metadata before the snapshot was created
    * @param newMetadata metadata containing a new snapshot
    */
-  private void putSnapshots(TableMetadata base, TableMetadata newMetadata) {
+  private void putSnapshots(TableMetadata base, TableMetadata newMetadata, boolean isRtasCommit) {
     IcebergSnapshotsRequestBody icebergSnapshotsRequestBody = new IcebergSnapshotsRequestBody();
     CreateUpdateTableRequestBody createUpdateTableRequestBody =
-        constructMetadataRequestBody(base, newMetadata);
+        constructMetadataRequestBody(base, newMetadata, isRtasCommit);
     icebergSnapshotsRequestBody.baseTableVersion(
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
     icebergSnapshotsRequestBody.jsonSnapshots(
