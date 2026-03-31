@@ -93,7 +93,7 @@ public final class RequestAndValidateHelper {
     validateWritableTableProperties(mvcResult, getTableResponseBody.getTableProperties());
     ValidationUtilities.validateLocation(
         mvcResult, storageManager.getDefaultStorage().getClient().getRootPrefix());
-    ValidationUtilities.validateTableVersion(mvcResult, getTableResponseBody.getTableVersion());
+    ValidationUtilities.validateTableVersion(mvcResult, previousTableLocation);
 
     ValidationUtilities.validateTimestamp(
         mvcResult,

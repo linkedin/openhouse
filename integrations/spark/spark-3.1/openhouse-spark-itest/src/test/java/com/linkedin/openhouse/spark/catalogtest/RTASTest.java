@@ -39,23 +39,6 @@ public class RTASTest extends OpenHouseSparkITest {
     }
   }
 
-  //  @Test
-  //  public void testCTAS() throws Exception { // remove it
-  //    try (SparkSession spark = getSparkSession()) {
-  //      Catalog catalog = getOpenHouseCatalog(spark);
-  //      spark.sql(
-  //          String.format(
-  //              "CREATE TABLE %s USING iceberg PARTITIONED BY (part) "
-  //                  + "TBLPROPERTIES ('prop1'='newval1', 'prop3'='val3') AS "
-  //                  + "SELECT id, data, CASE WHEN (id %% 2) = 0 THEN 'even' ELSE 'odd' END AS part
-  // "
-  //                  + "FROM %s ORDER BY 3, 1",
-  //              tableName, sourceName));
-  //      Table ctasTable = catalog.loadTable(tableIdent);
-  //      ctasTable.properties();
-  //    }
-  //  }
-
   @Test
   public void testRTAS() throws Exception {
     try (SparkSession spark = getSparkSession()) {
@@ -67,6 +50,8 @@ public class RTASTest extends OpenHouseSparkITest {
               "CREATE TABLE %s USING iceberg TBLPROPERTIES ('prop1'='val1', 'prop2'='val2') "
                   + "AS SELECT * FROM %s",
               tableName, sourceName));
+
+      spark.sql(String.format("ALTER TABLE %s SET POLICY (HISTORY MAX_AGE=24H)", tableName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
 
@@ -110,6 +95,8 @@ public class RTASTest extends OpenHouseSparkITest {
       assertEquals(
           "val2", rtasTable.properties().get("prop2"), "Should have preserved table property");
       assertEquals("val3", rtasTable.properties().get("prop3"), "Should have new table property");
+      // verify policies are removed
+      assertEquals("", rtasTable.properties().get("policies"));
     }
   }
 

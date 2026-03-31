@@ -358,10 +358,7 @@ public class TableAuditAspect {
     OperationType operationType = null;
     if (icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()) {
       operationType = OperationType.REPLACE_COMMIT;
-    } else if (icebergSnapshotRequestBody
-        .getCreateUpdateTableRequestBody()
-        .getBaseTableVersion()
-        .equals(INITIAL_TABLE_VERSION)) {
+    } else if (icebergSnapshotRequestBody.getBaseTableVersion().equals(INITIAL_TABLE_VERSION)) {
       operationType = OperationType.STAGED_COMMIT;
     } else {
       operationType = OperationType.COMMIT;
