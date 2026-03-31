@@ -58,8 +58,12 @@ import java.util.List;
 import java.util.Map;
 import lombok.SneakyThrows;
 import org.apache.commons.lang.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.types.Types;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Assertions;
@@ -820,6 +824,83 @@ public class TablesControllerTest {
                         invalidTableType, StringUtils.join(TableType.values(), ", ")))))
         .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))))
         .andReturn();
+  }
+
+  @SneakyThrows
+  @Test
+  public void testStagedReplace() {
+    GetTableResponseBody stageReplaceTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
+
+    // Create a real table first
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            stageReplaceTable, mvc, storageManager);
+
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+    String originalSchema =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.schema");
+
+    // Build a new schema with an additional column
+    Schema newSchema =
+        new Schema(
+            Types.NestedField.required(1, "id", Types.StringType.get()),
+            Types.NestedField.required(2, "name", Types.StringType.get()),
+            Types.NestedField.required(3, "timestampCol", Types.TimestampType.withoutZone()),
+            Types.NestedField.optional(7, "newCol", Types.StringType.get()));
+    String newSchemaJson = getSchemaJsonFromSchema(newSchema);
+
+    // Issue a stageReplace call with changed schema
+    MvcResult stageReplaceResult =
+        mvc.perform(
+                MockMvcRequestBuilders.post(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/",
+                            stageReplaceTable.getDatabaseId()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        buildCreateUpdateTableRequestBody(stageReplaceTable)
+                            .toBuilder()
+                            .baseTableVersion(originalTableLocation)
+                            .schema(newSchemaJson)
+                            .stageReplace(true)
+                            .build()
+                            .toJson())
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isCreated())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andReturn();
+
+    // The stageReplace call should return a different metadata location
+    String stageReplaceTableLocation =
+        JsonPath.read(stageReplaceResult.getResponse().getContentAsString(), "$.tableLocation");
+    Assertions.assertNotEquals(stageReplaceTableLocation, originalTableLocation);
+
+    // The new metadata should have the updated schema
+    TableMetadata metadata =
+        TableMetadataParser.read(new HadoopFileIO(new Configuration()), stageReplaceTableLocation);
+    Assertions.assertEquals(2, metadata.schemas().size());
+    Assertions.assertEquals(newSchema.asStruct(), metadata.schema().asStruct());
+
+    // The existing table should NOT be modified
+    MvcResult getResult =
+        mvc.perform(
+                MockMvcRequestBuilders.get(
+                        String.format(
+                            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                + "/databases/%s/tables/%s",
+                            stageReplaceTable.getDatabaseId(),
+                            stageReplaceTable.getTableId()))
+                    .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    String currentSchema = JsonPath.read(getResult.getResponse().getContentAsString(), "$.schema");
+    Assertions.assertEquals(originalSchema, currentSchema);
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, stageReplaceTable);
   }
 
   @SneakyThrows
