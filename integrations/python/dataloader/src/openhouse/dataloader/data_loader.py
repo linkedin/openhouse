@@ -13,8 +13,16 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
-from openhouse.dataloader.datafusion_sql import to_datafusion_sql
-from openhouse.dataloader.filters import Filter, _to_pyiceberg, always_true
+from openhouse.dataloader.datafusion_sql import DataFusion, to_datafusion_sql
+from openhouse.dataloader.filters import (
+    AlwaysTrue,
+    Filter,
+    _quote_identifier,
+    _to_datafusion_sql,
+    _to_pyiceberg,
+    always_true,
+)
+from openhouse.dataloader.scan_optimizer import optimize_scan
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
@@ -141,12 +149,27 @@ class OpenHouseDataLoader:
         else:
             logger.info("No snapshot found for table %s", self._table_id)
 
-    def _build_transform_sql(self, transformer: TableTransformer, context: Mapping[str, str]) -> str | None:
-        """Return DataFusion-compatible SQL for the transformation, or ``None``."""
-        sql = transformer.transform(self._table_id, context)
+    def _build_query(self) -> str | None:
+        """Build the combined SQL query from the transformer, user columns, and filters.
+
+        Calls the table transformer to get the transform SQL, transpiles it to
+        DataFusion dialect, and wraps it as a subquery with user column projection
+        and filter predicates. Returns ``None`` if there is no transformer or the
+        transformer returns ``None``.
+        """
+        transformer = self._context.table_transformer
+        if transformer is None:
+            return None
+        execution_context = self._context.execution_context or {}
+        sql = transformer.transform(self._table_id, execution_context)
         if sql is None:
             return None
-        return to_datafusion_sql(sql, transformer.dialect)
+        sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id)
+        outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
+        combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"
+        if self._filters and not isinstance(self._filters, AlwaysTrue):
+            combined += f" WHERE {_to_datafusion_sql(self._filters)}"
+        return combined
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -156,22 +179,31 @@ class OpenHouseDataLoader:
         """
         table = self._iceberg_table
 
-        # Build transform SQL: call transformer once to get the SQL string
-        transformer = self._context.table_transformer
-        execution_context = self._context.execution_context or {}
-        transform_sql = self._build_transform_sql(transformer, execution_context) if transformer is not None else None
-
-        if self._columns and transform_sql is not None:
-            raise ValueError("Column projections with table transformers are not supported yet")
-
-        row_filter = _to_pyiceberg(self._filters)
-
-        scan_kwargs: dict = {"row_filter": row_filter}
+        scan_kwargs: dict = {}
         if self.snapshot_id is not None:
             scan_kwargs["snapshot_id"] = self.snapshot_id
 
-        if self._columns:
-            scan_kwargs["selected_fields"] = tuple(self._columns)
+        query = self._build_query()
+        if query is not None:
+            plan = optimize_scan(query, dialect=DataFusion.DIALECT)
+            optimized_sql = plan.sql
+            row_filter = _to_pyiceberg(plan.row_filter)
+            if plan.source_columns is not None:
+                scan_kwargs["selected_fields"] = tuple(plan.source_columns)
+            logger.info(
+                "Split SQL optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
+                query,
+                optimized_sql,
+                row_filter,
+                plan.source_columns,
+            )
+        else:
+            optimized_sql = None
+            row_filter = _to_pyiceberg(self._filters)
+            if self._columns:
+                scan_kwargs["selected_fields"] = tuple(self._columns)
+
+        scan_kwargs["row_filter"] = row_filter
 
         scan = table.scan(**scan_kwargs)
 
@@ -195,6 +227,6 @@ class OpenHouseDataLoader:
             yield DataLoaderSplit(
                 file_scan_task=scan_task,
                 scan_context=scan_context,
-                transform_sql=transform_sql,
+                transform_sql=optimized_sql,
                 udf_registry=self._context.udf_registry,
             )

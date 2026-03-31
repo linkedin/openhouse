@@ -385,9 +385,10 @@ def test_iter_with_transformer_returning_sql(tmp_path):
     assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
 
 
-def test_iter_with_transformer_and_columns_raises(tmp_path):
-    """columns + transformer → raises ValueError."""
+def test_iter_with_transformer_and_columns_projects(tmp_path):
+    """columns + transformer → output contains only requested columns."""
     catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
 
     loader = OpenHouseDataLoader(
         catalog=catalog,
@@ -396,9 +397,32 @@ def test_iter_with_transformer_and_columns_raises(tmp_path):
         columns=[COL_ID],
         context=DataLoaderContext(table_transformer=_MaskingTransformer()),
     )
+    result = _materialize(loader)
 
-    with pytest.raises(ValueError, match="Column projections with table transformers are not supported yet"):
-        _materialize(loader)
+    assert result.num_rows == 3
+    assert result.column_names == [COL_ID]
+
+    # Verify scan received only the source columns needed for the outer SELECT
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert scan_kwargs["selected_fields"] == (COL_ID,)
+    assert "row_filter" in scan_kwargs
+
+
+def test_iter_with_transformer_and_all_columns(tmp_path):
+    """columns requesting all transformer outputs → all source columns projected."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID, COL_NAME, COL_VALUE],
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {COL_ID, COL_NAME, COL_VALUE}
 
 
 class _SparkMaskingTransformer(TableTransformer):
@@ -541,3 +565,183 @@ def test_branch_reads_data_from_branch_snapshot():
     branch_splits = list(OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch"))
     assert len(branch_splits) == 1
     assert branch_splits[0]._file_scan_task.file.file_path == "branch.parquet"
+
+
+# --- Predicate pushdown with transformer tests ---
+
+
+class _FilteringTransformer(TableTransformer):
+    """Transformer that has a WHERE clause filtering on status."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT id, name, value, status FROM {to_sql_identifier(table)} WHERE status = 'active'"
+
+
+def test_iter_with_transformer_where_extracts_predicate(tmp_path):
+    """Transform with WHERE + columns=[id] → scan includes status for predicate, row_filter has predicate."""
+    extra_schema = Schema(
+        NestedField(field_id=1, name=COL_ID, field_type=LongType(), required=False),
+        NestedField(field_id=2, name=COL_NAME, field_type=StringType(), required=False),
+        NestedField(field_id=3, name=COL_VALUE, field_type=DoubleType(), required=False),
+        NestedField(field_id=4, name="status", field_type=StringType(), required=False),
+    )
+    data = {
+        COL_ID: [1, 2],
+        COL_NAME: ["alice", "bob"],
+        COL_VALUE: [1.1, 2.2],
+        "status": ["active", "inactive"],
+    }
+    catalog = _make_real_catalog(tmp_path, data=data, iceberg_schema=extra_schema)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        context=DataLoaderContext(table_transformer=_FilteringTransformer()),
+    )
+    list(loader)
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    # row_filter should not be AlwaysTrue (it should contain the extracted predicate)
+    from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
+
+    assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
+
+
+class _MaskingFilteringTransformer(TableTransformer):
+    """Transformer that masks name and filters on value."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)} WHERE value > 1.5"
+
+
+def test_iter_with_transformer_projects_subset_of_transform_columns(tmp_path):
+    """columns=[id] with transformer referencing id, name, value and WHERE on value → only id in output.
+
+    The transform SQL references all three columns and has a WHERE clause,
+    but the user only requests id. The optimizer should prune unused columns
+    from the SQL and extract the WHERE predicate for Iceberg pushdown.
+    """
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        context=DataLoaderContext(table_transformer=_MaskingFilteringTransformer()),
+    )
+    result = _materialize(loader)
+
+    # value > 1.5 filters out id=1 (value=1.1), keeps id=2 (2.2) and id=3 (3.3)
+    assert result.num_rows == 2
+    assert result.column_names == [COL_ID]
+    assert sorted(result.column(COL_ID).to_pylist()) == [2, 3]
+
+
+def test_iter_with_transformer_and_user_filter_on_passthrough(tmp_path):
+    """Transform + user filter on passthrough column → pushed to Iceberg."""
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID],
+        filters=col(COL_VALUE) > 2.0,
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    list(loader)
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    # value is a passthrough in _MaskingTransformer, so the filter should be pushed
+    from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
+
+    assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
+
+
+def test_iter_with_transformer_filter_injection_produces_correct_results(tmp_path):
+    """End-to-end: transformer + user filter + projection."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=[COL_ID, COL_NAME],
+        filters=col(COL_ID) > 1,
+        context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+    )
+    result = _materialize(loader)
+
+    # id > 1 filters out id=1, keeps id=2,3; name is masked; only requested columns
+    assert result.num_rows == 2
+    assert result.column_names == [COL_ID, COL_NAME]
+    assert sorted(result.column(COL_ID).to_pylist()) == [2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["MASKED", "MASKED"]
+
+
+class _PassthroughTransformer(TableTransformer):
+    """Transformer that selects all columns unchanged."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f"SELECT id, name, value FROM {to_sql_identifier(table)}"
+
+
+@pytest.mark.parametrize(
+    "filter_expr, expected_names",
+    [
+        (col(COL_NAME).starts_with("20%"), ["20%off"]),
+        (col(COL_NAME).starts_with("item_"), ["item_1"]),
+        (col(COL_NAME).starts_with("back\\"), ["back\\slash"]),
+        (col(COL_NAME).starts_with("x\\%y\\_"), ["x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("20%"), ["2000", "back\\slash", "item_1", "itemX1", "other", "x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("item_"), ["20%off", "2000", "back\\slash", "itemX1", "other", "x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("back\\"), ["20%off", "2000", "item_1", "itemX1", "other", "x\\%y\\_z"]),
+        (col(COL_NAME).not_starts_with("x\\%y\\_"), ["20%off", "2000", "back\\slash", "item_1", "itemX1", "other"]),
+    ],
+    ids=[
+        "starts_with_%",
+        "starts_with__",
+        "starts_with_backslash",
+        "starts_with_combined",
+        "not_starts_with_%",
+        "not_starts_with__",
+        "not_starts_with_backslash",
+        "not_starts_with_combined",
+    ],
+)
+def test_starts_with_wildcard_literals(tmp_path, filter_expr, expected_names):
+    """StartsWith/NotStartsWith treat %, _, and \\ as literal characters, not SQL wildcards/escapes.
+
+    The data includes "2000", "itemX1", and "other" which would falsely match if %, _, or \\
+    were treated as LIKE wildcards (LIKE '20%' matches '2000', LIKE 'item_%' matches 'itemX1').
+    """
+    wildcard_data = {
+        COL_ID: [1, 2, 3, 4, 5, 6, 7],
+        COL_NAME: ["20%off", "2000", "item_1", "itemX1", "back\\slash", "x\\%y\\_z", "other"],
+        COL_VALUE: [1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7],
+    }
+    catalog = _make_real_catalog(tmp_path, data=wildcard_data)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        filters=filter_expr,
+        context=DataLoaderContext(table_transformer=_PassthroughTransformer()),
+    )
+    result = _materialize(loader)
+    assert sorted(result.column(COL_NAME).to_pylist()) == sorted(expected_names)

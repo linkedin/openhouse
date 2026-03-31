@@ -5,6 +5,9 @@ import pyarrow as pa
 import pytest
 
 from openhouse.dataloader.datafusion_sql import to_datafusion_sql
+from openhouse.dataloader.table_identifier import TableIdentifier
+
+_DB_TBL = TableIdentifier(database="db", table="tbl")
 
 # ---------------------------------------------------------------------------
 # Transpilation tests
@@ -71,6 +74,51 @@ class TestTranslatorEdgeCases:
 
     def test_datafusion_dialect_is_noop(self) -> None:
         sql = "SELECT make_array(1, 2, 3)"
+        assert to_datafusion_sql(sql, "datafusion") is sql
+
+
+# ---------------------------------------------------------------------------
+# Filter injection tests
+# ---------------------------------------------------------------------------
+
+
+class TestTableValidation:
+    def test_validates_single_table(self) -> None:
+        result = to_datafusion_sql('SELECT id FROM "db"."tbl"', "datafusion", table=_DB_TBL)
+        assert result == 'SELECT id FROM "db"."tbl"'
+
+    def test_wrong_table_name_raises(self) -> None:
+        with pytest.raises(ValueError, match="references db.other, expected db.tbl"):
+            to_datafusion_sql('SELECT id FROM "db"."other"', "datafusion", table=_DB_TBL)
+
+    def test_wrong_database_raises(self) -> None:
+        with pytest.raises(ValueError, match="references other.tbl, expected db.tbl"):
+            to_datafusion_sql('SELECT id FROM "other"."tbl"', "datafusion", table=_DB_TBL)
+
+    def test_multiple_tables_raises(self) -> None:
+        with pytest.raises(ValueError, match="exactly 1 table, found 2"):
+            to_datafusion_sql(
+                'SELECT * FROM "db"."tbl" JOIN "db"."tbl" AS t2 ON tbl.id = t2.id',
+                "datafusion",
+                table=_DB_TBL,
+            )
+
+    def test_no_table_raises(self) -> None:
+        with pytest.raises(ValueError, match="exactly 1 table, found 0"):
+            to_datafusion_sql("SELECT 1 AS x", "datafusion", table=_DB_TBL)
+
+    def test_case_insensitive_table_match(self) -> None:
+        result = to_datafusion_sql('SELECT id FROM "DB"."TBL"', "datafusion", table=_DB_TBL)
+        assert result == 'SELECT id FROM "DB"."TBL"'
+
+    def test_spark_table_validated_after_transpilation(self) -> None:
+        result = to_datafusion_sql("SELECT id FROM `db`.`tbl`", "spark", table=_DB_TBL)
+        assert result == 'SELECT id FROM "db"."tbl"'
+
+
+class TestNoOp:
+    def test_no_filter_no_table_is_noop(self) -> None:
+        sql = 'SELECT id FROM "db"."tbl"'
         assert to_datafusion_sql(sql, "datafusion") is sql
 
 

@@ -8,8 +8,11 @@ from sqlglot.parser import Parser as _Parser
 from sqlglot.tokens import Tokenizer as _Tokenizer
 from sqlglot.tokens import TokenType
 
+from openhouse.dataloader.table_identifier import TableIdentifier
+
 
 class DataFusion(Dialect):
+    DIALECT = "datafusion"
     NORMALIZE_FUNCTIONS: bool | str = "lower"
     NORMALIZATION_STRATEGY = NormalizationStrategy.LOWERCASE
     NULL_ORDERING = "nulls_are_last"
@@ -95,28 +98,65 @@ class DataFusion(Dialect):
         }
 
 
-def to_datafusion_sql(sql: str, source_dialect: str) -> str:
-    """Transpile a single SQL statement to the DataFusion dialect.
+def to_datafusion_sql(
+    sql: str,
+    source_dialect: str,
+    *,
+    table: TableIdentifier | None = None,
+) -> str:
+    """Transpile a SQL statement to the DataFusion dialect.
+
+    When *table* is provided the statement is validated to reference exactly
+    that table.
 
     Args:
         sql: SQL statement in the source dialect.
-        source_dialect: sqlglot dialect name (e.g. "spark", "postgres"). Use
-            "datafusion" to skip transpilation and return the input unchanged.
+        source_dialect: sqlglot dialect name (e.g. "spark", "postgres").
+        table: Expected table the SQL must reference.  When set the function
+            verifies the SQL contains exactly one table matching this
+            identifier.
 
     Raises:
-        ValueError: If the dialect is unsupported, the SQL is invalid, or the
-            input contains more than one statement.
+        ValueError: If the dialect is unsupported, the SQL is invalid, the
+            input contains more than one statement, or (when *table* is set)
+            the table reference does not match.
     """
     if source_dialect not in Dialect.classes:
         raise ValueError(
             f"Unsupported source dialect '{source_dialect}'. Supported dialects: {', '.join(sorted(Dialect.classes))}"
         )
-    if source_dialect == "datafusion":
+    if source_dialect == DataFusion.DIALECT and table is None:
         return sql
+
     try:
-        statements = sqlglot.transpile(sql, read=source_dialect, write="datafusion")
+        statements = sqlglot.parse(sql, dialect=source_dialect)
     except sqlglot.errors.SqlglotError as e:
         raise ValueError(f"Failed to transpile SQL from '{source_dialect}' to DataFusion: {e}") from e
-    if len(statements) != 1:
+    if len(statements) != 1 or statements[0] is None:
         raise ValueError(f"Expected exactly one SQL statement, got {len(statements)}: {statements}")
-    return statements[0]
+    ast = statements[0]
+
+    if table is not None:
+        _find_and_validate_table(ast, table, sql)
+
+    return ast.sql(dialect=DataFusion.DIALECT)
+
+
+def _find_and_validate_table(ast: exp.Expression, table: TableIdentifier, original_sql: str) -> exp.Table:
+    """Find the single table reference in *ast* and verify it matches *table*.
+
+    Raises ``ValueError`` if there is not exactly one table reference or the
+    referenced table name does not match.
+    """
+    tables = list(ast.find_all(exp.Table))
+    if len(tables) != 1:
+        raise ValueError(f"Transformer SQL must reference exactly 1 table, found {len(tables)} in: {original_sql}")
+    table_node = tables[0]
+    actual_db = table_node.db
+    actual_name = table_node.name
+    # TODO add OpenHouse branch validation
+    if actual_db.lower() != table.database.lower() or actual_name.lower() != table.table.lower():
+        raise ValueError(
+            f"Transformer SQL references {actual_db}.{actual_name}, expected {table.database}.{table.table}"
+        )
+    return table_node
