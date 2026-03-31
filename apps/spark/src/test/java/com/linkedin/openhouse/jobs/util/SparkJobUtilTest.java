@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.jobs.util;
 
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -14,7 +16,7 @@ public class SparkJobUtilTest {
     String expected =
         String.format(
             "DELETE FROM `db`.`table-name` WHERE timestamp < date_trunc('day', timestamp '%s' - INTERVAL 2 days)",
-            now.toLocalDateTime());
+            now.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime());
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement("db.table-name", "timestamp", "", "day", 2, now));
@@ -33,11 +35,45 @@ public class SparkJobUtilTest {
     String expected =
         String.format(
             "DELETE FROM `db`.`table-name` WHERE string_partition < cast(date_format(timestamp '%s' - INTERVAL 2 DAYs, 'yyyy-MM-dd-HH') as string)",
-            now.toLocalDateTime());
+            now.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime());
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
             "db.table-name", "string_partition", "yyyy-MM-dd-HH", "DAY", 2, now));
+  }
+
+  @Test
+  void testCreateDeleteStatementNormalizesNonUtcTimezoneToUtc() {
+    // Regression test: a non-UTC ZonedDateTime must produce the same DELETE statement
+    // as its UTC equivalent. Before the fix, the local time was embedded directly into
+    // the SQL literal, shifting the retention cutoff and causing no-op deletes.
+    ZonedDateTime utcNow = ZonedDateTime.of(2026, 3, 30, 3, 0, 0, 0, ZoneOffset.UTC);
+    ZonedDateTime pdtEquivalent = utcNow.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
+
+    // Both should produce identical SQL using the UTC timestamp
+    String fromUtc = SparkJobUtil.createDeleteStatement("db.table", "ts", "", "day", 1, utcNow);
+    String fromPdt =
+        SparkJobUtil.createDeleteStatement("db.table", "ts", "", "day", 1, pdtEquivalent);
+    Assertions.assertEquals(fromUtc, fromPdt);
+    Assertions.assertTrue(
+        fromUtc.contains("2026-03-30T03:00"),
+        "DELETE statement should use UTC time 03:00, not local time");
+  }
+
+  @Test
+  void testCreateDeleteStatementWithPatternNormalizesNonUtcTimezoneToUtc() {
+    ZonedDateTime utcNow = ZonedDateTime.of(2026, 3, 30, 3, 0, 0, 0, ZoneOffset.UTC);
+    ZonedDateTime pdtEquivalent = utcNow.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
+
+    String fromUtc =
+        SparkJobUtil.createDeleteStatement("db.table", "col", "yyyy-MM-dd-HH", "DAY", 1, utcNow);
+    String fromPdt =
+        SparkJobUtil.createDeleteStatement(
+            "db.table", "col", "yyyy-MM-dd-HH", "DAY", 1, pdtEquivalent);
+    Assertions.assertEquals(fromUtc, fromPdt);
+    Assertions.assertTrue(
+        fromUtc.contains("2026-03-30T03:00"),
+        "DELETE statement should use UTC time 03:00, not local time");
   }
 
   @Test
