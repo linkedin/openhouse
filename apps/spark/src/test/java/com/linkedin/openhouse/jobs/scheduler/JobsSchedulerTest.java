@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.mockito.Mock;
@@ -616,11 +617,15 @@ public class JobsSchedulerTest {
    *
    * <p>The old approach used a 300ms launch delay with a latch that counted down before the sleep.
    * All 16 tasks were submitted instantly, so with 4 threads × 300ms × 4 batches ≈ 1200ms, all work
-   * could finish before shutdown took effect. A 2-second sleep here forces that window open,
-   * simulating the GC/CI jitter that caused the flake.
+   * could finish before shutdown took effect. This test demonstrates the broken pattern: shutdown
+   * arrives after all tasks have completed, so cancelled == 0 and succeeded == 16 — the shutdown
+   * was a no-op.
    *
-   * <p>Asserts the bug: cancelled == 0 and succeeded == 16 (shutdown was a no-op).
+   * <p>Disabled because the timing is inherently unreliable (the same CI load / GC jitter that
+   * caused the original flake can cause this reproducer to fail too). Kept as documentation of the
+   * anti-pattern that the gate-based tests above replace.
    */
+  @Disabled("Timing-dependent reproducer — kept as documentation, not meant to run in CI")
   @Test
   public void testGracefulShutdownDuringExecution_racingReproducer() throws InterruptedException {
     OtelEmitter mockOtelEmitter = createMockOtelEmitter();
