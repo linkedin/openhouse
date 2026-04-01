@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.common.cache.RequestScopedCache;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -64,6 +65,8 @@ public class RepositoryTestWithSettableComponents {
 
   @Autowired MeterRegistry meterRegistry;
 
+  private final RequestScopedCache requestScopedCache = new RequestScopedCache();
+
   FileIO fileIO;
 
   @PostConstruct
@@ -104,7 +107,8 @@ public class RepositoryTestWithSettableComponents {
             houseTableMapper,
             tableIdentifier,
             metricsReporter,
-            fileIOManager);
+            fileIOManager,
+            requestScopedCache);
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
     creationDTO = openHouseInternalRepository.save(creationDTO);
@@ -120,7 +124,13 @@ public class RepositoryTestWithSettableComponents {
         new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
     OpenHouseInternalTableOperations mockOps =
         new OpenHouseInternalTableOperations(
-            htsRepo, fileIO, houseTableMapper, tableIdentifier, metricsReporter2, fileIOManager);
+            htsRepo,
+            fileIO,
+            houseTableMapper,
+            tableIdentifier,
+            metricsReporter2,
+            fileIOManager,
+            requestScopedCache);
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
 
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
@@ -192,7 +202,8 @@ public class RepositoryTestWithSettableComponents {
             houseTableMapper,
             tableIdentifier,
             metricsReporter,
-            fileIOManager);
+            fileIOManager,
+            requestScopedCache);
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
 
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
@@ -251,7 +262,13 @@ public class RepositoryTestWithSettableComponents {
           new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
       OpenHouseInternalTableOperations mockOps =
           new OpenHouseInternalTableOperations(
-              htsRepo, fileIO, houseTableMapper, tableIdentifier, metricsReporter, fileIOManager);
+              htsRepo,
+              fileIO,
+              houseTableMapper,
+              tableIdentifier,
+              metricsReporter,
+              fileIOManager,
+              requestScopedCache);
       OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
       BaseTable spyOptsMockedTable =
           Mockito.spy(

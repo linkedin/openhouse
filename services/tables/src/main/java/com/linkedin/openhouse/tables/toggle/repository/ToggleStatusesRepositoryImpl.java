@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.toggle.repository;
 
+import com.linkedin.openhouse.common.cache.RequestScopedCache;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyToggleStatus;
 import com.linkedin.openhouse.tables.toggle.ToggleStatusMapper;
@@ -17,20 +18,30 @@ import org.springframework.stereotype.Repository;
 @Repository
 @Slf4j
 public class ToggleStatusesRepositoryImpl implements ToggleStatusesRepository {
+  private static final String TOGGLE_STATUS_CACHE_NAMESPACE =
+      ToggleStatusesRepositoryImpl.class.getName() + ".toggleStatus";
+
   @Autowired private ToggleStatusApi apiInstance;
 
   @Autowired private ToggleStatusMapper toggleStatusMapper;
 
+  @Autowired(required = false)
+  private RequestScopedCache requestScopedCache = new RequestScopedCache();
+
   @Override
   public Optional<TableToggleStatus> findById(ToggleStatusKey toggleStatusKey) {
-    return apiInstance
-        .getTableToggleStatus(
-            toggleStatusKey.getDatabaseId(),
-            toggleStatusKey.getTableId(),
-            toggleStatusKey.getFeatureId())
-        .map(EntityResponseBodyToggleStatus::getEntity)
-        .map(s -> toggleStatusMapper.toTableToggleStatus(toggleStatusKey, s))
-        .blockOptional();
+    return requestScopedCache.getOrLoad(
+        TOGGLE_STATUS_CACHE_NAMESPACE,
+        toggleStatusKey,
+        () ->
+            apiInstance
+                .getTableToggleStatus(
+                    toggleStatusKey.getDatabaseId(),
+                    toggleStatusKey.getTableId(),
+                    toggleStatusKey.getFeatureId())
+                .map(EntityResponseBodyToggleStatus::getEntity)
+                .map(s -> toggleStatusMapper.toTableToggleStatus(toggleStatusKey, s))
+                .blockOptional());
   }
 
   @Override
