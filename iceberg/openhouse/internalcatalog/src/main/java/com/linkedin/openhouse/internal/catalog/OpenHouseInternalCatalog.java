@@ -64,8 +64,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired MeterRegistry meterRegistry;
 
-  @Autowired(required = false)
-  RequestScopedCache requestScopedCache = new RequestScopedCache();
+  @Autowired RequestScopedCache requestScopedCache;
 
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {

@@ -25,8 +25,7 @@ public class ToggleStatusesRepositoryImpl implements ToggleStatusesRepository {
 
   @Autowired private ToggleStatusMapper toggleStatusMapper;
 
-  @Autowired(required = false)
-  private RequestScopedCache requestScopedCache = new RequestScopedCache();
+  @Autowired private RequestScopedCache requestScopedCache;
 
   @Override
   public Optional<TableToggleStatus> findById(ToggleStatusKey toggleStatusKey) {

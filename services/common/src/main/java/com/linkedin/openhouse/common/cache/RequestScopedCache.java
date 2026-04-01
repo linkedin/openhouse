@@ -3,7 +3,6 @@ package com.linkedin.openhouse.common.cache;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
-import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 
@@ -11,7 +10,6 @@ import org.springframework.web.context.request.RequestContextHolder;
  * Small request-scoped cache backed by {@link RequestAttributes}. When there is no active request,
  * cache lookups fall back to direct loading and writes are ignored.
  */
-@Component
 public class RequestScopedCache {
 
   private static final String ATTRIBUTE_NAME = RequestScopedCache.class.getName() + ".CACHE";

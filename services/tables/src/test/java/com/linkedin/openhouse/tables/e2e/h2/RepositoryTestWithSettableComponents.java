@@ -65,7 +65,7 @@ public class RepositoryTestWithSettableComponents {
 
   @Autowired MeterRegistry meterRegistry;
 
-  private final RequestScopedCache requestScopedCache = new RequestScopedCache();
+  @Autowired RequestScopedCache requestScopedCache;
 
   FileIO fileIO;
 
