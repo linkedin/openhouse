@@ -147,8 +147,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           System.currentTimeMillis() - startTime);
     } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
-      Table existingTable = catalog.loadTable(tableIdentifier);
-      versionCheck(existingTable, tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -472,10 +470,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.isStageReplace()) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_REPLACED_CTR_STAGED).increment();
       propertiesMap.put(IS_STAGE_REPLACE_KEY, String.valueOf(tableDto.isStageReplace()));
-    }
-
-    if (tableDto.isReplaceCommit()) {
-      propertiesMap.put(IS_REPLACE_COMMIT_KEY, String.valueOf(tableDto.isReplaceCommit()));
     }
 
     propertiesMap.put(

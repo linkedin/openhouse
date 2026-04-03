@@ -279,8 +279,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
       boolean isStageReplace =
           Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_REPLACE_KEY));
-      boolean isReplaceCommit =
-          Boolean.parseBoolean(properties.remove(CatalogConstants.IS_REPLACE_COMMIT_KEY));
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 

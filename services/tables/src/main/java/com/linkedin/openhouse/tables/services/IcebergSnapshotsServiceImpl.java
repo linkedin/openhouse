@@ -65,7 +65,11 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
                         .build()),
             icebergSnapshotRequestBody);
 
-    if (tableDto.isPresent()) {
+    if (tableDto.isPresent()
+        && icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()) {
+      // Check if table creator has the privilege to replace the table.
+      authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
+    } else if (tableDto.isPresent()) {
       if (isTableLocked(tableDto.get())) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,

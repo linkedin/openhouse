@@ -884,7 +884,7 @@ public class TablesControllerTest {
     Assertions.assertEquals(2, metadata.schemas().size());
     Assertions.assertEquals(newSchema.asStruct(), metadata.schema().asStruct());
 
-    // The existing table should NOT be modified
+    // Fetch the existing table
     MvcResult getResult =
         mvc.perform(
                 MockMvcRequestBuilders.get(
@@ -897,6 +897,7 @@ public class TablesControllerTest {
             .andExpect(status().isOk())
             .andReturn();
 
+    // The existing table should NOT be modified
     String currentSchema = JsonPath.read(getResult.getResponse().getContentAsString(), "$.schema");
     Assertions.assertEquals(originalSchema, currentSchema);
 

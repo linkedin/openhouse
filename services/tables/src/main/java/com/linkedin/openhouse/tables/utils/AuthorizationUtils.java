@@ -86,4 +86,23 @@ public class AuthorizationUtils {
               databaseDto.getDatabaseId(), actingPrincipal));
     }
   }
+
+  /**
+   * Checks if the acting principal is authorized to replace the table. Only the original table
+   * creator has the privilege.
+   *
+   * @param tableDto
+   * @param actingPrincipal
+   */
+  public void checkReplaceTablePrivilege(TableDto tableDto, String actingPrincipal) {
+    if (!tableDto.getTableCreator().equals(actingPrincipal)) {
+      throw new AccessDeniedException(
+          String.format(
+              "Table %s.%s can only be replaced by the same creator. Current creator: %s, request creator: %s",
+              tableDto.getDatabaseId(),
+              tableDto.getTableId(),
+              tableDto.getTableCreator(),
+              actingPrincipal));
+    }
+  }
 }
