@@ -76,8 +76,9 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertTrue(
-          compareLocation(expectedTableLocation, rtasTable.location()),
+      assertEquals(
+          stripPathScheme(expectedTableLocation),
+          stripPathScheme(rtasTable.location()),
           "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
@@ -137,8 +138,9 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertTrue(
-          compareLocation(expectedTableLocation, rtasTable.location()),
+      assertEquals(
+          stripPathScheme(expectedTableLocation),
+          stripPathScheme(rtasTable.location()),
           "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
@@ -186,8 +188,9 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertTrue(
-          compareLocation(expectedTableLocation, rtasTable.location()),
+      assertEquals(
+          stripPathScheme(expectedTableLocation),
+          stripPathScheme(rtasTable.location()),
           "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
@@ -249,8 +252,9 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertTrue(
-          compareLocation(expectedTableLocation, rtasTable.location()),
+      assertEquals(
+          stripPathScheme(expectedTableLocation),
+          stripPathScheme(rtasTable.location()),
           "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
@@ -263,10 +267,5 @@ public class RTASTest extends OpenHouseSparkITest {
           2, Iterables.size(rtasTable.snapshots()), "Table should have expected snapshots");
       assertNull(rtasTable.currentSnapshot().parentId(), "Current snapshot should have no parent");
     }
-  }
-
-  // Location can sometimes contain the file system prefix.
-  private boolean compareLocation(String expected, String actual) {
-    return (expected.contains(actual) || actual.contains(expected));
   }
 }
