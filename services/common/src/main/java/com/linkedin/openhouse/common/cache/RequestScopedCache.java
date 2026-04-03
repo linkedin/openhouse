@@ -9,6 +9,12 @@ import org.springframework.web.context.request.RequestContextHolder;
 /**
  * Small request-scoped cache backed by {@link RequestAttributes}. When there is no active request,
  * cache lookups fall back to direct loading and writes are ignored.
+ *
+ * <p>This class intentionally lives as a plain shared utility instead of a scanned Spring
+ * component. OpenHouse applications use explicit package scan allowlists, and this package is not
+ * included consistently across all application and test contexts. The default bean is therefore
+ * provided from a scanned configuration class, which keeps the utility in {@code services/common}
+ * while still allowing downstream repos to override the bean if needed.
  */
 public class RequestScopedCache {
 

@@ -12,15 +12,15 @@ import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.toggle.ToggleStatusMapper;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.model.ToggleStatusKey;
-import java.util.HashMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import reactor.core.publisher.Mono;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,7 +53,8 @@ class ToggleStatusesRepositoryImplTest {
     when(toggleStatusMapper.toTableToggleStatus(toggleStatusKey, toggleStatus))
         .thenReturn(expected);
 
-    RequestContextHolder.setRequestAttributes(new MapBackedRequestAttributes());
+    RequestContextHolder.setRequestAttributes(
+        new ServletRequestAttributes(new MockHttpServletRequest()));
     try {
       TableToggleStatus first = toggleStatusesRepository.findById(toggleStatusKey).orElseThrow();
       TableToggleStatus second = toggleStatusesRepository.findById(toggleStatusKey).orElseThrow();
@@ -65,53 +66,5 @@ class ToggleStatusesRepositoryImplTest {
     }
 
     verify(apiInstance, times(1)).getTableToggleStatus("db", "table", "feature");
-  }
-
-  private static final class MapBackedRequestAttributes implements RequestAttributes {
-    private final HashMap<String, Object> requestScope = new HashMap<>();
-
-    @Override
-    public Object getAttribute(String name, int scope) {
-      return scope == RequestAttributes.SCOPE_REQUEST ? requestScope.get(name) : null;
-    }
-
-    @Override
-    public void setAttribute(String name, Object value, int scope) {
-      if (scope == RequestAttributes.SCOPE_REQUEST) {
-        requestScope.put(name, value);
-      }
-    }
-
-    @Override
-    public void removeAttribute(String name, int scope) {
-      if (scope == RequestAttributes.SCOPE_REQUEST) {
-        requestScope.remove(name);
-      }
-    }
-
-    @Override
-    public String[] getAttributeNames(int scope) {
-      return scope == RequestAttributes.SCOPE_REQUEST
-          ? requestScope.keySet().toArray(new String[0])
-          : new String[0];
-    }
-
-    @Override
-    public void registerDestructionCallback(String name, Runnable callback, int scope) {}
-
-    @Override
-    public Object resolveReference(String key) {
-      return null;
-    }
-
-    @Override
-    public String getSessionId() {
-      return "test-session";
-    }
-
-    @Override
-    public Object getSessionMutex() {
-      return this;
-    }
   }
 }

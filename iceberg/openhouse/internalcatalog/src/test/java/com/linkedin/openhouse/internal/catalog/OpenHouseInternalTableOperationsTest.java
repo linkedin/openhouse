@@ -74,8 +74,9 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
-import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 public class OpenHouseInternalTableOperationsTest {
   private static final String TEST_LOCATION = "test_location";
@@ -1078,7 +1079,8 @@ public class OpenHouseInternalTableOperationsTest {
 
   @Test
   void testRefreshReusesCachedMetadataWithinSingleRequest() {
-    RequestContextHolder.setRequestAttributes(new MapBackedRequestAttributes());
+    RequestContextHolder.setRequestAttributes(
+        new ServletRequestAttributes(new MockHttpServletRequest()));
     try {
       HouseTablePrimaryKey primaryKey =
           HouseTablePrimaryKey.builder()
@@ -1123,7 +1125,8 @@ public class OpenHouseInternalTableOperationsTest {
 
   @Test
   void testCommitSeedsRequestCacheForSubsequentRefresh() {
-    RequestContextHolder.setRequestAttributes(new MapBackedRequestAttributes());
+    RequestContextHolder.setRequestAttributes(
+        new ServletRequestAttributes(new MockHttpServletRequest()));
     try {
       AtomicReference<HouseTable> savedHouseTable = new AtomicReference<>();
       HouseTablePrimaryKey primaryKey =
@@ -1987,54 +1990,6 @@ public class OpenHouseInternalTableOperationsTest {
     } finally {
       GlobalOpenTelemetry.resetForTest();
       tracerProvider.close();
-    }
-  }
-
-  private static final class MapBackedRequestAttributes implements RequestAttributes {
-    private final Map<String, Object> requestScope = new HashMap<>();
-
-    @Override
-    public Object getAttribute(String name, int scope) {
-      return scope == RequestAttributes.SCOPE_REQUEST ? requestScope.get(name) : null;
-    }
-
-    @Override
-    public void setAttribute(String name, Object value, int scope) {
-      if (scope == RequestAttributes.SCOPE_REQUEST) {
-        requestScope.put(name, value);
-      }
-    }
-
-    @Override
-    public void removeAttribute(String name, int scope) {
-      if (scope == RequestAttributes.SCOPE_REQUEST) {
-        requestScope.remove(name);
-      }
-    }
-
-    @Override
-    public String[] getAttributeNames(int scope) {
-      return scope == RequestAttributes.SCOPE_REQUEST
-          ? requestScope.keySet().toArray(new String[0])
-          : new String[0];
-    }
-
-    @Override
-    public void registerDestructionCallback(String name, Runnable callback, int scope) {}
-
-    @Override
-    public Object resolveReference(String key) {
-      return null;
-    }
-
-    @Override
-    public String getSessionId() {
-      return "test-session";
-    }
-
-    @Override
-    public Object getSessionMutex() {
-      return this;
     }
   }
 }
