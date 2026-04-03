@@ -745,3 +745,21 @@ def test_starts_with_wildcard_literals(tmp_path, filter_expr, expected_names):
     )
     result = _materialize(loader)
     assert sorted(result.column(COL_NAME).to_pylist()) == sorted(expected_names)
+
+
+# --- JVM args tests ---
+
+
+def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
+    """planner_jvm_args is applied to LIBHDFS_OPTS during __init__."""
+    monkeypatch.delenv('LIBHDFS_OPTS', raising=False)
+    catalog = _make_real_catalog(tmp_path)
+
+    OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(planner_jvm_args="-Xmx256m"),
+    )
+
+    assert os.environ['LIBHDFS_OPTS'] == '-Xmx256m'

@@ -10,6 +10,7 @@ from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
+from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
@@ -66,11 +67,19 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
+        planner_jvm_args: JVM arguments used when starting the JNI JVM in the
+            process that loads table metadata and plans splits.
+        worker_jvm_args: JVM arguments used when starting the JNI JVM in worker
+            processes that read split data.  If splits are processed in the same
+            process as the planner then only ``planner_jvm_args`` takes effect
+            because the JVM is already running by the time the split is materialized.
     """
 
     execution_context: Mapping[str, str] | None = None
     table_transformer: TableTransformer | None = None
     udf_registry: UDFRegistry | None = None
+    planner_jvm_args: str | None = None
+    worker_jvm_args: str | None = None
 
 
 class OpenHouseDataLoader:
@@ -111,6 +120,9 @@ class OpenHouseDataLoader:
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
+
+        if self._context.planner_jvm_args is not None:
+            apply_libhdfs_opts(self._context.planner_jvm_args)
 
     @cached_property
     def _iceberg_table(self) -> Table:
@@ -215,6 +227,7 @@ class OpenHouseDataLoader:
             projected_schema=scan.projection(),
             row_filter=row_filter,
             table_id=self._table_id,
+            worker_jvm_args=self._context.worker_jvm_args,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
