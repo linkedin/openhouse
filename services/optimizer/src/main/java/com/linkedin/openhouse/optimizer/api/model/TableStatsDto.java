@@ -14,10 +14,21 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class TableStatsDto {
 
+  /** Stable Iceberg table UUID. Primary key of the stats row. */
   private String tableUuid;
+
+  /** Denormalized database name for display. */
   private String databaseId;
+
+  /** Denormalized table name for display. */
   private String tableName;
+
+  /** Combined snapshot + delta stats payload, stored as JSON. */
   private TableStats stats;
+
+  /** Current table properties snapshot (e.g. maintenance opt-in flags). */
   private Map<String, String> tableProperties;
+
+  /** When this row was last written. Used for staleness monitoring. */
   private Instant updatedAt;
 }

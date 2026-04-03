@@ -1,12 +1,9 @@
 package com.linkedin.openhouse.optimizer.entity;
 
-import com.linkedin.openhouse.optimizer.api.model.OperationMetrics;
 import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
-import com.linkedin.openhouse.optimizer.config.OperationMetricsConverter;
 import java.time.Instant;
 import javax.persistence.Column;
-import javax.persistence.Convert;
 import javax.persistence.Entity;
 import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
@@ -90,10 +87,9 @@ public class TableOperationsRow {
   private Long version;
 
   /**
-   * Denormalized stats snapshot captured at analysis time: table size, snapshot count, and file
-   * counts as of the moment the Analyzer ran.
+   * Reserved for future per-operation metadata. Stored as JSON text; currently unused. The Analyzer
+   * reads stats directly from {@code table_stats} instead of duplicating them here.
    */
-  @Convert(converter = OperationMetricsConverter.class)
   @Column(name = "metrics")
-  private OperationMetrics metrics;
+  private String metrics;
 }

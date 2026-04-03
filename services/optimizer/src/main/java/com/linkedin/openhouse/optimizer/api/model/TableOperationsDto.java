@@ -19,8 +19,13 @@ public class TableOperationsDto {
   /** Stable table identity from the Tables Service. */
   private String tableUuid;
 
+  /** Denormalized database name for display; not part of the primary key. */
   private String databaseName;
+
+  /** Denormalized table name for display; not part of the primary key. */
   private String tableName;
+
+  /** The type of maintenance operation (e.g. ORPHAN_FILES_DELETION). */
   private OperationType operationType;
 
   /** {@code PENDING} or {@code SCHEDULED}. Defaults to {@code PENDING} on creation. */
@@ -35,6 +40,6 @@ public class TableOperationsDto {
   /** Job ID returned by the Jobs Service after successful submission. */
   private String jobId;
 
-  /** Denormalized stats snapshot captured at analysis time. */
-  private OperationMetrics metrics;
+  /** Reserved for future per-operation metadata; currently unused. */
+  private String metrics;
 }

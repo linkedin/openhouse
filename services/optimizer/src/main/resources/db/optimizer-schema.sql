@@ -47,7 +47,5 @@ CREATE TABLE IF NOT EXISTS table_operations_history (
   status         VARCHAR(20)   NOT NULL,
   job_id                VARCHAR(255),
   result                TEXT,
-  orphan_files_deleted  INT,
-  orphan_bytes_deleted  BIGINT,
   PRIMARY KEY (id)
 );

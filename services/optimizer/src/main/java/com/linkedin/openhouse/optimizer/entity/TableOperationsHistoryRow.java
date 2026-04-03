@@ -21,12 +21,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * Append-only record of a completed Spark maintenance job.
+ * Append-only record of a completed maintenance operation.
  *
- * <p>Written by the Spark app after each table's operation finishes. The {@code id} is the same
- * UUID as the originating {@code table_operations.id}, tying each history entry directly back to
- * the specific operation cycle that produced it. Multiple runs of the same operation on the same
- * table produce multiple rows (each cycle gets a new UUID from the Analyzer).
+ * <p>Written when the operation-complete endpoint is called. The {@code id} is the same UUID as the
+ * originating {@code table_operations.id}, tying each history entry back to the operation cycle
+ * that produced it. Multiple runs of the same operation on the same table produce multiple rows
+ * (each cycle gets a new UUID from the Analyzer).
  */
 @Entity
 @Table(
@@ -63,7 +63,7 @@ public class TableOperationsHistoryRow {
   @Column(name = "operation_type", nullable = false, length = 50)
   private OperationType operationType;
 
-  /** When the Spark job was submitted / ran, as reported by the job itself. */
+  /** When the operation completed, as recorded by the complete endpoint. */
   @Column(name = "submitted_at", nullable = false)
   private Instant submittedAt;
 
@@ -80,12 +80,4 @@ public class TableOperationsHistoryRow {
   @Convert(converter = JobResultConverter.class)
   @Column(name = "result")
   private JobResult result;
-
-  /** Number of orphan files deleted by the Spark job; null for non-OFD operations. */
-  @Column(name = "orphan_files_deleted")
-  private Integer orphanFilesDeleted;
-
-  /** Bytes reclaimed by orphan file deletion; null for non-OFD operations. */
-  @Column(name = "orphan_bytes_deleted")
-  private Long orphanBytesDeleted;
 }

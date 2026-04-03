@@ -6,7 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** DTO for {@code table_operations_history} — append-only Spark job results. */
+/** DTO for {@code table_operations_history} — append-only operation results. */
 @Data
 @Builder
 @NoArgsConstructor
@@ -23,21 +23,15 @@ public class TableOperationsHistoryDto {
   private String tableName;
   private OperationType operationType;
 
-  /** When the Spark job was submitted / ran. */
+  /** When the operation completed, as recorded by the complete endpoint. */
   private Instant submittedAt;
 
   /** {@code SUCCESS} or {@code FAILED}. */
   private OperationHistoryStatus status;
 
-  /** Spark job ID. */
+  /** Job ID from the Jobs Service. */
   private String jobId;
 
   /** Job result payload; both fields null on success. */
   private JobResult result;
-
-  /** Number of orphan files deleted; null for non-OFD operations or before completion. */
-  private Integer orphanFilesDeleted;
-
-  /** Bytes reclaimed by orphan file deletion; null for non-OFD operations. */
-  private Long orphanBytesDeleted;
 }

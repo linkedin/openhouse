@@ -13,10 +13,21 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class TableStatsHistoryDto {
 
+  /** Auto-increment primary key. */
   private Long id;
+
+  /** Stable Iceberg table UUID. */
   private String tableUuid;
+
+  /** Denormalized database name for display. */
   private String databaseId;
+
+  /** Denormalized table name for display. */
   private String tableName;
+
+  /** Snapshot + delta stats from this commit event. */
   private TableStats stats;
+
+  /** When this history row was recorded. */
   private Instant recordedAt;
 }

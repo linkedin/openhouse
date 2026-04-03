@@ -18,8 +18,15 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UpsertTableStatsRequest {
 
+  /** Denormalized database name for display. */
   private String databaseId;
+
+  /** Denormalized table name for display. */
   private String tableName;
+
+  /** Combined snapshot + delta stats payload from this commit. */
   private TableStats stats;
+
+  /** Current table properties snapshot (e.g. maintenance opt-in flags). */
   private Map<String, String> tableProperties;
 }
