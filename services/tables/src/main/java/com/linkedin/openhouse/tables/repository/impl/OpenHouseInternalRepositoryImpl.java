@@ -248,8 +248,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                 .withSortOrder(sortOrder)
                 .replaceTransaction();
     txn.commitTransaction();
-    // Can't return the transaction table. Must construct a table from the underlyingOps which
-    // contains the latest metadata.
+    // The transaction's table would refresh metadata from HTS on access, returning stale metadata.
+    // Instead, use underlyingOps which has refresh disabled after commit and still holds the
+    // newly committed metadata.
     TableOperations ops = txn.underlyingOps();
     String fullname = "openhouse." + tableIdentifier.namespace() + "." + tableIdentifier.name();
     return new BaseTable(ops, fullname);
