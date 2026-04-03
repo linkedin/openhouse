@@ -2,7 +2,8 @@ import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from types import MappingProxyType
+from types import MappingProxyType, TracebackType
+from typing import Self
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
@@ -111,6 +112,17 @@ class OpenHouseDataLoader:
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self._catalog.close()
 
     @cached_property
     def _iceberg_table(self) -> Table:
