@@ -184,7 +184,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   /**
    * {@link BaseMetastoreTableOperations#commit(TableMetadata, TableMetadata)} operation forces
    * doRefresh() after a doCommit() operation succeeds. This workflow is problematic for
-   * isStageCreate=true tables, for which metadata.json is created but not persisted in hts.
+   * isStageCreate=true or isStageReplace=true tables, for which metadata.json is created but not
+   * persisted in hts.
    *
    * <p>We override the default behavior and disable forced refresh for newly committed staged
    * tables.
@@ -193,8 +194,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   public void commit(TableMetadata base, TableMetadata metadata) {
     boolean isStageCreate =
         Boolean.parseBoolean(metadata.properties().get(CatalogConstants.IS_STAGE_CREATE_KEY));
+    boolean isStageReplace =
+        Boolean.parseBoolean(metadata.properties().get(CatalogConstants.IS_STAGE_REPLACE_KEY));
     super.commit(base, metadata);
-    if (isStageCreate) {
+    if (isStageCreate || isStageReplace) {
       disableRefresh(); /* disable forced refresh */
     }
   }
@@ -274,6 +277,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
           Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
+      boolean isStageReplace =
+          Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_REPLACE_KEY));
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 
@@ -370,7 +375,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             properties.get(CatalogConstants.OPENHOUSE_DATABASEID_KEY),
             properties.get(CatalogConstants.OPENHOUSE_TABLEID_KEY),
             newMetadataLocation);
-      } else if (!isStageCreate) {
+      } else if (!isStageCreate && !isStageReplace) {
         Span htsSpan = tracer.spanBuilder("IcebergTableOps.saveHouseTable").startSpan();
         try (Scope ignored = htsSpan.makeCurrent()) {
           houseTableRepository.save(houseTable);

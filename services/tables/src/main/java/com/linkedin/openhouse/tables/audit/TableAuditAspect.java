@@ -110,10 +110,14 @@ public class TableAuditAspect {
       String tableCreator)
       throws Throwable {
     ApiResponse<GetTableResponseBody> result = null;
-    OperationType operationType =
-        createUpdateTableRequestBody.isStageCreate()
-            ? OperationType.STAGED_CREATE
-            : OperationType.CREATE;
+    OperationType operationType = null;
+    if (createUpdateTableRequestBody.isStageCreate()) {
+      operationType = OperationType.STAGED_CREATE;
+    } else if (createUpdateTableRequestBody.isStageReplace()) {
+      operationType = OperationType.STAGED_REPLACE;
+    } else {
+      operationType = OperationType.CREATE;
+    }
     TableAuditEvent event =
         TableAuditEvent.builder()
             .eventTimestamp(Instant.now())
@@ -351,10 +355,14 @@ public class TableAuditAspect {
       String tableCreator)
       throws Throwable {
     ApiResponse<GetTableResponseBody> result = null;
-    OperationType operationType =
-        icebergSnapshotRequestBody.getBaseTableVersion().equals(INITIAL_TABLE_VERSION)
-            ? OperationType.STAGED_COMMIT
-            : OperationType.COMMIT;
+    OperationType operationType = null;
+    if (icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()) {
+      operationType = OperationType.REPLACE_COMMIT;
+    } else if (icebergSnapshotRequestBody.getBaseTableVersion().equals(INITIAL_TABLE_VERSION)) {
+      operationType = OperationType.STAGED_COMMIT;
+    } else {
+      operationType = OperationType.COMMIT;
+    }
     TableAuditEvent event =
         TableAuditEvent.builder()
             .eventTimestamp(Instant.now())

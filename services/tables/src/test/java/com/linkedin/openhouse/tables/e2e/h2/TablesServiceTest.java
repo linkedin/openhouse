@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
+import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 
 import com.google.common.collect.ImmutableMap;
@@ -89,13 +90,6 @@ public class TablesServiceTest {
     } else {
       Assertions.assertEquals(INITIAL_TABLE_VERSION, actual.getTableVersion());
     }
-  }
-
-  /**
-   * Getting rid of "file:" part if needed for ease of comparison of tableLocation / tableVersion
-   */
-  static String stripPathScheme(String path) {
-    return path.startsWith("file:") ? path.split("file:")[1] : path;
   }
 
   private TableDto verifyPutTableRequest(

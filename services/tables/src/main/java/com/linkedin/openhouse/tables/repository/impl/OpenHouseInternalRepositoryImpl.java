@@ -42,6 +42,8 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.BaseTransaction;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -49,6 +51,7 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
@@ -143,6 +146,25 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           "create for table {} took {} ms",
           tableIdentifier,
           System.currentTimeMillis() - startTime);
+    } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
+      PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
+      log.info(
+          "Replacing a user table: {} with schema: {} and partitionSpec: {}",
+          tableIdentifier,
+          writeSchema,
+          partitionSpec);
+      Map<String, String> tableProps = computePropsForTableCreation(tableDto);
+      tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
+      SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
+      String tableLocation =
+          tableDto.getTableVersion().substring(0, tableDto.getTableVersion().lastIndexOf("/"));
+      table =
+          replaceTable(
+              tableIdentifier, writeSchema, partitionSpec, tableLocation, tableProps, sortOrder);
+      log.info(
+          "replace for table {} took {} ms",
+          tableIdentifier,
+          System.currentTimeMillis() - startTime);
     } else {
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
@@ -207,6 +229,31 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .withProperties(tableProps)
         .withSortOrder(sortOrder)
         .create();
+  }
+
+  protected Table replaceTable(
+      TableIdentifier tableIdentifier,
+      Schema writeSchema,
+      PartitionSpec partitionSpec,
+      String tableLocation,
+      Map<String, String> tableProps,
+      SortOrder sortOrder) {
+    BaseTransaction txn =
+        (BaseTransaction)
+            catalog
+                .buildTable(tableIdentifier, writeSchema)
+                .withPartitionSpec(partitionSpec)
+                .withLocation(tableLocation)
+                .withProperties(tableProps)
+                .withSortOrder(sortOrder)
+                .replaceTransaction();
+    txn.commitTransaction();
+    // The transaction's table would refresh metadata from HTS on access, returning stale metadata.
+    // Instead, use underlyingOps which has refresh disabled after commit and still holds the
+    // newly committed metadata.
+    TableOperations ops = txn.underlyingOps();
+    String fullname = "openhouse." + tableIdentifier.namespace() + "." + tableIdentifier.name();
+    return new BaseTable(ops, fullname);
   }
 
   private boolean doUpdateSortOrderIfNeeded(
@@ -419,6 +466,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.isStageCreate()) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR_STAGED).increment();
       propertiesMap.put(IS_STAGE_CREATE_KEY, String.valueOf(tableDto.isStageCreate()));
+    }
+
+    if (tableDto.isStageReplace()) {
+      meterRegistry.counter(MetricsConstant.REPO_TABLE_REPLACED_CTR_STAGED).increment();
+      propertiesMap.put(IS_STAGE_REPLACE_KEY, String.valueOf(tableDto.isStageReplace()));
     }
 
     propertiesMap.put(
