@@ -4,6 +4,7 @@ import static org.apache.spark.sql.functions.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.util.List;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -11,6 +12,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.types.Types;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -98,6 +100,12 @@ public class RTASTest extends OpenHouseSparkITest {
       assertEquals("val3", rtasTable.properties().get("prop3"), "Should have new table property");
       // verify policies are removed
       assertEquals("", rtasTable.properties().get("policies"));
+      // verify data is readable
+      List<Row> rows =
+          spark
+              .sql(String.format("SELECT id, data, part FROM %s ORDER BY part, id", tableName))
+              .collectAsList();
+      assertEquals(3, rows.size());
     }
   }
 
