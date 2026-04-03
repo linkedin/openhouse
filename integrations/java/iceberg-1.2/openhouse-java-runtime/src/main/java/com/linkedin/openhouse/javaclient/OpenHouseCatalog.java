@@ -606,7 +606,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction replaceTransaction() {
-      OpenHouseTableOperations ops = (OpenHouseTableOperations) newTableOps(this.identifier);
+      TableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         throw new NoSuchTableException("Table does not exist: %s", new Object[] {this.identifier});
       }
@@ -668,13 +668,14 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
       createUpdateTableRequestBody.setClusterId(cluster);
       createUpdateTableRequestBody.setBaseTableVersion(ops.current().metadataFileLocation());
       createUpdateTableRequestBody.setSchema(SchemaParser.toJson(schema, false));
-      createUpdateTableRequestBody.setStageReplace(true);
       createUpdateTableRequestBody.setTimePartitioning(
           TimePartitionSpecBuilder.builderFor(schema, spec).build());
       createUpdateTableRequestBody.setClustering(
           ClusteringSpecBuilder.builderFor(schema, spec).build());
       createUpdateTableRequestBody.setTableProperties(propertiesBuilder.build());
       createUpdateTableRequestBody.setSortOrder(SortOrderParser.toJson(sortOrder));
+      createUpdateTableRequestBody.setStageReplace(
+          true); // indicate this is a replace table operation
 
       String tableLocation =
           tableApi

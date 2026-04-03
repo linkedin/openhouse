@@ -53,7 +53,7 @@ public class OpenHouseTableOperationsTest {
 
     @Override
     protected CreateUpdateTableRequestBody constructMetadataRequestBody(
-        TableMetadata base, TableMetadata metadata, boolean isRtasCommit) {
+        TableMetadata base, TableMetadata metadata) {
       CreateUpdateTableRequestBody dummyBody = new CreateUpdateTableRequestBody();
       dummyBody.setDatabaseId("db");
       dummyBody.setTableId("tbl");

@@ -112,9 +112,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     boolean snapshotsUpdated = areSnapshotsUpdated(base, metadata);
     try {
       if (metadataUpdated && snapshotsUpdated && base != null) {
-        putSnapshots(base, metadata, true);
+        // Only CTAS and RTAS can update both metadata and snapshots at the same time.
+        // When the table exists, it will be a replace commit operation.
+        putSnapshotsForReplace(base, metadata);
       } else if (snapshotsUpdated) {
-        putSnapshots(base, metadata, false);
+        putSnapshots(base, metadata);
       } else if (metadataUpdated) {
         createUpdateTable(base, metadata);
       }
@@ -151,7 +153,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    */
   private void createUpdateTable(TableMetadata base, TableMetadata metadata) {
     CreateUpdateTableRequestBody createUpdateTableRequestBody =
-        constructMetadataRequestBody(base, metadata, false);
+        constructMetadataRequestBody(base, metadata);
 
     tableApi
         .updateTableV1(
@@ -168,7 +170,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   }
 
   protected CreateUpdateTableRequestBody constructMetadataRequestBody(
-      TableMetadata base, TableMetadata metadata, boolean isRtasCommit) {
+      TableMetadata base, TableMetadata metadata) {
     CreateUpdateTableRequestBody createUpdateTableRequestBody = new CreateUpdateTableRequestBody();
     createUpdateTableRequestBody.setBaseTableVersion(
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
@@ -209,9 +211,6 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
           OPENHOUSE_IS_TABLE_REPLICATED_KEY,
           base.properties().get(OPENHOUSE_IS_TABLE_REPLICATED_KEY));
       createUpdateTableRequestBody.setTableProperties(newTblProperties);
-    }
-    if (isRtasCommit) {
-      createUpdateTableRequestBody.setReplaceCommit(true);
     }
     return createUpdateTableRequestBody;
   }
@@ -322,15 +321,18 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   }
 
   /**
-   * A wrapper for a remote REST call to put snapshot.
+   * Builds an {@link IcebergSnapshotsRequestBody} from the given metadata and sends it to the
+   * snapshot API.
    *
    * @param base the metadata before the snapshot was created
    * @param newMetadata metadata containing a new snapshot
+   * @param createUpdateTableRequestBody the request body for the table metadata
    */
-  private void putSnapshots(TableMetadata base, TableMetadata newMetadata, boolean isRtasCommit) {
+  private void commitSnapshots(
+      TableMetadata base,
+      TableMetadata newMetadata,
+      CreateUpdateTableRequestBody createUpdateTableRequestBody) {
     IcebergSnapshotsRequestBody icebergSnapshotsRequestBody = new IcebergSnapshotsRequestBody();
-    CreateUpdateTableRequestBody createUpdateTableRequestBody =
-        constructMetadataRequestBody(base, newMetadata, isRtasCommit);
     icebergSnapshotsRequestBody.baseTableVersion(
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
     icebergSnapshotsRequestBody.jsonSnapshots(
@@ -353,6 +355,31 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                     createUpdateTableRequestBody.getDatabaseId(),
                     createUpdateTableRequestBody.getTableId()))
         .block();
+  }
+
+  /**
+   * A wrapper for a remote REST call to put snapshot.
+   *
+   * @param base the metadata before the snapshot was created
+   * @param newMetadata metadata containing a new snapshot
+   */
+  private void putSnapshots(TableMetadata base, TableMetadata newMetadata) {
+    CreateUpdateTableRequestBody createUpdateTableRequestBody =
+        constructMetadataRequestBody(base, newMetadata);
+    commitSnapshots(base, newMetadata, createUpdateTableRequestBody);
+  }
+
+  /**
+   * A wrapper for a remote REST call to put snapshot for a replace table operation.
+   *
+   * @param base the metadata before the snapshot was created
+   * @param newMetadata metadata containing a new snapshot
+   */
+  private void putSnapshotsForReplace(TableMetadata base, TableMetadata newMetadata) {
+    CreateUpdateTableRequestBody createUpdateTableRequestBody =
+        constructMetadataRequestBody(base, newMetadata);
+    createUpdateTableRequestBody.replaceCommit(true);
+    commitSnapshots(base, newMetadata, createUpdateTableRequestBody);
   }
 
   static Mono<GetTableResponseBody> handleCreateUpdateHttpError(
