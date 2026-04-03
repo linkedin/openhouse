@@ -69,6 +69,19 @@ public class AuthorizationUtils {
   }
 
   /**
+   * Checks if actingPrincipal is authorized to drop a table. Unlike checkTableWritePathPrivileges,
+   * this method does not enforce SYSTEM_ADMIN privilege for REPLICA tables.
+   *
+   * @param tableDto
+   * @param actingPrincipal
+   * @param privilege
+   */
+  public void checkTableDropPrivilege(
+      TableDto tableDto, String actingPrincipal, Privileges privilege) {
+    checkTablePrivilege(tableDto, actingPrincipal, privilege);
+  }
+
+  /**
    * Throws AccessDeniedException if actingPrincipal is not authorized to act on database denoted by
    * databaseId.
    *
