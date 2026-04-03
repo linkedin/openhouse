@@ -9,6 +9,7 @@ from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
 
+from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.filters import _quote_identifier
 from openhouse.dataloader.table_identifier import TableIdentifier
@@ -78,6 +79,8 @@ class DataLoaderSplit:
         delete files, and partition spec lookups.
         """
         ctx = self._scan_context
+        if ctx.worker_jvm_args is not None:
+            apply_libhdfs_opts(ctx.worker_jvm_args)
         arrow_scan = ArrowScan(
             table_metadata=ctx.table_metadata,
             io=ctx.io,

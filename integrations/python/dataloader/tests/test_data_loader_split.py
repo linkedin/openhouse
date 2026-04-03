@@ -396,3 +396,27 @@ def test_transform_with_quoted_identifier(tmp_path):
 
     assert result.num_rows == 1
     assert result.column("name").to_pylist() == ["MASKED"]
+
+
+# --- JVM args tests ---
+
+
+def test_worker_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
+    """worker_jvm_args is applied to LIBHDFS_OPTS when iterating a split."""
+    monkeypatch.delenv('LIBHDFS_OPTS', raising=False)
+
+    table = pa.table({"x": [1]})
+    schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
+
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, schema)
+    split._scan_context = TableScanContext(
+        table_metadata=split._scan_context.table_metadata,
+        io=split._scan_context.io,
+        projected_schema=split._scan_context.projected_schema,
+        table_id=split._scan_context.table_id,
+        worker_jvm_args="-Xmx512m",
+    )
+
+    list(split)
+
+    assert os.environ['LIBHDFS_OPTS'] == '-Xmx512m'
