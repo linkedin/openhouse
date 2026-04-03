@@ -47,7 +47,7 @@ jobs:
         << : *livy-engine
       - type: SNAPSHOTS_EXPIRATION
         class-name: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
-        args: []
+        args: ["--deleteFiles", "--backupDir", ".backup"]
         << : *apps-defaults
         << : *livy-engine
       - type: ORPHAN_FILES_DELETION
