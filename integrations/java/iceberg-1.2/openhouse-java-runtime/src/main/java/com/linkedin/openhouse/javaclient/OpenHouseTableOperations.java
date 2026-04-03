@@ -177,7 +177,14 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         TimePartitionSpecBuilder.builderFor(metadata.schema(), metadata.spec()).build());
     createUpdateTableRequestBody.setClustering(
         ClusteringSpecBuilder.builderFor(metadata.schema(), metadata.spec()).build());
-    createUpdateTableRequestBody.setPolicies(buildUpdatedPolicies(metadata));
+    // On table creation (base == null), only set policies if coming from SET POLICY command
+    // (indicated by UPDATED_OPENHOUSE_POLICY_KEY). This prevents users from setting policies
+    // via CREATE TABLE ... TBLPROPERTIES('policies'='...'). Policies should only be managed
+    // through dedicated policy commands (SET POLICY / UNSET POLICY).
+    createUpdateTableRequestBody.setPolicies(
+        base == null && !metadata.properties().containsKey(UPDATED_OPENHOUSE_POLICY_KEY)
+            ? null
+            : buildUpdatedPolicies(metadata));
     createUpdateTableRequestBody.setTableProperties(
         metadata.properties().entrySet().stream()
             .filter(entry -> !UPDATED_OPENHOUSE_POLICY_KEY.equals(entry.getKey()))
