@@ -49,7 +49,7 @@ build-itest: $(ITEST_SITE)
 
 $(ITEST_SITE): pyproject.toml uv.lock src/
 	rm -rf $(ITEST_SITE)
-	SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 uv pip install --target $(ITEST_SITE) --python-platform x86_64-unknown-linux-gnu --python-version 3.12 ".[dev]"
+	SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 uv pip install --target $(ITEST_SITE) --python-platform x86_64-unknown-linux-gnu --python-version 3.12 --extra-index-url https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/simple/ ".[dev]"
 
 integration-tests: $(ITEST_SITE)
 	docker build --platform linux/amd64 -t $(ITEST_IMAGE) -f tests/Dockerfile .
