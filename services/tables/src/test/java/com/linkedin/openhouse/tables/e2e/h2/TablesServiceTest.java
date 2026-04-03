@@ -567,9 +567,9 @@ public class TablesServiceTest {
     tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }
 
-  /** Test that if tableType is REPLICA_TABLE only system admin can update the table. required. */
+  /** Test replica table permissions: update requires SYSTEM_ADMIN, delete uses DELETE_TABLE. */
   @Test
-  public void testReplicaTableUpdateAsNonSystemAdmin() {
+  public void testReplicaTableUpdateAndDeletePermissions() {
     UUID expectedUUID = UUID.randomUUID();
     TableDto tableDtoCopy =
         TABLE_DTO
@@ -592,13 +592,17 @@ public class TablesServiceTest {
     TableDto putResultCreate = verifyPutTableRequest(tableDtoCopy, null, true);
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.REPLICA_TABLE);
     Assertions.assertEquals(putResultCreate.getTableUUID(), expectedUUID.toString());
-    // Read Table
-    Assertions.assertEquals(
-        expectedUUID.toString(),
-        tablesService
-            .getTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER)
-            .getTableUUID());
 
+    // Deny SYSTEM_ADMIN — update on replica should fail
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
+        .thenReturn(false);
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () -> verifyPutTableRequest(tableDtoCopy, putResultCreate, false));
+
+    // Deny DELETE_TABLE — delete on replica should fail
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
@@ -608,6 +612,8 @@ public class TablesServiceTest {
         () ->
             tablesService.deleteTable(
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+
+    // Allow DELETE_TABLE — delete on replica should succeed (SYSTEM_ADMIN still denied)
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
