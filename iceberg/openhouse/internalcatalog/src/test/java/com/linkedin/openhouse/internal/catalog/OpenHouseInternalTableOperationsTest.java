@@ -8,7 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
-import com.linkedin.openhouse.common.cache.RequestScopedCache;
+import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -35,8 +35,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.apache.commons.compress.utils.Lists;
@@ -74,9 +76,6 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 public class OpenHouseInternalTableOperationsTest {
   private static final String TEST_LOCATION = "test_location";
@@ -101,7 +100,7 @@ public class OpenHouseInternalTableOperationsTest {
   @Mock private FSDataInputStream mockFSDataInputStream;
   @Mock private FSDataOutputStream mockFSDataOutputStream;
 
-  private RequestScopedCache requestScopedCache;
+  private TableMetadataCache tableMetadataCache;
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
   private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithMockMetrics;
 
@@ -113,7 +112,7 @@ public class OpenHouseInternalTableOperationsTest {
   @BeforeEach
   void setup() {
     MockitoAnnotations.openMocks(this);
-    requestScopedCache = new RequestScopedCache();
+    tableMetadataCache = new InMemoryTableMetadataCache();
     Mockito.when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
         .thenReturn(mockHouseTable);
     HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
@@ -127,7 +126,7 @@ public class OpenHouseInternalTableOperationsTest {
             TEST_TABLE_IDENTIFIER,
             metricsReporter,
             fileIOManager,
-            requestScopedCache);
+            tableMetadataCache);
 
     // Create a separate instance with mock metrics reporter for testing metrics
     openHouseInternalTableOperationsWithMockMetrics =
@@ -138,7 +137,7 @@ public class OpenHouseInternalTableOperationsTest {
             TEST_TABLE_IDENTIFIER,
             mockMetricsReporter,
             fileIOManager,
-            requestScopedCache);
+            tableMetadataCache);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
@@ -1078,122 +1077,109 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   @Test
-  void testRefreshReusesCachedMetadataWithinSingleRequest() {
-    RequestContextHolder.setRequestAttributes(
-        new ServletRequestAttributes(new MockHttpServletRequest()));
-    try {
-      HouseTablePrimaryKey primaryKey =
-          HouseTablePrimaryKey.builder()
-              .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
-              .tableId(TEST_TABLE_IDENTIFIER.name())
-              .build();
-      when(mockHouseTableRepository.findById(primaryKey)).thenReturn(Optional.of(mockHouseTable));
-      when(mockHouseTable.getTableLocation()).thenReturn("test_metadata_location");
+  void testRefreshReusesCachedMetadataAcrossOperations() {
+    HouseTablePrimaryKey primaryKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
+            .tableId(TEST_TABLE_IDENTIFIER.name())
+            .build();
+    when(mockHouseTableRepository.findById(primaryKey)).thenReturn(Optional.of(mockHouseTable));
+    when(mockHouseTable.getTableLocation()).thenReturn("test_metadata_location");
 
-      OpenHouseInternalTableOperations secondOperations =
-          new OpenHouseInternalTableOperations(
-              mockHouseTableRepository,
-              new HadoopFileIO(new Configuration()),
-              mockHouseTableMapper,
-              TEST_TABLE_IDENTIFIER,
-              new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
-              fileIOManager,
-              requestScopedCache);
+    OpenHouseInternalTableOperations secondOperations =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager,
+            tableMetadataCache);
 
-      try (MockedStatic<TableMetadataParser> parserMock =
-          Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
-        parserMock
-            .when(
-                () ->
-                    TableMetadataParser.read(
-                        Mockito.any(FileIO.class), Mockito.eq("test_metadata_location")))
-            .thenReturn(BASE_TABLE_METADATA);
+    try (MockedStatic<TableMetadataParser> parserMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      parserMock
+          .when(
+              () ->
+                  TableMetadataParser.read(
+                      Mockito.any(FileIO.class), Mockito.eq("test_metadata_location")))
+          .thenReturn(BASE_TABLE_METADATA);
 
-        openHouseInternalTableOperations.refresh();
-        secondOperations.refresh();
+      openHouseInternalTableOperations.refresh();
+      secondOperations.refresh();
 
-        parserMock.verify(
-            () ->
-                TableMetadataParser.read(
-                    Mockito.any(FileIO.class), Mockito.eq("test_metadata_location")),
-            times(1));
-      }
-    } finally {
-      RequestContextHolder.resetRequestAttributes();
+      parserMock.verify(
+          () ->
+              TableMetadataParser.read(
+                  Mockito.any(FileIO.class), Mockito.eq("test_metadata_location")),
+          times(1));
     }
   }
 
   @Test
-  void testCommitSeedsRequestCacheForSubsequentRefresh() {
-    RequestContextHolder.setRequestAttributes(
-        new ServletRequestAttributes(new MockHttpServletRequest()));
-    try {
-      AtomicReference<HouseTable> savedHouseTable = new AtomicReference<>();
-      HouseTablePrimaryKey primaryKey =
-          HouseTablePrimaryKey.builder()
-              .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
-              .tableId(TEST_TABLE_IDENTIFIER.name())
-              .build();
-      when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
-          .thenAnswer(
-              invocation -> {
-                TableMetadata tableMetadata = invocation.getArgument(0);
-                HouseTable mappedHouseTable =
-                    HouseTable.builder()
-                        .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
-                        .tableId(TEST_TABLE_IDENTIFIER.name())
-                        .tableLocation(
-                            tableMetadata.properties().get(getCanonicalFieldName("tableLocation")))
-                        .build();
-                savedHouseTable.set(mappedHouseTable);
-                return mappedHouseTable;
-              });
-      when(mockHouseTableRepository.save(Mockito.any(HouseTable.class)))
-          .thenAnswer(
-              invocation -> {
-                HouseTable houseTable = invocation.getArgument(0);
-                savedHouseTable.set(houseTable);
-                return houseTable;
-              });
-      when(mockHouseTableRepository.findById(primaryKey))
-          .thenAnswer(invocation -> Optional.ofNullable(savedHouseTable.get()));
+  void testCommitSeedsCacheForSubsequentRefresh() {
+    AtomicReference<HouseTable> savedHouseTable = new AtomicReference<>();
+    HouseTablePrimaryKey primaryKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
+            .tableId(TEST_TABLE_IDENTIFIER.name())
+            .build();
+    when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
+        .thenAnswer(
+            invocation -> {
+              TableMetadata tableMetadata = invocation.getArgument(0);
+              HouseTable mappedHouseTable =
+                  HouseTable.builder()
+                      .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
+                      .tableId(TEST_TABLE_IDENTIFIER.name())
+                      .tableLocation(
+                          tableMetadata.properties().get(getCanonicalFieldName("tableLocation")))
+                      .build();
+              savedHouseTable.set(mappedHouseTable);
+              return mappedHouseTable;
+            });
+    when(mockHouseTableRepository.save(Mockito.any(HouseTable.class)))
+        .thenAnswer(
+            invocation -> {
+              HouseTable houseTable = invocation.getArgument(0);
+              savedHouseTable.set(houseTable);
+              return houseTable;
+            });
+    when(mockHouseTableRepository.findById(primaryKey))
+        .thenAnswer(invocation -> Optional.ofNullable(savedHouseTable.get()));
 
-      OpenHouseInternalTableOperations refreshedOperations =
-          new OpenHouseInternalTableOperations(
-              mockHouseTableRepository,
-              new HadoopFileIO(new Configuration()),
-              mockHouseTableMapper,
-              TEST_TABLE_IDENTIFIER,
-              new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
-              fileIOManager,
-              requestScopedCache);
+    OpenHouseInternalTableOperations refreshedOperations =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager,
+            tableMetadataCache);
 
-      Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
-      properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
-      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
 
-      try (MockedStatic<TableMetadataParser> parserMock =
-          Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
-        parserMock
-            .when(
-                () ->
-                    TableMetadataParser.write(
-                        Mockito.any(TableMetadata.class),
-                        Mockito.any(org.apache.iceberg.io.OutputFile.class)))
-            .thenAnswer(invocation -> null);
+    try (MockedStatic<TableMetadataParser> parserMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      parserMock
+          .when(
+              () ->
+                  TableMetadataParser.write(
+                      Mockito.any(TableMetadata.class),
+                      Mockito.any(org.apache.iceberg.io.OutputFile.class)))
+          .thenAnswer(invocation -> null);
 
-        openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
-        refreshedOperations.refresh();
+      openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
+      refreshedOperations.refresh();
 
-        String committedLocation = savedHouseTable.get().getTableLocation();
-        Assertions.assertEquals(committedLocation, refreshedOperations.currentMetadataLocation());
-        parserMock.verify(
-            () ->
-                TableMetadataParser.read(Mockito.any(FileIO.class), Mockito.eq(committedLocation)),
-            never());
-      }
-    } finally {
-      RequestContextHolder.resetRequestAttributes();
+      String committedLocation = savedHouseTable.get().getTableLocation();
+      Assertions.assertEquals(committedLocation, refreshedOperations.currentMetadataLocation());
+      parserMock.verify(
+          () -> TableMetadataParser.read(Mockito.any(FileIO.class), Mockito.eq(committedLocation)),
+          never());
     }
   }
 
@@ -1225,7 +1211,7 @@ public class OpenHouseInternalTableOperationsTest {
             TEST_TABLE_IDENTIFIER,
             realMetricsReporter,
             fileIOManager,
-            requestScopedCache);
+            tableMetadataCache);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);
@@ -1288,7 +1274,7 @@ public class OpenHouseInternalTableOperationsTest {
             TEST_TABLE_IDENTIFIER,
             realMetricsReporter,
             fileIOManager,
-            requestScopedCache);
+            tableMetadataCache);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);
@@ -1990,6 +1976,21 @@ public class OpenHouseInternalTableOperationsTest {
     } finally {
       GlobalOpenTelemetry.resetForTest();
       tracerProvider.close();
+    }
+  }
+
+  private static final class InMemoryTableMetadataCache implements TableMetadataCache {
+    private final Map<String, TableMetadata> cache = new ConcurrentHashMap<>();
+
+    @Override
+    public TableMetadata load(String metadataLocation, Supplier<TableMetadata> metadataLoader) {
+      return cache.computeIfAbsent(metadataLocation, ignored -> metadataLoader.get());
+    }
+
+    @Override
+    public TableMetadata seed(String metadataLocation, TableMetadata tableMetadata) {
+      cache.put(metadataLocation, tableMetadata);
+      return tableMetadata;
     }
   }
 }

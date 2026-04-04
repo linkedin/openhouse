@@ -12,7 +12,7 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
-import com.linkedin.openhouse.common.cache.RequestScopedCache;
+import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -84,11 +84,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   FileIOManager fileIOManager;
 
-  RequestScopedCache requestScopedCache;
+  TableMetadataCache tableMetadataCache;
 
   private static final Gson GSON = new Gson();
-  private static final String TABLE_METADATA_CACHE_NAMESPACE =
-      OpenHouseInternalTableOperations.class.getName() + ".tableMetadata";
 
   private static final Cache<String, Integer> CACHE =
       CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
@@ -139,7 +137,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     Runnable r =
         () ->
             super.refreshFromMetadataLocation(
-                metadataLoc, null, 20, this::loadTableMetadataWithRequestCache);
+                metadataLoc, null, 20, this::loadTableMetadataWithCache);
     try {
       if (needToReload) {
         metricsReporter.executeWithStats(
@@ -335,6 +333,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
 
       final TableMetadata updatedMtDataRef = metadataToCommit;
+      TableMetadata cachedTableMetadata = updatedMtDataRef;
       Tracer tracer = GlobalOpenTelemetry.getTracer("openhouse-tables");
       Span writeSpan = tracer.spanBuilder("IcebergTableOps.writeMetadata").startSpan();
       long metadataUpdateStartTime = System.currentTimeMillis();
@@ -345,8 +344,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                     updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
             InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
             getCatalogMetricTags());
-        requestScopedCache.put(
-            TABLE_METADATA_CACHE_NAMESPACE, newMetadataLocation, updatedMtDataRef);
+        cachedTableMetadata = tableMetadataCache.seed(newMetadataLocation, updatedMtDataRef);
         log.info(
             "updateMetadata to location {} succeeded, took {} ms",
             newMetadataLocation,
@@ -364,7 +362,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         writeSpan.end();
       }
 
-      houseTable = houseTableMapper.toHouseTable(metadataToCommit, fileIO);
+      houseTable = houseTableMapper.toHouseTable(cachedTableMetadata, fileIO);
       if (base != null
           && (properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
                   && !properties
@@ -779,10 +777,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         .fromJson(serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
   }
 
-  private TableMetadata loadTableMetadataWithRequestCache(String metadataLocation) {
-    return requestScopedCache.getOrLoad(
-        TABLE_METADATA_CACHE_NAMESPACE,
-        metadataLocation,
-        () -> TableMetadataParser.read(io(), metadataLocation));
+  private TableMetadata loadTableMetadataWithCache(String metadataLocation) {
+    return tableMetadataCache.load(
+        metadataLocation, () -> TableMetadataParser.read(io(), metadataLocation));
   }
 }
