@@ -95,32 +95,7 @@ public class RTASJavaTest extends OpenHouseSparkITest {
       txn.newAppend().appendFile(fileB).commit();
       txn.commitTransaction();
 
-      Table replacedTable = catalog.loadTable(TABLE_IDENT);
-
-      // verify location is preserved
-      assertEquals(
-          stripPathScheme(originalLocation),
-          stripPathScheme(replacedTable.location()),
-          "Table location should be preserved after replace");
-      // verify schema is updated
-      assertEquals(
-          REPLACE_SCHEMA.asStruct(),
-          replacedTable.schema().asStruct(),
-          "Schema should be updated after replace");
-      // verify spec is updated
-      assertEquals(
-          "part",
-          replacedTable.spec().fields().get(0).name(),
-          "Partition spec should be updated after replace");
-      // verify snapshots are preserved and main branch is reset
-      assertEquals(2, Iterables.size(replacedTable.snapshots()), "Should have two snapshots");
-      assertNull(
-          replacedTable.currentSnapshot().parentId(),
-          "Current snapshot should have no parent after replace");
-      assertNotEquals(
-          originalSnapshotId,
-          replacedTable.currentSnapshot().snapshotId(),
-          "Current snapshot should be the new one");
+      verifyReplacedTable(catalog, originalLocation, originalSnapshotId);
     }
   }
 
@@ -140,9 +115,10 @@ public class RTASJavaTest extends OpenHouseSparkITest {
 
       Table table = catalog.loadTable(TABLE_IDENT);
       String originalLocation = table.location();
-      assertEquals(1, Iterables.size(table.snapshots()), "Should have one snapshot after create");
-
       long originalSnapshotId = table.currentSnapshot().snapshotId();
+
+      // verify that the table was created with one snapshot
+      assertEquals(1, Iterables.size(table.snapshots()), "Should have one snapshot after create");
 
       // create or replace on existing table should replace it
       Transaction replaceTxn =
@@ -156,33 +132,34 @@ public class RTASJavaTest extends OpenHouseSparkITest {
       replaceTxn.newAppend().appendFile(fileB).commit();
       replaceTxn.commitTransaction();
 
-      Table replacedTable = catalog.loadTable(TABLE_IDENT);
-
-      // verify location is preserved
-      assertEquals(
-          stripPathScheme(originalLocation),
-          stripPathScheme(replacedTable.location()),
-          "Table location should be preserved after create or replace");
-      // verify schema is updated
-      assertEquals(
-          REPLACE_SCHEMA.asStruct(),
-          replacedTable.schema().asStruct(),
-          "Schema should be updated after create or replace");
-      // verify spec is updated
-      assertEquals(
-          "part",
-          replacedTable.spec().fields().get(0).name(),
-          "Partition spec should be updated after create or replace");
-      // verify snapshots are preserved and main branch is reset
-      assertEquals(2, Iterables.size(replacedTable.snapshots()), "Should have two snapshots");
-      assertNull(
-          replacedTable.currentSnapshot().parentId(),
-          "Current snapshot should have no parent after replace");
-      assertNotEquals(
-          originalSnapshotId,
-          replacedTable.currentSnapshot().snapshotId(),
-          "Current snapshot should be the new one");
+      verifyReplacedTable(catalog, originalLocation, originalSnapshotId);
     }
+  }
+
+  private void verifyReplacedTable(
+      Catalog catalog, String originalLocation, long originalSnapshotId) {
+    Table replacedTable = catalog.loadTable(TABLE_IDENT);
+
+    assertEquals(
+        stripPathScheme(originalLocation),
+        stripPathScheme(replacedTable.location()),
+        "Table location should be preserved after replace");
+    assertEquals(
+        REPLACE_SCHEMA.asStruct(),
+        replacedTable.schema().asStruct(),
+        "Schema should be updated after replace");
+    assertEquals(
+        "part",
+        replacedTable.spec().fields().get(0).name(),
+        "Partition spec should be updated after replace");
+    assertEquals(2, Iterables.size(replacedTable.snapshots()), "Should have two snapshots");
+    assertNull(
+        replacedTable.currentSnapshot().parentId(),
+        "Current snapshot should have no parent after replace");
+    assertNotEquals(
+        originalSnapshotId,
+        replacedTable.currentSnapshot().snapshotId(),
+        "Current snapshot should be the new one");
   }
 
   /**

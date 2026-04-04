@@ -675,6 +675,55 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testSnapshotsExpirationAfterReplaceTable() throws Exception {
+    final String tableName = "db.test_es_rtas";
+    final String sourceName = "db.test_es_rtas_source";
+    final int numInserts = 3;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // create source table with data
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
+                  sourceName));
+
+      // create original table and populate with multiple inserts to create snapshots
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      // replace the table using RTAS
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      // original inserts + RTAS snapshot (old snapshots are preserved but branch is reset)
+      Assertions.assertTrue(
+          snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0);
+      // Only retain the last snapshot (the RTAS one)
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
+    }
+  }
+
+  @Test
   public void testStagedFilesDelete() throws Exception {
     final String tableName = "db.test_staged_delete";
     final int numInserts = 3;
