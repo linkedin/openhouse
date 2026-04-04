@@ -333,7 +333,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
 
       final TableMetadata updatedMtDataRef = metadataToCommit;
-      TableMetadata cachedTableMetadata = updatedMtDataRef;
       Tracer tracer = GlobalOpenTelemetry.getTracer("openhouse-tables");
       Span writeSpan = tracer.spanBuilder("IcebergTableOps.writeMetadata").startSpan();
       long metadataUpdateStartTime = System.currentTimeMillis();
@@ -344,7 +343,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                     updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
             InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
             getCatalogMetricTags());
-        cachedTableMetadata = tableMetadataCache.seed(newMetadataLocation, updatedMtDataRef);
+        tableMetadataCache.seed(newMetadataLocation, updatedMtDataRef);
         log.info(
             "updateMetadata to location {} succeeded, took {} ms",
             newMetadataLocation,
@@ -362,7 +361,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         writeSpan.end();
       }
 
-      houseTable = houseTableMapper.toHouseTable(cachedTableMetadata, fileIO);
+      houseTable = houseTableMapper.toHouseTable(updatedMtDataRef, fileIO);
       if (base != null
           && (properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
                   && !properties
