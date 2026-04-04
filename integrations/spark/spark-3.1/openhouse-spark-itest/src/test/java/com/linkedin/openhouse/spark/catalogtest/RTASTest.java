@@ -15,19 +15,24 @@ import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class RTASTest extends OpenHouseSparkITest {
 
   private static final String tableName = "openhouse.dbRtas.rtastable";
   private static final String sourceName = "openhouse.dbRtas.source";
   private static final TableIdentifier tableIdent = TableIdentifier.of("dbRtas", "rtastable");
 
-  public RTASTest() throws Exception {
+  @BeforeAll
+  void setupSource() throws Exception {
     try (SparkSession spark = getSparkSession()) {
+      spark.sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
       spark.sql(
           String.format(
-              "CREATE TABLE IF NOT EXISTS %s (id bigint NOT NULL, data string) "
+              "CREATE TABLE %s (id bigint NOT NULL, data string) "
                   + "USING iceberg PARTITIONED BY (truncate(id, 3))",
               sourceName));
       spark.sql(String.format("INSERT INTO %s VALUES (1, 'a'), (2, 'b'), (3, 'c')", sourceName));
