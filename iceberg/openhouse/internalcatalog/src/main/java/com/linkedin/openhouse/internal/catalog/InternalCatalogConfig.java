@@ -1,43 +1,37 @@
 package com.linkedin.openhouse.internal.catalog;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.cluster.configs.YamlPropertySourceFactory;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCaches;
 import java.util.List;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.convert.DurationStyle;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
 
 @Configuration
 @EnableCaching
+@EnableConfigurationProperties(InternalCatalogProperties.class)
+@PropertySource(
+    name = "internalCatalogCluster",
+    value = "file:${OPENHOUSE_CLUSTER_CONFIG_PATH:/var/config/cluster.yaml}",
+    factory = YamlPropertySourceFactory.class,
+    ignoreResourceNotFound = true)
 public class InternalCatalogConfig {
-
-  private static final String DEFAULT_METADATA_CACHE_TTL = "5m";
-  private static final int DEFAULT_METADATA_CACHE_MAX_SIZE = 1000;
 
   @Bean(name = TableMetadataCaches.CACHE_MANAGER)
   public CacheManager internalCatalogCacheManager(
-      ObjectProvider<ClusterProperties> clusterPropertiesProvider) {
-    ClusterProperties clusterProperties = clusterPropertiesProvider.getIfAvailable();
-    String metadataCacheTtl =
-        clusterProperties == null
-            ? DEFAULT_METADATA_CACHE_TTL
-            : clusterProperties.getClusterIcebergMetadataCacheTtl();
-    int metadataCacheMaxSize =
-        clusterProperties == null
-            ? DEFAULT_METADATA_CACHE_MAX_SIZE
-            : clusterProperties.getClusterIcebergMetadataCacheMaxSize();
+      InternalCatalogProperties internalCatalogProperties) {
     CaffeineCacheManager cacheManager = new CaffeineCacheManager();
     cacheManager.setAllowNullValues(false);
     cacheManager.setCacheNames(List.of(TableMetadataCaches.TABLE_METADATA));
     cacheManager.setCaffeine(
         Caffeine.newBuilder()
-            .expireAfterWrite(DurationStyle.detectAndParse(metadataCacheTtl))
-            .maximumSize(metadataCacheMaxSize)
+            .expireAfterWrite(internalCatalogProperties.getTtl())
+            .maximumSize(internalCatalogProperties.getMaxSize())
             .recordStats());
     return cacheManager;
   }
