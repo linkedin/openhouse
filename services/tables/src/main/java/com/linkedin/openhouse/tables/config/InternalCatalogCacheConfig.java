@@ -1,7 +1,7 @@
-package com.linkedin.openhouse.internal.catalog;
+package com.linkedin.openhouse.tables.config;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.linkedin.openhouse.cluster.configs.YamlPropertySourceFactory;
+import com.linkedin.openhouse.internal.catalog.InternalCatalogProperties;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCaches;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -10,17 +10,11 @@ import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.PropertySource;
 
 @Configuration
 @EnableCaching
 @EnableConfigurationProperties(InternalCatalogProperties.class)
-@PropertySource(
-    name = "internalCatalogCluster",
-    value = "file:${OPENHOUSE_CLUSTER_CONFIG_PATH:/var/config/cluster.yaml}",
-    factory = YamlPropertySourceFactory.class,
-    ignoreResourceNotFound = true)
-public class InternalCatalogConfig {
+public class InternalCatalogCacheConfig {
 
   @Bean(name = TableMetadataCaches.CACHE_MANAGER)
   public CacheManager internalCatalogCacheManager(

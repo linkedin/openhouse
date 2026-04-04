@@ -1,5 +1,6 @@
-package com.linkedin.openhouse.internal.catalog;
+package com.linkedin.openhouse.tables.config;
 
+import com.linkedin.openhouse.internal.catalog.InternalCatalogProperties;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCaches;
 import java.time.Duration;
 import java.util.List;
@@ -11,10 +12,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 
-public class InternalCatalogConfigTest {
+class InternalCatalogCacheConfigTest {
 
   private final ApplicationContextRunner contextRunner =
-      new ApplicationContextRunner().withUserConfiguration(InternalCatalogConfig.class);
+      new ApplicationContextRunner().withUserConfiguration(InternalCatalogCacheConfig.class);
 
   @Test
   public void testDefaultMetadataCacheProperties() {
