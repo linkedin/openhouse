@@ -2,7 +2,6 @@ package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -72,7 +71,7 @@ public final class SparkJobUtil {
               String.format(
                   RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
                   columnName,
-                  now.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                  now.toLocalDateTime(),
                   count,
                   granularity,
                   columnPattern));
@@ -93,7 +92,7 @@ public final class SparkJobUtil {
                   RETENTION_CONDITION_TEMPLATE,
                   columnName,
                   granularity,
-                  now.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                  now.toLocalDateTime(),
                   count,
                   granularity));
       log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
