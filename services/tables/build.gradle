@@ -43,6 +43,8 @@ dependencies {
   implementation 'com.cronutils:cron-utils:9.2.0'
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
+  testImplementation 'org.springframework:spring-context-support:5.3.18'
+  testImplementation 'com.github.ben-manes.caffeine:caffeine:2.8.8'
   testImplementation(testFixtures(project(':services:common')))
   testImplementation (project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
     exclude group: 'com.linkedin.iceberg'
