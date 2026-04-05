@@ -3,8 +3,11 @@ package com.linkedin.openhouse.internal.catalog.cache;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.iceberg.TableMetadata;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.cache.caffeine.CaffeineCache;
@@ -14,6 +17,11 @@ class InternalCatalogCacheConfigTest {
 
   private final ApplicationContextRunner contextRunner =
       new ApplicationContextRunner().withUserConfiguration(InternalCatalogCacheConfig.class);
+
+  private final ApplicationContextRunner tableMetadataCacheContextRunner =
+      new ApplicationContextRunner()
+          .withUserConfiguration(InternalCatalogCacheConfig.class)
+          .withBean(SpringTableMetadataCache.class, SpringTableMetadataCache::new);
 
   @Test
   public void testDefaultMetadataCacheConfiguration() {
@@ -36,7 +44,43 @@ class InternalCatalogCacheConfigTest {
         .run(context -> assertMetadataCacheConfiguration(context, Duration.ofMinutes(7), 42));
   }
 
-  private void assertMetadataCacheConfiguration(
+  @Test
+  public void testSpringTableMetadataCacheUsesConfiguredTableMetadataCache() {
+    tableMetadataCacheContextRunner
+        .withBean(
+            InternalCatalogCacheProperties.class,
+            () -> {
+              InternalCatalogCacheProperties cacheProperties = new InternalCatalogCacheProperties();
+              cacheProperties.setTtl(Duration.ofMinutes(7));
+              cacheProperties.setMaxSize(42);
+              return cacheProperties;
+            })
+        .run(
+            context -> {
+              CaffeineCache tableMetadataCache =
+                  assertMetadataCacheConfiguration(context, Duration.ofMinutes(7), 42);
+              TableMetadataCache cache = context.getBean(TableMetadataCache.class);
+              String metadataLocation = "metadata-location";
+              TableMetadata seededMetadata = Mockito.mock(TableMetadata.class);
+              AtomicInteger loadCount = new AtomicInteger();
+
+              cache.seed(metadataLocation, seededMetadata);
+              TableMetadata loadedMetadata =
+                  cache.load(
+                      metadataLocation,
+                      () -> {
+                        loadCount.incrementAndGet();
+                        return Mockito.mock(TableMetadata.class);
+                      });
+
+              Assertions.assertSame(seededMetadata, loadedMetadata);
+              Assertions.assertEquals(0, loadCount.get());
+              Assertions.assertSame(
+                  seededMetadata, tableMetadataCache.get(metadataLocation, TableMetadata.class));
+            });
+  }
+
+  private CaffeineCache assertMetadataCacheConfiguration(
       AssertableApplicationContext context, Duration expectedTtl, long expectedMaxSize) {
     Assertions.assertNull(context.getStartupFailure());
 
@@ -64,5 +108,6 @@ class InternalCatalogCacheConfigTest {
             .getExpiresAfter(TimeUnit.NANOSECONDS));
     Assertions.assertEquals(
         expectedMaxSize, nativeCache.policy().eviction().orElseThrow().getMaximum());
+    return tableMetadataCache;
   }
 }
