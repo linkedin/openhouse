@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.tables.config;
 
-import com.linkedin.openhouse.internal.catalog.InternalCatalogProperties;
-import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCaches;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -12,10 +10,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 
-class InternalCatalogCacheConfigTest {
+class ConfigTest {
 
   private final ApplicationContextRunner contextRunner =
-      new ApplicationContextRunner().withUserConfiguration(InternalCatalogCacheConfig.class);
+      new ApplicationContextRunner().withUserConfiguration(Config.class);
 
   @Test
   public void testDefaultMetadataCacheProperties() {
@@ -27,7 +25,8 @@ class InternalCatalogCacheConfigTest {
   public void testOverriddenMetadataCacheProperties() {
     contextRunner
         .withPropertyValues(
-            "cluster.iceberg.metadata-cache.ttl=7m", "cluster.iceberg.metadata-cache.max-size=42")
+            "cluster.iceberg.tables.metadata-cache.ttl=7m",
+            "cluster.iceberg.tables.metadata-cache.max-size=42")
         .run(context -> assertMetadataCacheConfiguration(context, Duration.ofMinutes(7), 42));
   }
 
@@ -35,18 +34,15 @@ class InternalCatalogCacheConfigTest {
       AssertableApplicationContext context, Duration expectedTtl, long expectedMaxSize) {
     Assertions.assertNull(context.getStartupFailure());
 
-    InternalCatalogProperties internalCatalogProperties =
-        context.getBean(InternalCatalogProperties.class);
-    Assertions.assertEquals(expectedTtl, internalCatalogProperties.getTtl());
-    Assertions.assertEquals(expectedMaxSize, internalCatalogProperties.getMaxSize());
+    Config config = context.getBean(Config.class);
+    Assertions.assertEquals(expectedTtl, config.getMetadataCache().getTtl());
+    Assertions.assertEquals(expectedMaxSize, config.getMetadataCache().getMaxSize());
 
     CaffeineCacheManager cacheManager =
-        context.getBean(TableMetadataCaches.CACHE_MANAGER, CaffeineCacheManager.class);
-    Assertions.assertEquals(
-        List.of(TableMetadataCaches.TABLE_METADATA), List.copyOf(cacheManager.getCacheNames()));
+        context.getBean("internalCatalogCacheManager", CaffeineCacheManager.class);
+    Assertions.assertEquals(List.of("tableMetadata"), List.copyOf(cacheManager.getCacheNames()));
 
-    CaffeineCache tableMetadataCache =
-        (CaffeineCache) cacheManager.getCache(TableMetadataCaches.TABLE_METADATA);
+    CaffeineCache tableMetadataCache = (CaffeineCache) cacheManager.getCache("tableMetadata");
     Assertions.assertNotNull(tableMetadataCache);
 
     com.github.benmanes.caffeine.cache.Cache<Object, Object> nativeCache =

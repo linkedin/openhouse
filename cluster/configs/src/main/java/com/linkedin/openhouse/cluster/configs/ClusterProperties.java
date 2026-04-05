@@ -49,12 +49,6 @@ public class ClusterProperties {
   @Value("${cluster.iceberg.write.metadata.previous-versions-max:100}")
   private int clusterIcebergWriteMetadataPreviousVersionsMax;
 
-  @Value("${cluster.iceberg.metadata-cache.ttl:5m}")
-  private String clusterIcebergMetadataCacheTtl;
-
-  @Value("${cluster.iceberg.metadata-cache.max-size:1000}")
-  private int clusterIcebergMetadataCacheMaxSize;
-
   @Value("${cluster.housetables.base-uri:#{null}}")
   private String clusterHouseTablesBaseUri;
 
