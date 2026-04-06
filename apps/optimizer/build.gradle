@@ -1,0 +1,13 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+}
+
+// Avoid build-directory collision with services:optimizer (same project.name 'optimizer').
+buildDir = "${rootProject.buildDir}/apps-optimizer"
+
+dependencies {
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
+  implementation 'com.vladmihalcea:hibernate-types-55:2.21.1'
+  testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
+  testRuntimeOnly 'com.h2database:h2'
+}
