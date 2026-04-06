@@ -22,10 +22,4 @@ public class CompleteOperationRequest {
 
   /** Error details on failure; {@code null} on success. */
   private JobResult result;
-
-  /** Number of orphan files deleted; set by OFD Spark app on success. */
-  private Integer orphanFilesDeleted;
-
-  /** Bytes reclaimed by orphan file deletion; set by OFD Spark app on success. */
-  private Long orphanBytesDeleted;
 }
