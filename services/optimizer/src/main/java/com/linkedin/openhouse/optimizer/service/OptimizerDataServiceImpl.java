@@ -46,8 +46,8 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       String databaseName,
       String tableName,
       String tableUuid) {
-    return operationsRepository
-        .findFiltered(operationType, status, databaseName, tableName, tableUuid).stream()
+    return operationsRepository.find(operationType, status, databaseName, tableName, tableUuid)
+        .stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
@@ -130,20 +130,14 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public List<TableStatsDto> listTableStats(String databaseId, String tableName, String tableUuid) {
-    return statsRepository.findFiltered(databaseId, tableName, tableUuid).stream()
+    return statsRepository.find(databaseId, tableName, tableUuid).stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
 
   @Override
   public List<TableStatsHistoryDto> getStatsHistory(String tableUuid, Instant since, int limit) {
-    PageRequest page = PageRequest.of(0, limit);
-    if (since != null) {
-      return statsHistoryRepository.findByTableUuidSince(tableUuid, since, page).stream()
-          .map(mapper::toDto)
-          .collect(Collectors.toList());
-    }
-    return statsHistoryRepository.findByTableUuid(tableUuid, page).stream()
+    return statsHistoryRepository.find(tableUuid, since, PageRequest.of(0, limit)).stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
@@ -170,7 +164,8 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public List<TableOperationsHistoryDto> getHistory(String tableUuid, int limit) {
-    return historyRepository.find(tableUuid, limit).stream()
+    return historyRepository
+        .find(null, null, tableUuid, null, null, null, null, PageRequest.of(0, limit)).stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
@@ -186,7 +181,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       Instant until,
       int limit) {
     return historyRepository
-        .findFiltered(
+        .find(
             databaseName,
             tableName,
             tableUuid,
