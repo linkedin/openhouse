@@ -403,7 +403,7 @@ def test_transform_with_quoted_identifier(tmp_path):
 
 def test_worker_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
     """worker_jvm_args is applied to LIBHDFS_OPTS when iterating a split."""
-    monkeypatch.delenv('LIBHDFS_OPTS', raising=False)
+    monkeypatch.delenv("LIBHDFS_OPTS", raising=False)
 
     table = pa.table({"x": [1]})
     schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
@@ -419,4 +419,4 @@ def test_worker_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
 
     list(split)
 
-    assert os.environ['LIBHDFS_OPTS'] == '-Xmx512m'
+    assert os.environ["LIBHDFS_OPTS"] == "-Xmx512m"
