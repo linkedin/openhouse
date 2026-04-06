@@ -6,6 +6,7 @@ network as the oh-hadoop-spark Docker Compose services.
 """
 
 import logging
+import multiprocessing
 import os
 import sys
 import tempfile
@@ -108,6 +109,38 @@ class LivySession:
         requests.delete(self._session_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
 
+def _parse_max_heap_bytes(jvm_output: str) -> int:
+    """Extract MaxHeapSize value in bytes from -XX:+PrintFlagsFinal output."""
+    for line in jvm_output.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == "MaxHeapSize":
+            return int(parts[3])
+    raise ValueError("MaxHeapSize not found in JVM output")
+
+
+def _materialize_split_in_child(split, jvm_log_path):
+    """Materialize a single split in this process, capturing stdout+stderr to *jvm_log_path*.
+
+    Intended to run via multiprocessing so the child gets a fresh JVM that
+    picks up worker_jvm_args from LIBHDFS_OPTS.
+    """
+    saved_stdout = os.dup(1)
+    saved_stderr = os.dup(2)
+    log_fd = os.open(jvm_log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    os.dup2(log_fd, 1)
+    os.dup2(log_fd, 2)
+    os.close(log_fd)
+    try:
+        batches = list(split)
+        num_rows = sum(b.num_rows for b in batches)
+    finally:
+        os.dup2(saved_stdout, 1)
+        os.close(saved_stdout)
+        os.dup2(saved_stderr, 2)
+        os.close(saved_stderr)
+    print(f"  child process read {num_rows} rows from split")
+
+
 def _read_all(loader: OpenHouseDataLoader) -> pa.Table:
     """Read all data from a DataLoader and return as a sorted PyArrow table."""
     batches = [batch for split in loader for batch in split]
@@ -148,7 +181,7 @@ if __name__ == "__main__":
     # log file because -XX:+PrintFlagsFinal may write to either fd.
     jvm_log_fd, jvm_log = tempfile.mkstemp(suffix=".log")
     os.close(jvm_log_fd)
-    ctx = DataLoaderContext(planner_jvm_args="-Xmx128m -XX:+PrintFlagsFinal")
+    ctx = DataLoaderContext(planner_jvm_args="-Xmx127m -XX:+PrintFlagsFinal")
 
     livy = LivySession(LIVY_URL, token_str)
     try:
@@ -248,6 +281,26 @@ if __name__ == "__main__":
                 list(loader)
             print("PASS: invalid snapshot_id raised ValueError")
 
+            # 8. Materialize a split in a child process with worker_jvm_args.
+            #    The child gets a fresh JVM, so -Xmx254m takes effect there
+            #    independently of the planner's -Xmx127m.
+            worker_ctx = DataLoaderContext(worker_jvm_args="-Xmx254m -XX:+PrintFlagsFinal")
+            worker_loader = OpenHouseDataLoader(
+                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, context=worker_ctx
+            )
+            splits = list(worker_loader)
+            assert splits, "Expected at least one split"
+            worker_jvm_log_fd, worker_jvm_log = tempfile.mkstemp(suffix=".log")
+            os.close(worker_jvm_log_fd)
+            spawn_ctx = multiprocessing.get_context("spawn")
+            proc = spawn_ctx.Process(
+                target=_materialize_split_in_child, args=(splits[0], worker_jvm_log)
+            )
+            proc.start()
+            proc.join(timeout=120)
+            assert proc.exitcode == 0, f"Child process failed with exit code {proc.exitcode}"
+            print("PASS: worker_jvm_args split materialized in child process")
+
         finally:
             livy.execute(f"DROP TABLE IF EXISTS {FQTN}")
 
@@ -255,12 +308,23 @@ if __name__ == "__main__":
     finally:
         livy.close()
 
-    # Verify planner_jvm_args were honored by the JVM
+    # Verify planner_jvm_args: requested 127m, JVM may round up but must be close
     with open(jvm_log) as f:
         jvm_output = f.read()
     os.unlink(jvm_log)
-    assert "MaxHeapSize" in jvm_output, "JVM did not print flags — jvm_args not honored"
-    assert "134217728" in jvm_output, "MaxHeapSize not 128m (134217728). JVM flags:\n" + "\n".join(
-        line for line in jvm_output.splitlines() if "MaxHeapSize" in line
+    assert "MaxHeapSize" in jvm_output, "JVM did not print flags — planner jvm_args not honored"
+    planner_heap = _parse_max_heap_bytes(jvm_output)
+    assert planner_heap <= 128 * 1024 * 1024, f"Planner MaxHeapSize {planner_heap} exceeds 128m — -Xmx127m not honored"
+    print(f"PASS: planner_jvm_args honored by JVM (MaxHeapSize={planner_heap})")
+
+    # Verify worker_jvm_args: requested 254m, JVM may round up but must differ from planner
+    with open(worker_jvm_log) as f:
+        worker_jvm_output = f.read()
+    os.unlink(worker_jvm_log)
+    assert "MaxHeapSize" in worker_jvm_output, "Worker JVM did not print flags — worker jvm_args not honored"
+    worker_heap = _parse_max_heap_bytes(worker_jvm_output)
+    assert worker_heap <= 256 * 1024 * 1024, f"Worker MaxHeapSize {worker_heap} exceeds 256m — -Xmx254m not honored"
+    assert worker_heap > planner_heap, (
+        f"Worker MaxHeapSize ({worker_heap}) should be larger than planner ({planner_heap})"
     )
-    print("PASS: planner_jvm_args honored by JVM (MaxHeapSize=128m)")
+    print(f"PASS: worker_jvm_args honored by child JVM (MaxHeapSize={worker_heap})")
