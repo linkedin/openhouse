@@ -1,26 +1,25 @@
 package com.linkedin.openhouse.optimizer.repository;
 
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
-import java.util.stream.Stream;
-import javax.persistence.QueryHint;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.jpa.repository.QueryHints;
+import org.springframework.data.repository.query.Param;
 
 /** Spring Data JPA repository for {@code table_stats} rows in the optimizer DB. */
 public interface TableStatsRepository extends JpaRepository<TableStatsRow, String> {
 
   /**
-   * Streams all rows as a JDBC cursor rather than buffering them in memory. The caller must consume
-   * the stream inside an active {@code @Transactional} method and close it when done.
-   *
-   * <p>{@code Integer.MIN_VALUE} is MySQL Connector/J's signal to enable row-by-row streaming
-   * instead of loading the full result set into the driver buffer.
+   * Return stats rows matching the given filters. Every parameter is optional — pass {@code null}
+   * to skip that filter.
    */
-  @Query("SELECT r FROM TableStatsRow r")
-  @QueryHints(
-      @QueryHint(
-          name = org.hibernate.jpa.QueryHints.HINT_FETCH_SIZE,
-          value = "" + Integer.MIN_VALUE))
-  Stream<TableStatsRow> streamAll();
+  @Query(
+      "SELECT r FROM TableStatsRow r "
+          + "WHERE (:databaseId IS NULL OR r.databaseId = :databaseId) "
+          + "AND (:tableName IS NULL OR r.tableName = :tableName) "
+          + "AND (:tableUuid IS NULL OR r.tableUuid = :tableUuid)")
+  List<TableStatsRow> find(
+      @Param("databaseId") String databaseId,
+      @Param("tableName") String tableName,
+      @Param("tableUuid") String tableUuid);
 }
