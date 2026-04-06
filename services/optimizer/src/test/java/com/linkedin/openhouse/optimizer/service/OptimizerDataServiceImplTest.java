@@ -12,10 +12,12 @@ import com.linkedin.openhouse.optimizer.api.model.TableStats;
 import com.linkedin.openhouse.optimizer.api.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequest;
 import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.entity.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -110,50 +112,45 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
-  void upsertTableStats_updatesExistingRow() {
+  void upsertTableStats_updatesExistingRow_andAppendsHistory() {
     String tableUuid = UUID.randomUUID().toString();
-    UpsertTableStatsRequest first =
+    TableStats firstStats =
+        TableStats.builder()
+            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
+            .delta(TableStats.CommitDelta.builder().numFilesAdded(5L).numFilesDeleted(1L).build())
+            .build();
+    TableStats secondStats =
+        TableStats.builder()
+            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
+            .delta(TableStats.CommitDelta.builder().numFilesAdded(3L).numFilesDeleted(0L).build())
+            .build();
+
+    service.upsertTableStats(
+        tableUuid,
         UpsertTableStatsRequest.builder()
             .databaseId("db1")
             .tableName("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
-                    .build())
-            .build();
-    UpsertTableStatsRequest second =
-        UpsertTableStatsRequest.builder()
-            .databaseId("db1")
-            .tableName("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
-                    .build())
-            .build();
+            .stats(firstStats)
+            .build());
+    TableStatsDto dto =
+        service.upsertTableStats(
+            tableUuid,
+            UpsertTableStatsRequest.builder()
+                .databaseId("db1")
+                .tableName("tbl1")
+                .stats(secondStats)
+                .build());
 
-    service.upsertTableStats(tableUuid, first);
-    TableStatsDto dto = service.upsertTableStats(tableUuid, second);
-
+    // Current row reflects the latest upsert
     assertThat(dto.getStats().getSnapshot().getTableSizeBytes()).isEqualTo(200L);
     assertThat(statsRepository.findAll()).hasSize(1);
-  }
 
-  @Test
-  void upsertTableStats_appendsHistoryOnEveryCall() {
-    String tableUuid = UUID.randomUUID().toString();
-    UpsertTableStatsRequest request =
-        UpsertTableStatsRequest.builder()
-            .databaseId("db1")
-            .tableName("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
-                    .build())
-            .build();
-
-    service.upsertTableStats(tableUuid, request);
-    service.upsertTableStats(tableUuid, request);
-
-    assertThat(statsHistoryRepository.find(tableUuid, null, PageRequest.of(0, 100))).hasSize(2);
+    // History has one row per upsert with the raw delta from each call
+    List<TableStatsHistoryRow> history =
+        statsHistoryRepository.find(tableUuid, null, PageRequest.of(0, 100));
+    assertThat(history).hasSize(2);
+    // Newest first
+    assertThat(history.get(0).getStats().getDelta().getNumFilesAdded()).isEqualTo(3L);
+    assertThat(history.get(1).getStats().getDelta().getNumFilesAdded()).isEqualTo(5L);
   }
 }
