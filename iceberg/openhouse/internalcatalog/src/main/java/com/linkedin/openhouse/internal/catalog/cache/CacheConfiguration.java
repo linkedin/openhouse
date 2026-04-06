@@ -20,7 +20,7 @@ public class CacheConfiguration {
     return new InternalCatalogSettings();
   }
 
-  @Bean(name = "internalCatalogCacheManager")
+  @Bean
   public CacheManager internalCatalogCacheManager(InternalCatalogSettings settings) {
     CaffeineCacheManager cacheManager = new CaffeineCacheManager();
     cacheManager.setAllowNullValues(false);
