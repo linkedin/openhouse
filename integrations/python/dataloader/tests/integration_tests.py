@@ -8,6 +8,7 @@ network as the oh-hadoop-spark Docker Compose services.
 import logging
 import os
 import sys
+import tempfile
 import time
 
 import pyarrow as pa
@@ -15,7 +16,7 @@ import pytest
 import requests
 from pyiceberg.exceptions import NoSuchTableError
 
-from openhouse.dataloader import OpenHouseDataLoader
+from openhouse.dataloader import DataLoaderContext, OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.filters import col
 
@@ -142,11 +143,20 @@ if __name__ == "__main__":
         properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": HDFS_NETLOC},
     )
 
+    # Set jvm_args before any DataLoader is created so LIBHDFS_OPTS is in
+    # place when the JVM starts.  We capture both stdout and stderr to a
+    # log file because -XX:+PrintFlagsFinal may write to either fd.
+    jvm_log_fd, jvm_log = tempfile.mkstemp(suffix=".log")
+    os.close(jvm_log_fd)
+    ctx = DataLoaderContext(planner_jvm_args="-Xmx128m -XX:+PrintFlagsFinal")
+
     livy = LivySession(LIVY_URL, token_str)
     try:
         # 1. Nonexistent table raises NoSuchTableError
         with pytest.raises(NoSuchTableError):
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table="nonexistent_table")
+            loader = OpenHouseDataLoader(
+                catalog=catalog, database=DATABASE_ID, table="nonexistent_table", context=ctx
+            )
             _read_all(loader)
         print("PASS: nonexistent table raised NoSuchTableError")
 
@@ -155,19 +165,34 @@ if __name__ == "__main__":
             f"CREATE TABLE {FQTN} ({CREATE_COLUMNS}) USING iceberg TBLPROPERTIES ('itest.custom-key' = 'custom-value')"
         )
         try:
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
-            assert list(loader) == [], "Expected no splits for empty table"
-            assert loader.snapshot_id is None, "Expected no snapshot for empty table"
-            assert loader.table_properties.get("itest.custom-key") == "custom-value"
+            # Capture stdout+stderr from here through the first HDFS read
+            # so we can verify -XX:+PrintFlagsFinal output at the end.
+            # The JVM starts during the first table load and prints flags then.
+            saved_stdout = os.dup(1)
+            saved_stderr = os.dup(2)
+            log_fd = os.open(jvm_log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+            os.dup2(log_fd, 1)
+            os.dup2(log_fd, 2)
+            os.close(log_fd)
+            try:
+                loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
+                assert list(loader) == [], "Expected no splits for empty table"
+                assert loader.snapshot_id is None, "Expected no snapshot for empty table"
+                assert loader.table_properties.get("itest.custom-key") == "custom-value"
+
+                # 3. Write data via Spark
+                livy.execute(f"INSERT INTO {FQTN} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)")
+                snap1 = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID).snapshot_id
+                assert snap1 is not None
+
+                # 4. Read all data
+                result = _read_all(OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID))
+            finally:
+                os.dup2(saved_stdout, 1)
+                os.close(saved_stdout)
+                os.dup2(saved_stderr, 2)
+                os.close(saved_stderr)
             print("PASS: empty table returned no splits and custom property is accessible")
-
-            # 3. Write data via Spark
-            livy.execute(f"INSERT INTO {FQTN} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)")
-            snap1 = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID).snapshot_id
-            assert snap1 is not None
-
-            # 4. Read all data
-            result = _read_all(OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID))
             assert result.num_rows == 3
             assert result.column(COL_ID).to_pylist() == [1, 2, 3]
             assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
@@ -229,3 +254,13 @@ if __name__ == "__main__":
         print("All integration tests passed")
     finally:
         livy.close()
+
+    # Verify planner_jvm_args were honored by the JVM
+    with open(jvm_log) as f:
+        jvm_output = f.read()
+    os.unlink(jvm_log)
+    assert "MaxHeapSize" in jvm_output, "JVM did not print flags — jvm_args not honored"
+    assert "134217728" in jvm_output, "MaxHeapSize not 128m (134217728). JVM flags:\n" + "\n".join(
+        line for line in jvm_output.splitlines() if "MaxHeapSize" in line
+    )
+    print("PASS: planner_jvm_args honored by JVM (MaxHeapSize=128m)")
