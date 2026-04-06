@@ -23,7 +23,7 @@ class TableStatsHistoryRepositoryTest {
   @Autowired TableStatsHistoryRepository repository;
 
   @Test
-  void saveAndFindByTableUuid() {
+  void saveAndFind() {
     String tableUuid = UUID.randomUUID().toString();
     Instant now = Instant.now();
 
@@ -31,7 +31,7 @@ class TableStatsHistoryRepositoryTest {
     repository.save(buildRow(tableUuid, "db1", "tbl1", 5L, 1L, now.minus(1, ChronoUnit.HOURS)));
     repository.save(buildRow(tableUuid, "db1", "tbl1", 3L, 0L, now));
 
-    List<TableStatsHistoryRow> rows = repository.findByTableUuid(tableUuid, PageRequest.of(0, 100));
+    List<TableStatsHistoryRow> rows = repository.find(tableUuid, null, PageRequest.of(0, 100));
 
     assertThat(rows).hasSize(3);
     // newest first
@@ -40,7 +40,7 @@ class TableStatsHistoryRepositoryTest {
   }
 
   @Test
-  void findByTableUuid_respectsLimit() {
+  void find_respectsLimit() {
     String tableUuid = UUID.randomUUID().toString();
     Instant now = Instant.now();
 
@@ -48,13 +48,13 @@ class TableStatsHistoryRepositoryTest {
       repository.save(buildRow(tableUuid, "db1", "tbl1", i, 0L, now.minus(i, ChronoUnit.HOURS)));
     }
 
-    List<TableStatsHistoryRow> rows = repository.findByTableUuid(tableUuid, PageRequest.of(0, 3));
+    List<TableStatsHistoryRow> rows = repository.find(tableUuid, null, PageRequest.of(0, 3));
 
     assertThat(rows).hasSize(3);
   }
 
   @Test
-  void findByTableUuidSince_filtersOlderRows() {
+  void find_withSince_filtersOlderRows() {
     String tableUuid = UUID.randomUUID().toString();
     Instant now = Instant.now();
     Instant cutoff = now.minus(90, ChronoUnit.MINUTES);
@@ -63,8 +63,7 @@ class TableStatsHistoryRepositoryTest {
     repository.save(buildRow(tableUuid, "db1", "tbl1", 5L, 1L, now.minus(1, ChronoUnit.HOURS)));
     repository.save(buildRow(tableUuid, "db1", "tbl1", 3L, 0L, now));
 
-    List<TableStatsHistoryRow> rows =
-        repository.findByTableUuidSince(tableUuid, cutoff, PageRequest.of(0, 100));
+    List<TableStatsHistoryRow> rows = repository.find(tableUuid, cutoff, PageRequest.of(0, 100));
 
     // only the 2 rows within the last 90 minutes
     assertThat(rows).hasSize(2);
@@ -72,7 +71,7 @@ class TableStatsHistoryRepositoryTest {
   }
 
   @Test
-  void findByTableUuid_isolatesByTableUuid() {
+  void find_isolatesByTableUuid() {
     String uuid1 = UUID.randomUUID().toString();
     String uuid2 = UUID.randomUUID().toString();
     Instant now = Instant.now();
@@ -80,8 +79,8 @@ class TableStatsHistoryRepositoryTest {
     repository.save(buildRow(uuid1, "db1", "tbl1", 10L, 0L, now));
     repository.save(buildRow(uuid2, "db2", "tbl2", 20L, 0L, now));
 
-    assertThat(repository.findByTableUuid(uuid1, PageRequest.of(0, 100))).hasSize(1);
-    assertThat(repository.findByTableUuid(uuid2, PageRequest.of(0, 100))).hasSize(1);
+    assertThat(repository.find(uuid1, null, PageRequest.of(0, 100))).hasSize(1);
+    assertThat(repository.find(uuid2, null, PageRequest.of(0, 100))).hasSize(1);
   }
 
   @Test

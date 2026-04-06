@@ -24,7 +24,7 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
           + "AND (:databaseName IS NULL OR r.databaseName = :databaseName) "
           + "AND (:tableName IS NULL OR r.tableName = :tableName) "
           + "AND (:tableUuid IS NULL OR r.tableUuid = :tableUuid)")
-  List<TableOperationsRow> findFiltered(
+  List<TableOperationsRow> find(
       @Param("operationType") OperationType operationType,
       @Param("status") OperationStatus status,
       @Param("databaseName") String databaseName,

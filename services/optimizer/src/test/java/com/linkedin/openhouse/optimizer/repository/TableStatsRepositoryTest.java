@@ -83,7 +83,7 @@ class TableStatsRepositoryTest {
   }
 
   @Test
-  void findFiltered_noParams_returnsAll() {
+  void find_noParams_returnsAll() {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(UUID.randomUUID().toString())
@@ -107,11 +107,11 @@ class TableStatsRepositoryTest {
             .updatedAt(Instant.now())
             .build());
 
-    assertThat(repository.findFiltered(null, null, null)).hasSize(2);
+    assertThat(repository.find(null, null, null)).hasSize(2);
   }
 
   @Test
-  void findFiltered_byDatabase() {
+  void find_byDatabase() {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(UUID.randomUUID().toString())
@@ -135,7 +135,7 @@ class TableStatsRepositoryTest {
             .updatedAt(Instant.now())
             .build());
 
-    assertThat(repository.findFiltered("db1", null, null)).hasSize(1);
-    assertThat(repository.findFiltered("db1", null, null).get(0).getDatabaseId()).isEqualTo("db1");
+    assertThat(repository.find("db1", null, null)).hasSize(1);
+    assertThat(repository.find("db1", null, null).get(0).getDatabaseId()).isEqualTo("db1");
   }
 }

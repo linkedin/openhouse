@@ -18,7 +18,7 @@ public interface TableStatsRepository extends JpaRepository<TableStatsRow, Strin
           + "WHERE (:databaseId IS NULL OR r.databaseId = :databaseId) "
           + "AND (:tableName IS NULL OR r.tableName = :tableName) "
           + "AND (:tableUuid IS NULL OR r.tableUuid = :tableUuid)")
-  List<TableStatsRow> findFiltered(
+  List<TableStatsRow> find(
       @Param("databaseId") String databaseId,
       @Param("tableName") String tableName,
       @Param("tableUuid") String tableUuid);

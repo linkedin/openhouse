@@ -12,30 +12,18 @@ import org.springframework.data.repository.query.Param;
 public interface TableStatsHistoryRepository extends JpaRepository<TableStatsHistoryRow, Long> {
 
   /**
-   * Return history rows for a table, newest first.
+   * Return history rows for a table, newest first. Pass {@code null} for {@code since} to skip the
+   * time filter.
    *
    * @param tableUuid the stable table UUID
+   * @param since inclusive lower bound on recorded_at; {@code null} to skip
    * @param pageable use {@code PageRequest.of(0, limit)} to cap results
    */
   @Query(
       "SELECT r FROM TableStatsHistoryRow r "
           + "WHERE r.tableUuid = :tableUuid "
+          + "AND (:since IS NULL OR r.recordedAt >= :since) "
           + "ORDER BY r.recordedAt DESC")
-  List<TableStatsHistoryRow> findByTableUuid(
-      @Param("tableUuid") String tableUuid, Pageable pageable);
-
-  /**
-   * Return history rows for a table recorded at or after {@code since}, newest first.
-   *
-   * @param tableUuid the stable table UUID
-   * @param since inclusive lower bound on recorded_at
-   * @param pageable use {@code PageRequest.of(0, limit)} to cap results
-   */
-  @Query(
-      "SELECT r FROM TableStatsHistoryRow r "
-          + "WHERE r.tableUuid = :tableUuid "
-          + "AND r.recordedAt >= :since "
-          + "ORDER BY r.recordedAt DESC")
-  List<TableStatsHistoryRow> findByTableUuidSince(
+  List<TableStatsHistoryRow> find(
       @Param("tableUuid") String tableUuid, @Param("since") Instant since, Pageable pageable);
 }

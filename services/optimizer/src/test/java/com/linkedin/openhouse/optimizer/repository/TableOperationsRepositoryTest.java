@@ -45,7 +45,7 @@ class TableOperationsRepositoryTest {
   }
 
   @Test
-  void findFiltered_noParams_returnsAll() {
+  void find_noParams_returnsAll() {
     repository.save(
         TableOperationsRow.builder()
             .id(UUID.randomUUID().toString())
@@ -67,12 +67,12 @@ class TableOperationsRepositoryTest {
             .createdAt(Instant.now())
             .build());
 
-    List<TableOperationsRow> rows = repository.findFiltered(null, null, null, null, null);
+    List<TableOperationsRow> rows = repository.find(null, null, null, null, null);
     assertThat(rows).hasSize(2);
   }
 
   @Test
-  void findFiltered_byStatus() {
+  void find_byStatus() {
     repository.save(
         TableOperationsRow.builder()
             .id(UUID.randomUUID().toString())
@@ -95,18 +95,18 @@ class TableOperationsRepositoryTest {
             .build());
 
     List<TableOperationsRow> pending =
-        repository.findFiltered(null, OperationStatus.PENDING, null, null, null);
+        repository.find(null, OperationStatus.PENDING, null, null, null);
     assertThat(pending).hasSize(1);
     assertThat(pending.get(0).getStatus()).isEqualTo(OperationStatus.PENDING);
 
     List<TableOperationsRow> scheduled =
-        repository.findFiltered(null, OperationStatus.SCHEDULED, null, null, null);
+        repository.find(null, OperationStatus.SCHEDULED, null, null, null);
     assertThat(scheduled).hasSize(1);
     assertThat(scheduled.get(0).getStatus()).isEqualTo(OperationStatus.SCHEDULED);
   }
 
   @Test
-  void findFiltered_byDatabaseAndTable() {
+  void find_byDatabaseAndTable() {
     repository.save(
         TableOperationsRow.builder()
             .id(UUID.randomUUID().toString())
@@ -128,8 +128,8 @@ class TableOperationsRepositoryTest {
             .createdAt(Instant.now())
             .build());
 
-    assertThat(repository.findFiltered(null, null, "db1", null, null)).hasSize(1);
-    assertThat(repository.findFiltered(null, null, "db2", "tbl2", null)).hasSize(1);
-    assertThat(repository.findFiltered(null, null, "db1", "tbl2", null)).isEmpty();
+    assertThat(repository.find(null, null, "db1", null, null)).hasSize(1);
+    assertThat(repository.find(null, null, "db2", "tbl2", null)).hasSize(1);
+    assertThat(repository.find(null, null, "db1", "tbl2", null)).isEmpty();
   }
 }

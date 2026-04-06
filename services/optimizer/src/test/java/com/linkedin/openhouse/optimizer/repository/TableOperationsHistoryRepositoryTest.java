@@ -54,7 +54,8 @@ class TableOperationsHistoryRepositoryTest {
             .result(JobResult.builder().errorMessage("out of memory").errorType("OOM").build())
             .build());
 
-    List<TableOperationsHistoryRow> rows = repository.find(tableUuid, 10);
+    List<TableOperationsHistoryRow> rows =
+        repository.find(null, null, tableUuid, null, null, null, null, PageRequest.of(0, 10));
 
     assertThat(rows).hasSize(2);
     // Newest first
@@ -79,7 +80,8 @@ class TableOperationsHistoryRepositoryTest {
               .build());
     }
 
-    List<TableOperationsHistoryRow> rows = repository.find(tableUuid, 10);
+    List<TableOperationsHistoryRow> rows =
+        repository.find(null, null, tableUuid, null, null, null, null, PageRequest.of(0, 10));
     assertThat(rows).hasSize(3);
   }
 
@@ -100,12 +102,13 @@ class TableOperationsHistoryRepositoryTest {
               .build());
     }
 
-    List<TableOperationsHistoryRow> rows = repository.find(tableUuid, 3);
+    List<TableOperationsHistoryRow> rows =
+        repository.find(null, null, tableUuid, null, null, null, null, PageRequest.of(0, 3));
     assertThat(rows).hasSize(3);
   }
 
   @Test
-  void findFiltered_noParams_returnsAll() {
+  void find_noParams_returnsAll() {
     Instant now = Instant.now();
     String uuid1 = UUID.randomUUID().toString();
     String uuid2 = UUID.randomUUID().toString();
@@ -132,14 +135,14 @@ class TableOperationsHistoryRepositoryTest {
             .build());
 
     List<TableOperationsHistoryRow> rows =
-        repository.findFiltered(null, null, null, null, null, null, null, PageRequest.of(0, 100));
+        repository.find(null, null, null, null, null, null, null, PageRequest.of(0, 100));
     assertThat(rows).hasSize(2);
     // Newest first
     assertThat(rows.get(0).getStatus()).isEqualTo(OperationHistoryStatus.FAILED);
   }
 
   @Test
-  void findFiltered_byStatusAndTimeWindow() {
+  void find_byStatusAndTimeWindow() {
     Instant old = Instant.parse("2024-01-01T00:00:00Z");
     Instant recent = Instant.parse("2024-06-01T00:00:00Z");
     String tableUuid = UUID.randomUUID().toString();
@@ -167,7 +170,7 @@ class TableOperationsHistoryRepositoryTest {
 
     // Filter by status
     List<TableOperationsHistoryRow> failed =
-        repository.findFiltered(
+        repository.find(
             null,
             null,
             null,
@@ -182,7 +185,7 @@ class TableOperationsHistoryRepositoryTest {
     // Filter by time window
     Instant cutoff = Instant.parse("2024-03-01T00:00:00Z");
     List<TableOperationsHistoryRow> afterCutoff =
-        repository.findFiltered(null, null, null, null, null, cutoff, null, PageRequest.of(0, 100));
+        repository.find(null, null, null, null, null, cutoff, null, PageRequest.of(0, 100));
     assertThat(afterCutoff).hasSize(1);
     assertThat(afterCutoff.get(0).getSubmittedAt()).isEqualTo(recent);
   }
