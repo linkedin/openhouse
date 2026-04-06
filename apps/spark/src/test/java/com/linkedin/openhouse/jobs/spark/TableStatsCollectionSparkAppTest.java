@@ -1189,8 +1189,32 @@ public class TableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertTrue(
           stat.getColumnCount() >= 3, "Column count should be at least 3 (id, user, ts)");
 
+      // Verify: Nested field stats (user.name, user.age) are present in nullCount and columnSize.
+      // Before the fix, schema.columns() only returned top-level fields so "user.name" and
+      // "user.age" were not found in the type lookup map and silently skipped.
+      List<String> nullCountColNames =
+          stat.getNullCount().stream()
+              .map(cd -> cd.getColumnName())
+              .collect(java.util.stream.Collectors.toList());
+      Assertions.assertTrue(
+          nullCountColNames.contains("user.name"),
+          "nullCount should include nested field 'user.name', got: " + nullCountColNames);
+      Assertions.assertTrue(
+          nullCountColNames.contains("user.age"),
+          "nullCount should include nested field 'user.age', got: " + nullCountColNames);
+
+      List<String> colSizeColNames =
+          stat.getColumnSizeInBytes().stream()
+              .map(cd -> cd.getColumnName())
+              .collect(java.util.stream.Collectors.toList());
+      Assertions.assertTrue(
+          colSizeColNames.contains("user.name"),
+          "columnSizeInBytes should include nested field 'user.name', got: " + colSizeColNames);
+
       log.info(
-          "Collected stats for table with nested columns: columnCount={}", stat.getColumnCount());
+          "Collected stats for table with nested columns: columnCount={}, nullCountCols={}",
+          stat.getColumnCount(),
+          nullCountColNames);
     }
   }
 

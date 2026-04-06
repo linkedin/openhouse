@@ -42,6 +42,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.SparkTableUtil;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
@@ -1168,10 +1169,18 @@ public final class TableStatsCollectorUtil {
     result.put("maxValue", new ArrayList<>());
     result.put("columnSize", new ArrayList<>());
 
-    // Create a map for quick column type lookup
+    // Create a map for quick column type lookup.
+    // Use TypeUtil.indexByName() to recursively index all leaf fields by their full
+    // dot-separated paths (e.g., "memberMetadata.standardizedTitleId"), so that nested
+    // column stats from readable_metrics are not silently dropped. schema.columns() only
+    // returns top-level fields and would cause all nested column stats to be skipped.
+    Map<Integer, Types.NestedField> idToField = TypeUtil.indexById(schema.asStruct());
     Map<String, org.apache.iceberg.types.Type> columnTypeMap = new HashMap<>();
-    for (Types.NestedField field : schema.columns()) {
-      columnTypeMap.put(field.name(), field.type());
+    for (Map.Entry<String, Integer> entry : TypeUtil.indexByName(schema.asStruct()).entrySet()) {
+      Types.NestedField field = idToField.get(entry.getValue());
+      if (field != null) {
+        columnTypeMap.put(entry.getKey(), field.type());
+      }
     }
 
     for (String colName : columnNames) {
