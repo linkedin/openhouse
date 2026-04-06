@@ -118,6 +118,19 @@ def _parse_max_heap_bytes(jvm_output: str) -> int:
     raise ValueError("MaxHeapSize not found in JVM output")
 
 
+def _assert_jvm_heap(log_path: str, requested_mb: int, upper_bound_mb: int, label: str) -> int:
+    """Read a JVM flags log file, assert MaxHeapSize <= upper_bound, and return the actual value."""
+    with open(log_path) as f:
+        output = f.read()
+    os.unlink(log_path)
+    assert "MaxHeapSize" in output, f"{label} JVM did not print flags — jvm_args not honored"
+    heap = _parse_max_heap_bytes(output)
+    assert heap <= upper_bound_mb * 1024 * 1024, (
+        f"{label} MaxHeapSize {heap} exceeds {upper_bound_mb}m — -Xmx{requested_mb}m not honored"
+    )
+    return heap
+
+
 def _materialize_split_in_child(split, jvm_log_path):
     """Materialize a single split in this process, capturing stdout+stderr to *jvm_log_path*.
 
@@ -187,9 +200,7 @@ if __name__ == "__main__":
     try:
         # 1. Nonexistent table raises NoSuchTableError
         with pytest.raises(NoSuchTableError):
-            loader = OpenHouseDataLoader(
-                catalog=catalog, database=DATABASE_ID, table="nonexistent_table", context=ctx
-            )
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table="nonexistent_table", context=ctx)
             _read_all(loader)
         print("PASS: nonexistent table raised NoSuchTableError")
 
@@ -293,9 +304,7 @@ if __name__ == "__main__":
             worker_jvm_log_fd, worker_jvm_log = tempfile.mkstemp(suffix=".log")
             os.close(worker_jvm_log_fd)
             spawn_ctx = multiprocessing.get_context("spawn")
-            proc = spawn_ctx.Process(
-                target=_materialize_split_in_child, args=(splits[0], worker_jvm_log)
-            )
+            proc = spawn_ctx.Process(target=_materialize_split_in_child, args=(splits[0], worker_jvm_log))
             proc.start()
             proc.join(timeout=120)
             assert proc.exitcode == 0, f"Child process failed with exit code {proc.exitcode}"
@@ -304,27 +313,15 @@ if __name__ == "__main__":
         finally:
             livy.execute(f"DROP TABLE IF EXISTS {FQTN}")
 
+        # Verify planner and worker jvm_args were honored by their respective JVMs
+        planner_heap = _assert_jvm_heap(jvm_log, requested_mb=127, upper_bound_mb=128, label="Planner")
+        print(f"PASS: planner_jvm_args honored by JVM (MaxHeapSize={planner_heap})")
+        worker_heap = _assert_jvm_heap(worker_jvm_log, requested_mb=254, upper_bound_mb=256, label="Worker")
+        assert worker_heap > planner_heap, (
+            f"Worker MaxHeapSize ({worker_heap}) should be larger than planner ({planner_heap})"
+        )
+        print(f"PASS: worker_jvm_args honored by child JVM (MaxHeapSize={worker_heap})")
+
         print("All integration tests passed")
     finally:
         livy.close()
-
-    # Verify planner_jvm_args: requested 127m, JVM may round up but must be close
-    with open(jvm_log) as f:
-        jvm_output = f.read()
-    os.unlink(jvm_log)
-    assert "MaxHeapSize" in jvm_output, "JVM did not print flags — planner jvm_args not honored"
-    planner_heap = _parse_max_heap_bytes(jvm_output)
-    assert planner_heap <= 128 * 1024 * 1024, f"Planner MaxHeapSize {planner_heap} exceeds 128m — -Xmx127m not honored"
-    print(f"PASS: planner_jvm_args honored by JVM (MaxHeapSize={planner_heap})")
-
-    # Verify worker_jvm_args: requested 254m, JVM may round up but must differ from planner
-    with open(worker_jvm_log) as f:
-        worker_jvm_output = f.read()
-    os.unlink(worker_jvm_log)
-    assert "MaxHeapSize" in worker_jvm_output, "Worker JVM did not print flags — worker jvm_args not honored"
-    worker_heap = _parse_max_heap_bytes(worker_jvm_output)
-    assert worker_heap <= 256 * 1024 * 1024, f"Worker MaxHeapSize {worker_heap} exceeds 256m — -Xmx254m not honored"
-    assert worker_heap > planner_heap, (
-        f"Worker MaxHeapSize ({worker_heap}) should be larger than planner ({planner_heap})"
-    )
-    print(f"PASS: worker_jvm_args honored by child JVM (MaxHeapSize={worker_heap})")
