@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.internal.catalog.cache;
 
+import com.linkedin.openhouse.internal.catalog.config.InternalCatalogSettings;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -13,48 +14,34 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 
-class InternalCatalogCacheConfigTest {
+class CacheConfigurationTest {
 
   private final ApplicationContextRunner contextRunner =
-      new ApplicationContextRunner().withUserConfiguration(InternalCatalogCacheConfig.class);
+      new ApplicationContextRunner().withUserConfiguration(CacheConfiguration.class);
 
   private final ApplicationContextRunner tableMetadataCacheContextRunner =
       new ApplicationContextRunner()
-          .withUserConfiguration(InternalCatalogCacheConfig.class)
+          .withUserConfiguration(CacheConfiguration.class)
           .withBean(SpringTableMetadataCache.class, SpringTableMetadataCache::new);
 
   @Test
   public void testDefaultMetadataCacheConfiguration() {
     contextRunner
-        .withBean(InternalCatalogCacheProperties.class, InternalCatalogCacheProperties::new)
+        .withBean(InternalCatalogSettings.class, InternalCatalogSettings::new)
         .run(context -> assertMetadataCacheConfiguration(context, Duration.ofMinutes(5), 1000));
   }
 
   @Test
   public void testConfiguredMetadataCacheConfiguration() {
     contextRunner
-        .withBean(
-            InternalCatalogCacheProperties.class,
-            () -> {
-              InternalCatalogCacheProperties cacheProperties = new InternalCatalogCacheProperties();
-              cacheProperties.setTtl(Duration.ofMinutes(7));
-              cacheProperties.setMaxSize(42);
-              return cacheProperties;
-            })
+        .withBean(InternalCatalogSettings.class, () -> buildSettings(Duration.ofMinutes(7), 42))
         .run(context -> assertMetadataCacheConfiguration(context, Duration.ofMinutes(7), 42));
   }
 
   @Test
   public void testSpringTableMetadataCacheUsesConfiguredTableMetadataCache() {
     tableMetadataCacheContextRunner
-        .withBean(
-            InternalCatalogCacheProperties.class,
-            () -> {
-              InternalCatalogCacheProperties cacheProperties = new InternalCatalogCacheProperties();
-              cacheProperties.setTtl(Duration.ofMinutes(7));
-              cacheProperties.setMaxSize(42);
-              return cacheProperties;
-            })
+        .withBean(InternalCatalogSettings.class, () -> buildSettings(Duration.ofMinutes(7), 42))
         .run(
             context -> {
               CaffeineCache tableMetadataCache =
@@ -80,14 +67,20 @@ class InternalCatalogCacheConfigTest {
             });
   }
 
+  private InternalCatalogSettings buildSettings(Duration ttl, long maxSize) {
+    InternalCatalogSettings settings = new InternalCatalogSettings();
+    settings.getMetadataCache().setTtl(ttl);
+    settings.getMetadataCache().setMaxSize(maxSize);
+    return settings;
+  }
+
   private CaffeineCache assertMetadataCacheConfiguration(
       AssertableApplicationContext context, Duration expectedTtl, long expectedMaxSize) {
     Assertions.assertNull(context.getStartupFailure());
 
-    InternalCatalogCacheProperties cacheProperties =
-        context.getBean(InternalCatalogCacheProperties.class);
-    Assertions.assertEquals(expectedTtl, cacheProperties.getTtl());
-    Assertions.assertEquals(expectedMaxSize, cacheProperties.getMaxSize());
+    InternalCatalogSettings settings = context.getBean(InternalCatalogSettings.class);
+    Assertions.assertEquals(expectedTtl, settings.getMetadataCache().getTtl());
+    Assertions.assertEquals(expectedMaxSize, settings.getMetadataCache().getMaxSize());
 
     CaffeineCacheManager cacheManager =
         context.getBean("internalCatalogCacheManager", CaffeineCacheManager.class);
