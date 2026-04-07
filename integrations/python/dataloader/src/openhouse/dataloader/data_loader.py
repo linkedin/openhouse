@@ -90,13 +90,13 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
-        jvm: JVM configuration for JNI-based storage access (e.g. HDFS).  See :class:`JvmConfig`.
+        jvm_config: JVM configuration for JNI-based storage access (e.g. HDFS).  See :class:`JvmConfig`.
     """
 
     execution_context: Mapping[str, str] | None = None
     table_transformer: TableTransformer | None = None
     udf_registry: UDFRegistry | None = None
-    jvm: JvmConfig | None = None
+    jvm_config: JvmConfig | None = None
 
 
 class OpenHouseDataLoader:
@@ -138,8 +138,8 @@ class OpenHouseDataLoader:
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
 
-        if self._context.jvm is not None and self._context.jvm.planner_args is not None:
-            apply_libhdfs_opts(self._context.jvm.planner_args)
+        if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
+            apply_libhdfs_opts(self._context.jvm_config.planner_args)
 
     @cached_property
     def _iceberg_table(self) -> Table:
@@ -244,7 +244,7 @@ class OpenHouseDataLoader:
             projected_schema=scan.projection(),
             row_filter=row_filter,
             table_id=self._table_id,
-            worker_jvm_args=self._context.jvm.worker_args if self._context.jvm else None,
+            worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)

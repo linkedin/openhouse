@@ -761,7 +761,7 @@ def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
         catalog=catalog,
         database="db",
         table="tbl",
-        context=DataLoaderContext(jvm=JvmConfig(planner_args="-Xmx256m")),
+        context=DataLoaderContext(jvm_config=JvmConfig(planner_args="-Xmx256m")),
     )
 
     assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx256m"
