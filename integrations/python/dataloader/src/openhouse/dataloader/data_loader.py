@@ -57,6 +57,29 @@ def _retry[T](fn: Callable[[], T], label: str, max_attempts: int) -> T:
 
 
 @dataclass
+class JvmConfig:
+    """JVM arguments for JNI-based storage (e.g. HDFS via libhdfs).
+
+    The JVM is created once per process.  If another library has already
+    started a JVM these arguments will have no effect.
+
+    Args:
+        planner_args: JVM arguments (e.g. ``-Xmx2g``) applied when the JNI
+            JVM is created in the planner process — the process that loads
+            table metadata and plans splits.
+        worker_args: JVM arguments applied when the JNI JVM is created in
+            worker processes that materialize splits.  Only honored if the
+            JVM has not already been started in the worker process.  When
+            splits are materialized in the same process as the planner,
+            only ``planner_args`` takes effect because the JVM is already
+            running.
+    """
+
+    planner_args: str | None = None
+    worker_args: str | None = None
+
+
+@dataclass
 class DataLoaderContext:
     """Context and customization for the DataLoader.
 
@@ -67,26 +90,13 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
-        planner_jvm_args: JVM arguments (e.g. ``-Xmx2g``) applied when the JNI
-            JVM is created in the planner process — the process that loads table
-            metadata and plans splits.  Only relevant when the underlying storage
-            requires JNI (e.g. HDFS via libhdfs).  The JVM is created once per
-            process; if another library has already started a JVM these arguments
-            will have no effect.
-        worker_jvm_args: JVM arguments applied when the JNI JVM is created in
-            worker processes that materialize splits.  Same caveats as
-            ``planner_jvm_args``: only relevant for JNI-based storage and
-            only honored if the JVM has not already been started in the worker
-            process.  When splits are materialized in the same process as the
-            planner, only ``planner_jvm_args`` takes effect because the JVM is
-            already running.
+        jvm: JVM configuration for JNI-based storage (e.g. HDFS).  See :class:`JvmConfig`.
     """
 
     execution_context: Mapping[str, str] | None = None
     table_transformer: TableTransformer | None = None
     udf_registry: UDFRegistry | None = None
-    planner_jvm_args: str | None = None
-    worker_jvm_args: str | None = None
+    jvm: JvmConfig | None = None
 
 
 class OpenHouseDataLoader:
@@ -128,8 +138,8 @@ class OpenHouseDataLoader:
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
 
-        if self._context.planner_jvm_args is not None:
-            apply_libhdfs_opts(self._context.planner_jvm_args)
+        if self._context.jvm is not None and self._context.jvm.planner_args is not None:
+            apply_libhdfs_opts(self._context.jvm.planner_args)
 
     @cached_property
     def _iceberg_table(self) -> Table:
@@ -234,7 +244,7 @@ class OpenHouseDataLoader:
             projected_schema=scan.projection(),
             row_filter=row_filter,
             table_id=self._table_id,
-            worker_jvm_args=self._context.worker_jvm_args,
+            worker_jvm_args=self._context.jvm.worker_args if self._context.jvm else None,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)

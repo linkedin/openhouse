@@ -15,7 +15,7 @@ from pyiceberg.types import DoubleType, LongType, NestedField, StringType
 from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
-from openhouse.dataloader import DataLoaderContext, OpenHouseDataLoader, __version__
+from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader, __version__
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import col
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -751,7 +751,7 @@ def test_starts_with_wildcard_literals(tmp_path, filter_expr, expected_names):
 
 
 def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
-    """planner_jvm_args is applied to LIBHDFS_OPTS during __init__."""
+    """JvmConfig.planner_args is applied to LIBHDFS_OPTS during __init__."""
     from openhouse.dataloader._jvm import LIBHDFS_OPTS_ENV
 
     monkeypatch.delenv(LIBHDFS_OPTS_ENV, raising=False)
@@ -761,7 +761,7 @@ def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
         catalog=catalog,
         database="db",
         table="tbl",
-        context=DataLoaderContext(planner_jvm_args="-Xmx256m"),
+        context=DataLoaderContext(jvm=JvmConfig(planner_args="-Xmx256m")),
     )
 
     assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx256m"

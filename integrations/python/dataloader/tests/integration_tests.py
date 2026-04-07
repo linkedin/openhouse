@@ -17,7 +17,7 @@ import pytest
 import requests
 from pyiceberg.exceptions import NoSuchTableError
 
-from openhouse.dataloader import DataLoaderContext, OpenHouseDataLoader
+from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.filters import col
 
@@ -194,7 +194,7 @@ if __name__ == "__main__":
     # log file because -XX:+PrintFlagsFinal may write to either fd.
     jvm_log_fd, jvm_log = tempfile.mkstemp(suffix=".log")
     os.close(jvm_log_fd)
-    ctx = DataLoaderContext(planner_jvm_args="-Xmx127m -XX:+PrintFlagsFinal")
+    ctx = DataLoaderContext(jvm=JvmConfig(planner_args="-Xmx127m -XX:+PrintFlagsFinal"))
 
     livy = LivySession(LIVY_URL, token_str)
     try:
@@ -295,7 +295,7 @@ if __name__ == "__main__":
             # 8. Materialize a split in a child process with worker_jvm_args.
             #    The child gets a fresh JVM, so -Xmx254m takes effect there
             #    independently of the planner's -Xmx127m.
-            worker_ctx = DataLoaderContext(worker_jvm_args="-Xmx254m -XX:+PrintFlagsFinal")
+            worker_ctx = DataLoaderContext(jvm=JvmConfig(worker_args="-Xmx254m -XX:+PrintFlagsFinal"))
             worker_loader = OpenHouseDataLoader(
                 catalog=catalog, database=DATABASE_ID, table=TABLE_ID, context=worker_ctx
             )
