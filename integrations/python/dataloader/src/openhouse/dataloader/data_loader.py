@@ -58,7 +58,7 @@ def _retry[T](fn: Callable[[], T], label: str, max_attempts: int) -> T:
 
 @dataclass
 class JvmConfig:
-    """JVM arguments for JNI-based storage (e.g. HDFS via libhdfs).
+    """JVM arguments for JNI-based storage access (e.g. HDFS via libhdfs).
 
     The JVM is created once per process.  If another library has already
     started a JVM these arguments will have no effect.
