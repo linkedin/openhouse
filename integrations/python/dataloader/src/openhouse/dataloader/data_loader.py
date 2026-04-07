@@ -90,7 +90,7 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
-        jvm: JVM configuration for JNI-based storage (e.g. HDFS).  See :class:`JvmConfig`.
+        jvm: JVM configuration for JNI-based storage access (e.g. HDFS).  See :class:`JvmConfig`.
     """
 
     execution_context: Mapping[str, str] | None = None
