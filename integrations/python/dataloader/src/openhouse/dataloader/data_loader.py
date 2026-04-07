@@ -67,12 +67,19 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
-        planner_jvm_args: JVM arguments used when starting the JNI JVM in the
-            process that loads table metadata and plans splits.
-        worker_jvm_args: JVM arguments used when starting the JNI JVM in worker
-            processes that read split data.  If splits are processed in the same
-            process as the planner then only ``planner_jvm_args`` takes effect
-            because the JVM is already running by the time the split is materialized.
+        planner_jvm_args: JVM arguments (e.g. ``-Xmx2g``) applied when the JNI
+            JVM is created in the planner process — the process that loads table
+            metadata and plans splits.  Only relevant when the underlying storage
+            requires JNI (e.g. HDFS via libhdfs).  The JVM is created once per
+            process; if another library has already started a JVM these arguments
+            will have no effect.
+        worker_jvm_args: JVM arguments applied when the JNI JVM is created in
+            worker processes that materialize splits.  Same caveats as
+            ``planner_jvm_args``: only relevant for JNI-based storage and
+            only honored if the JVM has not already been started in the worker
+            process.  When splits are materialized in the same process as the
+            planner, only ``planner_jvm_args`` takes effect because the JVM is
+            already running.
     """
 
     execution_context: Mapping[str, str] | None = None
