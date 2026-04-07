@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -1860,5 +1861,37 @@ public class OpenHouseInternalTableOperationsTest {
       GlobalOpenTelemetry.resetForTest();
       tracerProvider.close();
     }
+  }
+
+  /**
+   * Simulates the real-world bug where a table's metadata file references a schema ID that doesn't
+   * exist in the schemas list. Iceberg's TableMetadataParser throws IllegalArgumentException:
+   * "Cannot find schema with current-schema-id=6 from schemas". Verifies that this is wrapped as
+   * InvalidTableMetadataException.
+   */
+  @Test
+  void testRefreshMetadataCorruptSchemaIdThrowsInvalidTableMetadataException() throws IOException {
+    // Write a valid metadata file from BASE_TABLE_METADATA, then corrupt the current-schema-id
+    java.nio.file.Path tempDir = Files.createTempDirectory("corrupt-metadata-test");
+    java.nio.file.Path metadataFile = tempDir.resolve("00001-abc.metadata.json");
+    String validJson = TableMetadataParser.toJson(BASE_TABLE_METADATA);
+    // Corrupt: change current-schema-id to a non-existent schema ID
+    String corruptJson = validJson.replace("\"current-schema-id\":0", "\"current-schema-id\":999");
+
+    Files.write(metadataFile, corruptJson.getBytes());
+
+    Assertions.assertThrows(
+        InvalidTableMetadataException.class,
+        () -> openHouseInternalTableOperations.refreshMetadata(metadataFile.toString()));
+  }
+
+  /** Verifies that a missing metadata file is surfaced as InvalidTableMetadataException. */
+  @Test
+  void testRefreshMetadataMissingFileThrowsInvalidTableMetadataException() {
+    String nonExistentPath = "/tmp/non-existent-" + UUID.randomUUID() + "/metadata.json";
+
+    Assertions.assertThrows(
+        InvalidTableMetadataException.class,
+        () -> openHouseInternalTableOperations.refreshMetadata(nonExistentPath));
   }
 }
