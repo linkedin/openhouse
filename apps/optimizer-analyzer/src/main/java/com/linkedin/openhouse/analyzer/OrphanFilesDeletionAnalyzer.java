@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.analyzer.model.TableOperationRecord;
-import com.linkedin.openhouse.analyzer.model.TableSummary;
+import com.linkedin.openhouse.analyzer.model.Table;
+import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
 import java.time.Duration;
 import java.util.Optional;
@@ -41,14 +41,14 @@ public class OrphanFilesDeletionAnalyzer implements OperationAnalyzer {
   }
 
   @Override
-  public boolean isEnabled(TableSummary table) {
+  public boolean isEnabled(Table table) {
     return "true".equals(table.getTableProperties().get(OFD_ENABLED_PROPERTY));
   }
 
   @Override
   public boolean shouldSchedule(
-      TableSummary table,
-      Optional<TableOperationRecord> currentOp,
+      Table table,
+      Optional<TableOperation> currentOp,
       Optional<TableOperationHistoryRow> latestHistory) {
     return cadencePolicy.shouldSchedule(currentOp, latestHistory);
   }

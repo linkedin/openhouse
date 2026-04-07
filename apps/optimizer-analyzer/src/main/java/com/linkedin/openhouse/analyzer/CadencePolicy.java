@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.analyzer.model.TableOperationRecord;
+import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
 import java.time.Duration;
 import java.time.Instant;
@@ -20,8 +20,26 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class CadencePolicy {
 
+  /**
+   * How long to wait after a successful operation before re-evaluating the table. For example, if
+   * set to 24 hours and OFD succeeded at 10:00 AM Monday, the table won't be scheduled again until
+   * after 10:00 AM Tuesday.
+   */
   private final Duration successRetryInterval;
+
+  /**
+   * How long to wait after a failed operation before retrying. Shorter than the success interval to
+   * allow quick recovery. For example, if set to 1 hour and OFD failed at 2:00 PM, the table
+   * becomes eligible for retry at 3:00 PM.
+   */
   private final Duration failureRetryInterval;
+
+  /**
+   * Maximum time a row can stay in SCHEDULED status before the analyzer treats it as stale and
+   * overwrites it with a new PENDING row. Handles the case where a Spark job crashes without
+   * reporting back. For example, if set to 6 hours and a job was submitted at noon but never
+   * completed, the analyzer will re-schedule the table after 6:00 PM.
+   */
   private final Duration scheduledTimeout;
 
   /**
@@ -31,11 +49,11 @@ public class CadencePolicy {
    * @param latestHistory the most recent history entry for this (table, type), or empty
    */
   public boolean shouldSchedule(
-      Optional<TableOperationRecord> currentOp, Optional<TableOperationHistoryRow> latestHistory) {
+      Optional<TableOperation> currentOp, Optional<TableOperationHistoryRow> latestHistory) {
     if (currentOp.isEmpty()) {
       return decideFromHistory(latestHistory);
     }
-    TableOperationRecord op = currentOp.get();
+    TableOperation op = currentOp.get();
     switch (op.getStatus()) {
       case "PENDING":
       case "SCHEDULING":
