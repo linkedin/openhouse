@@ -122,7 +122,6 @@ def _assert_jvm_heap(log_path: str, requested_mb: int, upper_bound_mb: int, labe
     """Read a JVM flags log file, assert MaxHeapSize <= upper_bound, and return the actual value."""
     with open(log_path) as f:
         output = f.read()
-    os.unlink(log_path)
     assert "MaxHeapSize" in output, f"{label} JVM did not print flags — jvm_args not honored"
     heap = _parse_max_heap_bytes(output)
     assert heap <= upper_bound_mb * 1024 * 1024, (

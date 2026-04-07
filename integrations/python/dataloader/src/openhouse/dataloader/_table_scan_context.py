@@ -41,6 +41,7 @@ class TableScanContext:
         projected_schema: Subset of columns to read (equals table schema when no projection)
         table_id: Identifier for the table being scanned
         row_filter: Row-level filter expression pushed down to the scan
+        worker_jvm_args: JVM arguments applied when the JNI JVM is created in worker processes
     """
 
     table_metadata: TableMetadata
