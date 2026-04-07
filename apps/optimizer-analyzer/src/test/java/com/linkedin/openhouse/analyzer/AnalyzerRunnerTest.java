@@ -7,8 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.analyzer.model.TableOperationRecord;
-import com.linkedin.openhouse.analyzer.model.TableSummary;
+import com.linkedin.openhouse.analyzer.model.Table;
+import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
 import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
@@ -51,11 +51,12 @@ class AnalyzerRunnerTest {
     statsEntity.setDatabaseId("db1");
     statsEntity.setTableName("tbl1");
 
-    TableSummary expectedTable =
-        TableSummary.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+    Table expectedTable =
+        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
 
     when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
+    when(analyzer.isCircuitBroken(anyString(), any())).thenCallRealMethod();
     when(analyzer.getCircuitBreakerThreshold()).thenReturn(5);
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(Collections.emptyList());
@@ -85,8 +86,8 @@ class AnalyzerRunnerTest {
     statsEntity.setDatabaseId("db1");
     statsEntity.setTableName("tbl1");
 
-    TableSummary expectedTable =
-        TableSummary.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+    Table expectedTable =
+        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
 
     TableOperationRow existingEntity = new TableOperationRow();
     existingEntity.setId("existing-op-id");
@@ -103,13 +104,8 @@ class AnalyzerRunnerTest {
         .thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperationRecord existingRecord = new TableOperationRecord();
-    existingRecord.setId("existing-op-id");
-    existingRecord.setStatus("PENDING");
-    existingRecord.setTableUuid("uuid-1");
-    existingRecord.setOperationType("ORPHAN_FILES_DELETION");
-    existingRecord.setCreatedAt(existingEntity.getCreatedAt());
-    when(analyzer.shouldSchedule(expectedTable, Optional.of(existingRecord), Optional.empty()))
+    TableOperation existingOp = TableOperation.from(existingEntity);
+    when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty()))
         .thenReturn(false);
 
     runner.analyze();
@@ -122,7 +118,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
 
-    TableSummary expectedTable = TableSummary.builder().tableUuid("uuid-1").build();
+    Table expectedTable = Table.builder().tableUuid("uuid-1").build();
 
     when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
@@ -142,7 +138,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
 
-    TableSummary expectedTable = TableSummary.builder().tableUuid("uuid-1").build();
+    Table expectedTable = Table.builder().tableUuid("uuid-1").build();
 
     TableOperationRow scheduled = new TableOperationRow();
     scheduled.setId("op-id");
@@ -159,13 +155,8 @@ class AnalyzerRunnerTest {
         .thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperationRecord scheduledRecord = new TableOperationRecord();
-    scheduledRecord.setId("op-id");
-    scheduledRecord.setStatus("SCHEDULED");
-    scheduledRecord.setTableUuid("uuid-1");
-    scheduledRecord.setOperationType("ORPHAN_FILES_DELETION");
-    scheduledRecord.setCreatedAt(scheduled.getCreatedAt());
-    when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledRecord), Optional.empty()))
+    TableOperation scheduledOp = TableOperation.from(scheduled);
+    when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty()))
         .thenReturn(false);
 
     runner.analyze();
@@ -197,8 +188,8 @@ class AnalyzerRunnerTest {
     statsEntity.setDatabaseId("db1");
     statsEntity.setTableName("tbl1");
 
-    TableSummary expectedTable =
-        TableSummary.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+    Table expectedTable =
+        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
 
     List<TableOperationHistoryRow> failures =
         IntStream.range(0, 3)
@@ -215,6 +206,7 @@ class AnalyzerRunnerTest {
 
     when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
+    when(analyzer.isCircuitBroken(anyString(), any())).thenCallRealMethod();
     when(analyzer.getCircuitBreakerThreshold()).thenReturn(3);
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(Collections.emptyList());
@@ -236,8 +228,8 @@ class AnalyzerRunnerTest {
     statsEntity.setDatabaseId("db1");
     statsEntity.setTableName("tbl1");
 
-    TableSummary expectedTable =
-        TableSummary.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+    Table expectedTable =
+        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
 
     List<TableOperationHistoryRow> failures =
         IntStream.range(0, 3)
@@ -254,6 +246,7 @@ class AnalyzerRunnerTest {
 
     when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
+    when(analyzer.isCircuitBroken(anyString(), any())).thenCallRealMethod();
     when(analyzer.getCircuitBreakerThreshold()).thenReturn(5);
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(Collections.emptyList());

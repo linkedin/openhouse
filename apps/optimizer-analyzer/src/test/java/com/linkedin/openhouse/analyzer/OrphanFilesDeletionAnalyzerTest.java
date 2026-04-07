@@ -2,8 +2,8 @@ package com.linkedin.openhouse.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.analyzer.model.TableOperationRecord;
-import com.linkedin.openhouse.analyzer.model.TableSummary;
+import com.linkedin.openhouse.analyzer.model.Table;
+import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
 import java.time.Duration;
 import java.time.Instant;
@@ -47,7 +47,7 @@ class OrphanFilesDeletionAnalyzerTest {
 
   @Test
   void isEnabled_returnsFalse_whenTablePropertiesEmpty() {
-    TableSummary table = TableSummary.builder().tableUuid("uuid").build();
+    Table table = Table.builder().tableUuid("uuid").build();
     assertThat(analyzer.isEnabled(table)).isFalse();
   }
 
@@ -210,12 +210,12 @@ class OrphanFilesDeletionAnalyzerTest {
 
   // --- helpers ---
 
-  private TableSummary tableWithProperty(String value) {
+  private Table tableWithProperty(String value) {
     Map<String, String> props =
         value == null
             ? Collections.emptyMap()
             : Map.of(OrphanFilesDeletionAnalyzer.OFD_ENABLED_PROPERTY, value);
-    return TableSummary.builder()
+    return Table.builder()
         .tableUuid("test-uuid")
         .databaseId("db1")
         .tableId("tbl1")
@@ -223,8 +223,8 @@ class OrphanFilesDeletionAnalyzerTest {
         .build();
   }
 
-  private TableOperationRecord opWithStatus(String status, Instant scheduledAt) {
-    TableOperationRecord op = new TableOperationRecord();
+  private TableOperation opWithStatus(String status, Instant scheduledAt) {
+    TableOperation op = new TableOperation();
     op.setStatus(status);
     op.setScheduledAt(scheduledAt);
     return op;
