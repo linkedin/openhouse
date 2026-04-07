@@ -1,0 +1,20 @@
+plugins {
+  id 'openhouse.springboot-ext-conventions'
+  id 'org.springframework.boot' version '2.7.8'
+}
+
+dependencies {
+  implementation project(':apps:optimizer')
+  implementation 'org.springframework.boot:spring-boot-starter:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-aop:2.7.8'
+  runtimeOnly 'mysql:mysql-connector-java:8.0.33'
+  testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
+  testImplementation 'com.squareup.okhttp3:mockwebserver:4.10.0'
+  testRuntimeOnly 'com.h2database:h2'
+}
+
+test {
+  useJUnitPlatform()
+}
