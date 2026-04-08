@@ -512,8 +512,8 @@ def test_branch_snapshot_id_resolves():
     catalog = MagicMock()
     mock_snapshot = MagicMock()
     mock_snapshot.snapshot_id = 123
-    catalog.load_table.return_value.snapshot_by_name.side_effect = (
-        lambda name: mock_snapshot if name == "my-branch" else None
+    catalog.load_table.return_value.snapshot_by_name.side_effect = lambda name: (
+        mock_snapshot if name == "my-branch" else None
     )
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch")
@@ -698,6 +698,74 @@ class _PassthroughTransformer(TableTransformer):
 
     def transform(self, table, context):
         return f"SELECT id, name, value FROM {to_sql_identifier(table)}"
+
+
+MIXED_CASE_SCHEMA = Schema(
+    NestedField(field_id=1, name="accountId", field_type=LongType(), required=False),
+    NestedField(field_id=2, name="pageViewCount", field_type=LongType(), required=False),
+    NestedField(field_id=3, name="avgSessionLength", field_type=DoubleType(), required=False),
+)
+
+MIXED_CASE_DATA = {
+    "accountId": [1, 2, 3],
+    "pageViewCount": [10, 20, 30],
+    "avgSessionLength": [1.5, 2.5, 3.5],
+}
+
+
+class _MixedCaseTransformer(TableTransformer):
+    """Transformer that selects mixed-case columns."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f'SELECT "accountId", "pageViewCount", "avgSessionLength" FROM {to_sql_identifier(table)}'
+
+
+def test_iter_with_transformer_preserves_mixed_case_columns(tmp_path):
+    """Transformer with mixed-case columns preserves original casing in Iceberg scan."""
+    catalog = _make_real_catalog(tmp_path, data=MIXED_CASE_DATA, iceberg_schema=MIXED_CASE_SCHEMA)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=["accountId", "pageViewCount"],
+        context=DataLoaderContext(table_transformer=_MixedCaseTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    # Verify scan received original field names, not lowercased
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    selected = scan_kwargs["selected_fields"]
+    assert "accountId" in selected
+    assert "pageViewCount" in selected
+    assert "accountid" not in selected
+    assert "pageviewcount" not in selected
+
+
+def test_iter_with_transformer_preserves_mixed_case_filter_columns(tmp_path):
+    """Pushed-down filter column names preserve original mixed-case casing."""
+    catalog = _make_real_catalog(tmp_path, data=MIXED_CASE_DATA, iceberg_schema=MIXED_CASE_SCHEMA)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        filters=col("pageViewCount") > 15,
+        context=DataLoaderContext(table_transformer=_MixedCaseTransformer()),
+    )
+    _materialize(loader)
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    selected = scan_kwargs["selected_fields"]
+    # All projected columns must use original casing from Iceberg schema
+    for field in selected:
+        assert field in ("accountId", "pageViewCount", "avgSessionLength"), f"Unexpected field: {field}"
 
 
 @pytest.mark.parametrize(
