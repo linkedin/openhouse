@@ -1,7 +1,10 @@
 """JVM configuration utilities for the HDFS client."""
 
+import logging
 import os
 import threading
+
+logger = logging.getLogger(__name__)
 
 LIBHDFS_OPTS_ENV = "LIBHDFS_OPTS"
 """Environment variable read by libhdfs when starting the JNI JVM."""
@@ -23,3 +26,4 @@ def apply_libhdfs_opts(jvm_args: str) -> None:
             return
         merged = f"{existing} {jvm_args}".strip() if existing else jvm_args
         os.environ[LIBHDFS_OPTS_ENV] = merged
+        logger.info("Set %s=%s", LIBHDFS_OPTS_ENV, merged)

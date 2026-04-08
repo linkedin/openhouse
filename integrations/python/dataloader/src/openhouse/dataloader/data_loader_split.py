@@ -98,11 +98,12 @@ class DataLoaderSplit:
             # any UDF registration code can trigger JNI.
             batch_iter = iter(batches)
             first = next(batch_iter, None)
+            if first is None:
+                return
             session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
-            if first is not None:
-                yield from self._apply_transform(session, first)
-                for batch in batch_iter:
-                    yield from self._apply_transform(session, batch)
+            yield from self._apply_transform(session, first)
+            for batch in batch_iter:
+                yield from self._apply_transform(session, batch)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
