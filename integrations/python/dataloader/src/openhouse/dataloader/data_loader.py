@@ -90,7 +90,7 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
-        jvm_config: JVM configuration for JNI-based storage access (e.g. HDFS).  Args are applied
+        jvm_config: JVM configuration for JNI-based storage access.  Currently only HDFS is supported
             via the ``LIBHDFS_OPTS`` environment variable.  See :class:`JvmConfig`.
     """
 
