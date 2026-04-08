@@ -304,7 +304,7 @@ wheels = [
 
 [[package]]
 name = "li-pyiceberg"
-version = "0.11.2"
+version = "0.11.3"
 source = { registry = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/simple/" }
 dependencies = [
     { name = "cachetools" },
@@ -320,22 +320,22 @@ dependencies = [
     { name = "tenacity" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2.tar.gz", hash = "sha256:6d73600d862c097143edaebd0480c491a6b682f0ff5e82412318b3c49727ddf4" }
+sdist = { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3.tar.gz", hash = "sha256:13558096c793ecd64eaeee5440440d406184b2693761a0c4b189a24453a26f4b" }
 wheels = [
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:6b9cd3983816a7f6ea5db59e76369dded31594ee108f4dec097800aa3175612d" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:2e1e5544c1218af47c8ac60bc64a374c07d839678fd9ec9303b13ca0a79540e6" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f43f331134943d3a73b2a6e7fdd3582ac437e4757a1a47f94ea104b8b5321e9b" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d672d5d5eeb321e287cf40b8b787448a24b6ce9a8f7ec34604cb3a40dcf3c9e7" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:b5c2182c7b99e7e53b1e4604f75fa6b4783c8dd48cd5936fdadfc4de84c654ce" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:a9cfa4c517923e7c4b1886642813ef3ec9fe5fe771869e1fcafee7920d38561f" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp312-cp312-win_amd64.whl", hash = "sha256:4e1fc561cb4953694de5600de7bf6fb084e3e7aad58775ee7f057a737f58d0a0" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:cbd2e2aa77c34700685bc532440f6112383a887766af77d89a7b3fa521755934" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:3c637b7d9f1376229b3a06a8b3b3a6f826043be721212107114b3e54f14c1629" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:fdcfc4fe6587173b5501c0d02a2d912ad9522282677892015b54fb80986dd72a" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:546025112098048774eab4ae056c248c7d00daed632258c8b4565a405d098c03" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:e695d2d1532f1525b8963e0703a516fff9a19e392c13157daedb1e875faf633e" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:5d20cb2636e0ef3af1a6407aa728944f0e54b6c6dbe916ddde667999957b37af" },
-    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.2/li_pyiceberg-0.11.2-cp313-cp313-win_amd64.whl", hash = "sha256:7cc8c418b0ddfafe4b8b4c4100f520f9a63794aecd8be74e3cbb651e4cb55af1" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:448af31363788d888fa436fb3d9913cb46c7e01409d6e41c6f878b8565da57ec" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:831f85d6d1abe221df33d1e2a1d8a5bb17821f03ca6d8ddbd2932527498fb1c7" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:567f4976eee9425b04324a09419d0daa28535d4ae5408f58575fb80a1564fc85" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b09979c347d81fba3fa7de83918979fbd406ffa8ec90ec825394415aa4063ac1" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:33a649304ab689bddbb72d69ee9f2e063c75c5bb5e311941c72b88117296f27a" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:ced2768668d1b178b4120e460bb5cbe524833933fe82a989253cf89ddd1abebe" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp312-cp312-win_amd64.whl", hash = "sha256:9baee52cc5a0ebd129efe98046edacca44b5f4bf286c04874756177907332e35" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:e503e918487f268a36fae60d23901dda89c3295c5dfa1ed3e5ee9fed0dc883bb" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:de30e53dea782549445063d66d9b308555bdcbc65a24aa01d65dde667663b2de" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c0d5f8e9fbf8c17508097520fed8e1572b92c48bd4c510a226355f173df9d31b" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b7a5aaf3b95e7cdba86a1f494f787abaaaa69d56ba9abd130edafe4442de6679" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:bf722ad6a68139f3a2a878de661419377d22e5c2d50edeae94c2d2ece3aba2f7" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:4faef4e74d5fdda80fad796deb2f79f8e6beef798d0311ee0928c955d14832cd" },
+    { url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/li-pyiceberg/0.11.3/li_pyiceberg-0.11.3-cp313-cp313-win_amd64.whl", hash = "sha256:98719cd3f6802cf1d2b19da929bb2befc254c28c24597df1d6dada806d1ff6b4" },
 ]
 
 [[package]]
@@ -607,7 +607,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "datafusion", specifier = "==51.0.0" },
-    { name = "li-pyiceberg", specifier = "==0.11.2", index = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/simple/" },
+    { name = "li-pyiceberg", specifier = "==0.11.3", index = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/simple/" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
