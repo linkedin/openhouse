@@ -56,7 +56,7 @@ def _retry[T](fn: Callable[[], T], label: str, max_attempts: int) -> T:
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-@dataclass
+@dataclass(frozen=True)
 class JvmConfig:
     """JVM arguments for JNI-based storage access (e.g. HDFS via libhdfs).
 
