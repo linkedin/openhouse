@@ -14,7 +14,7 @@ from openhouse.dataloader.table_identifier import TableIdentifier
 class DataFusion(Dialect):
     DIALECT = "datafusion"
     NORMALIZE_FUNCTIONS: bool | str = "lower"
-    NORMALIZATION_STRATEGY = NormalizationStrategy.LOWERCASE
+    NORMALIZATION_STRATEGY = NormalizationStrategy.CASE_SENSITIVE
     NULL_ORDERING = "nulls_are_last"
     INDEX_OFFSET = 0
     TYPED_DIVISION = True
