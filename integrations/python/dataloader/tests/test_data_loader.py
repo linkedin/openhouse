@@ -701,15 +701,15 @@ class _PassthroughTransformer(TableTransformer):
 
 
 MIXED_CASE_SCHEMA = Schema(
-    NestedField(field_id=1, name="userId", field_type=LongType(), required=False),
-    NestedField(field_id=2, name="USERID", field_type=LongType(), required=False),
-    NestedField(field_id=3, name="UserID", field_type=DoubleType(), required=False),
+    NestedField(field_id=1, name="purchaseAmount", field_type=DoubleType(), required=False),
+    NestedField(field_id=2, name="PURCHASEAMOUNT", field_type=LongType(), required=False),
+    NestedField(field_id=3, name="PurchaseAmount", field_type=DoubleType(), required=False),
 )
 
 MIXED_CASE_DATA = {
-    "userId": [1, 2, 3],
-    "USERID": [100, 200, 300],
-    "UserID": [1.5, 2.5, 3.5],
+    "purchaseAmount": [19.99, 49.95, 9.99],
+    "PURCHASEAMOUNT": [100, 200, 300],
+    "PurchaseAmount": [29.99, 59.95, 14.99],
 }
 
 
@@ -720,14 +720,14 @@ class _MixedCaseTransformer(TableTransformer):
         super().__init__(dialect="datafusion")
 
     def transform(self, table, context):
-        return f'SELECT "userId", "USERID", "UserID" FROM {to_sql_identifier(table)}'
+        return f'SELECT "purchaseAmount", "PURCHASEAMOUNT", "PurchaseAmount" FROM {to_sql_identifier(table)}'
 
 
 def test_iter_with_transformer_preserves_mixed_case_columns(tmp_path):
     """Transformer with mixed-case columns preserves original casing in Iceberg scan.
 
-    All three columns (userId, USERID, UserID) lowercase to the same string,
-    so a lowercasing dialect would collapse them into a single column.
+    All three columns (purchaseAmount, PURCHASEAMOUNT, PurchaseAmount) lowercase
+    to the same string, so a lowercasing dialect would collapse them.
     """
     catalog = _make_real_catalog(tmp_path, data=MIXED_CASE_DATA, iceberg_schema=MIXED_CASE_SCHEMA)
     mock_table = catalog.load_table.return_value
@@ -736,7 +736,7 @@ def test_iter_with_transformer_preserves_mixed_case_columns(tmp_path):
         catalog=catalog,
         database="db",
         table="tbl",
-        columns=["userId", "USERID"],
+        columns=["purchaseAmount", "PURCHASEAMOUNT"],
         context=DataLoaderContext(table_transformer=_MixedCaseTransformer()),
     )
     result = _materialize(loader)
@@ -745,16 +745,16 @@ def test_iter_with_transformer_preserves_mixed_case_columns(tmp_path):
     # Verify scan received exact field names, not lowercased
     scan_kwargs = mock_table.scan.call_args.kwargs
     selected = scan_kwargs["selected_fields"]
-    assert "userId" in selected
-    assert "USERID" in selected
-    # A lowercasing dialect would produce "userid" for both — must not happen
-    assert selected.count("userid") == 0
+    assert "purchaseAmount" in selected
+    assert "PURCHASEAMOUNT" in selected
+    # A lowercasing dialect would produce "purchaseamount" for both — must not happen
+    assert selected.count("purchaseamount") == 0
 
 
 def test_iter_with_transformer_preserves_mixed_case_filter_columns(tmp_path):
     """Pushed-down filter column names preserve original mixed-case casing.
 
-    Filtering on USERID must not cause it to appear as 'userid' in the scan.
+    Filtering on PURCHASEAMOUNT must not cause it to appear as 'purchaseamount'.
     """
     catalog = _make_real_catalog(tmp_path, data=MIXED_CASE_DATA, iceberg_schema=MIXED_CASE_SCHEMA)
     mock_table = catalog.load_table.return_value
@@ -763,7 +763,7 @@ def test_iter_with_transformer_preserves_mixed_case_filter_columns(tmp_path):
         catalog=catalog,
         database="db",
         table="tbl",
-        filters=col("USERID") > 150,
+        filters=col("PURCHASEAMOUNT") > 150,
         context=DataLoaderContext(table_transformer=_MixedCaseTransformer()),
     )
     _materialize(loader)
@@ -771,7 +771,7 @@ def test_iter_with_transformer_preserves_mixed_case_filter_columns(tmp_path):
     scan_kwargs = mock_table.scan.call_args.kwargs
     selected = scan_kwargs["selected_fields"]
     # All projected columns must use exact casing from the Iceberg schema
-    allowed = {"userId", "USERID", "UserID"}
+    allowed = {"purchaseAmount", "PURCHASEAMOUNT", "PurchaseAmount"}
     for field in selected:
         assert field in allowed, f"Unexpected field '{field}' — likely lowercased"
 
