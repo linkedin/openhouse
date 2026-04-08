@@ -9,6 +9,7 @@ from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import FileScanTask
 
+from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.filters import _quote_identifier
 from openhouse.dataloader.table_identifier import TableIdentifier
@@ -78,6 +79,8 @@ class DataLoaderSplit:
         delete files, and partition spec lookups.
         """
         ctx = self._scan_context
+        if ctx.worker_jvm_args is not None:
+            apply_libhdfs_opts(ctx.worker_jvm_args)
         arrow_scan = ArrowScan(
             table_metadata=ctx.table_metadata,
             io=ctx.io,
@@ -90,8 +93,16 @@ class DataLoaderSplit:
         if self._transform_sql is None:
             yield from batches
         else:
+            # Materialize the first batch before creating the transform session
+            # so that the HDFS JVM starts (and picks up worker_jvm_args) before
+            # any UDF registration code can trigger JNI.
+            batch_iter = iter(batches)
+            first = next(batch_iter, None)
+            if first is None:
+                return
             session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
-            for batch in batches:
+            yield from self._apply_transform(session, first)
+            for batch in batch_iter:
                 yield from self._apply_transform(session, batch)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:

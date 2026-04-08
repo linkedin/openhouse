@@ -10,6 +10,7 @@ from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
+from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
@@ -55,6 +56,29 @@ def _retry[T](fn: Callable[[], T], label: str, max_attempts: int) -> T:
     raise AssertionError("unreachable")  # pragma: no cover
 
 
+@dataclass(frozen=True)
+class JvmConfig:
+    """JVM arguments for JNI-based storage access (e.g. HDFS via libhdfs).
+
+    The JVM is created once per process.  If another library has already
+    started a JVM these arguments will have no effect.
+
+    Args:
+        planner_args: JVM arguments (e.g. ``-Xmx2g``) applied when the JNI
+            JVM is created in the planner process — the process that loads
+            table metadata and plans splits.
+        worker_args: JVM arguments applied when the JNI JVM is created in
+            worker processes that materialize splits.  Only honored if the
+            JVM has not already been started in the worker process.  When
+            splits are materialized in the same process as the planner,
+            only ``planner_args`` takes effect because the JVM is already
+            running.
+    """
+
+    planner_args: str | None = None
+    worker_args: str | None = None
+
+
 @dataclass
 class DataLoaderContext:
     """Context and customization for the DataLoader.
@@ -66,11 +90,14 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
+        jvm_config: JVM configuration for JNI-based storage access.  Currently only HDFS is supported
+            via the ``LIBHDFS_OPTS`` environment variable.  See :class:`JvmConfig`.
     """
 
     execution_context: Mapping[str, str] | None = None
     table_transformer: TableTransformer | None = None
     udf_registry: UDFRegistry | None = None
+    jvm_config: JvmConfig | None = None
 
 
 class OpenHouseDataLoader:
@@ -111,6 +138,9 @@ class OpenHouseDataLoader:
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
+
+        if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
+            apply_libhdfs_opts(self._context.jvm_config.planner_args)
 
     @cached_property
     def _iceberg_table(self) -> Table:
@@ -215,6 +245,7 @@ class OpenHouseDataLoader:
             projected_schema=scan.projection(),
             row_filter=row_filter,
             table_id=self._table_id,
+            worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)

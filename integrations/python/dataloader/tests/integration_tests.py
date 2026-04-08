@@ -6,8 +6,10 @@ network as the oh-hadoop-spark Docker Compose services.
 """
 
 import logging
+import multiprocessing
 import os
 import sys
+import tempfile
 import time
 
 import pyarrow as pa
@@ -15,7 +17,7 @@ import pytest
 import requests
 from pyiceberg.exceptions import NoSuchTableError
 
-from openhouse.dataloader import OpenHouseDataLoader
+from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.filters import col
 
@@ -107,6 +109,50 @@ class LivySession:
         requests.delete(self._session_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
 
+def _parse_max_heap_bytes(jvm_output: str) -> int:
+    """Extract MaxHeapSize value in bytes from -XX:+PrintFlagsFinal output."""
+    for line in jvm_output.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == "MaxHeapSize":
+            return int(parts[3])
+    raise ValueError("MaxHeapSize not found in JVM output")
+
+
+def _assert_jvm_heap(log_path: str, requested_mb: int, upper_bound_mb: int, label: str) -> int:
+    """Read a JVM flags log file, assert MaxHeapSize <= upper_bound, and return the actual value."""
+    with open(log_path) as f:
+        output = f.read()
+    assert "MaxHeapSize" in output, f"{label} JVM did not print flags — jvm_args not honored"
+    heap = _parse_max_heap_bytes(output)
+    assert heap <= upper_bound_mb * 1024 * 1024, (
+        f"{label} MaxHeapSize {heap} exceeds {upper_bound_mb}m — -Xmx{requested_mb}m not honored"
+    )
+    return heap
+
+
+def _materialize_split_in_child(split, jvm_log_path):
+    """Materialize a single split in this process, capturing stdout+stderr to *jvm_log_path*.
+
+    Intended to run via multiprocessing so the child gets a fresh JVM that
+    picks up worker_jvm_args from LIBHDFS_OPTS.
+    """
+    saved_stdout = os.dup(1)
+    saved_stderr = os.dup(2)
+    log_fd = os.open(jvm_log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    os.dup2(log_fd, 1)
+    os.dup2(log_fd, 2)
+    os.close(log_fd)
+    try:
+        batches = list(split)
+        num_rows = sum(b.num_rows for b in batches)
+    finally:
+        os.dup2(saved_stdout, 1)
+        os.close(saved_stdout)
+        os.dup2(saved_stderr, 2)
+        os.close(saved_stderr)
+    print(f"  child process read {num_rows} rows from split")
+
+
 def _read_all(loader: OpenHouseDataLoader) -> pa.Table:
     """Read all data from a DataLoader and return as a sorted PyArrow table."""
     batches = [batch for split in loader for batch in split]
@@ -142,11 +188,18 @@ if __name__ == "__main__":
         properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": HDFS_NETLOC},
     )
 
+    # Set jvm_args before any DataLoader is created so LIBHDFS_OPTS is in
+    # place when the JVM starts.  We capture both stdout and stderr to a
+    # log file because -XX:+PrintFlagsFinal may write to either fd.
+    jvm_log_fd, jvm_log = tempfile.mkstemp(suffix=".log")
+    os.close(jvm_log_fd)
+    ctx = DataLoaderContext(jvm_config=JvmConfig(planner_args="-Xmx127m -XX:+PrintFlagsFinal"))
+
     livy = LivySession(LIVY_URL, token_str)
     try:
         # 1. Nonexistent table raises NoSuchTableError
         with pytest.raises(NoSuchTableError):
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table="nonexistent_table")
+            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table="nonexistent_table", context=ctx)
             _read_all(loader)
         print("PASS: nonexistent table raised NoSuchTableError")
 
@@ -155,19 +208,34 @@ if __name__ == "__main__":
             f"CREATE TABLE {FQTN} ({CREATE_COLUMNS}) USING iceberg TBLPROPERTIES ('itest.custom-key' = 'custom-value')"
         )
         try:
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
-            assert list(loader) == [], "Expected no splits for empty table"
-            assert loader.snapshot_id is None, "Expected no snapshot for empty table"
-            assert loader.table_properties.get("itest.custom-key") == "custom-value"
+            # Capture stdout+stderr from here through the first HDFS read
+            # so we can verify -XX:+PrintFlagsFinal output at the end.
+            # The JVM starts during the first table load and prints flags then.
+            saved_stdout = os.dup(1)
+            saved_stderr = os.dup(2)
+            log_fd = os.open(jvm_log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+            os.dup2(log_fd, 1)
+            os.dup2(log_fd, 2)
+            os.close(log_fd)
+            try:
+                loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID)
+                assert list(loader) == [], "Expected no splits for empty table"
+                assert loader.snapshot_id is None, "Expected no snapshot for empty table"
+                assert loader.table_properties.get("itest.custom-key") == "custom-value"
+
+                # 3. Write data via Spark
+                livy.execute(f"INSERT INTO {FQTN} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)")
+                snap1 = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID).snapshot_id
+                assert snap1 is not None
+
+                # 4. Read all data
+                result = _read_all(OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID))
+            finally:
+                os.dup2(saved_stdout, 1)
+                os.close(saved_stdout)
+                os.dup2(saved_stderr, 2)
+                os.close(saved_stderr)
             print("PASS: empty table returned no splits and custom property is accessible")
-
-            # 3. Write data via Spark
-            livy.execute(f"INSERT INTO {FQTN} VALUES (1, 'alice', 1.1), (2, 'bob', 2.2), (3, 'charlie', 3.3)")
-            snap1 = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID).snapshot_id
-            assert snap1 is not None
-
-            # 4. Read all data
-            result = _read_all(OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID))
             assert result.num_rows == 3
             assert result.column(COL_ID).to_pylist() == [1, 2, 3]
             assert result.column(COL_NAME).to_pylist() == ["alice", "bob", "charlie"]
@@ -223,8 +291,35 @@ if __name__ == "__main__":
                 list(loader)
             print("PASS: invalid snapshot_id raised ValueError")
 
+            # 8. Materialize a split in a child process with worker_jvm_args.
+            #    The child gets a fresh JVM, so -Xmx254m takes effect there
+            #    independently of the planner's -Xmx127m.
+            worker_ctx = DataLoaderContext(jvm_config=JvmConfig(worker_args="-Xmx254m -XX:+PrintFlagsFinal"))
+            worker_loader = OpenHouseDataLoader(
+                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, context=worker_ctx
+            )
+            splits = list(worker_loader)
+            assert splits, "Expected at least one split"
+            worker_jvm_log_fd, worker_jvm_log = tempfile.mkstemp(suffix=".log")
+            os.close(worker_jvm_log_fd)
+            spawn_ctx = multiprocessing.get_context("spawn")
+            proc = spawn_ctx.Process(target=_materialize_split_in_child, args=(splits[0], worker_jvm_log))
+            proc.start()
+            proc.join(timeout=120)
+            assert proc.exitcode == 0, f"Child process failed with exit code {proc.exitcode}"
+            print("PASS: worker_jvm_args split materialized in child process")
+
         finally:
             livy.execute(f"DROP TABLE IF EXISTS {FQTN}")
+
+        # Verify planner and worker jvm_args were honored by their respective JVMs
+        planner_heap = _assert_jvm_heap(jvm_log, requested_mb=127, upper_bound_mb=128, label="Planner")
+        print(f"PASS: planner_jvm_args honored by JVM (MaxHeapSize={planner_heap})")
+        worker_heap = _assert_jvm_heap(worker_jvm_log, requested_mb=254, upper_bound_mb=256, label="Worker")
+        assert worker_heap > planner_heap, (
+            f"Worker MaxHeapSize ({worker_heap}) should be larger than planner ({planner_heap})"
+        )
+        print(f"PASS: worker_jvm_args honored by child JVM (MaxHeapSize={worker_heap})")
 
         print("All integration tests passed")
     finally:
