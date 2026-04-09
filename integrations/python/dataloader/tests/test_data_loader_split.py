@@ -100,7 +100,7 @@ def _create_test_split(
     task = FileScanTask(data_file=data_file)
 
     return DataLoaderSplit(
-        file_scan_task=task,
+        file_scan_tasks=[task],
         scan_context=scan_context,
         transform_sql=transform_sql,
         udf_registry=udf_registry,
@@ -468,3 +468,103 @@ def test_split_batch_size_preserves_data(tmp_path):
     result = pa.Table.from_batches(list(split))
     assert result.num_rows == 25
     assert sorted(result.column("id").to_pylist()) == list(range(25))
+
+
+# --- multi-file split tests ---
+
+
+def _create_multi_file_split(
+    tmp_path,
+    tables: list[pa.Table],
+    iceberg_schema: Schema,
+    transform_sql: str | None = None,
+    table_id: TableIdentifier = _DEFAULT_TABLE_ID,
+) -> DataLoaderSplit:
+    """Create a DataLoaderSplit backed by multiple files."""
+    tasks = []
+    for i, table in enumerate(tables):
+        file_path = str(tmp_path / f"file_{i}.parquet")
+        fields = [
+            field.with_metadata({b"PARQUET:field_id": str(j + 1).encode()}) for j, field in enumerate(table.schema)
+        ]
+        pq.write_table(table.cast(pa.schema(fields)), file_path)
+
+        data_file = DataFile.from_args(
+            file_path=file_path,
+            file_format=FileFormat.PARQUET,
+            record_count=table.num_rows,
+            file_size_in_bytes=os.path.getsize(file_path),
+        )
+        data_file._spec_id = 0
+        tasks.append(FileScanTask(data_file=data_file))
+
+    metadata = new_table_metadata(
+        schema=iceberg_schema,
+        partition_spec=UNPARTITIONED_PARTITION_SPEC,
+        sort_order=UNSORTED_SORT_ORDER,
+        location=str(tmp_path),
+    )
+    scan_context = TableScanContext(
+        table_metadata=metadata,
+        io=load_file_io(properties={}, location=str(tmp_path)),
+        projected_schema=iceberg_schema,
+        table_id=table_id,
+    )
+    return DataLoaderSplit(
+        file_scan_tasks=tasks,
+        scan_context=scan_context,
+        transform_sql=transform_sql,
+    )
+
+
+def test_multi_file_split_returns_all_rows(tmp_path):
+    """A split with multiple files yields rows from all files."""
+    schema = _BATCH_SCHEMA
+    tables = [
+        pa.table({"id": pa.array([1, 2, 3], type=pa.int64())}),
+        pa.table({"id": pa.array([4, 5, 6], type=pa.int64())}),
+    ]
+    split = _create_multi_file_split(tmp_path, tables, schema)
+    result = pa.Table.from_batches(list(split))
+
+    assert result.num_rows == 6
+    assert sorted(result.column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
+
+
+def test_multi_file_split_id_is_deterministic(tmp_path):
+    """Two splits with the same files produce the same id."""
+    schema = _BATCH_SCHEMA
+    tables = [_make_table(1), _make_table(1)]
+    split_a = _create_multi_file_split(tmp_path, tables, schema)
+    split_b = _create_multi_file_split(tmp_path, tables, schema)
+    assert split_a.id == split_b.id
+
+
+def test_multi_file_split_id_differs_from_single_file(tmp_path):
+    """A multi-file split has a different id than a single-file split."""
+    schema = _BATCH_SCHEMA
+    table = _make_table(1)
+    single = _create_test_split(tmp_path, table, FileFormat.PARQUET, schema, filename="file_0.parquet")
+    multi = _create_multi_file_split(tmp_path, [table, table], schema)
+    assert single.id != multi.id
+
+
+def test_multi_file_split_with_transform(tmp_path):
+    """Transform SQL is applied across all files in a multi-file split."""
+    schema = _TRANSFORM_SCHEMA
+    tables = [
+        pa.table({"id": pa.array([1], type=pa.int64()), "name": pa.array(["alice"], type=pa.string())}),
+        pa.table({"id": pa.array([2], type=pa.int64()), "name": pa.array(["bob"], type=pa.string())}),
+    ]
+    split = _create_multi_file_split(tmp_path, tables, schema, transform_sql=_MASKING_SQL, table_id=_TABLE_ID)
+    result = pa.Table.from_batches(list(split)).sort_by("id")
+
+    assert result.num_rows == 2
+    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+def test_empty_file_scan_tasks_raises():
+    """Constructing a split with no file scan tasks raises ValueError."""
+    with pytest.raises(ValueError, match="must not be empty"):
+        DataLoaderSplit(file_scan_tasks=[], scan_context=MagicMock())
