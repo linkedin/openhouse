@@ -1,0 +1,17 @@
+plugins {
+  id 'openhouse.springboot-ext-conventions'
+  id 'org.springframework.boot' version '2.7.8'
+}
+
+dependencies {
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
+  implementation 'com.vladmihalcea:hibernate-types-55:2.21.1'
+  implementation 'org.springframework.boot:spring-boot-starter-web:2.7.8'
+  implementation 'mysql:mysql-connector-java:8.+'
+  testImplementation 'com.h2database:h2:2.2.224'
+  testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
+}
+
+test {
+  useJUnitPlatform()
+}
