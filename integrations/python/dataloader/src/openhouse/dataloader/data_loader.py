@@ -114,6 +114,7 @@ class OpenHouseDataLoader:
         filters: Filter | None = None,
         context: DataLoaderContext | None = None,
         max_attempts: int = 3,
+        batch_size: int | None = None,
     ):
         """
         Args:
@@ -126,6 +127,10 @@ class OpenHouseDataLoader:
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
             max_attempts: Total number of attempts including the initial try (default 3)
+            batch_size: Maximum number of rows per RecordBatch yielded by each split.
+                Passed to PyArrow's Scanner which produces batches of at most this many
+                rows. Smaller values reduce peak memory but increase per-batch overhead.
+                None uses the PyArrow default (~131K rows).
         """
         if branch is not None and branch.strip() == "":
             raise ValueError("branch must not be empty or whitespace")
@@ -138,6 +143,7 @@ class OpenHouseDataLoader:
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
+        self._batch_size = batch_size
 
         if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
             apply_libhdfs_opts(self._context.jvm_config.planner_args)
@@ -260,4 +266,5 @@ class OpenHouseDataLoader:
                 scan_context=scan_context,
                 transform_sql=optimized_sql,
                 udf_registry=self._context.udf_registry,
+                batch_size=self._batch_size,
             )
