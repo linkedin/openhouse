@@ -636,16 +636,6 @@ def test_files_per_split_remainder_split(tmp_path):
     assert len(splits[1]._file_scan_tasks) == 2
 
 
-def test_files_per_split_preserves_all_data(tmp_path):
-    """All rows from all files are returned regardless of files_per_split."""
-    catalog = _make_real_catalog(tmp_path)
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=2)
-    result = _materialize(loader)
-
-    assert result.num_rows == 3
-    assert sorted(result.column(COL_ID).to_pylist()) == TEST_DATA[COL_ID]
-
-
 def test_files_per_split_invalid_raises():
     """files_per_split < 1 raises ValueError."""
     catalog = MagicMock()

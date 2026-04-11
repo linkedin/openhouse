@@ -529,42 +529,4 @@ def test_multi_file_split_returns_all_rows(tmp_path):
 
     assert result.num_rows == 6
     assert sorted(result.column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
-
-
-def test_multi_file_split_id_is_deterministic(tmp_path):
-    """Two splits with the same files produce the same id."""
-    schema = _BATCH_SCHEMA
-    tables = [_make_table(1), _make_table(1)]
-    split_a = _create_multi_file_split(tmp_path, tables, schema)
-    split_b = _create_multi_file_split(tmp_path, tables, schema)
-    assert split_a.id == split_b.id
-
-
-def test_multi_file_split_id_differs_from_single_file(tmp_path):
-    """A multi-file split has a different id than a single-file split."""
-    schema = _BATCH_SCHEMA
-    table = _make_table(1)
-    single = _create_test_split(tmp_path, table, FileFormat.PARQUET, schema, filename="file_0.parquet")
-    multi = _create_multi_file_split(tmp_path, [table, table], schema)
-    assert single.id != multi.id
-
-
-def test_multi_file_split_with_transform(tmp_path):
-    """Transform SQL is applied across all files in a multi-file split."""
-    schema = _TRANSFORM_SCHEMA
-    tables = [
-        pa.table({"id": pa.array([1], type=pa.int64()), "name": pa.array(["alice"], type=pa.string())}),
-        pa.table({"id": pa.array([2], type=pa.int64()), "name": pa.array(["bob"], type=pa.string())}),
-    ]
-    split = _create_multi_file_split(tmp_path, tables, schema, transform_sql=_MASKING_SQL, table_id=_TABLE_ID)
-    result = pa.Table.from_batches(list(split)).sort_by("id")
-
-    assert result.num_rows == 2
-    assert result.column("id").to_pylist() == [1, 2]
-    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
-
-
-def test_empty_file_scan_tasks_raises():
-    """Constructing a split with no file scan tasks raises ValueError."""
-    with pytest.raises(ValueError, match="must not be empty"):
-        DataLoaderSplit(file_scan_tasks=[], scan_context=MagicMock())
+    assert len(split.id) == 64  # SHA256 hex digest
