@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from types import MappingProxyType
 
 from datafusion.context import SessionContext
@@ -45,17 +45,19 @@ def _bind_batch_table(session: SessionContext, table_id: TableIdentifier, batch:
 
 
 class DataLoaderSplit:
-    """A single data split"""
+    """A data split that reads one or more files."""
 
     def __init__(
         self,
-        file_scan_task: FileScanTask,
+        file_scan_tasks: Sequence[FileScanTask],
         scan_context: TableScanContext,
         transform_sql: str | None = None,
         udf_registry: UDFRegistry | None = None,
         batch_size: int | None = None,
     ):
-        self._file_scan_task = file_scan_task
+        self._file_scan_tasks = list(file_scan_tasks)
+        if not self._file_scan_tasks:
+            raise ValueError("file_scan_tasks must not be empty")
         self._scan_context = scan_context
         self._transform_sql = transform_sql
         self._udf_registry = udf_registry or NoOpRegistry()
@@ -66,8 +68,9 @@ class DataLoaderSplit:
         """Unique ID for the split. This is stable across executions for a given
         snapshot and split size.
         """
-        file_path = self._file_scan_task.file.file_path
-        return hashlib.sha256(file_path.encode("utf-8")).hexdigest()
+        paths = sorted(t.file.file_path for t in self._file_scan_tasks)
+        combined = "\0".join(paths)
+        return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
     @property
     def table_properties(self) -> Mapping[str, str]:
@@ -75,11 +78,9 @@ class DataLoaderSplit:
         return MappingProxyType(self._scan_context.table_metadata.properties)
 
     def __iter__(self) -> Iterator[RecordBatch]:
-        """Reads the file scan task and yields Arrow RecordBatches.
+        """Reads the file scan tasks and yields Arrow RecordBatches.
 
-        Uses PyIceberg's ArrowScan to handle format dispatch, schema resolution,
-        delete files, and partition spec lookups. The number of batches loaded
-        into memory at once is bounded to prevent using too much memory at once.
+        When the split contains multiple files, they are read concurrently.
         """
         ctx = self._scan_context
         if ctx.worker_jvm_args is not None:
@@ -92,8 +93,8 @@ class DataLoaderSplit:
         )
 
         batches = arrow_scan.to_record_batches(
-            [self._file_scan_task],
-            order=ArrivalOrder(concurrent_streams=1, batch_size=self._batch_size),
+            self._file_scan_tasks,
+            order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
         )
 
         if self._transform_sql is None:

@@ -2,6 +2,7 @@ import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
+from itertools import batched
 from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
@@ -115,6 +116,7 @@ class OpenHouseDataLoader:
         context: DataLoaderContext | None = None,
         max_attempts: int = 3,
         batch_size: int | None = None,
+        files_per_split: int = 1,
     ):
         """
         Args:
@@ -131,11 +133,15 @@ class OpenHouseDataLoader:
                 Passed to PyArrow's Scanner which produces batches of at most this many
                 rows. Smaller values reduce peak memory but increase per-batch overhead.
                 None uses the PyArrow default (~131K rows).
+            files_per_split: Number of files each split reads concurrently.
+                Default is 1 (one file per split).
         """
         if branch is not None and branch.strip() == "":
             raise ValueError("branch must not be empty or whitespace")
         if branch is not None and snapshot_id is not None:
             raise ValueError("Cannot specify both branch and snapshot_id")
+        if files_per_split < 1:
+            raise ValueError("files_per_split must be at least 1")
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
         self._snapshot_id = snapshot_id
@@ -144,6 +150,7 @@ class OpenHouseDataLoader:
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
         self._batch_size = batch_size
+        self._files_per_split = files_per_split
 
         if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
             apply_libhdfs_opts(self._context.jvm_config.planner_args)
@@ -260,9 +267,9 @@ class OpenHouseDataLoader:
             lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
         )
 
-        for scan_task in scan_tasks:
+        for chunk in batched(scan_tasks, self._files_per_split):
             yield DataLoaderSplit(
-                file_scan_task=scan_task,
+                file_scan_tasks=chunk,
                 scan_context=scan_context,
                 transform_sql=optimized_sql,
                 udf_registry=self._context.udf_registry,

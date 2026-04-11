@@ -559,12 +559,12 @@ def test_branch_reads_data_from_branch_snapshot():
     # Without branch: splits come from main snapshot
     main_splits = list(OpenHouseDataLoader(catalog=catalog, database="db", table="tbl"))
     assert len(main_splits) == 1
-    assert main_splits[0]._file_scan_task.file.file_path == "main.parquet"
+    assert main_splits[0]._file_scan_tasks[0].file.file_path == "main.parquet"
 
     # With branch: splits come from branch snapshot
     branch_splits = list(OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch"))
     assert len(branch_splits) == 1
-    assert branch_splits[0]._file_scan_task.file.file_path == "branch.parquet"
+    assert branch_splits[0]._file_scan_tasks[0].file.file_path == "branch.parquet"
 
 
 # --- batch_size tests ---
@@ -592,6 +592,55 @@ def test_batch_size_default_is_none(tmp_path):
     assert len(splits) >= 1
     for split in splits:
         assert split._batch_size is None
+
+
+# --- files_per_split tests ---
+
+
+def _add_file_tasks(catalog, num_tasks: int) -> None:
+    """Override plan_files on a catalog from _make_real_catalog to return multiple mock tasks."""
+    mock_table = catalog.load_table.return_value
+    original_scan = mock_table.scan.side_effect
+
+    def multi_file_scan(**kwargs):
+        scan = original_scan(**kwargs)
+        scan.plan_files.return_value = [
+            MagicMock(file=MagicMock(file_path=f"file_{i}.parquet")) for i in range(num_tasks)
+        ]
+        return scan
+
+    mock_table.scan.side_effect = multi_file_scan
+
+
+def test_files_per_split_groups_tasks(tmp_path):
+    """files_per_split=2 groups 4 files into 2 splits of 2 files each."""
+    catalog = _make_real_catalog(tmp_path)
+    _add_file_tasks(catalog, 4)
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=2)
+    splits = list(loader)
+
+    assert len(splits) == 2
+    for split in splits:
+        assert len(split._file_scan_tasks) == 2
+
+
+def test_files_per_split_remainder_split(tmp_path):
+    """When files don't divide evenly, the last split gets the remainder."""
+    catalog = _make_real_catalog(tmp_path)
+    _add_file_tasks(catalog, 5)
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=3)
+    splits = list(loader)
+
+    assert len(splits) == 2
+    assert len(splits[0]._file_scan_tasks) == 3
+    assert len(splits[1]._file_scan_tasks) == 2
+
+
+def test_files_per_split_invalid_raises():
+    """files_per_split < 1 raises ValueError."""
+    catalog = MagicMock()
+    with pytest.raises(ValueError, match="files_per_split must be at least 1"):
+        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=0)
 
 
 # --- Predicate pushdown with transformer tests ---

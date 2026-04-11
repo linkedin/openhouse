@@ -100,7 +100,7 @@ def _create_test_split(
     task = FileScanTask(data_file=data_file)
 
     return DataLoaderSplit(
-        file_scan_task=task,
+        file_scan_tasks=[task],
         scan_context=scan_context,
         transform_sql=transform_sql,
         udf_registry=udf_registry,
@@ -468,3 +468,30 @@ def test_split_batch_size_preserves_data(tmp_path):
     result = pa.Table.from_batches(list(split))
     assert result.num_rows == 25
     assert sorted(result.column("id").to_pylist()) == list(range(25))
+
+
+# --- multi-file split tests ---
+
+
+def test_multi_file_split_returns_all_rows(tmp_path):
+    """A split with multiple files yields rows from all files."""
+    schema = _BATCH_SCHEMA
+    table_a = pa.table({"id": pa.array([1, 2, 3], type=pa.int64())})
+    table_b = pa.table({"id": pa.array([4, 5, 6], type=pa.int64())})
+    split_a = _create_test_split(tmp_path, table_a, FileFormat.PARQUET, schema, filename="a.parquet")
+    split_b = _create_test_split(tmp_path, table_b, FileFormat.PARQUET, schema, filename="b.parquet")
+
+    combined = DataLoaderSplit(
+        file_scan_tasks=split_a._file_scan_tasks + split_b._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    result = pa.Table.from_batches(list(combined))
+
+    assert result.num_rows == 6
+    assert sorted(result.column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
+
+    reversed_split = DataLoaderSplit(
+        file_scan_tasks=split_b._file_scan_tasks + split_a._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    assert reversed_split.id == combined.id
