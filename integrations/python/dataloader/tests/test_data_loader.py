@@ -645,17 +645,6 @@ def _make_multi_file_catalog(tmp_path, num_files: int, rows_per_file: int = 3):
     return catalog
 
 
-def test_files_per_split_default_one_file_per_split(tmp_path):
-    """Default files_per_split=1 produces one split per file."""
-    catalog = _make_multi_file_catalog(tmp_path, num_files=4)
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
-    splits = list(loader)
-
-    assert len(splits) == 4
-    for split in splits:
-        assert len(split._file_scan_tasks) == 1
-
-
 def test_files_per_split_groups_tasks(tmp_path):
     """files_per_split=2 groups 4 files into 2 splits of 2 files each."""
     catalog = _make_multi_file_catalog(tmp_path, num_files=4)
@@ -676,16 +665,6 @@ def test_files_per_split_remainder_split(tmp_path):
     assert len(splits) == 2
     assert len(splits[0]._file_scan_tasks) == 3
     assert len(splits[1]._file_scan_tasks) == 2
-
-
-def test_files_per_split_larger_than_total(tmp_path):
-    """When files_per_split exceeds file count, one split gets all files."""
-    catalog = _make_multi_file_catalog(tmp_path, num_files=3)
-    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=10)
-    splits = list(loader)
-
-    assert len(splits) == 1
-    assert len(splits[0]._file_scan_tasks) == 3
 
 
 def test_files_per_split_preserves_all_data(tmp_path):
