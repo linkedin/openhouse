@@ -473,60 +473,20 @@ def test_split_batch_size_preserves_data(tmp_path):
 # --- multi-file split tests ---
 
 
-def _create_multi_file_split(
-    tmp_path,
-    tables: list[pa.Table],
-    iceberg_schema: Schema,
-    transform_sql: str | None = None,
-    table_id: TableIdentifier = _DEFAULT_TABLE_ID,
-) -> DataLoaderSplit:
-    """Create a DataLoaderSplit backed by multiple files."""
-    tasks = []
-    for i, table in enumerate(tables):
-        file_path = str(tmp_path / f"file_{i}.parquet")
-        fields = [
-            field.with_metadata({b"PARQUET:field_id": str(j + 1).encode()}) for j, field in enumerate(table.schema)
-        ]
-        pq.write_table(table.cast(pa.schema(fields)), file_path)
-
-        data_file = DataFile.from_args(
-            file_path=file_path,
-            file_format=FileFormat.PARQUET,
-            record_count=table.num_rows,
-            file_size_in_bytes=os.path.getsize(file_path),
-        )
-        data_file._spec_id = 0
-        tasks.append(FileScanTask(data_file=data_file))
-
-    metadata = new_table_metadata(
-        schema=iceberg_schema,
-        partition_spec=UNPARTITIONED_PARTITION_SPEC,
-        sort_order=UNSORTED_SORT_ORDER,
-        location=str(tmp_path),
-    )
-    scan_context = TableScanContext(
-        table_metadata=metadata,
-        io=load_file_io(properties={}, location=str(tmp_path)),
-        projected_schema=iceberg_schema,
-        table_id=table_id,
-    )
-    return DataLoaderSplit(
-        file_scan_tasks=tasks,
-        scan_context=scan_context,
-        transform_sql=transform_sql,
-    )
-
-
 def test_multi_file_split_returns_all_rows(tmp_path):
     """A split with multiple files yields rows from all files."""
     schema = _BATCH_SCHEMA
-    tables = [
-        pa.table({"id": pa.array([1, 2, 3], type=pa.int64())}),
-        pa.table({"id": pa.array([4, 5, 6], type=pa.int64())}),
-    ]
-    split = _create_multi_file_split(tmp_path, tables, schema)
-    result = pa.Table.from_batches(list(split))
+    table_a = pa.table({"id": pa.array([1, 2, 3], type=pa.int64())})
+    table_b = pa.table({"id": pa.array([4, 5, 6], type=pa.int64())})
+    split_a = _create_test_split(tmp_path, table_a, FileFormat.PARQUET, schema, filename="a.parquet")
+    split_b = _create_test_split(tmp_path, table_b, FileFormat.PARQUET, schema, filename="b.parquet")
+
+    combined = DataLoaderSplit(
+        file_scan_tasks=split_a._file_scan_tasks + split_b._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    result = pa.Table.from_batches(list(combined))
 
     assert result.num_rows == 6
     assert sorted(result.column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
-    assert len(split.id) == 64  # SHA256 hex digest
+    assert len(combined.id) == 64  # SHA256 hex digest
