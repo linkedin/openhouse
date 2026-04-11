@@ -20,7 +20,6 @@ public class CreateTableWithPropsTest {
   public void testCreateTableWithPropsSuccessful() {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
-    mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
     GetTableResponseBody mockResponse =
         mockGetTableResponseBody(

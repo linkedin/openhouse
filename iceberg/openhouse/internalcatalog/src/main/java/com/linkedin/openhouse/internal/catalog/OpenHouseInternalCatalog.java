@@ -78,6 +78,11 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   }
 
   @Override
+  protected boolean isValidIdentifier(TableIdentifier tableIdentifier) {
+    return tableIdentifier != null && tableIdentifier.namespace().levels().length == 1;
+  }
+
+  @Override
   public String name() {
     return getClass().getSimpleName();
   }

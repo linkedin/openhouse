@@ -12,8 +12,10 @@ import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -153,6 +155,28 @@ public class SmokeTest {
     Assertions.assertThrows(
         NoSuchTableException.class,
         () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));
+  }
+
+  @Test
+  public void testCatalogMissingMetadataTableDoesNotRetryWithCollapsedBaseIdentifier()
+      throws InterruptedException {
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(404).addHeader("Content-Type", "application/json"));
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(404).addHeader("Content-Type", "application/json"));
+
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+
+    Assertions.assertThrows(
+        NoSuchTableException.class,
+        () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "partitions")));
+
+    Assertions.assertEquals(1, mockTableService.getRequestCount());
+    RecordedRequest request = mockTableService.takeRequest(1, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Assertions.assertEquals("/v1/databases/db/tables/partitions", request.getPath());
+    Assertions.assertNull(mockTableService.takeRequest(100, TimeUnit.MILLISECONDS));
   }
 
   @Test

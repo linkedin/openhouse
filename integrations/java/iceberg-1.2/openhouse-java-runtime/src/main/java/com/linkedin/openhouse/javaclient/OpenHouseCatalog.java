@@ -285,6 +285,11 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
         .build();
   }
 
+  @Override
+  protected boolean isValidIdentifier(TableIdentifier tableIdentifier) {
+    return tableIdentifier != null && tableIdentifier.namespace().levels().length == 1;
+  }
+
   /**
    * it's necessary to return null. This function only gets called from {@link
    * BaseMetastoreCatalog}, just before doCommit(). {@link
