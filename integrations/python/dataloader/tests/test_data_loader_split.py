@@ -489,4 +489,9 @@ def test_multi_file_split_returns_all_rows(tmp_path):
 
     assert result.num_rows == 6
     assert sorted(result.column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
-    assert len(combined.id) == 64  # SHA256 hex digest
+
+    reversed_split = DataLoaderSplit(
+        file_scan_tasks=split_b._file_scan_tasks + split_a._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    assert reversed_split.id == combined.id
