@@ -597,57 +597,25 @@ def test_batch_size_default_is_none(tmp_path):
 # --- files_per_split tests ---
 
 
-def _make_multi_file_catalog(tmp_path, num_files: int, rows_per_file: int = 3):
-    """Create a mock catalog backed by multiple real Parquet files."""
-    schema = Schema(
-        NestedField(field_id=1, name=COL_ID, field_type=LongType(), required=False),
-        NestedField(field_id=2, name=COL_NAME, field_type=StringType(), required=False),
-    )
-    tasks = []
-    for i in range(num_files):
-        data = {
-            COL_ID: list(range(i * rows_per_file, (i + 1) * rows_per_file)),
-            COL_NAME: [f"row_{j}" for j in range(i * rows_per_file, (i + 1) * rows_per_file)],
-        }
-        file_path = _write_parquet(tmp_path, data, filename=f"file_{i}.parquet")
-        data_file = DataFile.from_args(
-            file_path=file_path,
-            file_format=FileFormat.PARQUET,
-            record_count=rows_per_file,
-            file_size_in_bytes=os.path.getsize(file_path),
-        )
-        data_file._spec_id = 0
-        tasks.append(FileScanTask(data_file=data_file))
+def _add_file_tasks(catalog, num_tasks: int) -> None:
+    """Override plan_files on a catalog from _make_real_catalog to return multiple mock tasks."""
+    mock_table = catalog.load_table.return_value
+    original_scan = mock_table.scan.side_effect
 
-    metadata = new_table_metadata(
-        schema=schema,
-        partition_spec=UNPARTITIONED_PARTITION_SPEC,
-        sort_order=UNSORTED_SORT_ORDER,
-        location=str(tmp_path),
-    )
-    io = load_file_io(properties={}, location=str(tmp_path))
-
-    def fake_scan(**kwargs):
-        selected = kwargs.get("selected_fields")
-        projected = Schema(*[f for f in schema.fields if f.name in selected]) if selected else schema
-        scan = MagicMock()
-        scan.projection.return_value = projected
-        scan.plan_files.return_value = tasks
+    def multi_file_scan(**kwargs):
+        scan = original_scan(**kwargs)
+        scan.plan_files.return_value = [
+            MagicMock(file=MagicMock(file_path=f"file_{i}.parquet")) for i in range(num_tasks)
+        ]
         return scan
 
-    mock_table = MagicMock()
-    mock_table.metadata = metadata
-    mock_table.io = io
-    mock_table.scan.side_effect = fake_scan
-
-    catalog = MagicMock()
-    catalog.load_table.return_value = mock_table
-    return catalog
+    mock_table.scan.side_effect = multi_file_scan
 
 
 def test_files_per_split_groups_tasks(tmp_path):
     """files_per_split=2 groups 4 files into 2 splits of 2 files each."""
-    catalog = _make_multi_file_catalog(tmp_path, num_files=4)
+    catalog = _make_real_catalog(tmp_path)
+    _add_file_tasks(catalog, 4)
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=2)
     splits = list(loader)
 
@@ -658,7 +626,8 @@ def test_files_per_split_groups_tasks(tmp_path):
 
 def test_files_per_split_remainder_split(tmp_path):
     """When files don't divide evenly, the last split gets the remainder."""
-    catalog = _make_multi_file_catalog(tmp_path, num_files=5)
+    catalog = _make_real_catalog(tmp_path)
+    _add_file_tasks(catalog, 5)
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=3)
     splits = list(loader)
 
@@ -669,13 +638,12 @@ def test_files_per_split_remainder_split(tmp_path):
 
 def test_files_per_split_preserves_all_data(tmp_path):
     """All rows from all files are returned regardless of files_per_split."""
-    catalog = _make_multi_file_catalog(tmp_path, num_files=4, rows_per_file=3)
-
+    catalog = _make_real_catalog(tmp_path)
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=2)
     result = _materialize(loader)
 
-    assert result.num_rows == 12
-    assert sorted(result.column(COL_ID).to_pylist()) == list(range(12))
+    assert result.num_rows == 3
+    assert sorted(result.column(COL_ID).to_pylist()) == TEST_DATA[COL_ID]
 
 
 def test_files_per_split_invalid_raises():
