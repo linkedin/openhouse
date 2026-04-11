@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from itertools import islice
+from itertools import batched
 from types import MappingProxyType
 
 from pyiceberg.catalog import Catalog
@@ -267,8 +267,7 @@ class OpenHouseDataLoader:
             lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
         )
 
-        task_iter = iter(scan_tasks)
-        for chunk in iter(lambda: list(islice(task_iter, self._files_per_split)), []):
+        for chunk in batched(scan_tasks, self._files_per_split):
             yield DataLoaderSplit(
                 file_scan_tasks=chunk,
                 scan_context=scan_context,
