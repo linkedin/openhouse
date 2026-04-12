@@ -7,9 +7,10 @@ observer pattern with zero overhead when no observer is configured.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -90,6 +91,70 @@ def set_observer(obs: PerfObserver) -> None:
 def get_observer() -> PerfObserver:
     """Return the current performance observer."""
     return _observer
+
+
+@dataclass(frozen=True)
+class PerfConfig:
+    """Serializable perf configuration that travels with splits to workers.
+
+    Attributes:
+        tags: Session-level tags injected into every performance event
+            (e.g. cluster, tenant).  Per-event tags override these.
+        observer_type: Observer to bootstrap on workers.  ``"logging"``
+            (default) creates a :class:`LoggingPerfObserver`, ``"null"``
+            creates a :class:`NullPerfObserver`, and a dotted import path
+            (e.g. ``"mypackage.KafkaObserver"``) dynamically imports and
+            instantiates the class.
+        observer_kwargs: Constructor keyword arguments forwarded to the
+            observer created by *observer_type*.
+    """
+
+    tags: Mapping[str, str] = field(default_factory=dict)
+    observer_type: str = "logging"
+    observer_kwargs: Mapping[str, Any] = field(default_factory=dict)
+
+
+class EnrichingObserver:
+    """Wraps an observer and prepends session-level tags to every event.
+
+    Per-event tags take precedence over session tags.
+    """
+
+    def __init__(self, inner: PerfObserver, session_tags: Mapping[str, str]) -> None:
+        self._inner = inner
+        self._session_tags = session_tags
+
+    def emit(self, event: PerfEvent) -> None:
+        event.tags = {**self._session_tags, **event.tags}
+        self._inner.emit(event)
+
+
+def _create_observer(observer_type: str, observer_kwargs: Mapping[str, Any] | None = None) -> PerfObserver:
+    """Create an observer instance from a type descriptor and kwargs."""
+    kwargs = dict(observer_kwargs) if observer_kwargs else {}
+    if observer_type == "logging":
+        return LoggingPerfObserver(**kwargs)
+    if observer_type == "null":
+        return NullPerfObserver()
+    module_path, class_name = observer_type.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    cls = getattr(module, class_name)
+    observer: PerfObserver = cls(**kwargs)
+    return observer
+
+
+def bootstrap_observer(config: PerfConfig) -> None:
+    """Idempotent worker-side observer setup from serialized config.
+
+    If an observer other than :class:`NullPerfObserver` is already set
+    (e.g. the planner process already configured one), this is a no-op.
+    """
+    if not isinstance(get_observer(), NullPerfObserver):
+        return
+    observer = _create_observer(config.observer_type, config.observer_kwargs)
+    if config.tags:
+        observer = EnrichingObserver(observer, config.tags)
+    set_observer(observer)
 
 
 class _PerfTimerContext:

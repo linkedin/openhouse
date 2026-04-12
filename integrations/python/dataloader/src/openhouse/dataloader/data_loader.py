@@ -12,11 +12,9 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 
 from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._observability import (
-    LoggingPerfObserver,
-    NullPerfObserver,
-    get_observer,
+    PerfConfig,
+    bootstrap_observer,
     perf_timer,
-    set_observer,
 )
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
@@ -122,6 +120,7 @@ class OpenHouseDataLoader:
         context: DataLoaderContext | None = None,
         max_attempts: int = 3,
         batch_size: int | None = None,
+        perf_config: PerfConfig | None = None,
     ):
         """
         Args:
@@ -138,6 +137,9 @@ class OpenHouseDataLoader:
                 Passed to PyArrow's Scanner which produces batches of at most this many
                 rows. Smaller values reduce peak memory but increase per-batch overhead.
                 None uses the PyArrow default (~131K rows).
+            perf_config: Serializable performance configuration.  Controls which
+                observer is bootstrapped on planner and worker processes and which
+                session-level tags are injected into every performance event.
         """
         if branch is not None and branch.strip() == "":
             raise ValueError("branch must not be empty or whitespace")
@@ -151,8 +153,8 @@ class OpenHouseDataLoader:
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
         self._batch_size = batch_size
-        if isinstance(get_observer(), NullPerfObserver):
-            set_observer(LoggingPerfObserver())
+        self._perf_config = perf_config or PerfConfig()
+        bootstrap_observer(self._perf_config)
 
         if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
             apply_libhdfs_opts(self._context.jvm_config.planner_args)
@@ -264,6 +266,7 @@ class OpenHouseDataLoader:
                 row_filter=row_filter,
                 table_id=self._table_id,
                 worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
+                perf_config=self._perf_config,
             )
 
             # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 from unittest.mock import MagicMock
 
 import pyarrow as pa
@@ -19,10 +20,13 @@ from pyiceberg.types import LongType, NestedField, StringType
 
 from openhouse.dataloader._observability import (
     CompositeObserver,
+    EnrichingObserver,
     LoggingPerfObserver,
     NullPerfObserver,
+    PerfConfig,
     PerfEvent,
     PerfObserver,
+    bootstrap_observer,
     get_observer,
     perf_timer,
     set_observer,
@@ -334,5 +338,257 @@ def test_data_loader_transform_emits_perf_events(tmp_path):
         assert transform_event.metrics["input_rows"] == 3
         assert transform_event.metrics["output_rows"] == 3
         assert transform_event.duration_ms > 0
+    finally:
+        set_observer(original)
+
+
+# --- PerfConfig tests ---
+
+
+def test_perf_config_defaults():
+    config = PerfConfig()
+    assert dict(config.tags) == {}
+    assert config.observer_type == "logging"
+    assert dict(config.observer_kwargs) == {}
+
+
+def test_perf_config_is_frozen():
+    config = PerfConfig(tags={"k": "v"})
+    with pytest.raises(AttributeError):
+        config.observer_type = "null"  # type: ignore[misc]
+
+
+def test_perf_config_pickle_round_trip():
+    config = PerfConfig(tags={"cluster": "prod", "tenant": "t1"}, observer_type="null", observer_kwargs={"x": 1})
+    restored = pickle.loads(pickle.dumps(config))
+    assert restored.tags["cluster"] == "prod"
+    assert restored.tags["tenant"] == "t1"
+    assert restored.observer_type == "null"
+    assert restored.observer_kwargs["x"] == 1
+
+
+def test_perf_config_pickle_default():
+    """Default PerfConfig survives pickle round-trip."""
+    config = PerfConfig()
+    restored = pickle.loads(pickle.dumps(config))
+    assert dict(restored.tags) == {}
+    assert restored.observer_type == "logging"
+
+
+# --- EnrichingObserver tests ---
+
+
+def test_enriching_observer_prepends_session_tags():
+    events: list[PerfEvent] = []
+
+    class Collector:
+        def emit(self, event: PerfEvent) -> None:
+            events.append(event)
+
+    inner = Collector()
+    enriching = EnrichingObserver(inner, {"cluster": "prod", "tenant": "t1"})
+    event = PerfEvent(operation="test.enrich", duration_ms=1.0, tags={"extra": "yes"})
+    enriching.emit(event)
+
+    assert len(events) == 1
+    assert events[0].tags["cluster"] == "prod"
+    assert events[0].tags["tenant"] == "t1"
+    assert events[0].tags["extra"] == "yes"
+
+
+def test_enriching_observer_per_event_tags_override_session():
+    events: list[PerfEvent] = []
+
+    class Collector:
+        def emit(self, event: PerfEvent) -> None:
+            events.append(event)
+
+    inner = Collector()
+    enriching = EnrichingObserver(inner, {"env": "staging"})
+    event = PerfEvent(operation="test.override", duration_ms=1.0, tags={"env": "prod"})
+    enriching.emit(event)
+
+    assert events[0].tags["env"] == "prod"
+
+
+def test_enriching_observer_empty_session_tags():
+    events: list[PerfEvent] = []
+
+    class Collector:
+        def emit(self, event: PerfEvent) -> None:
+            events.append(event)
+
+    inner = Collector()
+    enriching = EnrichingObserver(inner, {})
+    event = PerfEvent(operation="test.empty", duration_ms=1.0, tags={"k": "v"})
+    enriching.emit(event)
+
+    assert events[0].tags == {"k": "v"}
+
+
+# --- bootstrap_observer tests ---
+
+
+def test_bootstrap_observer_sets_logging_by_default():
+    original = get_observer()
+    try:
+        set_observer(NullPerfObserver())
+        bootstrap_observer(PerfConfig())
+        obs = get_observer()
+        assert isinstance(obs, LoggingPerfObserver)
+    finally:
+        set_observer(original)
+
+
+def test_bootstrap_observer_sets_enriching_with_tags():
+    original = get_observer()
+    try:
+        set_observer(NullPerfObserver())
+        bootstrap_observer(PerfConfig(tags={"cluster": "prod"}))
+        obs = get_observer()
+        assert isinstance(obs, EnrichingObserver)
+    finally:
+        set_observer(original)
+
+
+def test_bootstrap_observer_null_type():
+    original = get_observer()
+    try:
+        set_observer(NullPerfObserver())
+        bootstrap_observer(PerfConfig(observer_type="null"))
+        obs = get_observer()
+        assert isinstance(obs, NullPerfObserver)
+    finally:
+        set_observer(original)
+
+
+def test_bootstrap_observer_idempotent():
+    """bootstrap_observer does not replace an already-configured observer."""
+    original = get_observer()
+    try:
+        custom = _MockObserver()
+        set_observer(custom)
+        bootstrap_observer(PerfConfig(observer_type="null"))
+        assert get_observer() is custom
+    finally:
+        set_observer(original)
+
+
+def test_bootstrap_observer_dotted_import_path():
+    """bootstrap_observer can instantiate a custom observer from a dotted import path."""
+    original = get_observer()
+    try:
+        set_observer(NullPerfObserver())
+        # Use LoggingPerfObserver via its dotted path as a stand-in for a custom observer
+        bootstrap_observer(PerfConfig(observer_type="openhouse.dataloader._observability.LoggingPerfObserver"))
+        obs = get_observer()
+        assert isinstance(obs, LoggingPerfObserver)
+    finally:
+        set_observer(original)
+
+
+def test_bootstrap_observer_dotted_import_with_tags():
+    """Dotted import observer gets wrapped with EnrichingObserver when tags are provided."""
+    original = get_observer()
+    try:
+        set_observer(NullPerfObserver())
+        bootstrap_observer(
+            PerfConfig(
+                tags={"env": "test"},
+                observer_type="openhouse.dataloader._observability.LoggingPerfObserver",
+            )
+        )
+        obs = get_observer()
+        assert isinstance(obs, EnrichingObserver)
+    finally:
+        set_observer(original)
+
+
+# --- Integration: PerfConfig with data loader ---
+
+
+def test_data_loader_with_perf_config_tags(tmp_path):
+    """Session tags from PerfConfig appear on split-level perf events."""
+    catalog = _make_real_catalog(tmp_path)
+    observer = _MockObserver()
+
+    original = get_observer()
+    try:
+        set_observer(observer)
+        config = PerfConfig(tags={"cluster": "prod", "tenant": "t1"})
+
+        loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", perf_config=config)
+        batches = [batch for split in loader for batch in split]
+        assert len(batches) >= 1
+
+        # split_iter events should carry the session tags
+        split_event = next(e for e in observer.events if e.operation == "dataloader.split_iter")
+        assert split_event.tags["cluster"] == "prod"
+        assert split_event.tags["tenant"] == "t1"
+    finally:
+        set_observer(original)
+
+
+def test_data_loader_perf_config_transform_tags(tmp_path):
+    """Session tags appear on transform perf events when PerfConfig is used."""
+    catalog = _make_real_catalog(tmp_path)
+    observer = _MockObserver()
+
+    original = get_observer()
+    try:
+        set_observer(observer)
+        config = PerfConfig(tags={"env": "staging"})
+
+        loader = OpenHouseDataLoader(
+            catalog=catalog,
+            database="db",
+            table="tbl",
+            context=DataLoaderContext(table_transformer=_MaskingTransformer()),
+            perf_config=config,
+        )
+        batches = [batch for split in loader for batch in split]
+        assert len(batches) >= 1
+
+        # Transform events should also carry the session tags
+        transform_event = next(e for e in observer.events if e.operation == "dataloader.apply_transform")
+        assert transform_event.tags["env"] == "staging"
+
+        session_event = next(e for e in observer.events if e.operation == "dataloader.create_transform_session")
+        assert session_event.tags["env"] == "staging"
+    finally:
+        set_observer(original)
+
+
+def test_pickle_split_with_perf_config(tmp_path):
+    """A pickled DataLoaderSplit carries its PerfConfig and bootstraps on the worker side."""
+    catalog = _make_real_catalog(tmp_path)
+
+    original = get_observer()
+    try:
+        set_observer(NullPerfObserver())
+        config = PerfConfig(tags={"cluster": "test"})
+
+        loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", perf_config=config)
+        splits = list(loader)
+        assert len(splits) == 1
+
+        # Pickle round-trip the split (simulating send to worker)
+        pickled = pickle.dumps(splits[0])
+        restored_split = pickle.loads(pickled)
+
+        # Simulate fresh worker: reset to NullPerfObserver
+        set_observer(NullPerfObserver())
+        assert isinstance(get_observer(), NullPerfObserver)
+
+        # Iterating the restored split should bootstrap the observer
+        set_observer(NullPerfObserver())
+
+        # The split's __iter__ calls bootstrap_observer which replaces the NullPerfObserver
+        batches = list(restored_split)
+        assert len(batches) >= 1
+
+        # After iteration, observer should no longer be NullPerfObserver
+        obs = get_observer()
+        assert not isinstance(obs, NullPerfObserver)
     finally:
         set_observer(original)

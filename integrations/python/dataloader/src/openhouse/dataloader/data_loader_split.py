@@ -10,7 +10,7 @@ from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._jvm import apply_libhdfs_opts
-from openhouse.dataloader._observability import perf_timer
+from openhouse.dataloader._observability import bootstrap_observer, perf_timer
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.filters import _quote_identifier
 from openhouse.dataloader.table_identifier import TableIdentifier
@@ -25,13 +25,14 @@ def to_sql_identifier(table_id: TableIdentifier) -> str:
 def _create_transform_session(
     table_id: TableIdentifier,
     udf_registry: UDFRegistry,
+    **tags: str,
 ) -> SessionContext:
     """Create a DataFusion SessionContext for running split-level transforms.
 
     Returns a ready-to-query SessionContext where UDFs are registered and the
     target schema exists.
     """
-    with perf_timer("dataloader.create_transform_session"):
+    with perf_timer("dataloader.create_transform_session", **tags):
         session = SessionContext()
         udf_registry.register_udfs(session)
 
@@ -83,7 +84,8 @@ class DataLoaderSplit:
         delete files, and partition spec lookups. The number of batches loaded
         into memory at once is bounded to prevent using too much memory at once.
         """
-        with perf_timer("dataloader.split_iter") as timer_ctx:
+        bootstrap_observer(self._scan_context.perf_config)
+        with perf_timer("dataloader.split_iter", **self._scan_context.perf_config.tags) as timer_ctx:
             ctx = self._scan_context
             if ctx.worker_jvm_args is not None:
                 apply_libhdfs_opts(ctx.worker_jvm_args)
@@ -113,7 +115,9 @@ class DataLoaderSplit:
                 batch_iter = iter(batches)
                 first = next(batch_iter, None)
                 if first is not None:
-                    session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
+                    session = _create_transform_session(
+                        self._scan_context.table_id, self._udf_registry, **self._scan_context.perf_config.tags
+                    )
                     for transformed in self._apply_transform(session, first):
                         batch_count += 1
                         row_count += transformed.num_rows
@@ -128,7 +132,7 @@ class DataLoaderSplit:
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
-        with perf_timer("dataloader.apply_transform") as ctx:
+        with perf_timer("dataloader.apply_transform", **self._scan_context.perf_config.tags) as ctx:
             ctx.metric("input_rows", batch.num_rows)
             _bind_batch_table(session, self._scan_context.table_id, batch)
             df = session.sql(self._transform_sql)  # type: ignore[arg-type]  # caller guarantees not None
