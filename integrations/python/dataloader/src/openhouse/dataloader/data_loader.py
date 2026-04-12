@@ -11,6 +11,13 @@ from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from openhouse.dataloader._jvm import apply_libhdfs_opts
+from openhouse.dataloader._observability import (
+    LoggingPerfObserver,
+    NullPerfObserver,
+    get_observer,
+    perf_timer,
+    set_observer,
+)
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
@@ -144,6 +151,8 @@ class OpenHouseDataLoader:
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
         self._batch_size = batch_size
+        if isinstance(get_observer(), NullPerfObserver):
+            set_observer(LoggingPerfObserver())
 
         if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
             apply_libhdfs_opts(self._context.jvm_config.planner_args)
@@ -164,17 +173,18 @@ class OpenHouseDataLoader:
     @cached_property
     def snapshot_id(self) -> int | None:
         """Snapshot ID of the loaded table, or None if the table has no snapshots"""
-        if self._snapshot_id is not None:
-            return self._snapshot_id
-        if self._table_id.branch:
-            snapshot = self._iceberg_table.snapshot_by_name(self._table_id.branch)
-            if snapshot is None:
-                raise ValueError(
-                    f"Branch '{self._table_id.branch}' not found for table "
-                    f"{self._table_id.database}.{self._table_id.table}"
-                )
-            return snapshot.snapshot_id
-        return self._iceberg_table.metadata.current_snapshot_id
+        with perf_timer("dataloader.resolve_snapshot"):
+            if self._snapshot_id is not None:
+                return self._snapshot_id
+            if self._table_id.branch:
+                snapshot = self._iceberg_table.snapshot_by_name(self._table_id.branch)
+                if snapshot is None:
+                    raise ValueError(
+                        f"Branch '{self._table_id.branch}' not found for table "
+                        f"{self._table_id.database}.{self._table_id.table}"
+                    )
+                return snapshot.snapshot_id
+            return self._iceberg_table.metadata.current_snapshot_id
 
     def _verify_snapshot(self, snapshot: Snapshot | None) -> None:
         """Log the resolved snapshot or raise if a user-provided snapshot_id was not found."""
@@ -193,19 +203,20 @@ class OpenHouseDataLoader:
         and filter predicates. Returns ``None`` if there is no transformer or the
         transformer returns ``None``.
         """
-        transformer = self._context.table_transformer
-        if transformer is None:
-            return None
-        execution_context = self._context.execution_context or {}
-        sql = transformer.transform(self._table_id, execution_context)
-        if sql is None:
-            return None
-        sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id)
-        outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
-        combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"
-        if self._filters and not isinstance(self._filters, AlwaysTrue):
-            combined += f" WHERE {_to_datafusion_sql(self._filters)}"
-        return combined
+        with perf_timer("dataloader.build_query"):
+            transformer = self._context.table_transformer
+            if transformer is None:
+                return None
+            execution_context = self._context.execution_context or {}
+            sql = transformer.transform(self._table_id, execution_context)
+            if sql is None:
+                return None
+            sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id)
+            outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
+            combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"
+            if self._filters and not isinstance(self._filters, AlwaysTrue):
+                combined += f" WHERE {_to_datafusion_sql(self._filters)}"
+            return combined
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
         """Iterate over data splits for distributed data loading of the table.
@@ -213,58 +224,62 @@ class OpenHouseDataLoader:
         Yields:
             DataLoaderSplit for each file scan task in the table
         """
-        table = self._iceberg_table
+        with perf_timer("dataloader.iter") as ctx:
+            table = self._iceberg_table
 
-        scan_kwargs: dict = {}
-        if self.snapshot_id is not None:
-            scan_kwargs["snapshot_id"] = self.snapshot_id
+            scan_kwargs: dict = {}
+            if self.snapshot_id is not None:
+                scan_kwargs["snapshot_id"] = self.snapshot_id
 
-        query = self._build_query()
-        if query is not None:
-            plan = optimize_scan(query, dialect=DataFusion.DIALECT)
-            optimized_sql = plan.sql
-            row_filter = _to_pyiceberg(plan.row_filter)
-            if plan.source_columns is not None:
-                scan_kwargs["selected_fields"] = tuple(plan.source_columns)
-            logger.info(
-                "Split SQL optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
-                query,
-                optimized_sql,
-                row_filter,
-                plan.source_columns,
+            query = self._build_query()
+            if query is not None:
+                plan = optimize_scan(query, dialect=DataFusion.DIALECT)
+                optimized_sql = plan.sql
+                row_filter = _to_pyiceberg(plan.row_filter)
+                if plan.source_columns is not None:
+                    scan_kwargs["selected_fields"] = tuple(plan.source_columns)
+                logger.info(
+                    "Split SQL optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
+                    query,
+                    optimized_sql,
+                    row_filter,
+                    plan.source_columns,
+                )
+            else:
+                optimized_sql = None
+                row_filter = _to_pyiceberg(self._filters)
+                if self._columns:
+                    scan_kwargs["selected_fields"] = tuple(self._columns)
+
+            scan_kwargs["row_filter"] = row_filter
+
+            scan = table.scan(**scan_kwargs)
+
+            self._verify_snapshot(scan.snapshot())
+
+            scan_context = TableScanContext(
+                table_metadata=table.metadata,
+                io=table.io,
+                projected_schema=scan.projection(),
+                row_filter=row_filter,
+                table_id=self._table_id,
+                worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
             )
-        else:
-            optimized_sql = None
-            row_filter = _to_pyiceberg(self._filters)
-            if self._columns:
-                scan_kwargs["selected_fields"] = tuple(self._columns)
 
-        scan_kwargs["row_filter"] = row_filter
-
-        scan = table.scan(**scan_kwargs)
-
-        self._verify_snapshot(scan.snapshot())
-
-        scan_context = TableScanContext(
-            table_metadata=table.metadata,
-            io=table.io,
-            projected_schema=scan.projection(),
-            row_filter=row_filter,
-            table_id=self._table_id,
-            worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
-        )
-
-        # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
-        # Manifests are read in parallel with one thread per manifest
-        scan_tasks = _retry(
-            lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
-        )
-
-        for scan_task in scan_tasks:
-            yield DataLoaderSplit(
-                file_scan_task=scan_task,
-                scan_context=scan_context,
-                transform_sql=optimized_sql,
-                udf_registry=self._context.udf_registry,
-                batch_size=self._batch_size,
+            # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
+            # Manifests are read in parallel with one thread per manifest
+            scan_tasks = _retry(
+                lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
             )
+
+            split_count = 0
+            for scan_task in scan_tasks:
+                split_count += 1
+                yield DataLoaderSplit(
+                    file_scan_task=scan_task,
+                    scan_context=scan_context,
+                    transform_sql=optimized_sql,
+                    udf_registry=self._context.udf_registry,
+                    batch_size=self._batch_size,
+                )
+            ctx.metric("split_count", split_count)
