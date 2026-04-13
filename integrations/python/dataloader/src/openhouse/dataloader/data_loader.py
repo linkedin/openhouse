@@ -2,7 +2,8 @@ import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from types import MappingProxyType
+from types import MappingProxyType, TracebackType
+from typing import Self
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
@@ -147,6 +148,17 @@ class OpenHouseDataLoader:
 
         if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
             apply_libhdfs_opts(self._context.jvm_config.planner_args)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self._catalog.close()
 
     @cached_property
     def _iceberg_table(self) -> Table:

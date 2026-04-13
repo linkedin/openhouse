@@ -115,6 +115,26 @@ def _materialize(loader: OpenHouseDataLoader) -> pa.Table:
     return pa.Table.from_batches(batches) if batches else pa.table({})
 
 
+def test_context_manager_enter_returns_self():
+    catalog = MagicMock()
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    assert loader.__enter__() is loader
+
+
+def test_context_manager_exit_closes_catalog():
+    catalog = MagicMock()
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    loader.__exit__(None, None, None)
+    catalog.close.assert_called_once()
+
+
+def test_context_manager_with_statement():
+    catalog = MagicMock()
+    with OpenHouseDataLoader(catalog=catalog, database="db", table="tbl") as loader:
+        assert isinstance(loader, OpenHouseDataLoader)
+    catalog.close.assert_called_once()
+
+
 def test_table_properties_returns_metadata_properties(tmp_path):
     catalog = _make_real_catalog(tmp_path, properties={"custom.key": "myvalue"})
 
