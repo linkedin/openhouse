@@ -127,10 +127,18 @@ def _flatten_and(node: exp.Expression) -> list[exp.Expression]:
     return [node]
 
 
-def _collect_source_columns(select: exp.Expression) -> set[str]:
-    """Collect all column references from a SELECT's expressions and clauses."""
+def _collect_source_columns(select: exp.Expression) -> set[str] | None:
+    """Collect all column references from a SELECT's expressions and clauses.
+
+    Returns ``None`` when the SELECT contains an unresolved ``*`` (i.e.
+    ``qualify`` could not expand it because no schema was provided).  A
+    ``None`` return tells the caller to read **all** source columns from
+    Iceberg instead of pushing down a partial projection.
+    """
     source_columns: set[str] = set()
     for select_expr in select.expressions:
+        if isinstance(select_expr, exp.Star):
+            return None
         source_columns.update(c.name for c in select_expr.find_all(exp.Column))
     for clause_type in (exp.Where, exp.Group, exp.Having, exp.Order):
         clause = select.find(clause_type)
