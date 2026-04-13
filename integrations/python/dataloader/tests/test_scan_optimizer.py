@@ -54,9 +54,7 @@ def test_all_columns_used():
 
 def test_unresolved_star_reads_all_columns():
     """When SELECT * cannot be expanded (no schema), all columns must be read."""
-    plan = optimize_scan(
-        'SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t'
-    )
+    plan = optimize_scan('SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t')
 
     assert plan.source_columns is None
     assert isinstance(plan.row_filter, AlwaysTrue)
