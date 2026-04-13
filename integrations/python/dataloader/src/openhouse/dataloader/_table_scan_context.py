@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pyiceberg.expressions import AlwaysTrue, BooleanExpression
 from pyiceberg.io import FileIO, load_file_io
 from pyiceberg.schema import Schema
 from pyiceberg.table.metadata import TableMetadata
 
+from openhouse.dataloader._observability import PerfConfig
 from openhouse.dataloader.table_identifier import TableIdentifier
+
+_DEFAULT_PERF_CONFIG = PerfConfig()
 
 
 def _unpickle_scan_context(
@@ -17,6 +20,7 @@ def _unpickle_scan_context(
     row_filter: BooleanExpression,
     table_id: TableIdentifier,
     worker_jvm_args: str | None = None,
+    perf_config: PerfConfig = _DEFAULT_PERF_CONFIG,
 ) -> TableScanContext:
     return TableScanContext(
         table_metadata=table_metadata,
@@ -25,6 +29,7 @@ def _unpickle_scan_context(
         row_filter=row_filter,
         table_id=table_id,
         worker_jvm_args=worker_jvm_args,
+        perf_config=perf_config,
     )
 
 
@@ -42,6 +47,7 @@ class TableScanContext:
         table_id: Identifier for the table being scanned
         row_filter: Row-level filter expression pushed down to the scan
         worker_jvm_args: JVM arguments applied when the JNI JVM is created in worker processes
+        perf_config: Serializable performance configuration that travels with splits
     """
 
     table_metadata: TableMetadata
@@ -50,6 +56,7 @@ class TableScanContext:
     table_id: TableIdentifier
     row_filter: BooleanExpression = AlwaysTrue()
     worker_jvm_args: str | None = None
+    perf_config: PerfConfig = field(default_factory=PerfConfig)
 
     def __reduce__(self) -> tuple:
         return (
@@ -61,5 +68,6 @@ class TableScanContext:
                 self.row_filter,
                 self.table_id,
                 self.worker_jvm_args,
+                self.perf_config,
             ),
         )

@@ -10,6 +10,7 @@ from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._jvm import apply_libhdfs_opts
+from openhouse.dataloader._observability import bootstrap_observer, perf_timer
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader.filters import _quote_identifier
 from openhouse.dataloader.table_identifier import TableIdentifier
@@ -24,17 +25,19 @@ def to_sql_identifier(table_id: TableIdentifier) -> str:
 def _create_transform_session(
     table_id: TableIdentifier,
     udf_registry: UDFRegistry,
+    **tags: str,
 ) -> SessionContext:
     """Create a DataFusion SessionContext for running split-level transforms.
 
     Returns a ready-to-query SessionContext where UDFs are registered and the
     target schema exists.
     """
-    session = SessionContext()
-    udf_registry.register_udfs(session)
+    with perf_timer("dataloader.create_transform_session", **tags):
+        session = SessionContext()
+        udf_registry.register_udfs(session)
 
-    session.sql(f"CREATE SCHEMA IF NOT EXISTS {_quote_identifier(table_id.database)}").collect()
-    return session
+        session.sql(f"CREATE SCHEMA IF NOT EXISTS {_quote_identifier(table_id.database)}").collect()
+        return session
 
 
 def _bind_batch_table(session: SessionContext, table_id: TableIdentifier, batch: RecordBatch) -> None:
@@ -81,38 +84,59 @@ class DataLoaderSplit:
         delete files, and partition spec lookups. The number of batches loaded
         into memory at once is bounded to prevent using too much memory at once.
         """
-        ctx = self._scan_context
-        if ctx.worker_jvm_args is not None:
-            apply_libhdfs_opts(ctx.worker_jvm_args)
-        arrow_scan = ArrowScan(
-            table_metadata=ctx.table_metadata,
-            io=ctx.io,
-            projected_schema=ctx.projected_schema,
-            row_filter=ctx.row_filter,
-        )
+        bootstrap_observer(self._scan_context.perf_config)
+        with perf_timer("dataloader.split_iter", **self._scan_context.perf_config.tags) as timer_ctx:
+            ctx = self._scan_context
+            if ctx.worker_jvm_args is not None:
+                apply_libhdfs_opts(ctx.worker_jvm_args)
+            arrow_scan = ArrowScan(
+                table_metadata=ctx.table_metadata,
+                io=ctx.io,
+                projected_schema=ctx.projected_schema,
+                row_filter=ctx.row_filter,
+            )
 
-        batches = arrow_scan.to_record_batches(
-            [self._file_scan_task],
-            order=ArrivalOrder(concurrent_streams=1, batch_size=self._batch_size),
-        )
+            batches = arrow_scan.to_record_batches(
+                [self._file_scan_task],
+                order=ArrivalOrder(concurrent_streams=1, batch_size=self._batch_size),
+            )
 
-        if self._transform_sql is None:
-            yield from batches
-        else:
-            # Materialize the first batch before creating the transform session
-            # so that the HDFS JVM starts (and picks up worker_jvm_args) before
-            # any UDF registration code can trigger JNI.
-            batch_iter = iter(batches)
-            first = next(batch_iter, None)
-            if first is None:
-                return
-            session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
-            yield from self._apply_transform(session, first)
-            for batch in batch_iter:
-                yield from self._apply_transform(session, batch)
+            batch_count = 0
+            row_count = 0
+            if self._transform_sql is None:
+                for batch in batches:
+                    batch_count += 1
+                    row_count += batch.num_rows
+                    yield batch
+            else:
+                # Materialize the first batch before creating the transform session
+                # so that the HDFS JVM starts (and picks up worker_jvm_args) before
+                # any UDF registration code can trigger JNI.
+                batch_iter = iter(batches)
+                first = next(batch_iter, None)
+                if first is not None:
+                    session = _create_transform_session(
+                        self._scan_context.table_id, self._udf_registry, **self._scan_context.perf_config.tags
+                    )
+                    for transformed in self._apply_transform(session, first):
+                        batch_count += 1
+                        row_count += transformed.num_rows
+                        yield transformed
+                    for batch in batch_iter:
+                        for transformed in self._apply_transform(session, batch):
+                            batch_count += 1
+                            row_count += transformed.num_rows
+                            yield transformed
+            timer_ctx.metric("batch_count", batch_count)
+            timer_ctx.metric("row_count", row_count)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
-        _bind_batch_table(session, self._scan_context.table_id, batch)
-        df = session.sql(self._transform_sql)  # type: ignore[arg-type]  # caller guarantees not None
-        yield from df.collect()
+        with perf_timer("dataloader.apply_transform", **self._scan_context.perf_config.tags) as ctx:
+            ctx.metric("input_rows", batch.num_rows)
+            _bind_batch_table(session, self._scan_context.table_id, batch)
+            df = session.sql(self._transform_sql)  # type: ignore[arg-type]  # caller guarantees not None
+            result = df.collect()
+            output_rows = sum(rb.num_rows for rb in result)
+            ctx.metric("output_rows", output_rows)
+            yield from result

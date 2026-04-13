@@ -9,6 +9,8 @@ from pyiceberg.serializers import FromInputFile
 from pyiceberg.table import Table
 from pyiceberg.typedef import Identifier
 
+from openhouse.dataloader._observability import perf_timer
+
 logger = logging.getLogger(__name__)
 
 _TABLE_LOCATION = "tableLocation"
@@ -68,32 +70,35 @@ class OpenHouseCatalog(Catalog):
         database, table = self.identifier_to_database_and_table(identifier)
         url = f"{self._uri}/v1/databases/{database}/tables/{table}"
 
-        response = self._session.get(url, timeout=self._timeout)
-        if not response.ok:
-            if response.status_code == 404:
-                raise NoSuchTableError(f"Table {database}.{table} does not exist")
-            raise OSError(
-                f"Failed to load table {database}.{table}: HTTP {response.status_code}. Response: {response.text}"
+        with perf_timer("catalog.load_table", database=database, table=table) as t:
+            response = self._session.get(url, timeout=self._timeout)
+            t.metric("status_code", response.status_code)
+            t.metric("response_bytes", len(response.content))
+            if not response.ok:
+                if response.status_code == 404:
+                    raise NoSuchTableError(f"Table {database}.{table} does not exist")
+                raise OSError(
+                    f"Failed to load table {database}.{table}: HTTP {response.status_code}. Response: {response.text}"
+                )
+
+            table_response = response.json()
+            metadata_location = table_response.get(_TABLE_LOCATION)
+            if not metadata_location:
+                raise OpenHouseCatalogError(
+                    f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. Response: {table_response}"
+                )
+
+            file_io = load_file_io(properties=self.properties, location=metadata_location)
+            metadata_file = file_io.new_input(metadata_location)
+            metadata = FromInputFile.table_metadata(metadata_file)
+
+            return Table(
+                identifier=(database, table),
+                metadata=metadata,
+                metadata_location=metadata_location,
+                io=file_io,
+                catalog=self,
             )
-
-        table_response = response.json()
-        metadata_location = table_response.get(_TABLE_LOCATION)
-        if not metadata_location:
-            raise OpenHouseCatalogError(
-                f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. Response: {table_response}"
-            )
-
-        file_io = load_file_io(properties=self.properties, location=metadata_location)
-        metadata_file = file_io.new_input(metadata_location)
-        metadata = FromInputFile.table_metadata(metadata_file)
-
-        return Table(
-            identifier=(database, table),
-            metadata=metadata,
-            metadata_location=metadata_location,
-            io=file_io,
-            catalog=self,
-        )
 
     # -- Unsupported operations --
     # Required by the Catalog ABC but not needed for read-only table loading.
