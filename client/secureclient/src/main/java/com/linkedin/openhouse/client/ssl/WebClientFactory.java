@@ -116,10 +116,10 @@ public abstract class WebClientFactory {
     HttpClient client = null;
     if (HttpConnectionStrategy.NEW.equals(strategy)) {
       log.info("Using new connection strategy");
-      client = HttpClient.newConnection();
+      client = HttpClient.newConnection().disableRetry(true);
     } else {
       log.info("Using connection pool strategy");
-      client = HttpClient.create(getCustomConnectionProvider());
+      client = HttpClient.create(getCustomConnectionProvider()).disableRetry(true);
     }
     return client;
   }
@@ -144,11 +144,15 @@ public abstract class WebClientFactory {
     HttpClient client = null;
     if (HttpConnectionStrategy.NEW.equals(strategy)) {
       log.info("Using new connection strategy");
-      client = HttpClient.newConnection().secure(t -> t.sslContext(createSslContext(truststore)));
+      client =
+          HttpClient.newConnection()
+              .disableRetry(true)
+              .secure(t -> t.sslContext(createSslContext(truststore)));
     } else {
       log.info("Using connection pool strategy");
       client =
           HttpClient.create(getCustomConnectionProvider())
+              .disableRetry(true)
               .secure(t -> t.sslContext(createSslContext(truststore)));
     }
 
