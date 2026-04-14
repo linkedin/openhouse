@@ -20,5 +20,6 @@ services:
     ports:
       - 9864:9864
       - 9866:9866
+      - 50010:50010
     env_file:
       - hadoop/hadoop.env

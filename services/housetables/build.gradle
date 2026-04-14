@@ -30,8 +30,8 @@ openApi {
 
 configurations {
   all {
-    exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
     exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+    resolutionStrategy.force 'org.slf4j:slf4j-api:1.7.36'
   }
 }
 
