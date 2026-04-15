@@ -309,10 +309,20 @@ def test_struct_field_predicate_projects_parent_column():
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-def test_select_star_with_column_projection_prunes():
+def test_inner_star_outer_columns_prunes():
     """Outer SELECT with specific columns prunes unused columns from inner SELECT *."""
     plan = optimize_scan(
         'SELECT "t"."memberId", "t"."policyField" FROM (SELECT * FROM "db"."tbl") AS "t"',
+        column_names=_MIXED_CASE_COLUMNS,
+    )
+    assert plan.source_columns == ["memberId", "policyField"]
+    assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+def test_inner_columns_outer_star_projects_inner():
+    """Outer SELECT * with inner explicit columns projects only the inner columns."""
+    plan = optimize_scan(
+        'SELECT * FROM (SELECT "memberId", "policyField" FROM "db"."tbl") AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     assert plan.source_columns == ["memberId", "policyField"]
