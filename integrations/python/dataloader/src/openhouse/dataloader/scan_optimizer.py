@@ -51,30 +51,29 @@ class ScanPlan:
     row_filter: Filter
 
 
-def optimize_scan(sql: str, dialect: str, column_names: Sequence[str] | None = None) -> ScanPlan:
+def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPlan:
     """Optimize a SQL query by extracting projections and pushable predicates.
 
     Uses sqlglot's optimizer to push predicates and projections down to the
     table scan, then extracts simple column-op-literal predicates as an
     Iceberg row_filter and determines the minimal source column set.
 
-    When *column_names* are provided (from the Iceberg table schema), a
-    ``MappingSchema`` is built so that ``qualify`` can expand ``SELECT *``
-    into explicit column references.  This is required for correct predicate
-    pushdown — without it, ``pushdown_predicates`` may leave column
-    references pointing at out-of-scope aliases.
+    A ``MappingSchema`` is built from *column_names* so that ``qualify``
+    can expand ``SELECT *`` into explicit column references.  This is
+    required for correct predicate pushdown — without it, sqlglot's
+    ``replace_aliases`` cannot rewrite column references when pushing
+    predicates into inner scopes.
 
     Args:
         sql: SQL query to optimize.
         dialect: SQL dialect for parsing and generation (e.g. "datafusion").
-        column_names: Column names from the Iceberg table schema. When
-            provided, enables ``SELECT *`` expansion for correct pushdown.
+        column_names: Column names from the table schema (e.g. Iceberg).
 
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
     ast = sqlglot.parse_one(sql, dialect=dialect)
-    schema = _build_schema(ast, column_names, dialect) if column_names else None
+    schema = _build_schema(ast, column_names, dialect)
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)

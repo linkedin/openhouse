@@ -26,9 +26,12 @@ from openhouse.dataloader.scan_optimizer import optimize_scan as _optimize_scan
 
 _DIALECT = "datafusion"
 
+# Default columns for simple tests — covers all single-letter + common column names used below.
+_DEFAULT_COLUMNS = ["a", "b", "c", "d", "e", "x", "y", "z", "w", "id", "name", "value", "viewerId"]
+
 
 def optimize_scan(sql: str, column_names: list[str] | None = None) -> object:
-    return _optimize_scan(sql, _DIALECT, column_names=column_names)
+    return _optimize_scan(sql, _DIALECT, column_names=column_names or _DEFAULT_COLUMNS)
 
 
 # --- Projection ---
@@ -52,14 +55,6 @@ def test_all_columns_used():
     plan = optimize_scan('SELECT "a", "b" FROM (SELECT "a", "b" FROM "db"."tbl") AS _t')
 
     assert plan.source_columns == ["a", "b"]
-    assert isinstance(plan.row_filter, AlwaysTrue)
-
-
-def test_unresolved_star_reads_all_columns():
-    """When SELECT * cannot be expanded (no schema), all columns must be read."""
-    plan = optimize_scan('SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t')
-
-    assert plan.source_columns is None
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
