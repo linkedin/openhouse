@@ -58,6 +58,14 @@ def test_all_columns_used():
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
+def test_star_is_expanded_with_schema():
+    """SELECT * is expanded by qualify when column_names are provided, so source_columns is not None."""
+    plan = optimize_scan('SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t')
+
+    assert plan.source_columns is not None
+    assert isinstance(plan.row_filter, AlwaysTrue)
+
+
 def test_literal_alias_needs_no_source_column():
     plan = optimize_scan('SELECT "id", "name" FROM (SELECT "id", \'MASKED\' AS "name" FROM "db"."tbl") AS _t')
 
