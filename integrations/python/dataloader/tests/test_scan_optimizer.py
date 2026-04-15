@@ -303,8 +303,8 @@ def test_pushdown_rewrites_alias_single_nesting():
         "SELECT * "
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE some_udf(\'arg1\', "tbl"."memberId", now())) AS "t" '
-        'WHERE some_udf(\'arg2\', "t"."memberId", now())',
+        '      WHERE foo(\'arg1\', "tbl"."memberId", now())) AS "t" '
+        'WHERE foo(\'arg2\', "t"."memberId", now())',
         column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_column_references_in_scope(plan.sql)
@@ -317,9 +317,9 @@ def test_pushdown_rewrites_alias_double_nesting():
         "FROM (SELECT * "
         "      FROM (SELECT * "
         '            FROM "db"."tbl" AS "tbl" '
-        '            WHERE some_udf(\'arg1\', "tbl"."memberId", now())) AS "t" '
-        '      WHERE some_udf(\'arg2\', "t"."memberId", now())) AS "t0" '
-        'WHERE some_udf(\'arg3\', "t0"."memberId", now())',
+        '            WHERE foo(\'arg1\', "tbl"."memberId", now())) AS "t" '
+        '      WHERE foo(\'arg2\', "t"."memberId", now())) AS "t0" '
+        'WHERE foo(\'arg3\', "t0"."memberId", now())',
         column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_column_references_in_scope(plan.sql)
@@ -347,23 +347,23 @@ def test_projection_pushdown_quotes_mixed_case_columns():
         'SELECT "t"."memberId", "t"."policyField" '
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE some_udf("tbl"."memberId", now())) AS "t"',
+        '      WHERE foo("tbl"."memberId", now())) AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_identifier_quoted(plan.sql, "memberId")
     _assert_identifier_quoted(plan.sql, "policyField")
 
 
-def test_projection_pushdown_quotes_columns_with_redact_udf():
-    """Projection + redact UDF: inner SELECT * expansion must preserve column casing."""
+def test_projection_pushdown_quotes_columns_with_udf_in_projection():
+    """UDF in projection: inner SELECT * expansion must preserve column casing."""
     plan = optimize_scan(
         'SELECT "t"."policyField", '
-        '       redact_field_if(NOT some_udf(\'arg\', "t"."memberId", now()), '
-        '                       "t"."unknownField", \'unknownField\', NULL) AS "unknownField", '
+        '       bar(NOT foo(\'arg\', "t"."memberId", now()), '
+        '           "t"."unknownField", \'unknownField\', NULL) AS "unknownField", '
         '       "t"."memberId" '
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE some_udf("tbl"."memberId", now())) AS "t"',
+        '      WHERE foo("tbl"."memberId", now())) AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_identifier_quoted(plan.sql, "memberId")
@@ -376,7 +376,7 @@ def test_projection_pushdown_quotes_many_mixed_case_columns():
         'SELECT "t"."campaignId", "t"."memberId", "t"."channelId" '
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE some_udf("tbl"."memberId", now())) AS "t"',
+        '      WHERE foo("tbl"."memberId", now())) AS "t"',
         column_names=["campaignId", "memberId", "channelId"],
     )
     for col_name in ("campaignId", "memberId", "channelId"):
