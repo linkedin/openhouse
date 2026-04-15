@@ -273,6 +273,11 @@ def test_two_tables_raises():
         optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')
 
 
+def test_empty_column_names_raises():
+    with pytest.raises(ValueError, match="column_names must not be empty"):
+        _optimize_scan('SELECT * FROM "db"."tbl"', _DIALECT, database="db", table="tbl", column_names=[])
+
+
 # --- Nested subqueries with SELECT * and mixed-case columns ---
 
 _MIXED_CASE_COLUMNS = ["memberId", "policyField", "otherField", "unknownField"]

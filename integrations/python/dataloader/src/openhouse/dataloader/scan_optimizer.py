@@ -71,6 +71,8 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
+    if not column_names:
+        raise ValueError("column_names must not be empty")
     # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
     schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
