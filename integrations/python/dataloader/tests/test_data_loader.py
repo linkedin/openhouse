@@ -103,6 +103,7 @@ def _make_real_catalog(
     mock_table = MagicMock()
     mock_table.metadata = metadata
     mock_table.io = io
+    mock_table.schema.return_value = iceberg_schema
     mock_table.scan.side_effect = fake_scan
 
     catalog = MagicMock()

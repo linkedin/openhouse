@@ -27,8 +27,8 @@ from openhouse.dataloader.scan_optimizer import optimize_scan as _optimize_scan
 _DIALECT = "datafusion"
 
 
-def optimize_scan(sql: str) -> object:
-    return _optimize_scan(sql, _DIALECT)
+def optimize_scan(sql: str, column_names: list[str] | None = None) -> object:
+    return _optimize_scan(sql, _DIALECT, column_names=column_names)
 
 
 # --- Projection ---
@@ -271,11 +271,14 @@ def test_two_tables_raises():
 
 
 # --- Regression: predicate pushdown through nested subqueries ---
-# Queries from https://docs.google.com/spreadsheets/d/1kUIA3b257Ne_ABg27H72_xzyUhkCzZr_3uWcrqk9nU0
 #
-# Bug: pushdown_predicates pushes outer WHERE clauses into inner scopes but
-# does not rewrite alias references, leaving dangling references like
-# "t"."memberId" inside a scope where only "tbl" exists.
+# sqlglot's pushdown_predicates relies on replace_aliases to rewrite column
+# references when pushing predicates into inner scopes. replace_aliases only
+# works when the inner SELECT has explicit column aliases — it silently no-ops
+# for SELECT *. Providing column_names lets qualify expand SELECT * first,
+# making replace_aliases work correctly.
+
+_MIXED_CASE_COLUMNS = ["memberId", "policyField", "otherField", "unknownField"]
 
 
 def _assert_column_references_in_scope(sql: str) -> None:
@@ -295,25 +298,20 @@ def _assert_column_references_in_scope(sql: str) -> None:
 
 
 def test_pushdown_rewrites_alias_single_nesting():
-    """Predicate referencing subquery alias must be rewritten when pushed into inner scope.
-
-    Regression for: policy_coverage.MSFT_GAI_Model_Training
-    """
+    """Predicate referencing subquery alias must be rewritten when pushed into inner scope."""
     plan = optimize_scan(
         "SELECT * "
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
         '      WHERE some_udf(\'arg1\', "tbl"."memberId", now())) AS "t" '
-        'WHERE some_udf(\'arg2\', "t"."memberId", now())'
+        'WHERE some_udf(\'arg2\', "t"."memberId", now())',
+        column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_column_references_in_scope(plan.sql)
 
 
 def test_pushdown_rewrites_alias_double_nesting():
-    """All outer aliases must be rewritten when predicates are pushed through two nesting levels.
-
-    Regression for: policy_coverage.Flagship
-    """
+    """All outer aliases must be rewritten when predicates are pushed through two nesting levels."""
     plan = optimize_scan(
         "SELECT * "
         "FROM (SELECT * "
@@ -321,26 +319,21 @@ def test_pushdown_rewrites_alias_double_nesting():
         '            FROM "db"."tbl" AS "tbl" '
         '            WHERE some_udf(\'arg1\', "tbl"."memberId", now())) AS "t" '
         '      WHERE some_udf(\'arg2\', "t"."memberId", now())) AS "t0" '
-        'WHERE some_udf(\'arg3\', "t0"."memberId", now())'
+        'WHERE some_udf(\'arg3\', "t0"."memberId", now())',
+        column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_column_references_in_scope(plan.sql)
 
 
 # --- Regression: projection pushdown must quote mixed-case column names ---
 #
-# Bug: pushdown_projections expands SELECT * into explicit column names but
-# does not quote them. DataFusion is case-sensitive and lowercases unquoted
-# identifiers, so `memberId` becomes `memberid`. The outer SELECT references
-# `"memberId"` (quoted), causing "column not found" errors.
+# When qualify has a schema it expands SELECT * into explicit quoted aliases,
+# so pushdown_projections preserves the original casing. Without a schema,
+# the expansion produces unquoted identifiers that DataFusion lowercases.
 
 
 def _assert_identifier_quoted(sql: str, identifier: str) -> None:
-    """Assert a mixed-case identifier only appears inside double quotes in the SQL.
-
-    DataFusion lowercases unquoted identifiers, so mixed-case names like
-    ``memberId`` must be quoted as ``"memberId"`` to preserve case.
-    """
-    # Strip all quoted identifiers and string literals to find unquoted occurrences
+    """Assert a mixed-case identifier only appears inside double quotes in the SQL."""
     stripped = re.sub(r'"[^"]*"', '""', sql)
     stripped = re.sub(r"'[^']*'", "''", stripped)
     assert identifier not in stripped, (
@@ -349,26 +342,20 @@ def _assert_identifier_quoted(sql: str, identifier: str) -> None:
 
 
 def test_projection_pushdown_quotes_mixed_case_columns():
-    """pushdown_projections expanding SELECT * must quote mixed-case column names.
-
-    Regression for: integration_test.fla/Ads_Safe,
-    policy_coverage.Ads_Microsoft_Data_Sharing_entity_annotation
-    """
+    """pushdown_projections expanding SELECT * must quote mixed-case column names."""
     plan = optimize_scan(
         'SELECT "t"."memberId", "t"."policyField" '
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE some_udf("tbl"."memberId", now())) AS "t"'
+        '      WHERE some_udf("tbl"."memberId", now())) AS "t"',
+        column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_identifier_quoted(plan.sql, "memberId")
     _assert_identifier_quoted(plan.sql, "policyField")
 
 
 def test_projection_pushdown_quotes_columns_with_redact_udf():
-    """Projection + redact UDF: inner SELECT * expansion must preserve column casing.
-
-    Regression for: policy_coverage.Ads_Sales_Insights_And_attributions
-    """
+    """Projection + redact UDF: inner SELECT * expansion must preserve column casing."""
     plan = optimize_scan(
         'SELECT "t"."policyField", '
         '       redact_field_if(NOT some_udf(\'arg\', "t"."memberId", now()), '
@@ -376,22 +363,21 @@ def test_projection_pushdown_quotes_columns_with_redact_udf():
         '       "t"."memberId" '
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE some_udf("tbl"."memberId", now())) AS "t"'
+        '      WHERE some_udf("tbl"."memberId", now())) AS "t"',
+        column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_identifier_quoted(plan.sql, "memberId")
     _assert_identifier_quoted(plan.sql, "unknownField")
 
 
 def test_projection_pushdown_quotes_many_mixed_case_columns():
-    """Wide table with many mixed-case columns: all must be quoted after projection expansion.
-
-    Regression for: u_adsdl.FixedClicktrainingdatadma/ads_audience
-    """
+    """Wide table with many mixed-case columns: all must be quoted after projection expansion."""
     plan = optimize_scan(
         'SELECT "t"."campaignId", "t"."memberId", "t"."channelId" '
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE some_udf("tbl"."memberId", now())) AS "t"'
+        '      WHERE some_udf("tbl"."memberId", now())) AS "t"',
+        column_names=["campaignId", "memberId", "channelId"],
     )
     for col_name in ("campaignId", "memberId", "channelId"):
         _assert_identifier_quoted(plan.sql, col_name)

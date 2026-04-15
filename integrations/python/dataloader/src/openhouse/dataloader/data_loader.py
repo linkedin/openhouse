@@ -228,7 +228,11 @@ class OpenHouseDataLoader:
 
         query = self._build_query()
         if query is not None:
-            plan = optimize_scan(query, dialect=DataFusion.DIALECT)
+            plan = optimize_scan(
+                query,
+                dialect=DataFusion.DIALECT,
+                column_names=[f.name for f in table.schema().fields],
+            )
             optimized_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
             if plan.source_columns is not None:

@@ -9,12 +9,14 @@ down to the table scan, then extracts:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer import pushdown_predicates, pushdown_projections, qualify
 from sqlglot.optimizer.scope import build_scope
+from sqlglot.schema import MappingSchema
 
 from openhouse.dataloader.filters import (
     And,
@@ -49,26 +51,33 @@ class ScanPlan:
     row_filter: Filter
 
 
-def optimize_scan(sql: str, dialect: str) -> ScanPlan:
+def optimize_scan(sql: str, dialect: str, column_names: Sequence[str] | None = None) -> ScanPlan:
     """Optimize a SQL query by extracting projections and pushable predicates.
 
     Uses sqlglot's optimizer to push predicates and projections down to the
     table scan, then extracts simple column-op-literal predicates as an
     Iceberg row_filter and determines the minimal source column set.
 
+    When *column_names* are provided (from the Iceberg table schema), a
+    ``MappingSchema`` is built so that ``qualify`` can expand ``SELECT *``
+    into explicit column references.  This is required for correct predicate
+    pushdown — without it, ``pushdown_predicates`` may leave column
+    references pointing at out-of-scope aliases.
+
     Args:
         sql: SQL query to optimize.
         dialect: SQL dialect for parsing and generation (e.g. "datafusion").
+        column_names: Column names from the Iceberg table schema. When
+            provided, enables ``SELECT *`` expansion for correct pushdown.
 
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
     ast = sqlglot.parse_one(sql, dialect=dialect)
-    ast = qualify.qualify(ast, dialect=dialect)
+    schema = _build_schema(ast, column_names, dialect) if column_names else None
+    ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
-    _rewrite_dangling_column_refs(ast)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
-    _quote_identifiers(ast)
 
     table_scan = _find_table_scan(ast, sql)
 
@@ -83,37 +92,21 @@ def optimize_scan(sql: str, dialect: str) -> ScanPlan:
     )
 
 
-def _rewrite_dangling_column_refs(ast: exp.Expression) -> None:
-    """Fix column references left pointing at out-of-scope aliases after pushdown.
+def _build_schema(ast: exp.Expression, column_names: Sequence[str], dialect: str) -> MappingSchema | None:
+    """Build a MappingSchema from the single table in *ast* and the Iceberg column names.
 
-    ``pushdown_predicates`` may move a predicate from an outer scope into an
-    inner scope without rewriting the table qualifier on its column references.
-    For single-source scopes we can unambiguously rewrite the qualifier to the
-    sole source in scope.
+    Returns ``None`` if the AST does not contain exactly one table reference.
     """
-    root = build_scope(ast)
-    if root is None:
-        return
-    for scope in root.traverse():
-        source_names = set(scope.sources.keys())
-        if len(source_names) != 1:
-            continue
-        target = next(iter(source_names))
-        for col in scope.columns:
-            if col.table and col.table not in source_names:
-                col.set("table", exp.to_identifier(target, quoted=True))
+    tables = list(ast.find_all(exp.Table))
+    if len(tables) != 1:
+        return None
+    table = tables[0]
 
+    def _quote(name: str) -> str:
+        return exp.to_identifier(name, quoted=True).sql(dialect=dialect)
 
-def _quote_identifiers(ast: exp.Expression) -> None:
-    """Ensure all identifier nodes are quoted for case-sensitive dialects.
-
-    ``pushdown_projections`` may introduce unquoted identifiers when expanding
-    ``SELECT *``.  DataFusion lowercases unquoted identifiers, so every
-    identifier must be quoted to preserve its original casing.
-    """
-    for node in ast.find_all(exp.Identifier):
-        if not node.quoted:
-            node.set("quoted", True)
+    columns = {_quote(c): "VARCHAR" for c in column_names}
+    return MappingSchema({_quote(table.db): {_quote(table.name): columns}}, dialect=dialect)
 
 
 def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
