@@ -309,20 +309,40 @@ def test_struct_field_predicate_projects_parent_column():
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-def test_inner_star_outer_columns_prunes():
+@pytest.mark.parametrize(
+    "outer_cols",
+    [
+        '"t"."memberId", "t"."policyField"',
+        '"memberId", "policyField"',
+        "t.memberId, t.policyField",
+        "memberId, policyField",
+    ],
+    ids=["quoted+alias", "quoted", "unquoted+alias", "unquoted"],
+)
+def test_inner_star_outer_columns_prunes(outer_cols):
     """Outer SELECT with specific columns prunes unused columns from inner SELECT *."""
     plan = optimize_scan(
-        'SELECT "t"."memberId", "t"."policyField" FROM (SELECT * FROM "db"."tbl") AS "t"',
+        f'SELECT {outer_cols} FROM (SELECT * FROM "db"."tbl") AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     assert plan.source_columns == ["memberId", "policyField"]
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-def test_inner_columns_outer_star_projects_inner():
+@pytest.mark.parametrize(
+    "inner_cols",
+    [
+        '"tbl"."memberId", "tbl"."policyField"',
+        '"memberId", "policyField"',
+        "tbl.memberId, tbl.policyField",
+        "memberId, policyField",
+    ],
+    ids=["quoted+alias", "quoted", "unquoted+alias", "unquoted"],
+)
+def test_inner_columns_outer_star_projects_inner(inner_cols):
     """Outer SELECT * with inner explicit columns projects only the inner columns."""
     plan = optimize_scan(
-        'SELECT * FROM (SELECT "memberId", "policyField" FROM "db"."tbl") AS "t"',
+        f'SELECT * FROM (SELECT {inner_cols} FROM "db"."tbl" AS "tbl") AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     assert plan.source_columns == ["memberId", "policyField"]
