@@ -59,10 +59,13 @@ def test_all_columns_used():
 
 
 def test_star_is_expanded_with_schema():
-    """SELECT * is expanded by qualify when column_names are provided, so source_columns is not None."""
-    plan = optimize_scan('SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t')
+    """SELECT * is expanded by qualify when column_names are provided."""
+    plan = optimize_scan(
+        'SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t',
+        column_names=["viewerId", "name", "value"],
+    )
 
-    assert plan.source_columns is not None
+    assert plan.source_columns == ["name", "value", "viewerId"]
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
