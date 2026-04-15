@@ -29,7 +29,6 @@ import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.io.IOException;
-import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -251,14 +250,13 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       restoreOverriddenProperties(properties);
 
       // Remove the fs scheme from the tableVersion to match the HTS entry
-      String previousTableLocation =
+      properties.put(
+          getCanonicalFieldName("tableVersion"),
           properties.getOrDefault(
-              getCanonicalFieldName("tableLocation"), CatalogConstants.INITIAL_VERSION);
-      if (!previousTableLocation.equals(CatalogConstants.INITIAL_VERSION)) {
-        previousTableLocation = URI.create(previousTableLocation).getPath();
-      }
-      properties.put(getCanonicalFieldName("tableVersion"), previousTableLocation);
+              getCanonicalFieldName("tableLocation"), CatalogConstants.INITIAL_VERSION));
       properties.put(getCanonicalFieldName("tableLocation"), newMetadataLocation);
+
+      log.info("tableVersion here: {}", properties.get(getCanonicalFieldName("tableVersion")));
 
       String currentTsString = String.valueOf(Instant.now(Clock.systemUTC()).toEpochMilli());
       if (isReplicatedTableCreate(properties)) {
