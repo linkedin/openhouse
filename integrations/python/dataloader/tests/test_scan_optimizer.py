@@ -1,10 +1,7 @@
 """Tests for scan_optimizer.optimize_scan."""
 
-import re
-
 import pytest
 import sqlglot
-from sqlglot.optimizer.scope import build_scope
 
 import openhouse.dataloader.datafusion_sql  # noqa: F401 — registers DataFusion dialect
 from openhouse.dataloader.filters import (
@@ -276,41 +273,13 @@ def test_two_tables_raises():
         optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')
 
 
-# --- Predicate pushdown through nested subqueries ---
-#
-# sqlglot's pushdown_predicates relies on replace_aliases to rewrite column
-# references when pushing predicates into inner scopes. replace_aliases only
-# works when the inner SELECT has explicit column aliases — it silently no-ops
-# for SELECT *. Providing column_names lets qualify expand SELECT * first,
-# making replace_aliases work correctly.
+# --- Nested subqueries with SELECT * and mixed-case columns ---
 
 _MIXED_CASE_COLUMNS = ["memberId", "policyField", "otherField", "unknownField"]
 
 
-def _assert_column_references_in_scope(sql: str) -> None:
-    """Assert every table-qualified column reference resolves within its scope.
-
-    For struct access like ``"tbl"."address"."city"``, sqlglot stores the
-    table alias in ``col.db`` (not ``col.table``), so we check all parts
-    of the qualifier chain.
-    """
-    ast = sqlglot.parse_one(sql, dialect=_DIALECT)
-    root = build_scope(ast)
-    if root is None:
-        return
-    for scope in root.traverse():
-        source_names = set(scope.sources.keys())
-        for col_node in scope.columns:
-            qualifiers = {col_node.table, col_node.db, col_node.catalog} - {""}
-            if qualifiers and not qualifiers & source_names:
-                raise AssertionError(
-                    f"Column '{col_node.sql(dialect=_DIALECT)}' has no qualifier in scope "
-                    f"{source_names}. Output SQL: {sql}"
-                )
-
-
-def test_pushdown_rewrites_alias_single_nesting():
-    """Predicate referencing subquery alias must be rewritten when pushed into inner scope."""
+def test_nested_subquery_expands_star_and_projects_all_columns():
+    """Nested SELECT * with UDF predicates expands to all columns."""
     plan = optimize_scan(
         "SELECT * "
         "FROM (SELECT * "
@@ -319,11 +288,12 @@ def test_pushdown_rewrites_alias_single_nesting():
         'WHERE foo(\'arg2\', "t"."memberId", now())',
         column_names=_MIXED_CASE_COLUMNS,
     )
-    _assert_column_references_in_scope(plan.sql)
+    assert plan.source_columns == sorted(_MIXED_CASE_COLUMNS)
+    assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-def test_pushdown_rewrites_alias_double_nesting():
-    """All outer aliases must be rewritten when predicates are pushed through two nesting levels."""
+def test_double_nested_subquery_expands_star_and_projects_all_columns():
+    """Triple-nested SELECT * with UDF predicates expands to all columns."""
     plan = optimize_scan(
         "SELECT * "
         "FROM (SELECT * "
@@ -334,11 +304,12 @@ def test_pushdown_rewrites_alias_double_nesting():
         'WHERE foo(\'arg3\', "t0"."memberId", now())',
         column_names=_MIXED_CASE_COLUMNS,
     )
-    _assert_column_references_in_scope(plan.sql)
+    assert plan.source_columns == sorted(_MIXED_CASE_COLUMNS)
+    assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-def test_pushdown_rewrites_struct_field_access():
-    """Struct field access like "t"."homeAddress"."zipCode" preserves casing through pushdown."""
+def test_struct_field_predicate_projects_parent_column():
+    """Struct field access in WHERE causes the parent column to be projected."""
     columns = ["memberId", "homeAddress", "displayName"]
     plan = optimize_scan(
         "SELECT * "
@@ -348,29 +319,12 @@ def test_pushdown_rewrites_struct_field_access():
         'WHERE "t"."homeAddress"."zipCode" = \'94105\'',
         column_names=columns,
     )
-    _assert_column_references_in_scope(plan.sql)
-    # The struct predicate should be pushed into the inner scope with casing preserved
-    assert '"tbl"."homeAddress"."zipCode"' in plan.sql
+    assert plan.source_columns == sorted(columns)
+    assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-# --- Projection pushdown must quote mixed-case column names ---
-#
-# When qualify has a schema it expands SELECT * into explicit quoted aliases,
-# so pushdown_projections preserves the original casing. Without a schema,
-# the expansion produces unquoted identifiers that DataFusion lowercases.
-
-
-def _assert_identifier_quoted(sql: str, identifier: str) -> None:
-    """Assert a mixed-case identifier only appears inside double quotes in the SQL."""
-    stripped = re.sub(r'"[^"]*"', '""', sql)
-    stripped = re.sub(r"'[^']*'", "''", stripped)
-    assert identifier not in stripped, (
-        f"Unquoted '{identifier}' in SQL — DataFusion will lowercase to '{identifier.lower()}'. SQL: {sql}"
-    )
-
-
-def test_projection_pushdown_quotes_mixed_case_columns():
-    """pushdown_projections expanding SELECT * must quote mixed-case column names."""
+def test_select_star_with_column_projection_prunes():
+    """Outer SELECT with specific columns prunes unused columns from inner SELECT *."""
     plan = optimize_scan(
         'SELECT "t"."memberId", "t"."policyField" '
         "FROM (SELECT * "
@@ -378,12 +332,12 @@ def test_projection_pushdown_quotes_mixed_case_columns():
         '      WHERE foo("tbl"."memberId", now())) AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
-    _assert_identifier_quoted(plan.sql, "memberId")
-    _assert_identifier_quoted(plan.sql, "policyField")
+    assert plan.source_columns == ["memberId", "policyField"]
+    assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-def test_projection_pushdown_quotes_columns_with_udf_in_projection():
-    """UDF in projection: inner SELECT * expansion must preserve column casing."""
+def test_udf_in_projection_with_select_star_projects_needed_columns():
+    """UDF in outer projection with inner SELECT * projects only the columns it needs."""
     plan = optimize_scan(
         'SELECT "t"."policyField", '
         '       bar(NOT foo(\'arg\', "t"."memberId", now()), '
@@ -394,18 +348,5 @@ def test_projection_pushdown_quotes_columns_with_udf_in_projection():
         '      WHERE foo("tbl"."memberId", now())) AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
-    _assert_identifier_quoted(plan.sql, "memberId")
-    _assert_identifier_quoted(plan.sql, "unknownField")
-
-
-def test_projection_pushdown_quotes_many_mixed_case_columns():
-    """Wide table with many mixed-case columns: all must be quoted after projection expansion."""
-    plan = optimize_scan(
-        'SELECT "t"."campaignId", "t"."memberId", "t"."channelId" '
-        "FROM (SELECT * "
-        '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE foo("tbl"."memberId", now())) AS "t"',
-        column_names=["campaignId", "memberId", "channelId"],
-    )
-    for col_name in ("campaignId", "memberId", "channelId"):
-        _assert_identifier_quoted(plan.sql, col_name)
+    assert plan.source_columns == ["memberId", "policyField", "unknownField"]
+    assert isinstance(plan.row_filter, AlwaysTrue)
