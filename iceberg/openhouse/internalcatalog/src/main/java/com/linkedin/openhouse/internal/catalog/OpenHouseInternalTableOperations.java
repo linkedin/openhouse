@@ -249,14 +249,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
 
-      // Remove the fs scheme from the tableVersion to match the HTS entry
       properties.put(
           getCanonicalFieldName("tableVersion"),
           properties.getOrDefault(
               getCanonicalFieldName("tableLocation"), CatalogConstants.INITIAL_VERSION));
       properties.put(getCanonicalFieldName("tableLocation"), newMetadataLocation);
-
-      log.info("tableVersion here: {}", properties.get(getCanonicalFieldName("tableVersion")));
 
       String currentTsString = String.valueOf(Instant.now(Clock.systemUTC()).toEpochMilli());
       if (isReplicatedTableCreate(properties)) {
