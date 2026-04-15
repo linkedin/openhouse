@@ -31,7 +31,7 @@ _DEFAULT_COLUMNS = ["a", "b", "c", "d", "e", "x", "y", "z", "w", "id", "name", "
 
 
 def optimize_scan(sql: str, column_names: list[str] | None = None) -> object:
-    return _optimize_scan(sql, _DIALECT, column_names=column_names or _DEFAULT_COLUMNS)
+    return _optimize_scan(sql, _DIALECT, database="db", table="tbl", column_names=column_names or _DEFAULT_COLUMNS)
 
 
 # --- Projection ---
@@ -110,7 +110,7 @@ def test_partial_extraction():
 
 def test_full_example():
     plan = optimize_scan(
-        'SELECT "a", "b" FROM (SELECT redact(a) AS a, b, c, d FROM t WHERE e = \'foo\') AS _t WHERE "c" > 10'
+        'SELECT "a", "b" FROM (SELECT redact(a) AS a, b, c, d FROM "db"."tbl" WHERE e = \'foo\') AS _t WHERE "c" > 10'
     )
 
     assert plan.source_columns == ["a", "b", "c", "e"]

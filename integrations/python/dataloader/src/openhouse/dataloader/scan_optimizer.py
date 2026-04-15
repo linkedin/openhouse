@@ -16,7 +16,6 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer import pushdown_predicates, pushdown_projections, qualify
 from sqlglot.optimizer.scope import build_scope
-from sqlglot.schema import MappingSchema
 
 from openhouse.dataloader.filters import (
     And,
@@ -51,29 +50,31 @@ class ScanPlan:
     row_filter: Filter
 
 
-def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPlan:
+def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_names: Sequence[str]) -> ScanPlan:
     """Optimize a SQL query by extracting projections and pushable predicates.
 
     Uses sqlglot's optimizer to push predicates and projections down to the
     table scan, then extracts simple column-op-literal predicates as an
     Iceberg row_filter and determines the minimal source column set.
 
-    A ``MappingSchema`` is built from *column_names* so that ``qualify``
+    The table coordinates and column names are required so that ``qualify``
     can expand ``SELECT *`` into explicit column references.  This is
-    required for correct predicate pushdown — without it, sqlglot's
+    needed for correct predicate pushdown — without it, sqlglot's
     ``replace_aliases`` cannot rewrite column references when pushing
     predicates into inner scopes.
 
     Args:
         sql: SQL query to optimize.
         dialect: SQL dialect for parsing and generation (e.g. "datafusion").
+        database: Database name of the table being scanned.
+        table: Table name of the table being scanned.
         column_names: Column names from the table schema (e.g. Iceberg).
 
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
+    schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
-    schema = _build_schema(ast, column_names, dialect)
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
@@ -89,23 +90,6 @@ def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPl
         source_columns=sorted(source_columns) if source_columns else None,
         row_filter=row_filter,
     )
-
-
-def _build_schema(ast: exp.Expression, column_names: Sequence[str], dialect: str) -> MappingSchema | None:
-    """Build a MappingSchema from the single table in *ast* and the Iceberg column names.
-
-    Returns ``None`` if the AST does not contain exactly one table reference.
-    """
-    tables = list(ast.find_all(exp.Table))
-    if len(tables) != 1:
-        return None
-    table = tables[0]
-
-    def _quote(name: str) -> str:
-        return exp.to_identifier(name, quoted=True).sql(dialect=dialect)
-
-    columns = {_quote(c): "VARCHAR" for c in column_names}
-    return MappingSchema({_quote(table.db): {_quote(table.name): columns}}, dialect=dialect)
 
 
 def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
