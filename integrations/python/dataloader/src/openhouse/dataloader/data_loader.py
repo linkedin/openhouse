@@ -231,8 +231,6 @@ class OpenHouseDataLoader:
             plan = optimize_scan(
                 query,
                 dialect=DataFusion.DIALECT,
-                database=self._table_id.database,
-                table=self._table_id.table,
                 column_names=[f.name for f in table.schema().fields],
             )
             optimized_sql = plan.sql

@@ -50,32 +50,31 @@ class ScanPlan:
     row_filter: Filter
 
 
-def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_names: Sequence[str]) -> ScanPlan:
+def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPlan:
     """Optimize a SQL query by extracting projections and pushable predicates.
 
     Uses sqlglot's optimizer to push predicates and projections down to the
     table scan, then extracts simple column-op-literal predicates as an
     Iceberg row_filter and determines the minimal source column set.
 
-    The table coordinates and column names are required so that ``qualify``
-    can expand ``SELECT *`` into explicit column references.  This is
-    needed for correct predicate pushdown — without it, sqlglot's
-    ``replace_aliases`` cannot rewrite column references when pushing
-    predicates into inner scopes.
+    *column_names* are required so that ``qualify`` can expand ``SELECT *``
+    into explicit column references.  This is needed for correct predicate
+    pushdown — without it, sqlglot's ``replace_aliases`` cannot rewrite
+    column references when pushing predicates into inner scopes.
 
     Args:
         sql: SQL query to optimize.
         dialect: SQL dialect for parsing and generation (e.g. "datafusion").
-        database: Database name of the table being scanned.
-        table: Table name of the table being scanned.
         column_names: Column names from the table schema (e.g. Iceberg).
 
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
-    # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
-    schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
+
+    table_node = _find_single_table(ast, sql)
+    # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
+    schema = {table_node.db: {table_node.name: {c: "VARCHAR" for c in column_names}}}
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
@@ -91,6 +90,17 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
         source_columns=sorted(source_columns) if source_columns else None,
         row_filter=row_filter,
     )
+
+
+def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:
+    """Find the single table reference in the AST.
+
+    Raises ValueError if the query does not reference exactly one table.
+    """
+    tables = list(ast.find_all(exp.Table))
+    if len(tables) != 1:
+        raise ValueError(f"Expected exactly 1 table, found {len(tables)} in: {original_sql}")
+    return tables[0]
 
 
 def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:

@@ -28,7 +28,7 @@ _DEFAULT_COLUMNS = ["a", "b", "c", "d", "e", "x", "y", "z", "w", "id", "name", "
 
 
 def optimize_scan(sql: str, column_names: list[str] | None = None) -> object:
-    return _optimize_scan(sql, _DIALECT, database="db", table="tbl", column_names=column_names or _DEFAULT_COLUMNS)
+    return _optimize_scan(sql, _DIALECT, column_names=column_names or _DEFAULT_COLUMNS)
 
 
 # --- Projection ---
@@ -264,12 +264,12 @@ def test_invalid_sql_raises():
 
 
 def test_no_table_raises():
-    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 0"):
+    with pytest.raises(ValueError, match="Expected exactly 1 table, found 0"):
         optimize_scan("SELECT 1 AS a, 2 AS b")
 
 
 def test_two_tables_raises():
-    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 2"):
+    with pytest.raises(ValueError, match="Expected exactly 1 table, found 2"):
         optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')
 
 
