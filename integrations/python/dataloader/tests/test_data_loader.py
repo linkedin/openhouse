@@ -1028,6 +1028,8 @@ def test_nested_udf_transformer_materializes(tmp_path):
     assert set(result.column_names) == {"memberId", "policyField", "otherField"}
     result = result.sort_by("memberId")
     assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+    assert result.column("otherField").to_pylist() == ["x", "y", "z"]
 
 
 def test_select_star_projection_with_mixed_case_materializes(tmp_path):
