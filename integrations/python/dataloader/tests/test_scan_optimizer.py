@@ -23,9 +23,12 @@ from openhouse.dataloader.scan_optimizer import optimize_scan as _optimize_scan
 
 _DIALECT = "datafusion"
 
+# Default columns for simple tests — covers all single-letter + common column names used below.
+_DEFAULT_COLUMNS = ["a", "b", "c", "d", "e", "x", "y", "z", "w", "id", "name", "value", "viewerId"]
 
-def optimize_scan(sql: str) -> object:
-    return _optimize_scan(sql, _DIALECT)
+
+def optimize_scan(sql: str, column_names: list[str] | None = None) -> object:
+    return _optimize_scan(sql, _DIALECT, database="db", table="tbl", column_names=column_names or _DEFAULT_COLUMNS)
 
 
 # --- Projection ---
@@ -52,11 +55,14 @@ def test_all_columns_used():
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
-def test_unresolved_star_reads_all_columns():
-    """When SELECT * cannot be expanded (no schema), all columns must be read."""
-    plan = optimize_scan('SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t')
+def test_star_is_expanded_with_schema():
+    """SELECT * is expanded by qualify when column_names are provided."""
+    plan = optimize_scan(
+        'SELECT * FROM (SELECT * FROM "db"."tbl" WHERE some_udf("tbl"."viewerId", now())) AS _t',
+        column_names=["viewerId", "name", "value"],
+    )
 
-    assert plan.source_columns is None
+    assert plan.source_columns == ["name", "value", "viewerId"]
     assert isinstance(plan.row_filter, AlwaysTrue)
 
 
@@ -104,7 +110,7 @@ def test_partial_extraction():
 
 def test_full_example():
     plan = optimize_scan(
-        'SELECT "a", "b" FROM (SELECT redact(a) AS a, b, c, d FROM t WHERE e = \'foo\') AS _t WHERE "c" > 10'
+        'SELECT "a", "b" FROM (SELECT redact(a) AS a, b, c, d FROM "db"."tbl" WHERE e = \'foo\') AS _t WHERE "c" > 10'
     )
 
     assert plan.source_columns == ["a", "b", "c", "e"]
@@ -258,10 +264,105 @@ def test_invalid_sql_raises():
 
 
 def test_no_table_raises():
-    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 0"):
+    with pytest.raises(ValueError, match="Expected exactly 1 table, found 0"):
         optimize_scan("SELECT 1 AS a, 2 AS b")
 
 
 def test_two_tables_raises():
-    with pytest.raises(ValueError, match="Expected exactly 1 table scan, found 2"):
+    with pytest.raises(ValueError, match="Expected exactly 1 table, found 2"):
         optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')
+
+
+def test_empty_column_names_raises():
+    with pytest.raises(ValueError, match="column_names must not be empty"):
+        _optimize_scan('SELECT * FROM "db"."tbl"', _DIALECT, database="db", table="tbl", column_names=[])
+
+
+# --- Nested subqueries with SELECT * and mixed-case columns ---
+
+_MIXED_CASE_COLUMNS = ["memberId", "policyField", "otherField", "unknownField"]
+
+
+def test_nested_subquery_expands_star_and_projects_all_columns():
+    """Nested SELECT * expands to all columns."""
+    plan = optimize_scan(
+        'SELECT * FROM (SELECT * FROM "db"."tbl") AS "t"',
+        column_names=_MIXED_CASE_COLUMNS,
+    )
+    assert plan.source_columns == sorted(_MIXED_CASE_COLUMNS)
+    assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+def test_double_nested_subquery_expands_star_and_projects_all_columns():
+    """Triple-nested SELECT * expands to all columns."""
+    plan = optimize_scan(
+        'SELECT * FROM (SELECT * FROM (SELECT * FROM "db"."tbl") AS "t") AS "t0"',
+        column_names=_MIXED_CASE_COLUMNS,
+    )
+    assert plan.source_columns == sorted(_MIXED_CASE_COLUMNS)
+    assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+def test_struct_field_predicate_projects_parent_column():
+    """Struct field access in WHERE causes the parent column to be projected."""
+    columns = ["memberId", "homeAddress", "displayName"]
+    plan = optimize_scan(
+        'SELECT * FROM (SELECT * FROM "db"."tbl") AS "t" WHERE "t"."homeAddress"."zipCode" = \'94105\'',
+        column_names=columns,
+    )
+    assert plan.source_columns == sorted(columns)
+    assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+@pytest.mark.parametrize(
+    "outer_cols",
+    [
+        '"t"."memberId", "t"."policyField"',
+        '"memberId", "policyField"',
+        "t.memberId, t.policyField",
+        "memberId, policyField",
+    ],
+    ids=["quoted+alias", "quoted", "unquoted+alias", "unquoted"],
+)
+def test_inner_star_outer_columns_prunes(outer_cols):
+    """Outer SELECT with specific columns prunes unused columns from inner SELECT *."""
+    plan = optimize_scan(
+        f'SELECT {outer_cols} FROM (SELECT * FROM "db"."tbl") AS "t"',
+        column_names=_MIXED_CASE_COLUMNS,
+    )
+    assert plan.source_columns == ["memberId", "policyField"]
+    assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+@pytest.mark.parametrize(
+    "inner_cols",
+    [
+        '"tbl"."memberId", "tbl"."policyField"',
+        '"memberId", "policyField"',
+        "tbl.memberId, tbl.policyField",
+        "memberId, policyField",
+    ],
+    ids=["quoted+alias", "quoted", "unquoted+alias", "unquoted"],
+)
+def test_inner_columns_outer_star_projects_inner(inner_cols):
+    """Outer SELECT * with inner explicit columns projects only the inner columns."""
+    plan = optimize_scan(
+        f'SELECT * FROM (SELECT {inner_cols} FROM "db"."tbl" AS "tbl") AS "t"',
+        column_names=_MIXED_CASE_COLUMNS,
+    )
+    assert plan.source_columns == ["memberId", "policyField"]
+    assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+def test_udf_in_projection_with_select_star_projects_needed_columns():
+    """UDF in outer projection with inner SELECT * projects only the columns it needs."""
+    plan = optimize_scan(
+        'SELECT "t"."policyField", '
+        '       bar(foo(\'arg\', "t"."memberId"), '
+        '           "t"."unknownField", \'unknownField\', NULL) AS "unknownField", '
+        '       "t"."memberId" '
+        'FROM (SELECT * FROM "db"."tbl") AS "t"',
+        column_names=_MIXED_CASE_COLUMNS,
+    )
+    assert plan.source_columns == ["memberId", "policyField", "unknownField"]
+    assert isinstance(plan.row_filter, AlwaysTrue)

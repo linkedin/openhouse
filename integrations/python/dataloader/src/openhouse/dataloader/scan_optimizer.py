@@ -9,12 +9,12 @@ down to the table scan, then extracts:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer import pushdown_predicates, pushdown_projections, qualify
-from sqlglot.optimizer.scope import build_scope
 
 from openhouse.dataloader.filters import (
     And,
@@ -45,59 +45,68 @@ class ScanPlan:
     """
 
     sql: str
-    source_columns: list[str] | None
+    source_columns: list[str]
     row_filter: Filter
 
 
-def optimize_scan(sql: str, dialect: str) -> ScanPlan:
+def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_names: Sequence[str]) -> ScanPlan:
     """Optimize a SQL query by extracting projections and pushable predicates.
 
     Uses sqlglot's optimizer to push predicates and projections down to the
     table scan, then extracts simple column-op-literal predicates as an
     Iceberg row_filter and determines the minimal source column set.
 
+    *column_names* are required so that ``qualify`` can expand ``SELECT *``
+    into explicit column references.  This is needed for correct predicate
+    pushdown — without it, sqlglot's ``replace_aliases`` cannot rewrite
+    column references when pushing predicates into inner scopes.
+
     Args:
         sql: SQL query to optimize.
         dialect: SQL dialect for parsing and generation (e.g. "datafusion").
+        database: Database name of the table being scanned.
+        table: Table name of the table being scanned.
+        column_names: Column names from the table schema (e.g. Iceberg).
 
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
+    if not column_names:
+        raise ValueError("column_names must not be empty")
+    # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
+    schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
-    ast = qualify.qualify(ast, dialect=dialect)
+    ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
 
-    table_scan = _find_table_scan(ast, sql)
+    table_node = _find_single_table(ast, sql)
+    if table_node.db != database or table_node.name != table:
+        raise ValueError(f"Table in SQL ({table_node.db}.{table_node.name}) does not match expected {database}.{table}")
+    table_select = table_node.find_ancestor(exp.Select)
+    if table_select is None:
+        raise ValueError(f"Table has no enclosing SELECT in: {sql}")
 
-    where = table_scan.args.get("where")
+    where = table_select.args.get("where")
     row_filter = _extract_row_filter(where) if where else always_true()
-    source_columns = _collect_source_columns(table_scan)
+    source_columns = _collect_source_columns(table_select)
 
     return ScanPlan(
         sql=ast.sql(dialect=dialect),
-        source_columns=sorted(source_columns) if source_columns else None,
+        source_columns=sorted(source_columns),
         row_filter=row_filter,
     )
 
 
-def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
-    """Find the single SELECT that reads directly from exactly one table.
+def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:
+    """Find the single table reference in the AST.
 
-    Raises ValueError if the query does not contain exactly one table scan
-    across all scopes (e.g. JOINs have multiple table sources).
+    Raises ValueError if the query does not reference exactly one table.
     """
-    root = build_scope(ast)
-    if root is None:
-        raise ValueError(f"Expected exactly 1 table scan, found 0 in: {original_sql}")
-    table_scans: list[exp.Select] = []
-    for scope in root.traverse():
-        table_sources = [s for s in scope.sources.values() if isinstance(s, exp.Table)]
-        for _ in table_sources:
-            table_scans.append(scope.expression)
-    if len(table_scans) != 1:
-        raise ValueError(f"Expected exactly 1 table scan, found {len(table_scans)} in: {original_sql}")
-    return table_scans[0]
+    tables = list(ast.find_all(exp.Table))
+    if len(tables) != 1:
+        raise ValueError(f"Expected exactly 1 table, found {len(tables)} in: {original_sql}")
+    return tables[0]
 
 
 def _extract_row_filter(where: exp.Where) -> Filter:
@@ -127,18 +136,10 @@ def _flatten_and(node: exp.Expression) -> list[exp.Expression]:
     return [node]
 
 
-def _collect_source_columns(select: exp.Expression) -> set[str] | None:
-    """Collect all column references from a SELECT's expressions and clauses.
-
-    Returns ``None`` when the SELECT contains an unresolved ``*`` (i.e.
-    ``qualify`` could not expand it because no schema was provided).  A
-    ``None`` return tells the caller to read **all** source columns from
-    Iceberg instead of pushing down a partial projection.
-    """
+def _collect_source_columns(select: exp.Expression) -> set[str]:
+    """Collect all column references from a SELECT's expressions and clauses."""
     source_columns: set[str] = set()
     for select_expr in select.expressions:
-        if isinstance(select_expr, exp.Star):
-            return None
         source_columns.update(c.name for c in select_expr.find_all(exp.Column))
     for clause_type in (exp.Where, exp.Group, exp.Having, exp.Order):
         clause = select.find(clause_type)

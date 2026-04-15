@@ -228,11 +228,16 @@ class OpenHouseDataLoader:
 
         query = self._build_query()
         if query is not None:
-            plan = optimize_scan(query, dialect=DataFusion.DIALECT)
+            plan = optimize_scan(
+                query,
+                dialect=DataFusion.DIALECT,
+                database=self._table_id.database,
+                table=self._table_id.table,
+                column_names=[f.name for f in table.schema().fields],
+            )
             optimized_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
-            if plan.source_columns is not None:
-                scan_kwargs["selected_fields"] = tuple(plan.source_columns)
+            scan_kwargs["selected_fields"] = tuple(plan.source_columns)
             logger.info(
                 "Split SQL optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
                 query,

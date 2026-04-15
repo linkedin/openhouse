@@ -19,6 +19,7 @@ from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoad
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import col
 from openhouse.dataloader.table_transformer import TableTransformer
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 
 def test_package_imports():
@@ -102,6 +103,7 @@ def _make_real_catalog(
     mock_table = MagicMock()
     mock_table.metadata = metadata
     mock_table.io = io
+    mock_table.schema.return_value = iceberg_schema
     mock_table.scan.side_effect = fake_scan
 
     catalog = MagicMock()
@@ -917,3 +919,161 @@ def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
     )
 
     assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx256m"
+
+
+# --- Materialization of optimized queries with nested subqueries and mixed-case columns ---
+
+_PUSHDOWN_SCHEMA = Schema(
+    NestedField(field_id=1, name="memberId", field_type=LongType(), required=False),
+    NestedField(field_id=2, name="policyField", field_type=StringType(), required=False),
+    NestedField(field_id=3, name="otherField", field_type=StringType(), required=False),
+)
+
+_PUSHDOWN_DATA = {
+    "memberId": [100, 200, 300],
+    "policyField": ["policy_a", "policy_b", "policy_c"],
+    "otherField": ["x", "y", "z"],
+}
+
+
+class _FooBarUDFRegistry(UDFRegistry):
+    """Registers mock UDFs for testing pushdown materialization.
+
+    foo(utf8, int64) -> bool   — always returns true (filter UDF)
+    bar(bool, utf8, utf8, utf8) -> utf8 — conditional replacement UDF
+    """
+
+    def register_udfs(self, session_context):
+        import datafusion
+
+        def foo(arg, member_id):
+            return pa.array([True] * len(arg), type=pa.bool_())
+
+        session_context.register_udf(datafusion.udf(foo, [pa.utf8(), pa.int64()], pa.bool_(), "stable", name="foo"))
+
+        def bar(condition, value, field_name, replacement):
+            cond = condition.to_pylist()
+            vals = value.to_pylist()
+            repls = replacement.to_pylist()
+            return pa.array([r if c else v for c, v, r in zip(cond, vals, repls, strict=True)], type=pa.utf8())
+
+        session_context.register_udf(
+            datafusion.udf(bar, [pa.bool_(), pa.utf8(), pa.utf8(), pa.utf8()], pa.utf8(), "stable", name="bar")
+        )
+
+
+class _NestedUDFTransformer(TableTransformer):
+    """Nested subquery with UDF at two levels — triggers alias rewrite bug."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return (
+            f"SELECT * "
+            f"FROM (SELECT * FROM {tbl} AS {alias} "
+            f'      WHERE foo(\'arg1\', {alias}."memberId")) AS "t" '
+            f'WHERE foo(\'arg2\', "t"."memberId")'
+        )
+
+
+class _SelectStarUDFTransformer(TableTransformer):
+    """SELECT * with UDF — triggers unquoted column bug after projection pushdown."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return f"SELECT * FROM {tbl} AS {alias} WHERE foo('arg1', {alias}.\"memberId\")"
+
+
+class _ProjectionUDFTransformer(TableTransformer):
+    """UDF in projection with inner SELECT * — triggers unquoted column bug in projection."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return (
+            f'SELECT "t"."memberId", "t"."policyField", '
+            f'       bar(NOT foo(\'arg1\', "t"."memberId"), '
+            f'           "t"."otherField", \'otherField\', \'REPLACED\') AS "otherField" '
+            f"FROM (SELECT * FROM {tbl} AS {alias} "
+            f'      WHERE foo(\'arg2\', {alias}."memberId")) AS "t"'
+        )
+
+
+def test_nested_udf_transformer_materializes(tmp_path):
+    """Nested subquery with UDF at two levels materializes after optimization."""
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(
+            table_transformer=_NestedUDFTransformer(),
+            udf_registry=_FooBarUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField", "otherField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+    assert result.column("otherField").to_pylist() == ["x", "y", "z"]
+
+
+def test_select_star_projection_with_mixed_case_materializes(tmp_path):
+    """SELECT * with mixed-case columns materializes after projection pushdown."""
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=["memberId", "policyField"],
+        context=DataLoaderContext(
+            table_transformer=_SelectStarUDFTransformer(),
+            udf_registry=_FooBarUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+
+
+def test_projection_udf_with_mixed_case_materializes(tmp_path):
+    """UDF in projection with inner SELECT * and mixed-case columns materializes."""
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(
+            table_transformer=_ProjectionUDFTransformer(),
+            udf_registry=_FooBarUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField", "otherField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+    # foo returns True; NOT True = False; bar(False, val, ...) returns val (not replaced)
+    assert result.column("otherField").to_pylist() == ["x", "y", "z"]
