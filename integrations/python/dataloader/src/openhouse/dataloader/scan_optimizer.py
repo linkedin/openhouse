@@ -45,7 +45,7 @@ class ScanPlan:
     """
 
     sql: str
-    source_columns: list[str] | None
+    source_columns: list[str]
     row_filter: Filter
 
 
@@ -84,7 +84,8 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
     if table_node.db != database or table_node.name != table:
         raise ValueError(f"Table in SQL ({table_node.db}.{table_node.name}) does not match expected {database}.{table}")
     table_select = table_node.find_ancestor(exp.Select)
-    assert table_select is not None
+    if table_select is None:
+        raise ValueError(f"Table has no enclosing SELECT in: {sql}")
 
     where = table_select.args.get("where")
     row_filter = _extract_row_filter(where) if where else always_true()
@@ -92,7 +93,7 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
 
     return ScanPlan(
         sql=ast.sql(dialect=dialect),
-        source_columns=sorted(source_columns) if source_columns else None,
+        source_columns=sorted(source_columns),
         row_filter=row_filter,
     )
 
