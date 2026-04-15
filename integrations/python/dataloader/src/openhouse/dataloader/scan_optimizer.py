@@ -15,7 +15,6 @@ from dataclasses import dataclass
 import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer import pushdown_predicates, pushdown_projections, qualify
-from sqlglot.optimizer.scope import build_scope
 
 from openhouse.dataloader.filters import (
     And,
@@ -79,11 +78,13 @@ def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPl
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
 
-    table_scan = _find_table_scan(ast, sql)
+    table_node = _find_single_table(ast, sql)
+    table_select = table_node.find_ancestor(exp.Select)
+    assert table_select is not None, f"Table has no enclosing SELECT in: {sql}"
 
-    where = table_scan.args.get("where")
+    where = table_select.args.get("where")
     row_filter = _extract_row_filter(where) if where else always_true()
-    source_columns = _collect_source_columns(table_scan)
+    source_columns = _collect_source_columns(table_select)
 
     return ScanPlan(
         sql=ast.sql(dialect=dialect),
@@ -101,25 +102,6 @@ def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:
     if len(tables) != 1:
         raise ValueError(f"Expected exactly 1 table, found {len(tables)} in: {original_sql}")
     return tables[0]
-
-
-def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:
-    """Find the single SELECT that reads directly from exactly one table.
-
-    Raises ValueError if the query does not contain exactly one table scan
-    across all scopes (e.g. JOINs have multiple table sources).
-    """
-    root = build_scope(ast)
-    if root is None:
-        raise ValueError(f"Expected exactly 1 table scan, found 0 in: {original_sql}")
-    table_scans: list[exp.Select] = []
-    for scope in root.traverse():
-        table_sources = [s for s in scope.sources.values() if isinstance(s, exp.Table)]
-        for _ in table_sources:
-            table_scans.append(scope.expression)
-    if len(table_scans) != 1:
-        raise ValueError(f"Expected exactly 1 table scan, found {len(table_scans)} in: {original_sql}")
-    return table_scans[0]
 
 
 def _extract_row_filter(where: exp.Where) -> Filter:
