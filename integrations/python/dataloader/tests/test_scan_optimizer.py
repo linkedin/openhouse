@@ -285,7 +285,12 @@ _MIXED_CASE_COLUMNS = ["memberId", "policyField", "otherField", "unknownField"]
 
 
 def _assert_column_references_in_scope(sql: str) -> None:
-    """Assert every table-qualified column reference resolves within its scope."""
+    """Assert every table-qualified column reference resolves within its scope.
+
+    For struct access like ``"tbl"."address"."city"``, sqlglot stores the
+    table alias in ``col.db`` (not ``col.table``), so we check all parts
+    of the qualifier chain.
+    """
     ast = sqlglot.parse_one(sql, dialect=_DIALECT)
     root = build_scope(ast)
     if root is None:
@@ -293,10 +298,11 @@ def _assert_column_references_in_scope(sql: str) -> None:
     for scope in root.traverse():
         source_names = set(scope.sources.keys())
         for col_node in scope.columns:
-            if col_node.table and col_node.table not in source_names:
+            qualifiers = {col_node.table, col_node.db, col_node.catalog} - {""}
+            if qualifiers and not qualifiers & source_names:
                 raise AssertionError(
-                    f"Column '{col_node.sql(dialect=_DIALECT)}' references '{col_node.table}' "
-                    f"not in scope {source_names}. Output SQL: {sql}"
+                    f"Column '{col_node.sql(dialect=_DIALECT)}' has no qualifier in scope "
+                    f"{source_names}. Output SQL: {sql}"
                 )
 
 
@@ -326,6 +332,22 @@ def test_pushdown_rewrites_alias_double_nesting():
         column_names=_MIXED_CASE_COLUMNS,
     )
     _assert_column_references_in_scope(plan.sql)
+
+
+def test_pushdown_rewrites_struct_field_access():
+    """Struct field access like "t"."address"."city" is correctly rewritten during pushdown."""
+    columns = ["memberId", "address", "name"]
+    plan = optimize_scan(
+        "SELECT * "
+        "FROM (SELECT * "
+        '      FROM "db"."tbl" AS "tbl" '
+        '      WHERE foo(\'arg1\', "tbl"."memberId", now())) AS "t" '
+        'WHERE "t"."address"."city" = \'SF\'',
+        column_names=columns,
+    )
+    _assert_column_references_in_scope(plan.sql)
+    # The struct predicate should be pushed into the inner scope and reference "tbl"
+    assert '"tbl"."address"."city"' in plan.sql
 
 
 # --- Regression: projection pushdown must quote mixed-case column names ---
