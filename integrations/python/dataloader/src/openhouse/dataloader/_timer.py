@@ -17,8 +17,8 @@ def log_duration(logger: logging.Logger, message: str, *args: object) -> Iterato
         yield
     except Exception:
         elapsed = time.monotonic() - start
-        logger.warning(f"{message} failed after %.3fs", *args, elapsed)
+        logger.warning(message + " failed after %.3fs", *args, elapsed)
         raise
     else:
         elapsed = time.monotonic() - start
-        logger.info(f"{message} in %.3fs", *args, elapsed)
+        logger.info(message + " in %.3fs", *args, elapsed)

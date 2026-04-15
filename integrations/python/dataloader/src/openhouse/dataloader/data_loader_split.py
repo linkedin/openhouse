@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from collections.abc import Iterator, Mapping, Sequence
+from functools import cached_property
 from types import MappingProxyType
 
 from datafusion.context import SessionContext
@@ -67,7 +69,7 @@ class DataLoaderSplit:
         self._udf_registry = udf_registry or NoOpRegistry()
         self._batch_size = batch_size
 
-    @property
+    @cached_property
     def id(self) -> str:
         """Unique ID for the split. This is stable across executions for a given
         snapshot and split size.
@@ -81,10 +83,25 @@ class DataLoaderSplit:
         """Properties of the table being loaded"""
         return MappingProxyType(self._scan_context.table_metadata.properties)
 
+    def _read_next(self, batch_iter: Iterator[RecordBatch], split_id: str, batch_idx: int) -> RecordBatch | None:
+        """Read the next batch with timing. Returns None when the iterator is exhausted."""
+        start = time.monotonic()
+        try:
+            batch = next(batch_iter, None)
+        except Exception:
+            logger.warning("record_batch %s [%d] failed after %.3fs", split_id, batch_idx, time.monotonic() - start)
+            raise
+        if batch is not None:
+            logger.info("record_batch %s [%d] in %.3fs", split_id, batch_idx, time.monotonic() - start)
+        return batch
+
     def __iter__(self) -> Iterator[RecordBatch]:
         """Reads the file scan tasks and yields Arrow RecordBatches.
 
         When the split contains multiple files, they are read concurrently.
+
+        Yields:
+            RecordBatch from the underlying file scan tasks
         """
         ctx = self._scan_context
         if ctx.worker_jvm_args is not None:
@@ -96,30 +113,43 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
 
-        with log_duration(logger, "to_record_batches %s", self.id):
+        split_id = self.id[:12]
+
+        with log_duration(logger, "setup_scan %s", split_id):
             batches = arrow_scan.to_record_batches(
                 self._file_scan_tasks,
                 order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
             )
 
+        batch_iter = iter(batches)
         if self._transform_sql is None:
-            for batch in batches:
-                with log_duration(logger, "record_batch %s", self.id):
-                    yield batch
+            batch_idx = 0
+            while True:
+                batch = self._read_next(batch_iter, split_id, batch_idx)
+                if batch is None:
+                    break
+                yield batch
+                batch_idx += 1
         else:
             # Materialize the first batch before creating the transform session
             # so that the HDFS JVM starts (and picks up worker_jvm_args) before
             # any UDF registration code can trigger JNI.
-            batch_iter = iter(batches)
-            with log_duration(logger, "record_batch %s", self.id):
-                first = next(batch_iter, None)
+            first = self._read_next(batch_iter, split_id, 0)
             if first is None:
                 return
             session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
-            yield from self._apply_transform(session, first)
-            for batch in batch_iter:
-                with log_duration(logger, "record_batch %s", self.id):
-                    yield from self._apply_transform(session, batch)
+            with log_duration(logger, "transform_batch %s [0]", split_id):
+                transformed = list(self._apply_transform(session, first))
+            yield from transformed
+            batch_idx = 1
+            while True:
+                batch = self._read_next(batch_iter, split_id, batch_idx)
+                if batch is None:
+                    break
+                with log_duration(logger, "transform_batch %s [%d]", split_id, batch_idx):
+                    transformed = list(self._apply_transform(session, batch))
+                yield from transformed
+                batch_idx += 1
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
