@@ -28,7 +28,7 @@ _DEFAULT_COLUMNS = ["a", "b", "c", "d", "e", "x", "y", "z", "w", "id", "name", "
 
 
 def optimize_scan(sql: str, column_names: list[str] | None = None) -> object:
-    return _optimize_scan(sql, _DIALECT, column_names=column_names or _DEFAULT_COLUMNS)
+    return _optimize_scan(sql, _DIALECT, database="db", table="tbl", column_names=column_names or _DEFAULT_COLUMNS)
 
 
 # --- Projection ---

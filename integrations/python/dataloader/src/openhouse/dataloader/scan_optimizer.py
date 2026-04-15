@@ -49,7 +49,7 @@ class ScanPlan:
     row_filter: Filter
 
 
-def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPlan:
+def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_names: Sequence[str]) -> ScanPlan:
     """Optimize a SQL query by extracting projections and pushable predicates.
 
     Uses sqlglot's optimizer to push predicates and projections down to the
@@ -64,22 +64,25 @@ def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPl
     Args:
         sql: SQL query to optimize.
         dialect: SQL dialect for parsing and generation (e.g. "datafusion").
+        database: Database name of the table being scanned.
+        table: Table name of the table being scanned.
         column_names: Column names from the table schema (e.g. Iceberg).
 
     Returns:
         A ScanPlan with optimized SQL, source columns, and row filter.
     """
-    ast = sqlglot.parse_one(sql, dialect=dialect)
-
-    table_node = _find_single_table(ast, sql)
     # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
-    schema = {table_node.db: {table_node.name: {c: "VARCHAR" for c in column_names}}}
+    schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
+    ast = sqlglot.parse_one(sql, dialect=dialect)
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
 
+    table_node = _find_single_table(ast, sql)
+    if table_node.db != database or table_node.name != table:
+        raise ValueError(f"Table in SQL ({table_node.db}.{table_node.name}) does not match expected {database}.{table}")
     table_select = table_node.find_ancestor(exp.Select)
-    assert table_select is not None, f"Table has no enclosing SELECT in: {sql}"
+    assert table_select is not None
 
     where = table_select.args.get("where")
     row_filter = _extract_row_filter(where) if where else always_true()
