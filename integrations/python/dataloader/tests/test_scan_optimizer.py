@@ -273,7 +273,7 @@ def test_two_tables_raises():
         optimize_scan('SELECT * FROM "db"."t1" JOIN "db"."t2" ON "t1"."id" = "t2"."id"')
 
 
-# --- Regression: predicate pushdown through nested subqueries ---
+# --- Predicate pushdown through nested subqueries ---
 #
 # sqlglot's pushdown_predicates relies on replace_aliases to rewrite column
 # references when pushing predicates into inner scopes. replace_aliases only
@@ -350,7 +350,7 @@ def test_pushdown_rewrites_struct_field_access():
     assert '"tbl"."homeAddress"."zipCode"' in plan.sql
 
 
-# --- Regression: projection pushdown must quote mixed-case column names ---
+# --- Projection pushdown must quote mixed-case column names ---
 #
 # When qualify has a schema it expands SELECT * into explicit quoted aliases,
 # so pushdown_projections preserves the original casing. Without a schema,

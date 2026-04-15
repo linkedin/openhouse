@@ -921,11 +921,7 @@ def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
     assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx256m"
 
 
-# --- Regression: materialization of optimized queries with pushdown bugs ---
-#
-# These tests verify that SQL patterns with nested subqueries, UDFs, and
-# mixed-case columns can be optimized by optimize_scan and materialized
-# by DataFusion end-to-end.
+# --- Materialization of optimized queries with nested subqueries and mixed-case columns ---
 
 _PUSHDOWN_SCHEMA = Schema(
     NestedField(field_id=1, name="memberId", field_type=LongType(), required=False),
