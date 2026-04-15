@@ -66,7 +66,9 @@ def optimize_scan(sql: str, dialect: str) -> ScanPlan:
     ast = sqlglot.parse_one(sql, dialect=dialect)
     ast = qualify.qualify(ast, dialect=dialect)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
+    _rewrite_dangling_column_refs(ast)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
+    _quote_identifiers(ast)
 
     table_scan = _find_table_scan(ast, sql)
 
@@ -79,6 +81,39 @@ def optimize_scan(sql: str, dialect: str) -> ScanPlan:
         source_columns=sorted(source_columns) if source_columns else None,
         row_filter=row_filter,
     )
+
+
+def _rewrite_dangling_column_refs(ast: exp.Expression) -> None:
+    """Fix column references left pointing at out-of-scope aliases after pushdown.
+
+    ``pushdown_predicates`` may move a predicate from an outer scope into an
+    inner scope without rewriting the table qualifier on its column references.
+    For single-source scopes we can unambiguously rewrite the qualifier to the
+    sole source in scope.
+    """
+    root = build_scope(ast)
+    if root is None:
+        return
+    for scope in root.traverse():
+        source_names = set(scope.sources.keys())
+        if len(source_names) != 1:
+            continue
+        target = next(iter(source_names))
+        for col in scope.columns:
+            if col.table and col.table not in source_names:
+                col.set("table", exp.to_identifier(target, quoted=True))
+
+
+def _quote_identifiers(ast: exp.Expression) -> None:
+    """Ensure all identifier nodes are quoted for case-sensitive dialects.
+
+    ``pushdown_projections`` may introduce unquoted identifiers when expanding
+    ``SELECT *``.  DataFusion lowercases unquoted identifiers, so every
+    identifier must be quoted to preserve its original casing.
+    """
+    for node in ast.find_all(exp.Identifier):
+        if not node.quoted:
+            node.set("quoted", True)
 
 
 def _find_table_scan(ast: exp.Expression, original_sql: str) -> exp.Select:

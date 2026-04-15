@@ -19,6 +19,7 @@ from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoad
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import col
 from openhouse.dataloader.table_transformer import TableTransformer
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 
 def test_package_imports():
@@ -917,3 +918,176 @@ def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
     )
 
     assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx256m"
+
+
+# --- Regression: materialization of optimized queries with pushdown bugs ---
+# Queries from https://docs.google.com/spreadsheets/d/1kUIA3b257Ne_ABg27H72_xzyUhkCzZr_3uWcrqk9nU0
+#
+# These tests verify that the SQL patterns from the bug report can be
+# optimized by optimize_scan and then materialized by DataFusion end-to-end.
+
+_PUSHDOWN_SCHEMA = Schema(
+    NestedField(field_id=1, name="memberId", field_type=LongType(), required=False),
+    NestedField(field_id=2, name="policyField", field_type=StringType(), required=False),
+    NestedField(field_id=3, name="otherField", field_type=StringType(), required=False),
+)
+
+_PUSHDOWN_DATA = {
+    "memberId": [100, 200, 300],
+    "policyField": ["policy_a", "policy_b", "policy_c"],
+    "otherField": ["x", "y", "z"],
+}
+
+
+class _ConsentUDFRegistry(UDFRegistry):
+    """Registers mock consent-check and redact UDFs for testing pushdown materialization."""
+
+    def register_udfs(self, session_context):
+        import datafusion
+
+        def consent_check(consent_name, member_id):
+            return pa.array([True] * len(consent_name), type=pa.bool_())
+
+        session_context.register_udf(
+            datafusion.udf(consent_check, [pa.utf8(), pa.int64()], pa.bool_(), "stable", name="consent_check")
+        )
+
+        def redact_if(condition, value, field_name, replacement):
+            cond = condition.to_pylist()
+            vals = value.to_pylist()
+            repls = replacement.to_pylist()
+            return pa.array([r if c else v for c, v, r in zip(cond, vals, repls, strict=True)], type=pa.utf8())
+
+        session_context.register_udf(
+            datafusion.udf(
+                redact_if, [pa.bool_(), pa.utf8(), pa.utf8(), pa.utf8()], pa.utf8(), "stable", name="redact_if"
+            )
+        )
+
+
+class _NestedConsentTransformer(TableTransformer):
+    """Nested subquery with consent UDF at two levels — triggers alias rewrite bug."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return (
+            f"SELECT * "
+            f"FROM (SELECT * FROM {tbl} AS {alias} "
+            f'      WHERE consent_check(\'consent1\', {alias}."memberId")) AS "t" '
+            f'WHERE consent_check(\'consent2\', "t"."memberId")'
+        )
+
+
+class _SelectStarConsentTransformer(TableTransformer):
+    """SELECT * with consent UDF — triggers unquoted column bug after projection pushdown."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return f"SELECT * FROM {tbl} AS {alias} WHERE consent_check('consent1', {alias}.\"memberId\")"
+
+
+class _RedactTransformer(TableTransformer):
+    """Redact UDF with inner SELECT * — triggers unquoted column bug with UDF in projection."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return (
+            f'SELECT "t"."memberId", "t"."policyField", '
+            f'       redact_if(NOT consent_check(\'consent_redact\', "t"."memberId"), '
+            f'                 "t"."otherField", \'otherField\', \'REDACTED\') AS "otherField" '
+            f"FROM (SELECT * FROM {tbl} AS {alias} "
+            f'      WHERE consent_check(\'consent1\', {alias}."memberId")) AS "t"'
+        )
+
+
+def test_nested_consent_transformer_materializes(tmp_path):
+    """Nested subquery with consent UDF at two levels materializes after optimization.
+
+    Regression for: pushdown_predicates alias rewrite (policy_coverage.Flagship,
+    policy_coverage.MSFT_GAI_Model_Training).
+    """
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(
+            table_transformer=_NestedConsentTransformer(),
+            udf_registry=_ConsentUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField", "otherField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+
+
+def test_select_star_projection_with_mixed_case_materializes(tmp_path):
+    """SELECT * with mixed-case columns materializes after projection pushdown.
+
+    Regression for: pushdown_projections quoting (integration_test.fla/Ads_Safe,
+    policy_coverage.Ads_Microsoft_Data_Sharing_entity_annotation).
+    """
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=["memberId", "policyField"],
+        context=DataLoaderContext(
+            table_transformer=_SelectStarConsentTransformer(),
+            udf_registry=_ConsentUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+
+
+def test_redact_transformer_with_mixed_case_materializes(tmp_path):
+    """Redact UDF with inner SELECT * and mixed-case columns materializes.
+
+    Regression for: pushdown_projections quoting with UDF in projection
+    (policy_coverage.Ads_Sales_Insights_And_attributions,
+    u_adsdl.FixedClicktrainingdatadma/ads_audience).
+    """
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(
+            table_transformer=_RedactTransformer(),
+            udf_registry=_ConsentUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField", "otherField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+    # consent_check returns True; NOT True = False; redact_if(False, val, ...) → val (not redacted)
+    assert result.column("otherField").to_pylist() == ["x", "y", "z"]
