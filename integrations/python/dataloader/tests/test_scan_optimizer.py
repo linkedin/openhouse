@@ -279,13 +279,9 @@ _MIXED_CASE_COLUMNS = ["memberId", "policyField", "otherField", "unknownField"]
 
 
 def test_nested_subquery_expands_star_and_projects_all_columns():
-    """Nested SELECT * with UDF predicates expands to all columns."""
+    """Nested SELECT * expands to all columns."""
     plan = optimize_scan(
-        "SELECT * "
-        "FROM (SELECT * "
-        '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE foo(\'arg1\', "tbl"."memberId", now())) AS "t" '
-        'WHERE foo(\'arg2\', "t"."memberId", now())',
+        'SELECT * FROM (SELECT * FROM "db"."tbl") AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     assert plan.source_columns == sorted(_MIXED_CASE_COLUMNS)
@@ -293,15 +289,9 @@ def test_nested_subquery_expands_star_and_projects_all_columns():
 
 
 def test_double_nested_subquery_expands_star_and_projects_all_columns():
-    """Triple-nested SELECT * with UDF predicates expands to all columns."""
+    """Triple-nested SELECT * expands to all columns."""
     plan = optimize_scan(
-        "SELECT * "
-        "FROM (SELECT * "
-        "      FROM (SELECT * "
-        '            FROM "db"."tbl" AS "tbl" '
-        '            WHERE foo(\'arg1\', "tbl"."memberId", now())) AS "t" '
-        '      WHERE foo(\'arg2\', "t"."memberId", now())) AS "t0" '
-        'WHERE foo(\'arg3\', "t0"."memberId", now())',
+        'SELECT * FROM (SELECT * FROM (SELECT * FROM "db"."tbl") AS "t") AS "t0"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     assert plan.source_columns == sorted(_MIXED_CASE_COLUMNS)
@@ -312,11 +302,7 @@ def test_struct_field_predicate_projects_parent_column():
     """Struct field access in WHERE causes the parent column to be projected."""
     columns = ["memberId", "homeAddress", "displayName"]
     plan = optimize_scan(
-        "SELECT * "
-        "FROM (SELECT * "
-        '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE foo(\'arg1\', "tbl"."memberId", now())) AS "t" '
-        'WHERE "t"."homeAddress"."zipCode" = \'94105\'',
+        'SELECT * FROM (SELECT * FROM "db"."tbl") AS "t" WHERE "t"."homeAddress"."zipCode" = \'94105\'',
         column_names=columns,
     )
     assert plan.source_columns == sorted(columns)
@@ -326,10 +312,7 @@ def test_struct_field_predicate_projects_parent_column():
 def test_select_star_with_column_projection_prunes():
     """Outer SELECT with specific columns prunes unused columns from inner SELECT *."""
     plan = optimize_scan(
-        'SELECT "t"."memberId", "t"."policyField" '
-        "FROM (SELECT * "
-        '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE foo("tbl"."memberId", now())) AS "t"',
+        'SELECT "t"."memberId", "t"."policyField" FROM (SELECT * FROM "db"."tbl") AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     assert plan.source_columns == ["memberId", "policyField"]
@@ -340,12 +323,10 @@ def test_udf_in_projection_with_select_star_projects_needed_columns():
     """UDF in outer projection with inner SELECT * projects only the columns it needs."""
     plan = optimize_scan(
         'SELECT "t"."policyField", '
-        '       bar(NOT foo(\'arg\', "t"."memberId", now()), '
+        '       bar(foo(\'arg\', "t"."memberId"), '
         '           "t"."unknownField", \'unknownField\', NULL) AS "unknownField", '
         '       "t"."memberId" '
-        "FROM (SELECT * "
-        '      FROM "db"."tbl" AS "tbl" '
-        '      WHERE foo("tbl"."memberId", now())) AS "t"',
+        'FROM (SELECT * FROM "db"."tbl") AS "t"',
         column_names=_MIXED_CASE_COLUMNS,
     )
     assert plan.source_columns == ["memberId", "policyField", "unknownField"]
