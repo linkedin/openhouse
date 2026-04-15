@@ -335,19 +335,19 @@ def test_pushdown_rewrites_alias_double_nesting():
 
 
 def test_pushdown_rewrites_struct_field_access():
-    """Struct field access like "t"."address"."city" is correctly rewritten during pushdown."""
-    columns = ["memberId", "address", "name"]
+    """Struct field access like "t"."homeAddress"."zipCode" preserves casing through pushdown."""
+    columns = ["memberId", "homeAddress", "displayName"]
     plan = optimize_scan(
         "SELECT * "
         "FROM (SELECT * "
         '      FROM "db"."tbl" AS "tbl" '
         '      WHERE foo(\'arg1\', "tbl"."memberId", now())) AS "t" '
-        'WHERE "t"."address"."city" = \'SF\'',
+        'WHERE "t"."homeAddress"."zipCode" = \'94105\'',
         column_names=columns,
     )
     _assert_column_references_in_scope(plan.sql)
-    # The struct predicate should be pushed into the inner scope and reference "tbl"
-    assert '"tbl"."address"."city"' in plan.sql
+    # The struct predicate should be pushed into the inner scope with casing preserved
+    assert '"tbl"."homeAddress"."zipCode"' in plan.sql
 
 
 # --- Regression: projection pushdown must quote mixed-case column names ---
