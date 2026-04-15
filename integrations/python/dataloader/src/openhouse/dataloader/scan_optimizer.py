@@ -78,7 +78,6 @@ def optimize_scan(sql: str, dialect: str, column_names: Sequence[str]) -> ScanPl
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
 
-    table_node = _find_single_table(ast, sql)
     table_select = table_node.find_ancestor(exp.Select)
     assert table_select is not None, f"Table has no enclosing SELECT in: {sql}"
 
