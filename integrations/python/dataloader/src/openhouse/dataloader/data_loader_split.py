@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator, Mapping, Sequence
+import logging
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from functools import cached_property
+from itertools import chain
 from types import MappingProxyType
 
 from datafusion.context import SessionContext
@@ -11,9 +15,12 @@ from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
+from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.filters import _quote_identifier
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
+
+logger = logging.getLogger(__name__)
 
 
 def to_sql_identifier(table_id: TableIdentifier) -> str:
@@ -44,6 +51,46 @@ def _bind_batch_table(session: SessionContext, table_id: TableIdentifier, batch:
     session.register_record_batches(name, [[batch]])
 
 
+class _TimedBatchIter:
+    """Wraps a RecordBatch iterator to log the wall-clock time of each ``next()`` call."""
+
+    def __init__(self, inner: Iterator[RecordBatch], split_id: str) -> None:
+        self._inner = inner
+        self._split_id = split_id
+        self._idx = 0
+
+    def __iter__(self) -> _TimedBatchIter:
+        return self
+
+    def __next__(self) -> RecordBatch:
+        start = time.monotonic()
+        try:
+            batch = next(self._inner)
+        except StopIteration:
+            raise
+        except Exception:
+            logger.warning(
+                "record_batch %s [%d] failed after %.3fs", self._split_id, self._idx, time.monotonic() - start
+            )
+            raise
+        logger.info("record_batch %s [%d] in %.3fs", self._split_id, self._idx, time.monotonic() - start)
+        self._idx += 1
+        return batch
+
+
+def _timed_transform(
+    batches: Iterator[RecordBatch],
+    split_id: str,
+    session: SessionContext,
+    apply_fn: Callable[[SessionContext, RecordBatch], Iterator[RecordBatch]],
+) -> Iterator[RecordBatch]:
+    """Apply a transform to each batch, logging the wall-clock time of each."""
+    for idx, batch in enumerate(batches):
+        with log_duration(logger, "transform_batch %s [%d]", split_id, idx):
+            transformed = list(apply_fn(session, batch))
+        yield from transformed
+
+
 class DataLoaderSplit:
     """A data split that reads one or more files."""
 
@@ -63,7 +110,7 @@ class DataLoaderSplit:
         self._udf_registry = udf_registry or NoOpRegistry()
         self._batch_size = batch_size
 
-    @property
+    @cached_property
     def id(self) -> str:
         """Unique ID for the split. This is stable across executions for a given
         snapshot and split size.
@@ -81,6 +128,9 @@ class DataLoaderSplit:
         """Reads the file scan tasks and yields Arrow RecordBatches.
 
         When the split contains multiple files, they are read concurrently.
+
+        Yields:
+            RecordBatch from the underlying file scan tasks
         """
         ctx = self._scan_context
         if ctx.worker_jvm_args is not None:
@@ -92,25 +142,27 @@ class DataLoaderSplit:
             row_filter=ctx.row_filter,
         )
 
-        batches = arrow_scan.to_record_batches(
-            self._file_scan_tasks,
-            order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
-        )
+        split_id = self.id[:12]
+
+        with log_duration(logger, "setup_scan %s", split_id):
+            batches = arrow_scan.to_record_batches(
+                self._file_scan_tasks,
+                order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
+            )
+
+        timed = _TimedBatchIter(iter(batches), split_id)
 
         if self._transform_sql is None:
-            yield from batches
+            yield from timed
         else:
             # Materialize the first batch before creating the transform session
             # so that the HDFS JVM starts (and picks up worker_jvm_args) before
             # any UDF registration code can trigger JNI.
-            batch_iter = iter(batches)
-            first = next(batch_iter, None)
+            first = next(timed, None)
             if first is None:
                 return
             session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
-            yield from self._apply_transform(session, first)
-            for batch in batch_iter:
-                yield from self._apply_transform(session, batch)
+            yield from _timed_transform(chain([first], timed), split_id, session, self._apply_transform)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
