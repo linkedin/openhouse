@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.internal.catalog.utils;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -100,7 +101,8 @@ public class MetadataUpdateUtils {
    */
   private static String updateJsonField(String jsonString, String fieldName, long updatedValue)
       throws IOException {
-    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectMapper objectMapper =
+        new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     JsonNode jsonNode = objectMapper.readTree(jsonString);
     ((ObjectNode) jsonNode).put(fieldName, updatedValue);
     return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(jsonNode);
