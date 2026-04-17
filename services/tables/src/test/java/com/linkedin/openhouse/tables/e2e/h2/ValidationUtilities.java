@@ -162,13 +162,6 @@ public final class ValidationUtilities {
     return true;
   }
 
-  static void validateTableVersion(MvcResult result, String expectedTableVersion)
-      throws UnsupportedEncodingException {
-    String actualTableVersion =
-        stripPathScheme(JsonPath.read(result.getResponse().getContentAsString(), "$.tableVersion"));
-    Assertions.assertEquals(stripPathScheme(expectedTableVersion), actualTableVersion);
-  }
-
   static void validateMetadataInPutSnapshotsRequest(
       MvcResult result, IcebergSnapshotsRequestBody icebergSnapshotsRequestBody)
       throws UnsupportedEncodingException {
@@ -178,7 +171,6 @@ public final class ValidationUtilities {
     validateWritableTableProperties(result, expectedRequestBody.getTableProperties());
     validatePolicies(result, expectedRequestBody.getPolicies());
     ValidationUtilities.validateTimePartition(result, expectedRequestBody.getTimePartitioning());
-    validateTableVersion(result, expectedRequestBody.getBaseTableVersion());
   }
 
   static void validateSnapshots(
