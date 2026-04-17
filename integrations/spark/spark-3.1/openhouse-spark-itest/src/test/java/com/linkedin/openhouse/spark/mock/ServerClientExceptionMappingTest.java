@@ -30,40 +30,54 @@ import org.junit.jupiter.api.Test;
  * Comprehensive test documenting the server-to-client exception mapping for both refresh (read) and
  * commit (write) paths.
  *
- * <p>This test verifies what Iceberg exception the catalog client sees for each HTTP status code
- * returned by the tables-service. This mapping is critical because it determines whether Iceberg
- * will clean up committed metadata files on the client side:
+ * <p>This test verifies what exception the catalog client ({@code OpenHouseTableOperations}) sees
+ * for each HTTP status code returned by the tables-service. This mapping is critical because the
+ * client-side exception type determines Iceberg's behavior:
  *
  * <ul>
- *   <li>{@link CommitStateUnknownException}: Iceberg does NOT clean up (safe)
- *   <li>{@link CommitFailedException}: Iceberg cleans up (retryable conflict)
- *   <li>{@link BadRequestException}: Iceberg cleans up (known failure)
- *   <li>{@link NoSuchTableException}: Iceberg cleans up (known failure)
+ *   <li>{@code o.a.iceberg.exceptions.CommitStateUnknownException}: Iceberg does NOT clean up
+ *       locally written metadata files — commit may have succeeded on server
+ *   <li>{@code o.a.iceberg.exceptions.CommitFailedException}: Iceberg retries the commit (refreshes
+ *       metadata and recomputes). After retries are exhausted, cleans up uncommitted files. See
+ *       {@code SnapshotProducer.java:380} for retry and {@code :413} for cleanup.
+ *   <li>{@code o.a.iceberg.exceptions.BadRequestException}: Iceberg cleans up uncommitted files
+ *       (known failure, no retry)
+ *   <li>{@code o.a.iceberg.exceptions.NoSuchTableException}: Iceberg cleans up uncommitted files
+ *       (known failure)
+ *   <li>{@code c.l.openhouse.javaclient.exception.WebClientResponseWithMessageException}: OpenHouse
+ *       exception, not known to Iceberg — treated as generic RuntimeException, cleans up
+ *       uncommitted files
  * </ul>
  *
- * <p>Server-side exception → HTTP status mapping is defined in {@code OpenHouseExceptionHandler}.
- * Client-side HTTP status → Iceberg exception mapping is defined in:
+ * <p>Server-side exception → HTTP status mapping is defined in {@code OpenHouseExceptionHandler}
+ * and tested in {@code TablesControllerTest.testCreateUpdateResponseCodeForVariousExceptions()}.
+ * Client-side HTTP status → exception mapping is defined in:
  *
  * <ul>
  *   <li>{@code OpenHouseTableOperations.doRefresh()} for read path
  *   <li>{@code OpenHouseTableOperations.handleCreateUpdateHttpError()} for write path
  * </ul>
  *
+ * <p>Iceberg write behavior (cleanup/retry) is determined by exception type in {@code
+ * SnapshotProducer.java:411-418}: {@code CommitStateUnknownException} is re-thrown without cleanup,
+ * {@code CommitFailedException} is retried via {@code Tasks.onlyRetryOn()}, and all other {@code
+ * RuntimeException}s trigger {@code cleanAll()} before re-throwing.
+ *
  * <pre>
- * Server Exception                    → HTTP  → Client (refresh/read)              → Client (commit/write)
- * ─────────────────────────────────────────────────────────────────────────────────────────────────────────
- * NoSuchUserTableException            → 404   → swallowed (no error)               → NoSuchTableException
- * RequestValidationFailureException   → 400   → swallowed (no error)               → BadRequestException
- * InvalidTableMetadataException       → 500   → WebClientResponseWithMessageExc    → CommitStateUnknownException
- * IllegalStateException               → 500   → WebClientResponseWithMessageExc    → CommitStateUnknownException
- * EntityConcurrentModification        → 409   → WebClientResponseWithMessageExc    → CommitFailedException
- * OpenHouseCommitStateUnknown         → 503   → WebClientResponseWithMessageExc    → CommitStateUnknownException
- * AlreadyExistsException              → 409   → WebClientResponseWithMessageExc    → CommitFailedException
- * AccessDeniedException               → 403   → WebClientResponseWithMessageExc    → WebClientResponseWithMessageExc
- * IllegalArgumentException            → 400   → swallowed (no error)               → BadRequestException
- * AuthorizationServiceException       → 503   → WebClientResponseWithMessageExc    → CommitStateUnknownException
- * Exception (generic)                 → 500   → WebClientResponseWithMessageExc    → CommitStateUnknownException
- * GatewayTimeout                      → 504   → WebClientResponseWithMessageExc    → CommitStateUnknownException
+ * Server Exception                         → HTTP → Client (refresh/read)                                               → Client (commit/write) → Iceberg Write Behavior
+ * ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ * NoSuchUserTableException                 → 404  → o.a.iceberg.exceptions.NoSuchTableException                        → o.a.iceberg.exceptions.NoSuchTableException → cleans up uncommitted files
+ * RequestValidationFailureException        → 400  → o.a.iceberg.exceptions.NoSuchTableException                        → o.a.iceberg.exceptions.BadRequestException → cleans up uncommitted files
+ * IllegalArgumentException                 → 400  → o.a.iceberg.exceptions.NoSuchTableException                        → o.a.iceberg.exceptions.BadRequestException → cleans up uncommitted files
+ * InvalidTableMetadataException            → 500  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * IllegalStateException                    → 500  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * Exception (generic)                      → 500  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * EntityConcurrentModificationException    → 409  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitFailedException → retries commit, cleans up if retries exhausted
+ * AlreadyExistsException                   → 409  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitFailedException → retries commit, cleans up if retries exhausted
+ * OpenHouseCommitStateUnknownException     → 503  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * AuthorizationServiceException            → 503  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * (gateway timeout)                        → 504  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * AccessDeniedException                    → 403  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → c.l.openhouse.javaclient.exception.WebClientResponseWithMsgExc → cleans up uncommitted files
  * </pre>
  */
 public class ServerClientExceptionMappingTest {
