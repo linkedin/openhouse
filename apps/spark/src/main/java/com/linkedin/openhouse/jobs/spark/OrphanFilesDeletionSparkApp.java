@@ -30,6 +30,9 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   private final long ttlSeconds;
   private final String backupDir;
   private final int concurrentDeletes;
+  private final boolean streamResults;
+  private final int maxOrphanFileSampleSize;
+  private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
@@ -38,11 +41,15 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
       long ttlSeconds,
       OtelEmitter otelEmitter,
       String backupDir,
-      int concurrentDeletes) {
+      int concurrentDeletes,
+      boolean streamResults,
+      int maxOrphanFileSampleSize) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.ttlSeconds = ttlSeconds;
     this.backupDir = backupDir;
     this.concurrentDeletes = concurrentDeletes;
+    this.streamResults = streamResults;
+    this.maxOrphanFileSampleSize = maxOrphanFileSampleSize;
   }
 
   @Override
@@ -65,7 +72,9 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
             olderThanTimestampMillis,
             backupEnabled,
             backupDir,
-            concurrentDeletes);
+            concurrentDeletes,
+            streamResults,
+            maxOrphanFileSampleSize);
     List<String> orphanFileLocations = Lists.newArrayList(result.orphanFileLocations().iterator());
     log.info(
         "Detected {} orphan files older than {}ms",
@@ -100,6 +109,18 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
             "s", "skipStaging", false, "Whether to skip staging orphan files before deletion"));
     extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
     extraOptions.add(new Option("c", "concurrentDeletes", true, "Number of concurrent deletes"));
+    extraOptions.add(
+        new Option(
+            null,
+            "streamResults",
+            false,
+            "Stream orphan file deletions instead of collecting all paths into driver memory"));
+    extraOptions.add(
+        new Option(
+            null,
+            "maxOrphanFileSampleSize",
+            true,
+            "Maximum number of orphan file paths to return in the result when streaming"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new OrphanFilesDeletionSparkApp(
         getJobId(cmdLine),
@@ -110,6 +131,10 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
             TimeUnit.DAYS.toSeconds(1)),
         otelEmitter,
         cmdLine.getOptionValue("backupDir", ".backup"),
-        Integer.parseInt(cmdLine.getOptionValue("concurrentDeletes", "10")));
+        Integer.parseInt(cmdLine.getOptionValue("concurrentDeletes", "10")),
+        cmdLine.hasOption("streamResults"),
+        Integer.parseInt(
+            cmdLine.getOptionValue(
+                "maxOrphanFileSampleSize", String.valueOf(DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE))));
   }
 }
