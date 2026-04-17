@@ -386,6 +386,8 @@ public class TablesControllerTest {
                 "unsupportedclientoperationexception", HttpStatus.BAD_REQUEST.value()),
             new AbstractMap.SimpleEntry<>("accessdeniedexception", HttpStatus.FORBIDDEN.value()),
             new AbstractMap.SimpleEntry<>(
+                "invalidtablemetadataexception", HttpStatus.INTERNAL_SERVER_ERROR.value()),
+            new AbstractMap.SimpleEntry<>(
                 "illegalstateexception", HttpStatus.INTERNAL_SERVER_ERROR.value()),
             new AbstractMap.SimpleEntry<>(
                 "authorizationserviceexception", HttpStatus.SERVICE_UNAVAILABLE.value()),

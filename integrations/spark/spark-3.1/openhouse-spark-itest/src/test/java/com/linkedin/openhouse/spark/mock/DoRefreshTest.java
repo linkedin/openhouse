@@ -74,6 +74,32 @@ public class DoRefreshTest {
     }
   }
 
+  /**
+   * Verifies that a 400 (BadRequest) from the server is silently swallowed in doRefresh. This is
+   * the current behavior — the catalog client treats 400 the same as 404 (table not found). This
+   * test documents the existing behavior; a follow-up change may surface 400 errors instead.
+   */
+  @Test
+  public void testBadRequestSwallowedOnRefresh() {
+    mockTableService.enqueue(mockResponse(400, "{\"message\":\"Bad Request\"}"));
+    Assertions.assertDoesNotThrow(() -> ops.doRefresh());
+  }
+
+  /**
+   * Verifies that server-side errors (500) surface as WebClientWithMessageException on the client
+   * side during doRefresh. This is the expected behavior for InvalidTableMetadataException (corrupt
+   * metadata) which maps to 500 on the server. The client should NOT swallow this error — it must
+   * propagate so users see the actual error message instead of "Table does not exist".
+   */
+  @Test
+  public void testServerErrorSurfacedOnRefresh() {
+    mockTableService.enqueue(
+        mockResponse(
+            500,
+            "{\"message\":\"Table db.tbl has invalid metadata: Cannot find schema with current-schema-id=6\"}"));
+    Assertions.assertThrows(WebClientWithMessageException.class, () -> ops.doRefresh());
+  }
+
   @Test
   public void testConnectionRefusedError() throws IOException {
     mockTableService.shutdown();
