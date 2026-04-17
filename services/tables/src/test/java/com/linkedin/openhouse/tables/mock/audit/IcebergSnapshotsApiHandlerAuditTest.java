@@ -69,6 +69,40 @@ public class IcebergSnapshotsApiHandlerAuditTest {
   }
 
   @Test
+  public void testPutIcebergSnapshotsContainsSnapshotInfo() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    assertEquals(2151407017102313398L, actualEvent.getCurrentSnapshotId().longValue());
+    assertEquals(1669126937912L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsFailedPathStillHasSnapshotInfo() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d400/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    // Snapshot info is extracted from request body before execution, so it's present even on
+    // failure
+    assertEquals(2151407017102313398L, actualEvent.getCurrentSnapshotId().longValue());
+    assertEquals(1669126937912L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
+  }
+
+  @Test
   public void testCTASCommitPhase() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.put(

@@ -18,6 +18,8 @@ import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import java.time.Instant;
+import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -28,6 +30,7 @@ import org.springframework.stereotype.Component;
  * Aspect class to support table operation auditing for all controllers. It enhances the ability of
  * particular methods by adding logic of building and emitting audit events.
  */
+@Slf4j
 @Aspect
 @Component
 public class TableAuditAspect {
@@ -363,13 +366,14 @@ public class TableAuditAspect {
     } else {
       operationType = OperationType.COMMIT;
     }
-    TableAuditEvent event =
+    TableAuditEvent.TableAuditEventBuilder eventBuilder =
         TableAuditEvent.builder()
             .eventTimestamp(Instant.now())
             .databaseName(databaseId)
             .tableName(tableId)
-            .operationType(operationType)
-            .build();
+            .operationType(operationType);
+    extractSnapshotInfo(icebergSnapshotRequestBody, eventBuilder);
+    TableAuditEvent event = eventBuilder.build();
     try {
       result = (ApiResponse<GetTableResponseBody>) point.proceed();
       buildAndSendEvent(
@@ -379,6 +383,34 @@ public class TableAuditAspect {
       throw t;
     }
     return result;
+  }
+
+  /**
+   * Extracts snapshot ID and timestamp from the latest snapshot in the request body. The
+   * jsonSnapshots list contains JSON-serialized Iceberg snapshots with "snapshot-id" and
+   * "timestamp-ms" fields.
+   */
+  private void extractSnapshotInfo(
+      IcebergSnapshotsRequestBody requestBody,
+      TableAuditEvent.TableAuditEventBuilder eventBuilder) {
+    try {
+      List<String> jsonSnapshots = requestBody.getJsonSnapshots();
+      if (jsonSnapshots != null && !jsonSnapshots.isEmpty()) {
+        // Use the last snapshot in the list as the current/latest snapshot
+        String latestSnapshotJson = jsonSnapshots.get(jsonSnapshots.size() - 1);
+        com.google.gson.JsonObject snapshotObj =
+            com.google.gson.JsonParser.parseString(latestSnapshotJson).getAsJsonObject();
+        if (snapshotObj.has("snapshot-id")) {
+          eventBuilder.currentSnapshotId(snapshotObj.get("snapshot-id").getAsLong());
+        }
+        if (snapshotObj.has("timestamp-ms")) {
+          eventBuilder.currentSnapshotTimestampMs(snapshotObj.get("timestamp-ms").getAsLong());
+        }
+      }
+    } catch (Exception e) {
+      // Snapshot extraction is best-effort; don't fail the audit event
+      log.warn("Failed to extract snapshot info for audit event", e);
+    }
   }
 
   /** Install the Around advice for getAllDatabases() method in OpenHouseDatabasesApiHandler */
