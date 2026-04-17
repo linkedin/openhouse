@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -87,6 +88,19 @@ public class OpenHouseInternalRepositoryImplTest {
     Assertions.assertEquals(
         userProvidedMaxMetadataVersions,
         actualProps.get(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX));
+  }
+
+  @Test
+  void testComputePropsForTableCreation_tableLocation() {
+    TableDto tableDto = createTableDto(new HashMap<>());
+    tableDto = tableDto.toBuilder().tableLocation("file:///data/openhouse/db/table").build();
+
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertEquals(
+        "/data/openhouse/db/table",
+        actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("tableLocation")));
   }
 
   private TableDto createTableDto(Map<String, String> properties) {

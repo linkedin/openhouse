@@ -429,7 +429,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String htsFieldName : HTS_FIELD_NAMES) {
       if (dtoMap.get(htsFieldName) != null) {
-        propertiesMap.put(getCanonicalFieldName(htsFieldName), dtoMap.get(htsFieldName));
+        if (htsFieldName.equals("tableLocation")) {
+          propertiesMap.put(
+              getCanonicalFieldName(htsFieldName), getSchemeLessPath(dtoMap.get(htsFieldName)));
+        } else {
+          propertiesMap.put(getCanonicalFieldName(htsFieldName), dtoMap.get(htsFieldName));
+        }
       }
     }
 
