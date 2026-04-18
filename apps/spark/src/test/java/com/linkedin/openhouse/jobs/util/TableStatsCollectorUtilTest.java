@@ -1,6 +1,10 @@
 package com.linkedin.openhouse.jobs.util;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.stats.model.ColumnData;
+import com.linkedin.openhouse.common.stats.model.PolicyStats;
+import com.linkedin.openhouse.common.stats.model.ReplicationPolicyStatsSchema;
 import java.util.Arrays;
 import java.util.List;
 import org.apache.spark.sql.Row;
@@ -414,6 +418,62 @@ public class TableStatsCollectorUtilTest {
     // Should fall back to string (due to NumberFormatException)
     Assertions.assertInstanceOf(ColumnData.StringColumnData.class, result);
     Assertions.assertEquals("not-a-number", ((ColumnData.StringColumnData) result).getValue());
+  }
+
+  // ==================== Policy Stats Replication Config Tests ====================
+
+  @Test
+  public void testConvertObjectToPolicyStats_withReplicationConfig() {
+    String json =
+        "{\"replication\":{\"config\":[{\"destination\":\"war\",\"interval\":\"12H\"}]},\"sharingEnabled\":true}";
+    JsonObject jsonObject = JsonParser.parseString(json).getAsJsonObject();
+
+    PolicyStats result = TableStatsCollectorUtil.convertObjectToPolicyStats(jsonObject);
+
+    Assertions.assertNotNull(result.getReplicationPolicies());
+    Assertions.assertEquals(1, result.getReplicationPolicies().size());
+    ReplicationPolicyStatsSchema repl = result.getReplicationPolicies().get(0);
+    Assertions.assertEquals("war", repl.getDestination());
+    Assertions.assertEquals("12H", repl.getInterval());
+    Assertions.assertTrue(result.getSharingEnabled());
+  }
+
+  @Test
+  public void testConvertObjectToPolicyStats_withMultipleReplicationConfigs() {
+    String json =
+        "{\"replication\":{\"config\":["
+            + "{\"destination\":\"war\",\"interval\":\"12H\"},"
+            + "{\"destination\":\"holdem\",\"interval\":\"1D\"}"
+            + "]}}";
+    JsonObject jsonObject = JsonParser.parseString(json).getAsJsonObject();
+
+    PolicyStats result = TableStatsCollectorUtil.convertObjectToPolicyStats(jsonObject);
+
+    Assertions.assertNotNull(result.getReplicationPolicies());
+    Assertions.assertEquals(2, result.getReplicationPolicies().size());
+    Assertions.assertEquals("war", result.getReplicationPolicies().get(0).getDestination());
+    Assertions.assertEquals("12H", result.getReplicationPolicies().get(0).getInterval());
+    Assertions.assertEquals("holdem", result.getReplicationPolicies().get(1).getDestination());
+    Assertions.assertEquals("1D", result.getReplicationPolicies().get(1).getInterval());
+  }
+
+  @Test
+  public void testConvertObjectToPolicyStats_withNoReplicationConfig() {
+    String json = "{\"sharingEnabled\":false}";
+    JsonObject jsonObject = JsonParser.parseString(json).getAsJsonObject();
+
+    PolicyStats result = TableStatsCollectorUtil.convertObjectToPolicyStats(jsonObject);
+
+    Assertions.assertNull(result.getReplicationPolicies());
+    Assertions.assertFalse(result.getSharingEnabled());
+  }
+
+  @Test
+  public void testConvertObjectToPolicyStats_withNullInput() {
+    PolicyStats result = TableStatsCollectorUtil.convertObjectToPolicyStats(null);
+
+    Assertions.assertNull(result.getReplicationPolicies());
+    Assertions.assertFalse(result.getSharingEnabled());
   }
 
   // Note: The following methods require Spark runtime and are tested in integration tests:
