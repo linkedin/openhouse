@@ -15,7 +15,7 @@ ext {
   // ServiceLoader and ignores the SLF4J 1.x-style bindings (log4j-slf4j-impl, slf4j-log4j12)
   // shipped with the log4j2 starter and Hadoop; without a 2.x-compatible binding SLF4J
   // silently falls back to NOP and application logs disappear from stdout.
-  log4jSlf4j2Version = '2.20.0'
+  log4jSlf4j2Version = '2.25.4'
 }
 
 configurations {
