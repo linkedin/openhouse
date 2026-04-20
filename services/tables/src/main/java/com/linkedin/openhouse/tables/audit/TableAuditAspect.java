@@ -19,7 +19,9 @@ import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.SnapshotRef;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -386,25 +388,47 @@ public class TableAuditAspect {
   }
 
   /**
-   * Extracts snapshot ID and timestamp from the latest snapshot in the request body. The
-   * jsonSnapshots list contains JSON-serialized Iceberg snapshots with "snapshot-id" and
-   * "timestamp-ms" fields.
+   * Extracts snapshot ID and timestamp of the main branch from the request body. The snapshotRefs
+   * map contains branch name to JSON-serialized SnapshotRef. We read the main branch's snapshot-id
+   * (this is what Iceberg treats as current-snapshot-id — see TableMetadata.Builder.setRef()) and
+   * then find the matching snapshot in jsonSnapshots to get its timestamp-ms.
+   *
+   * <p>Leaves both fields null if the main branch ref is absent (e.g. branch-only commits where
+   * main didn't advance, or non-commit operations) or if the matching snapshot can't be found.
    */
   private void extractSnapshotInfo(
       IcebergSnapshotsRequestBody requestBody,
       TableAuditEvent.TableAuditEventBuilder eventBuilder) {
     try {
+      Map<String, String> snapshotRefs = requestBody.getSnapshotRefs();
+      if (snapshotRefs == null) {
+        return;
+      }
+      String mainRefJson = snapshotRefs.get(SnapshotRef.MAIN_BRANCH);
+      if (mainRefJson == null) {
+        return;
+      }
+      com.google.gson.JsonObject mainRef =
+          com.google.gson.JsonParser.parseString(mainRefJson).getAsJsonObject();
+      if (!mainRef.has("snapshot-id")) {
+        return;
+      }
+      long mainSnapshotId = mainRef.get("snapshot-id").getAsLong();
+      eventBuilder.currentSnapshotId(mainSnapshotId);
+
+      // Find the matching snapshot in jsonSnapshots to get its timestamp-ms
       List<String> jsonSnapshots = requestBody.getJsonSnapshots();
-      if (jsonSnapshots != null && !jsonSnapshots.isEmpty()) {
-        // Use the last snapshot in the list as the current/latest snapshot
-        String latestSnapshotJson = jsonSnapshots.get(jsonSnapshots.size() - 1);
+      if (jsonSnapshots == null) {
+        return;
+      }
+      for (String snapshotJson : jsonSnapshots) {
         com.google.gson.JsonObject snapshotObj =
-            com.google.gson.JsonParser.parseString(latestSnapshotJson).getAsJsonObject();
-        if (snapshotObj.has("snapshot-id")) {
-          eventBuilder.currentSnapshotId(snapshotObj.get("snapshot-id").getAsLong());
-        }
-        if (snapshotObj.has("timestamp-ms")) {
+            com.google.gson.JsonParser.parseString(snapshotJson).getAsJsonObject();
+        if (snapshotObj.has("snapshot-id")
+            && snapshotObj.get("snapshot-id").getAsLong() == mainSnapshotId
+            && snapshotObj.has("timestamp-ms")) {
           eventBuilder.currentSnapshotTimestampMs(snapshotObj.get("timestamp-ms").getAsLong());
+          return;
         }
       }
     } catch (Exception e) {
