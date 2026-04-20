@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.common.stats.model;
 
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -37,4 +38,6 @@ public class BaseTableMetadata {
   private RetentionStatsSchema retentionPolicies;
 
   private HistoryPolicyStatsSchema historyPolicy;
+
+  private List<ReplicationPolicyStatsSchema> replicationPolicies;
 }
