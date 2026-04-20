@@ -416,12 +416,20 @@ public class TableAuditAspect {
       long mainSnapshotId = mainRef.get("snapshot-id").getAsLong();
       eventBuilder.currentSnapshotId(mainSnapshotId);
 
-      // Find the matching snapshot in jsonSnapshots to get its timestamp-ms
+      // Find the matching snapshot in jsonSnapshots to get its timestamp-ms. Iterate in reverse
+      // because Iceberg appends snapshots chronologically and main's snapshot is typically the
+      // most recent. Skip snapshots whose JSON doesn't contain the target id as a cheap
+      // pre-filter before invoking the JSON parser.
       List<String> jsonSnapshots = requestBody.getJsonSnapshots();
       if (jsonSnapshots == null) {
         return;
       }
-      for (String snapshotJson : jsonSnapshots) {
+      String mainSnapshotIdStr = Long.toString(mainSnapshotId);
+      for (int i = jsonSnapshots.size() - 1; i >= 0; i--) {
+        String snapshotJson = jsonSnapshots.get(i);
+        if (!snapshotJson.contains(mainSnapshotIdStr)) {
+          continue;
+        }
         com.google.gson.JsonObject snapshotObj =
             com.google.gson.JsonParser.parseString(snapshotJson).getAsJsonObject();
         if (snapshotObj.has("snapshot-id")
