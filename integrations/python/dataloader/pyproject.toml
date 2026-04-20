@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "BSD-2-Clause"}
 keywords = ["openhouse", "data-loader", "lakehouse", "iceberg", "datafusion"]
-dependencies = ["datafusion==51.0.0", "li-pyiceberg==0.11.3", "requests>=2.31.0", "sqlglot>=29.0.0", "tenacity>=8.0.0"]
+dependencies = ["datafusion==53.0.0", "li-pyiceberg==0.11.3", "requests>=2.31.0", "sqlglot>=29.0.0", "tenacity>=8.0.0"]
 
 [[tool.uv.index]]
 url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/simple/"
