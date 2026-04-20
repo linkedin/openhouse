@@ -91,7 +91,7 @@ Build row filters using `col()` with comparison operators (`==`, `!=`, `>`, `>=`
 ## Key Dependencies
 
 - `pyiceberg ~= 0.11.0` — Iceberg table access, metadata, scan planning
-- `datafusion == 51.0.0` — Query execution engine for transforms
+- `datafusion == 53.0.0` — Query execution engine for transforms
 - `sqlglot >= 29.0.0` — SQL transpilation (custom DataFusion dialect)
 - `requests >= 2.31.0` — HTTP client for OpenHouseCatalog
 - `tenacity >= 8.0.0` — Retry logic for transient failures
