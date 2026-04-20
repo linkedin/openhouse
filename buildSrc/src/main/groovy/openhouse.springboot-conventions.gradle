@@ -10,63 +10,78 @@ configurations {
 
 ext {
   springVersion = '2.7.8'
-  springLog4jVersion = '2.3.4.RELEASE'
-  // log4j-1.2-api and log4j-slf4j2-impl must match log4j-core exactly to avoid
-  // IncompatibleClassChangeError at runtime; keep them in sync via this single version.
+  // Keep spring-boot-starter-log4j2 on the same Spring Boot line as the rest of the stack
+  // so Boot's dependency management stays coherent (was '2.3.4.RELEASE' = Spring Boot 2.3,
+  // which dragged an older log4j2 line under a 2.7.x Boot app).
+  springLog4jVersion = springVersion
+  // Pin the log4j2 family above Boot 2.7's managed 2.17.2 for CVE coverage. Applied as a
+  // constraints block in dependencies{} below so every log4j2 artifact (core, api,
+  // 1.2-api, slf4j2-impl) resolves to a single coherent version regardless of which
+  // starter pulls them in. Constraints avoid the "hand-pin three coordinates" foot-gun
+  // described in Apache's docs: a mismatch between log4j-core and log4j-1.2-api produces
+  // IncompatibleClassChangeError at runtime.
   log4j2Version = '2.25.3'
 }
 
 def configureBootLoggingUnification = {
   configurations.configureEach {
-    // Excluding these libraries avoids competing implementations for LoggerFactory
-    // in boot applications where we standardize on slf4j + log4j2.
+    // Boot apps unify on log4j2; drop Boot's default logback stack.
     exclude module: 'spring-boot-starter-logging'
     exclude module: 'logback-classic'
-    // Exclude Log4j 1.x and its SLF4J bridge so Hadoop transitive deps don't introduce
-    // a competing SLF4J binding alongside log4j-slf4j2-impl. log4j-1.2-api below provides
-    // the Log4j 1.x API compatibility layer that routes to Log4j2 instead.
+    // Hadoop's hadoop-client transitively brings slf4j-log4j12 and log4j:log4j. Left in place,
+    // SLF4J picks that binding nondeterministically and routes Hadoop's logs to Log4j 1.x,
+    // making them invisible to /actuator/loggers. log4j-1.2-api below bridges the 1.x API
+    // through Log4j2, which IS reachable from Actuator.
     exclude group: 'org.slf4j', module: 'slf4j-log4j12'
     exclude group: 'log4j', module: 'log4j'
-    // Exclude the SLF4J 1.x binding for log4j2. log4j-1.2-api transitively pulls in
-    // log4j-core which requires SLF4J 2.x (slf4j-api:2.0.x). log4j-slf4j-impl (1.x
-    // binding) has no SLF4JServiceProvider and causes SLF4J 2.x to fall back to Hadoop's
-    // slf4j-log4j12 at runtime, routing all logging through log4j 1.x instead of log4j2.
-    // log4j-slf4j2-impl below provides the correct SLF4J 2.x binding.
+    // log4j-slf4j-impl is the SLF4J 1.x binding for log4j2. log4j-core 2.25 pulls slf4j-api 2.x;
+    // the 1.x binding has no SLF4JServiceProvider and SLF4J 2.x would fall back to Hadoop's
+    // slf4j-log4j12 at runtime. log4j-slf4j2-impl below is the correct SLF4J 2.x binding.
     exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
   }
 
   dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-log4j2:' + springLog4jVersion
-    // Bridge Log4j 1.x API calls (from Hadoop) to Log4j2, completing the logging unification.
-    // With slf4j-log4j12 and log4j:log4j excluded above, this is the sole provider of the
-    // Log4j 1.x API and routes all calls through Log4j2, making them visible to Spring
-    // Boot Actuator's /actuator/loggers endpoint.
-    implementation 'org.apache.logging.log4j:log4j-1.2-api:' + log4j2Version
-    // SLF4J 2.x binding for log4j2. log4j-1.2-api transitively brings in log4j-core,
-    // which pulls in slf4j-api:2.0.x. The old log4j-slf4j-impl artifact only supports
-    // SLF4J 1.x (StaticLoggerBinder). log4j-slf4j2-impl provides the SLF4J 2.x
-    // ServiceProvider so SLF4J routes to log4j2 instead of falling back to Hadoop's
-    // slf4j-log4j12 at runtime.
-    implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:' + log4j2Version
+    // Bridge Hadoop's direct org.apache.log4j.* API calls through Log4j2 so they become
+    // controllable via Spring Boot Actuator's /actuator/loggers. Version comes from the
+    // constraints block below.
+    implementation 'org.apache.logging.log4j:log4j-1.2-api'
+    // SLF4J 2.x ServiceProvider for log4j2. Replaces the excluded SLF4J 1.x binding.
+    implementation 'org.apache.logging.log4j:log4j-slf4j2-impl'
   }
 }
 
-// Libraries that consume this convention should not dictate transitive logging bindings
-// for downstream consumers, so only apply logging unification when boot plugin is present.
+// Gate the unification on the Boot plugin being present. Library modules that apply this
+// convention without the Boot plugin (iceberg/openhouse/internalcatalog, htscatalog) do
+// NOT export a logging stack to their published POMs; downstream consumers pick their own.
 pluginManager.withPlugin('org.springframework.boot') {
   configureBootLoggingUnification()
 }
 
-// Library modules that use this convention still run Spring-based tests and can pull
-// Hadoop's legacy SLF4J binding transitively. Keep test classpaths deterministic
-// without exporting logging exclusions to downstream consumers.
+// Library modules still run Spring-based tests that pull Hadoop transitively and depend on
+// spring-boot-starter-test (which brings logback). Scope the logging exclusions and the
+// log4j2 binding to test configurations only so the published POMs stay neutral but the
+// modules' own tests run on the same log4j2 stack as the boot apps.
 configurations.matching { cfg ->
   ['testRuntimeClasspath', 'testCompileClasspath', 'testImplementation', 'testRuntimeOnly'].contains(cfg.name)
 }.configureEach {
-  exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+  exclude group: 'org.slf4j',                module: 'slf4j-log4j12'
+  exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+  exclude group: 'ch.qos.logback',           module: 'logback-classic'
+  exclude group: 'log4j',                    module: 'log4j'
+  exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
 }
 
 dependencies {
+  constraints {
+    // Single source of truth for the log4j2 family; keeps all four coordinates in lockstep
+    // whether pulled in directly or transitively by any starter.
+    implementation "org.apache.logging.log4j:log4j-core:${log4j2Version}"
+    implementation "org.apache.logging.log4j:log4j-api:${log4j2Version}"
+    implementation "org.apache.logging.log4j:log4j-1.2-api:${log4j2Version}"
+    implementation "org.apache.logging.log4j:log4j-slf4j2-impl:${log4j2Version}"
+  }
+
   api 'io.micrometer:micrometer-registry-prometheus:1.12.3'
   api 'org.springframework.boot:spring-boot-starter-web:' + springVersion
 
@@ -74,6 +89,16 @@ dependencies {
   api 'org.springframework.boot:spring-boot-starter-validation:' + springVersion
   annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor:' + springVersion
   testImplementation 'org.springframework.boot:spring-boot-starter-test:' + springVersion
+
+  // Give library modules (which don't apply the Boot plugin, so configureBootLoggingUnification
+  // doesn't run) a log4j2 binding for their own tests. Redundant but harmless on boot apps
+  // where the same coordinates are already on implementation; Gradle dedupes by GAV.
+  // Boot 2.7's spring-boot-starter-log4j2 transitively ships the SLF4J 1.x binding
+  // (log4j-slf4j-impl), which the test-classpath exclusion above removes — so we must
+  // re-add log4j-slf4j2-impl explicitly as the SLF4J 2.x binding for library tests.
+  testRuntimeOnly 'org.springframework.boot:spring-boot-starter-log4j2:' + springLog4jVersion
+  testRuntimeOnly 'org.apache.logging.log4j:log4j-slf4j2-impl'
+  testRuntimeOnly 'org.apache.logging.log4j:log4j-1.2-api'
 
   api 'org.springframework.boot:spring-boot-starter-data-jpa:' + springVersion
   implementation 'com.h2database:h2:' + '2.1.210'
