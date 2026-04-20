@@ -11,6 +11,9 @@ configurations {
 ext {
   springVersion = '2.7.8'
   springLog4jVersion = '2.3.4.RELEASE'
+  // log4j-1.2-api and log4j-slf4j2-impl must match log4j-core exactly to avoid
+  // IncompatibleClassChangeError at runtime; keep them in sync via this single version.
+  log4j2Version = '2.25.3'
 }
 
 def configureBootLoggingUnification = {
@@ -24,8 +27,8 @@ def configureBootLoggingUnification = {
     // the Log4j 1.x API compatibility layer that routes to Log4j2 instead.
     exclude group: 'org.slf4j', module: 'slf4j-log4j12'
     exclude group: 'log4j', module: 'log4j'
-    // Exclude the SLF4J 1.x binding for log4j2. log4j-1.2-api:2.25.3 transitively pulls in
-    // log4j-core:2.25.3 which requires SLF4J 2.x (slf4j-api:2.0.x). log4j-slf4j-impl (1.x
+    // Exclude the SLF4J 1.x binding for log4j2. log4j-1.2-api transitively pulls in
+    // log4j-core which requires SLF4J 2.x (slf4j-api:2.0.x). log4j-slf4j-impl (1.x
     // binding) has no SLF4JServiceProvider and causes SLF4J 2.x to fall back to Hadoop's
     // slf4j-log4j12 at runtime, routing all logging through log4j 1.x instead of log4j2.
     // log4j-slf4j2-impl below provides the correct SLF4J 2.x binding.
@@ -38,13 +41,13 @@ def configureBootLoggingUnification = {
     // With slf4j-log4j12 and log4j:log4j excluded above, this is the sole provider of the
     // Log4j 1.x API and routes all calls through Log4j2, making them visible to Spring
     // Boot Actuator's /actuator/loggers endpoint.
-    implementation 'org.apache.logging.log4j:log4j-1.2-api:2.25.3'
-    // SLF4J 2.x binding for log4j2. log4j-1.2-api:2.25.3 transitively brings in
-    // log4j-core:2.25.3, which pulls in slf4j-api:2.0.x. The old log4j-slf4j-impl
-    // artifact only supports SLF4J 1.x (StaticLoggerBinder). log4j-slf4j2-impl provides
-    // the SLF4J 2.x ServiceProvider so SLF4J routes to log4j2 instead of falling back
-    // to Hadoop's slf4j-log4j12 at runtime.
-    implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:2.25.3'
+    implementation 'org.apache.logging.log4j:log4j-1.2-api:' + log4j2Version
+    // SLF4J 2.x binding for log4j2. log4j-1.2-api transitively brings in log4j-core,
+    // which pulls in slf4j-api:2.0.x. The old log4j-slf4j-impl artifact only supports
+    // SLF4J 1.x (StaticLoggerBinder). log4j-slf4j2-impl provides the SLF4J 2.x
+    // ServiceProvider so SLF4J routes to log4j2 instead of falling back to Hadoop's
+    // slf4j-log4j12 at runtime.
+    implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:' + log4j2Version
   }
 }
 
