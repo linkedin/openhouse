@@ -325,7 +325,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
+          ops.deleteOrphanFiles(
+              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -351,12 +352,13 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
       Path backupFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
       Assertions.assertTrue(fs.exists(backupFilePath));
       // run delete operation again and verify that files in .backup are not listed as Orphan
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
+          ops.deleteOrphanFiles(
+              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertEquals(0, orphanFiles.size());
       Assertions.assertTrue(fs.exists(backupFilePath));
@@ -379,7 +381,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
+          ops.deleteOrphanFiles(
+              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -406,7 +409,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), false, BACKUP_DIR, 5);
+          ops.deleteOrphanFiles(
+              table, System.currentTimeMillis(), false, BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -431,7 +435,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5);
+          ops.deleteOrphanFiles(
+              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -743,7 +748,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(dataManifestPath);
       log.info("Created orphan file {}", testOrphanFile1);
       log.info("Created orphan file {}", testOrphanFile2);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR, 5);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR, 5, false, 20000);
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile1)))));
       Assertions.assertTrue(
