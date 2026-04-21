@@ -18,6 +18,13 @@ import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotRefParser;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -28,6 +35,7 @@ import org.springframework.stereotype.Component;
  * Aspect class to support table operation auditing for all controllers. It enhances the ability of
  * particular methods by adding logic of building and emitting audit events.
  */
+@Slf4j
 @Aspect
 @Component
 public class TableAuditAspect {
@@ -363,13 +371,14 @@ public class TableAuditAspect {
     } else {
       operationType = OperationType.COMMIT;
     }
-    TableAuditEvent event =
+    TableAuditEvent.TableAuditEventBuilder eventBuilder =
         TableAuditEvent.builder()
             .eventTimestamp(Instant.now())
             .databaseName(databaseId)
             .tableName(tableId)
-            .operationType(operationType)
-            .build();
+            .operationType(operationType);
+    extractSnapshotInfo(icebergSnapshotRequestBody, eventBuilder);
+    TableAuditEvent event = eventBuilder.build();
     try {
       result = (ApiResponse<GetTableResponseBody>) point.proceed();
       buildAndSendEvent(
@@ -379,6 +388,56 @@ public class TableAuditAspect {
       throw t;
     }
     return result;
+  }
+
+  /**
+   * Extracts snapshot ID and timestamp of the main branch from the request body. The snapshotRefs
+   * map contains branch name to JSON-serialized SnapshotRef. We read the main branch's snapshot-id
+   * (this is what Iceberg treats as current-snapshot-id — see TableMetadata.Builder.setRef()) and
+   * then find the matching snapshot in jsonSnapshots to get its timestamp-ms.
+   *
+   * <p>Leaves both fields null if the main branch ref is absent (e.g. branch-only commits where
+   * main didn't advance, or non-commit operations) or if the matching snapshot can't be found.
+   */
+  private void extractSnapshotInfo(
+      IcebergSnapshotsRequestBody requestBody,
+      TableAuditEvent.TableAuditEventBuilder eventBuilder) {
+    try {
+      Map<String, String> snapshotRefs = requestBody.getSnapshotRefs();
+      if (snapshotRefs == null) {
+        return;
+      }
+      String mainRefJson = snapshotRefs.get(SnapshotRef.MAIN_BRANCH);
+      if (mainRefJson == null) {
+        return;
+      }
+      long mainSnapshotId = SnapshotRefParser.fromJson(mainRefJson).snapshotId();
+      eventBuilder.currentSnapshotId(mainSnapshotId);
+
+      // Find the matching snapshot in jsonSnapshots to get its timestamp-ms. Iterate in reverse
+      // because Iceberg appends snapshots chronologically and main's snapshot is typically the
+      // most recent. Skip snapshots whose JSON doesn't contain the target id as a cheap
+      // pre-filter before invoking the JSON parser.
+      List<String> jsonSnapshots = requestBody.getJsonSnapshots();
+      if (jsonSnapshots == null) {
+        return;
+      }
+      String mainSnapshotIdStr = Long.toString(mainSnapshotId);
+      for (int i = jsonSnapshots.size() - 1; i >= 0; i--) {
+        String snapshotJson = jsonSnapshots.get(i);
+        if (!snapshotJson.contains(mainSnapshotIdStr)) {
+          continue;
+        }
+        Snapshot snapshot = SnapshotParser.fromJson(snapshotJson);
+        if (snapshot.snapshotId() == mainSnapshotId) {
+          eventBuilder.currentSnapshotTimestampMs(snapshot.timestampMillis());
+          return;
+        }
+      }
+    } catch (Exception e) {
+      // Snapshot extraction is best-effort; don't fail the audit event
+      log.warn("Failed to extract snapshot info for audit event", e);
+    }
   }
 
   /** Install the Around advice for getAllDatabases() method in OpenHouseDatabasesApiHandler */

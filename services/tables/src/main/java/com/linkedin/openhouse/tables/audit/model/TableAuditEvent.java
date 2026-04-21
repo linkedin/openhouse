@@ -36,4 +36,8 @@ public class TableAuditEvent extends BaseAuditEvent {
   private String grantee;
 
   private String role;
+
+  private Long currentSnapshotId;
+
+  private Long currentSnapshotTimestampMs;
 }

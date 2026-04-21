@@ -91,10 +91,14 @@ public final class RequestConstants {
           + "\"schema-id\" : 0\n"
           + "}\n";
 
+  public static final String TEST_MAIN_SNAPSHOT_REF_JSON =
+      "{\"snapshot-id\":2151407017102313398,\"type\":\"branch\"}";
+
   public static final IcebergSnapshotsRequestBody TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY =
       IcebergSnapshotsRequestBody.builder()
           .baseTableVersion("v1")
           .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
+          .snapshotRefs(Collections.singletonMap("main", TEST_MAIN_SNAPSHOT_REF_JSON))
           .createUpdateTableRequestBody(TEST_CREATE_TABLE_REQUEST_BODY)
           .build();
 
@@ -102,6 +106,7 @@ public final class RequestConstants {
       IcebergSnapshotsRequestBody.builder()
           .baseTableVersion("v1")
           .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
+          .snapshotRefs(Collections.singletonMap("main", TEST_MAIN_SNAPSHOT_REF_JSON))
           .createUpdateTableRequestBody(
               TEST_CREATE_TABLE_REQUEST_BODY
                   .toBuilder()
@@ -117,6 +122,7 @@ public final class RequestConstants {
           IcebergSnapshotsRequestBody.builder()
               .baseTableVersion("INITIAL_VERSION")
               .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
+              .snapshotRefs(Collections.singletonMap("main", TEST_MAIN_SNAPSHOT_REF_JSON))
               .createUpdateTableRequestBody(TEST_CREATE_TABLE_REQUEST_BODY)
               .build();
 
