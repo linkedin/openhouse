@@ -21,7 +21,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotRefParser;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -408,12 +411,7 @@ public class TableAuditAspect {
       if (mainRefJson == null) {
         return;
       }
-      com.google.gson.JsonObject mainRef =
-          com.google.gson.JsonParser.parseString(mainRefJson).getAsJsonObject();
-      if (!mainRef.has("snapshot-id")) {
-        return;
-      }
-      long mainSnapshotId = mainRef.get("snapshot-id").getAsLong();
+      long mainSnapshotId = SnapshotRefParser.fromJson(mainRefJson).snapshotId();
       eventBuilder.currentSnapshotId(mainSnapshotId);
 
       // Find the matching snapshot in jsonSnapshots to get its timestamp-ms. Iterate in reverse
@@ -430,12 +428,9 @@ public class TableAuditAspect {
         if (!snapshotJson.contains(mainSnapshotIdStr)) {
           continue;
         }
-        com.google.gson.JsonObject snapshotObj =
-            com.google.gson.JsonParser.parseString(snapshotJson).getAsJsonObject();
-        if (snapshotObj.has("snapshot-id")
-            && snapshotObj.get("snapshot-id").getAsLong() == mainSnapshotId
-            && snapshotObj.has("timestamp-ms")) {
-          eventBuilder.currentSnapshotTimestampMs(snapshotObj.get("timestamp-ms").getAsLong());
+        Snapshot snapshot = SnapshotParser.fromJson(snapshotJson);
+        if (snapshot.snapshotId() == mainSnapshotId) {
+          eventBuilder.currentSnapshotTimestampMs(snapshot.timestampMillis());
           return;
         }
       }
