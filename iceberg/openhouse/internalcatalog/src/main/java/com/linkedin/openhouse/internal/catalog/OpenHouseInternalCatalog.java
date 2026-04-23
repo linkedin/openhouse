@@ -9,6 +9,7 @@ import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
+import com.linkedin.openhouse.common.utils.NamespaceUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -31,7 +32,6 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
@@ -94,10 +94,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public List<TableIdentifier> listTables(Namespace namespace) {
-    if (namespace.levels().length > 1) {
-      throw new ValidationException(
-          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
-    }
+    NamespaceUtil.checkSingleLevelNamespace(namespace);
     // TODO: Implement SupportsNamespace interface and listNamespaces() method to remove this
     //  branch. This is anti-pattern and only a temporary solution.
     if (namespace.isEmpty()) {
@@ -111,10 +108,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   }
 
   public Page<TableIdentifier> listTables(Namespace namespace, Pageable pageable) {
-    if (namespace.levels().length > 1) {
-      throw new ValidationException(
-          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
-    }
+    NamespaceUtil.checkSingleLevelNamespace(namespace);
     if (namespace.isEmpty()) {
       return houseTableRepository
           .findAll(pageable)
@@ -195,10 +189,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   public Page<SoftDeletedTableDto> searchSoftDeletedTables(
       Namespace namespace, String tableId, Pageable pageable) {
-    if (namespace.levels().length > 1) {
-      throw new ValidationException(
-          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
-    }
+    NamespaceUtil.checkSingleLevelNamespace(namespace);
 
     try {
       return houseTableRepository
