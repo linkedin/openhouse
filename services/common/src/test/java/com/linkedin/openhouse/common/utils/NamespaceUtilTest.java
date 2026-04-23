@@ -8,28 +8,38 @@ import org.junit.jupiter.api.Test;
 public class NamespaceUtilTest {
 
   @Test
-  public void testCheckSingleLevelNamespaceAllowsEmpty() {
-    Assertions.assertDoesNotThrow(() -> NamespaceUtil.checkSingleLevelNamespace(Namespace.empty()));
+  public void testIsSingleLevel() {
+    Assertions.assertFalse(NamespaceUtil.isSingleLevel(null));
+    Assertions.assertFalse(NamespaceUtil.isSingleLevel(Namespace.empty()));
+    Assertions.assertTrue(NamespaceUtil.isSingleLevel(Namespace.of("db")));
+    Assertions.assertFalse(NamespaceUtil.isSingleLevel(Namespace.of("a", "b")));
+    Assertions.assertFalse(NamespaceUtil.isSingleLevel(Namespace.of("a", "b", "c")));
   }
 
   @Test
-  public void testCheckSingleLevelNamespaceAllowsSingleLevel() {
+  public void testCheckAtMostSingleLevelNamespaceAllowsEmpty() {
     Assertions.assertDoesNotThrow(
-        () -> NamespaceUtil.checkSingleLevelNamespace(Namespace.of("db")));
+        () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.empty()));
   }
 
   @Test
-  public void testCheckSingleLevelNamespaceRejectsMultiLevel() {
+  public void testCheckAtMostSingleLevelNamespaceAllowsSingleLevel() {
+    Assertions.assertDoesNotThrow(
+        () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.of("db")));
+  }
+
+  @Test
+  public void testCheckAtMostSingleLevelNamespaceRejectsMultiLevel() {
     ValidationException twoLevel =
         Assertions.assertThrows(
             ValidationException.class,
-            () -> NamespaceUtil.checkSingleLevelNamespace(Namespace.of("a", "b")));
+            () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.of("a", "b")));
     Assertions.assertEquals("Input namespace has more than one levels a.b", twoLevel.getMessage());
 
     ValidationException threeLevel =
         Assertions.assertThrows(
             ValidationException.class,
-            () -> NamespaceUtil.checkSingleLevelNamespace(Namespace.of("a", "b", "c")));
+            () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.of("a", "b", "c")));
     Assertions.assertEquals(
         "Input namespace has more than one levels a.b.c", threeLevel.getMessage());
   }

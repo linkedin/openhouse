@@ -79,7 +79,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   protected boolean isValidIdentifier(TableIdentifier tableIdentifier) {
-    return tableIdentifier != null && tableIdentifier.namespace().levels().length == 1;
+    return tableIdentifier != null && NamespaceUtil.isSingleLevel(tableIdentifier.namespace());
   }
 
   @Override
@@ -94,7 +94,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public List<TableIdentifier> listTables(Namespace namespace) {
-    NamespaceUtil.checkSingleLevelNamespace(namespace);
+    NamespaceUtil.checkAtMostSingleLevelNamespace(namespace);
     // TODO: Implement SupportsNamespace interface and listNamespaces() method to remove this
     //  branch. This is anti-pattern and only a temporary solution.
     if (namespace.isEmpty()) {
@@ -108,7 +108,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   }
 
   public Page<TableIdentifier> listTables(Namespace namespace, Pageable pageable) {
-    NamespaceUtil.checkSingleLevelNamespace(namespace);
+    NamespaceUtil.checkAtMostSingleLevelNamespace(namespace);
     if (namespace.isEmpty()) {
       return houseTableRepository
           .findAll(pageable)
@@ -189,7 +189,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   public Page<SoftDeletedTableDto> searchSoftDeletedTables(
       Namespace namespace, String tableId, Pageable pageable) {
-    NamespaceUtil.checkSingleLevelNamespace(namespace);
+    NamespaceUtil.checkAtMostSingleLevelNamespace(namespace);
 
     try {
       return houseTableRepository
