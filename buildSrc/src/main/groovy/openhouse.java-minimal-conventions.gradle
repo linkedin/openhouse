@@ -9,7 +9,7 @@ targetCompatibility = JavaVersion.VERSION_1_8
 
 ext {
   lombokVersion = '1.18.20'
-  mapStructVersion = '1.5.0.Beta1'
+  mapStructVersion = '1.5.5.Final'
 }
 
 checkstyle {

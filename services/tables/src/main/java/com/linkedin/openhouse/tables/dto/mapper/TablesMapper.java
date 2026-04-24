@@ -135,8 +135,8 @@ public interface TablesMapper {
 
   @Mappings({
     @Mapping(
-        conditionExpression = "java(tableIdentifier.namespace() != null)",
-        expression = "java(tableIdentifier.namespace().toString())",
+        expression =
+            "java(tableIdentifier.namespace() != null ? tableIdentifier.namespace().toString() : null)",
         target = "databaseId"),
     @Mapping(expression = "java(tableIdentifier.name())", target = "tableId")
   })
@@ -150,8 +150,8 @@ public interface TablesMapper {
 
   @Mappings({
     @Mapping(
-        conditionExpression = "java(tableIdentifier.namespace() != null)",
-        expression = "java(tableIdentifier.namespace().toString())",
+        expression =
+            "java(tableIdentifier.namespace() != null ? tableIdentifier.namespace().toString() : null)",
         target = "databaseId"),
     @Mapping(expression = "java(tableIdentifier.name())", target = "tableId")
   })
