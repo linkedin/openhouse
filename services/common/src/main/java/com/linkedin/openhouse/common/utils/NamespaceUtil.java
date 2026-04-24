@@ -20,6 +20,13 @@ public final class NamespaceUtil {
   private NamespaceUtil() {}
 
   /**
+   * Maximum number of namespace levels OpenHouse accepts. A "table namespace" is exactly this deep;
+   * an "operation namespace" is at most this deep. Adjust here if OpenHouse ever extends its
+   * namespace contract (e.g. to support {@code catalog.database.table}).
+   */
+  private static final int MAX_NAMESPACE_DEPTH = 1;
+
+  /**
    * Returns whether {@code namespace} can host an OpenHouse base table.
    *
    * <p>Used by {@code isValidIdentifier(...)} to gate which {@link
@@ -28,7 +35,7 @@ public final class NamespaceUtil {
    * because there is no database under which to place the table.
    */
   public static boolean isTableNamespace(Namespace namespace) {
-    return namespace != null && namespace.levels().length == 1;
+    return namespace != null && namespace.levels().length == MAX_NAMESPACE_DEPTH;
   }
 
   /**
@@ -41,7 +48,7 @@ public final class NamespaceUtil {
    * @throws ValidationException if {@code namespace} cannot be used as an operation argument
    */
   public static void validateOperationNamespace(Namespace namespace) {
-    if (namespace.levels().length > 1) {
+    if (namespace.levels().length > MAX_NAMESPACE_DEPTH) {
       throw new ValidationException(
           "Input namespace has more than one levels " + String.join(".", namespace.levels()));
     }
