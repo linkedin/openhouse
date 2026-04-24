@@ -411,4 +411,87 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(SortOrder.unsorted(), newSqlTable.sortOrder());
     }
   }
+
+  // ===== Case-insensitive reads =====
+
+  @Test
+  public void testCatalogInitializationForcesCaseInsensitiveReads() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // Simulate a user job that has explicitly enabled case-sensitive mode
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      Assertions.assertEquals("true", spark.conf().get("spark.sql.caseSensitive"));
+
+      // Initializing a fresh OH catalog instance should override the setting back to false
+      getOpenHouseCatalog(spark);
+
+      Assertions.assertEquals(
+          "false",
+          spark.conf().get("spark.sql.caseSensitive"),
+          "OH catalog initialization must force spark.sql.caseSensitive=false");
+    }
+  }
+
+  @Test
+  public void testReadColumnRefCaseInsensitiveAfterCatalogInit() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // Create a table via the Iceberg catalog API so we control the exact column casing.
+      // The table has an uppercase column "ID" — typical for tables originally created
+      // by Hive or engines that preserve user-specified casing.
+      Catalog catalog = getOpenHouseCatalog(spark);
+      Schema schemaWithUppercaseId =
+          new Schema(
+              Types.NestedField.required(1, "ID", Types.StringType.get()),
+              Types.NestedField.optional(2, "value", Types.LongType.get()));
+      TableIdentifier tableId = TableIdentifier.of("d1", "case_read_test");
+      catalog.createTable(tableId, schemaWithUppercaseId);
+
+      // Insert a row so the table has data to read.
+      spark.sql("INSERT INTO openhouse.d1.case_read_test VALUES ('row1', 42)");
+
+      // Simulate a user job that has caseSensitive=true and then re-initializes the catalog.
+      // After initialization our override forces caseSensitive=false.
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      getOpenHouseCatalog(spark); // triggers initialize() → sets caseSensitive=false
+      Assertions.assertEquals("false", spark.conf().get("spark.sql.caseSensitive"));
+
+      // Lowercase "id" must resolve to the stored uppercase "ID" column without throwing.
+      List<Row> rows = spark.sql("SELECT id FROM openhouse.d1.case_read_test").collectAsList();
+      Assertions.assertEquals(1, rows.size());
+      Assertions.assertEquals("row1", rows.get(0).getString(0));
+
+      spark.sql("DROP TABLE openhouse.d1.case_read_test");
+    }
+  }
+
+  @Test
+  public void testViewWithLowercaseRefResolvesAfterCatalogInit() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // Create a table with uppercase "ID" column.
+      Catalog catalog = getOpenHouseCatalog(spark);
+      Schema schemaWithUppercaseId =
+          new Schema(
+              Types.NestedField.required(1, "ID", Types.StringType.get()),
+              Types.NestedField.optional(2, "count", Types.LongType.get()));
+      TableIdentifier tableId = TableIdentifier.of("d1", "view_case_test");
+      catalog.createTable(tableId, schemaWithUppercaseId);
+      spark.sql("INSERT INTO openhouse.d1.view_case_test VALUES ('a', 1), ('b', 2)");
+
+      // Create a Spark view that references the column with lowercase "id".
+      // With caseSensitive=true this view definition would fail to resolve; with
+      // caseSensitive=false (forced by catalog init) it must work.
+      spark.sql(
+          "CREATE OR REPLACE TEMP VIEW v_case AS SELECT id, count FROM openhouse.d1.view_case_test");
+
+      // Re-simulate caseSensitive=true then re-initialize to confirm override is idempotent.
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      getOpenHouseCatalog(spark);
+      Assertions.assertEquals("false", spark.conf().get("spark.sql.caseSensitive"));
+
+      // Reading via the view should also work.
+      List<Row> rows = spark.sql("SELECT * FROM v_case ORDER BY id").collectAsList();
+      Assertions.assertEquals(2, rows.size());
+
+      spark.sql("DROP TABLE openhouse.d1.view_case_test");
+    }
+  }
 }
