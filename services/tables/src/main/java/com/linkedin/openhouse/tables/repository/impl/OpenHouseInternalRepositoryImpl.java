@@ -461,6 +461,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Schema tableSchema,
       TableDto tableDto,
       UpdateProperties updateProperties) {
+    // Normalize top-level column names in writeSchema to use the casing already present in
+    // tableSchema (matched by Iceberg field ID). This enables case-insensitive writes: a writer
+    // that submits "id" for a table column named "ID" will have its schema normalized to "ID"
+    // before any comparison or storage, so the table's existing casing is never changed.
+    // Tables where two columns share a case-folded name are excluded (ambiguous target column).
+    if (!BaseIcebergSchemaValidator.hasCaseDuplicateFields(tableSchema)) {
+      writeSchema =
+          BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
+    }
     if (!writeSchema.sameSchema(tableSchema)) {
       try {
         schemaValidator.validateWriteSchema(tableSchema, writeSchema, tableDto.getTableUri());
