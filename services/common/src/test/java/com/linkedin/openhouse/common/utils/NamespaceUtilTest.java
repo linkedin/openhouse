@@ -8,38 +8,38 @@ import org.junit.jupiter.api.Test;
 public class NamespaceUtilTest {
 
   @Test
-  public void testIsSingleLevel() {
-    Assertions.assertFalse(NamespaceUtil.isSingleLevel(null));
-    Assertions.assertFalse(NamespaceUtil.isSingleLevel(Namespace.empty()));
-    Assertions.assertTrue(NamespaceUtil.isSingleLevel(Namespace.of("db")));
-    Assertions.assertFalse(NamespaceUtil.isSingleLevel(Namespace.of("a", "b")));
-    Assertions.assertFalse(NamespaceUtil.isSingleLevel(Namespace.of("a", "b", "c")));
+  public void testIsTableNamespace() {
+    Assertions.assertFalse(NamespaceUtil.isTableNamespace(null));
+    Assertions.assertFalse(NamespaceUtil.isTableNamespace(Namespace.empty()));
+    Assertions.assertTrue(NamespaceUtil.isTableNamespace(Namespace.of("db")));
+    Assertions.assertFalse(NamespaceUtil.isTableNamespace(Namespace.of("a", "b")));
+    Assertions.assertFalse(NamespaceUtil.isTableNamespace(Namespace.of("a", "b", "c")));
   }
 
   @Test
-  public void testCheckAtMostSingleLevelNamespaceAllowsEmpty() {
+  public void testValidateOperationNamespaceAllowsEmpty() {
     Assertions.assertDoesNotThrow(
-        () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.empty()));
+        () -> NamespaceUtil.validateOperationNamespace(Namespace.empty()));
   }
 
   @Test
-  public void testCheckAtMostSingleLevelNamespaceAllowsSingleLevel() {
+  public void testValidateOperationNamespaceAllowsSingleLevel() {
     Assertions.assertDoesNotThrow(
-        () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.of("db")));
+        () -> NamespaceUtil.validateOperationNamespace(Namespace.of("db")));
   }
 
   @Test
-  public void testCheckAtMostSingleLevelNamespaceRejectsMultiLevel() {
+  public void testValidateOperationNamespaceRejectsMultiLevel() {
     ValidationException twoLevel =
         Assertions.assertThrows(
             ValidationException.class,
-            () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.of("a", "b")));
+            () -> NamespaceUtil.validateOperationNamespace(Namespace.of("a", "b")));
     Assertions.assertEquals("Input namespace has more than one levels a.b", twoLevel.getMessage());
 
     ValidationException threeLevel =
         Assertions.assertThrows(
             ValidationException.class,
-            () -> NamespaceUtil.checkAtMostSingleLevelNamespace(Namespace.of("a", "b", "c")));
+            () -> NamespaceUtil.validateOperationNamespace(Namespace.of("a", "b", "c")));
     Assertions.assertEquals(
         "Input namespace has more than one levels a.b.c", threeLevel.getMessage());
   }
