@@ -7,6 +7,7 @@ import org.apache.spark.sql.SparkSessionExtensions
 class OpenhouseSparkSessionExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
     extensions.injectParser { case (_, parser) => new OpenhouseSparkSqlExtensionsParser(parser) }
-    extensions.injectPlannerStrategy( spark => OpenhouseDataSourceV2Strategy(spark))
+    extensions.injectPlannerStrategy(spark => OpenhouseDataSourceV2Strategy(spark))
+    extensions.injectResolutionRule(spark => new OHCaseInsensitiveResolveRule(spark))
   }
 }

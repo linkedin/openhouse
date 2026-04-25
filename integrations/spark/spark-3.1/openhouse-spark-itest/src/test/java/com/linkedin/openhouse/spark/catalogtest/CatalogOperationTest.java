@@ -403,4 +403,100 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(SortOrder.unsorted(), newSqlTable.sortOrder());
     }
   }
+
+  // ===== Case-insensitive reads (OHCaseInsensitiveResolveRule) =====
+
+  @Test
+  public void testReadWithCaseMismatchSucceeds_andDoesNotChangeCaseSensitiveConfig()
+      throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // Create a table with uppercase column "ID" — typical for tables originally created
+      // by Hive or engines that preserve user-specified casing.
+      Catalog catalog = getOpenHouseCatalog(spark);
+      Schema schema =
+          new Schema(
+              Types.NestedField.required(1, "ID", Types.StringType.get()),
+              Types.NestedField.optional(2, "value", Types.LongType.get()));
+      catalog.createTable(TableIdentifier.of("d1", "case_read_test"), schema);
+      spark.sql("INSERT INTO openhouse.d1.case_read_test VALUES ('row1', 42)");
+
+      // With caseSensitive=true, vanilla Spark would reject "id" as unresolved against "ID".
+      // OHCaseInsensitiveResolveRule normalizes the attribute before ResolveReferences runs,
+      // so the query must succeed — and crucially must NOT change the session setting.
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      try {
+        List<Row> rows = spark.sql("SELECT id FROM openhouse.d1.case_read_test").collectAsList();
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertEquals("row1", rows.get(0).getString(0));
+
+        // The rule must NOT mutate spark.sql.caseSensitive — that is the whole point of moving
+        // away from the session-level override approach.
+        Assertions.assertEquals(
+            "true",
+            spark.conf().get("spark.sql.caseSensitive"),
+            "OHCaseInsensitiveResolveRule must not modify spark.sql.caseSensitive");
+      } finally {
+        spark.conf().set("spark.sql.caseSensitive", "false");
+        spark.sql("DROP TABLE openhouse.d1.case_read_test");
+      }
+    }
+  }
+
+  @Test
+  public void testViewWithCaseMismatchResolvesViaRule() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // Create a table with uppercase "ID" column.
+      Catalog catalog = getOpenHouseCatalog(spark);
+      Schema schema =
+          new Schema(
+              Types.NestedField.required(1, "ID", Types.StringType.get()),
+              Types.NestedField.optional(2, "count", Types.LongType.get()));
+      catalog.createTable(TableIdentifier.of("d1", "view_case_test"), schema);
+      spark.sql("INSERT INTO openhouse.d1.view_case_test VALUES ('a', 1), ('b', 2)");
+
+      // A view whose SQL references lowercase "id" against a table that stores "ID".
+      // With caseSensitive=true and without the rule this view would fail to resolve.
+      spark.sql(
+          "CREATE OR REPLACE TEMP VIEW v_case AS "
+              + "SELECT id, count FROM openhouse.d1.view_case_test");
+
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      try {
+        // Reading via the view triggers the same resolution path; the rule normalizes the
+        // inlined view SQL and the query must return all rows.
+        List<Row> rows = spark.sql("SELECT * FROM v_case ORDER BY id").collectAsList();
+        Assertions.assertEquals(2, rows.size());
+
+        Assertions.assertEquals(
+            "true",
+            spark.conf().get("spark.sql.caseSensitive"),
+            "OHCaseInsensitiveResolveRule must not modify spark.sql.caseSensitive");
+      } finally {
+        spark.conf().set("spark.sql.caseSensitive", "false");
+        spark.sql("DROP TABLE openhouse.d1.view_case_test");
+      }
+    }
+  }
+
+  @Test
+  public void testCaseDuplicateTableIsExcludedFromNormalization() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // The OH server validates schemas on write and rejects case-duplicate column names (columns
+      // whose names differ only in casing, e.g. "id" and "ID"). This server-side guard is the
+      // primary defence: it prevents such tables from ever being created.
+      // OHCaseInsensitiveResolveRule
+      // contains a matching defensive exclusion so that, if a case-duplicate table somehow existed
+      // (e.g. pre-dating the server-side validation), the rule skips normalization rather than
+      // silently misdirecting column references.
+      Catalog catalog = getOpenHouseCatalog(spark);
+      Schema schema =
+          new Schema(
+              Types.NestedField.required(1, "id", Types.StringType.get()),
+              Types.NestedField.optional(2, "ID", Types.StringType.get()));
+      Assertions.assertThrows(
+          Exception.class,
+          () -> catalog.createTable(TableIdentifier.of("d1", "case_dup_test"), schema),
+          "OH server must reject table creation with case-duplicate column names");
+    }
+  }
 }
