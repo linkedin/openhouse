@@ -489,24 +489,22 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
   public void testCaseDuplicateTableIsExcludedFromNormalization() throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      // A table with both "id" (field 1) and "ID" (field 2) — a case-duplicate table.
-      // The rule must NOT attempt normalization on such tables because the target is ambiguous.
+      // The OH server validates schemas on write and rejects case-duplicate column names (columns
+      // whose names differ only in casing, e.g. "id" and "ID"). This server-side guard is the
+      // primary defence: it prevents such tables from ever being created.
+      // OHCaseInsensitiveResolveRule
+      // contains a matching defensive exclusion so that, if a case-duplicate table somehow existed
+      // (e.g. pre-dating the server-side validation), the rule skips normalization rather than
+      // silently misdirecting column references.
       Catalog catalog = getOpenHouseCatalog(spark);
       Schema schema =
           new Schema(
               Types.NestedField.required(1, "id", Types.StringType.get()),
               Types.NestedField.optional(2, "ID", Types.StringType.get()));
-      catalog.createTable(TableIdentifier.of("d1", "case_dup_test"), schema);
-      spark.sql("INSERT INTO openhouse.d1.case_dup_test VALUES ('lower', 'upper')");
-
-      // caseSensitive=false (default): both columns exist and are individually accessible by
-      // exact name. The ambiguous reference "id" should raise AnalysisException.
       Assertions.assertThrows(
           Exception.class,
-          () -> spark.sql("SELECT id FROM openhouse.d1.case_dup_test").collectAsList(),
-          "Ambiguous reference against case-duplicate table must throw");
-
-      spark.sql("DROP TABLE openhouse.d1.case_dup_test");
+          () -> catalog.createTable(TableIdentifier.of("d1", "case_dup_test"), schema),
+          "OH server must reject table creation with case-duplicate column names");
     }
   }
 }
