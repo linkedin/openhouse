@@ -24,12 +24,23 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * identify the paths that currently fail, establishing a baseline before any server-side or
  * client-side fixes are applied.
  *
- * <p>Key finding: {@code df.writeTo().append()} and SQL writes with {@code
- * spark.sql.caseSensitive=false} (the default) already work because Spark resolves column names
- * case-insensitively at analysis time. The server always receives the write using the existing
- * stored casing, so {@code writeSchema.sameSchema(tableSchema)} is {@code true} and no validation
- * is triggered. The server-side normalization fix is therefore needed only for non-Spark clients
- * (Trino DML, direct REST) that send column names in a different case in the PATCH body.
+ * <p>Key findings:
+ *
+ * <ul>
+ *   <li><b>Positional INSERT</b> (no column list) always succeeds — no name matching is required.
+ *   <li><b>Explicit column-list INSERT</b> always fails in Spark 3.1 when casing differs from the
+ *       stored schema, even with {@code caseSensitive=false}. Spark 3.1's {@code ResolveInsertInto}
+ *       rule matches the INSERT column list case-sensitively regardless of the configuration
+ *       setting.
+ *   <li><b>{@code df.writeTo().append()}</b> succeeds with {@code caseSensitive=false} (the
+ *       default): Spark's Iceberg integration maps DataFrame column names to table column names
+ *       case-insensitively at analysis time. The server always receives the write using the
+ *       existing stored casing, so {@code writeSchema.sameSchema(tableSchema)} is {@code true} and
+ *       no validation is triggered. With {@code caseSensitive=true} it fails.
+ * </ul>
+ *
+ * <p>The server-side normalization fix is therefore needed for non-Spark clients (Trino DML, direct
+ * REST) that send column names in a different case in the PATCH body.
  */
 @ExtendWith(SparkTestBase.class)
 public class CaseInsensitiveWriteTest {
@@ -95,18 +106,20 @@ public class CaseInsensitiveWriteTest {
   }
 
   /**
-   * Writes succeed with an explicit (differently-cased) column list when {@code
-   * spark.sql.caseSensitive=false} (the Spark default).
+   * Writes fail with an explicit (differently-cased) column list even when {@code
+   * spark.sql.caseSensitive=false} (the Spark default) in Spark 3.1.
    *
-   * <p>Spark's case-insensitive analyzer resolves {@code id} to the stored column {@code ID} before
-   * the write reaches the server. The server receives a write schema that exactly matches the table
-   * schema, so no validation error occurs.
+   * <p>Spark 3.1's {@code ResolveInsertInto} rule does <em>not</em> apply the {@code caseSensitive}
+   * configuration when resolving the explicit column list of an INSERT statement. It matches column
+   * names exactly (case-sensitively) regardless of the setting. Here {@code id} does not exactly
+   * match the stored {@code ID}, so the column is silently dropped and only one value column
+   * survives analysis, causing an {@code AnalysisException: not enough data columns}.
    *
-   * <p>This is the behavior the reviewer observed: with default Spark settings, writes with
-   * different column casing already work end-to-end.
+   * <p>This means the {@code spark.sql.caseSensitive} flag only applies to column references in
+   * SELECT expressions, not to the column list of INSERT statements in Spark 3.1.
    */
   @Test
-  public void testExplicitColumnInsert_succeedsWithDefaultCaseSensitivity() {
+  public void testExplicitColumnInsert_failsEvenWithDefaultCaseSensitivity() {
     TableIdentifier tableId = TableIdentifier.of("dbCaseWrite", "explicit");
     Object tableResponse =
         mockGetTableResponseBody(
@@ -120,37 +133,26 @@ public class CaseInsensitiveWriteTest {
             SCHEMA_UPPERCASE_ID,
             null,
             null);
-    Object tableAfterInsert =
-        mockGetTableResponseBody(
-            "dbCaseWrite",
-            "explicit",
-            "c1",
-            "dbCaseWrite.explicit",
-            "UUID2",
-            mockTableLocationAfterOperation(
-                tableId, "INSERT INTO %t (id, value) VALUES ('row1', 'v1')"),
-            "v2",
-            SCHEMA_UPPERCASE_ID,
-            null,
-            null);
 
+    // Analysis fails before the write is submitted; only doRefresh responses are needed.
     mockTableService.enqueue(mockResponse(200, tableResponse)); // doRefresh
     mockTableService.enqueue(mockResponse(200, tableResponse)); // doRefresh
-    mockTableService.enqueue(mockResponse(200, tableAfterInsert)); // doCommit
-    mockTableService.enqueue(mockResponse(200, tableAfterInsert)); // doRefresh
-    mockTableService.enqueue(mockResponse(200, tableAfterInsert)); // doRefresh
 
-    // spark.sql.caseSensitive defaults to false; Spark resolves "id" -> "ID" at analysis time.
-    // The server receives the write with the correct "ID" casing → no validation error.
-    Assertions.assertDoesNotThrow(
+    // caseSensitive defaults to false, but Spark 3.1 still matches the INSERT column list
+    // case-sensitively: "id" does not match stored "ID" → AnalysisException.
+    Assertions.assertThrows(
+        Exception.class,
         () ->
             spark.sql(
-                "INSERT INTO openhouse.dbCaseWrite.explicit (id, value) VALUES ('row1', 'v1')"));
+                "INSERT INTO openhouse.dbCaseWrite.explicit (id, value) VALUES ('row1', 'v1')"),
+        "Spark 3.1 INSERT column list is case-sensitive: 'id' must not match stored 'ID'");
   }
 
   /**
    * Writes fail with an explicit (differently-cased) column list when {@code
-   * spark.sql.caseSensitive=true}.
+   * spark.sql.caseSensitive=true}, confirming that the failure observed in {@link
+   * #testExplicitColumnInsert_failsEvenWithDefaultCaseSensitivity()} is not made worse by enabling
+   * case sensitivity — both modes fail for the same reason.
    *
    * <p>With case-sensitive resolution, Spark cannot match {@code id} to the stored column {@code
    * ID} and throws {@code AnalysisException} on the client before the request reaches the server.
