@@ -297,4 +297,66 @@ public class CaseInsensitiveWriteTest {
 
     Assertions.assertDoesNotThrow(() -> df.writeTo("openhouse.dbCaseWrite.dfWriteUpper").append());
   }
+
+  /**
+   * {@code df.writeTo().append()} fails when {@code spark.sql.caseSensitive=true} and the DataFrame
+   * column names differ in casing from the stored schema.
+   *
+   * <p>With case-sensitive resolution, Spark cannot match {@code test} or {@code TEST} to the
+   * stored column {@code TeSt} and throws {@code AnalysisException} before the write reaches the
+   * server. Both the lowercase and ALL-CAPS variants fail for the same reason.
+   */
+  @Test
+  public void testDataFrameWriteTo_failsWhenCaseSensitiveEnabled() {
+    TableIdentifier tableId = TableIdentifier.of("dbCaseWrite", "dfWriteCaseSensitive");
+    Object tableResponse =
+        mockGetTableResponseBody(
+            "dbCaseWrite",
+            "dfWriteCaseSensitive",
+            "c1",
+            "dbCaseWrite.dfWriteCaseSensitive",
+            "UUID6",
+            mockTableLocation(tableId, "TeSt string, id bigint", ""),
+            "v1",
+            SCHEMA_MIXED_CASE,
+            null,
+            null);
+
+    // Two doRefresh responses for Variant A (analysis fails before commit).
+    mockTableService.enqueue(mockResponse(200, tableResponse));
+    mockTableService.enqueue(mockResponse(200, tableResponse));
+
+    spark.conf().set("spark.sql.caseSensitive", "true");
+    try {
+      // Variant A: lowercase "test" vs stored "TeSt".
+      StructType lowerSchema =
+          new StructType()
+              .add("test", DataTypes.StringType, false)
+              .add("id", DataTypes.LongType, false);
+      Dataset<Row> dfLower =
+          spark.createDataFrame(Arrays.asList(RowFactory.create("TestValue2", 2L)), lowerSchema);
+      Assertions.assertThrows(
+          Exception.class,
+          () -> dfLower.writeTo("openhouse.dbCaseWrite.dfWriteCaseSensitive").append(),
+          "With caseSensitive=true, lowercase 'test' must not match stored 'TeSt'");
+
+      // Two doRefresh responses for Variant B (analysis fails before commit).
+      mockTableService.enqueue(mockResponse(200, tableResponse));
+      mockTableService.enqueue(mockResponse(200, tableResponse));
+
+      // Variant B: ALL-CAPS "TEST" vs stored "TeSt".
+      StructType upperSchema =
+          new StructType()
+              .add("TEST", DataTypes.StringType, false)
+              .add("id", DataTypes.LongType, false);
+      Dataset<Row> dfUpper =
+          spark.createDataFrame(Arrays.asList(RowFactory.create("TestValue3", 3L)), upperSchema);
+      Assertions.assertThrows(
+          Exception.class,
+          () -> dfUpper.writeTo("openhouse.dbCaseWrite.dfWriteCaseSensitive").append(),
+          "With caseSensitive=true, ALL-CAPS 'TEST' must not match stored 'TeSt'");
+    } finally {
+      spark.conf().set("spark.sql.caseSensitive", "false");
+    }
+  }
 }
