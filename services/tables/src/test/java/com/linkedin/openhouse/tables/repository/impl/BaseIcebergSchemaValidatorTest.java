@@ -212,6 +212,32 @@ public class BaseIcebergSchemaValidatorTest {
   }
 
   @Test
+  void validateWriteSchema_passes_afterCasingNormalization_withColumnAddition() {
+    // Table has "ID" (id=1); writer submits "id" (id=1) with an extra new column (id=2).
+    // After normalization "id" → "ID", sameSchema is false so validateWriteSchema is called.
+    // The evolution is valid (existing field ID unchanged, new column appended) — must succeed.
+    Schema tableSchema = new Schema(Types.NestedField.required(1, "ID", Types.StringType.get()));
+    Schema writeSchema =
+        new Schema(
+            Types.NestedField.required(1, "id", Types.StringType.get()),
+            Types.NestedField.optional(2, "new_col", Types.LongType.get()));
+
+    assertFalse(
+        SchemaValidationUtil.hasDuplicateCaseInsensitiveColumnNames(tableSchema),
+        "table has no case duplicates, normalization should apply");
+
+    Schema normalized =
+        BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
+
+    assertEquals("ID", normalized.findField(1).name(), "existing column must be normalized");
+    assertEquals("new_col", normalized.findField(2).name(), "new column must be preserved as-is");
+
+    assertDoesNotThrow(
+        () -> VALIDATOR.validateWriteSchema(tableSchema, normalized, "db.table"),
+        "validateWriteSchema must accept valid column addition after casing normalization");
+  }
+
+  @Test
   void validateWriteSchema_fails_forCaseDuplicateTable_withMismatchedCasing() {
     // Table has case-duplicate columns — normalization is skipped for such tables.
     // Validator should still reject a write with mismatched casing on these tables.
