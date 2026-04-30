@@ -2,7 +2,7 @@ package com.linkedin.openhouse.spark.extensions
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.plans.logical.{LeafNode, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 
@@ -20,9 +20,13 @@ import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
  * {@code ResolveReferences} then finds an exact match on the next fixed-point iteration.
  *
  * <p>Scope: Only applies to tables backed by a catalog whose {@code catalog-impl} is configured
- * with "openhouse" (checked via the Spark conf). Tables where two or more columns share the same
- * case-folded name (ambiguous target) are excluded from normalization, consistent with the
- * server-side write-path guard.
+ * with "openhouse" (checked via the Spark conf). Two exclusions keep non-OH catalogs (Hive, other
+ * v2 catalogs) safe: (1) tables where two or more columns share the same case-folded name are
+ * skipped (ambiguous target), consistent with the server-side write-path guard; (2) column names
+ * that also appear in any non-OH resolved relation in the same plan are excluded — because
+ * {@code transformExpressions} walks the whole plan tree and cannot tell which
+ * {@link UnresolvedAttribute} belongs to which catalog, renaming a shared name could break
+ * resolution for non-OH references under {@code caseSensitive=true}.
  *
  * <p>The rule does NOT modify {@code spark.sql.caseSensitive} and has no effect on non-OH tables
  * or intermediate DataFrame operations in the same query.
@@ -51,11 +55,20 @@ class OHCaseInsensitiveResolveRule(spark: SparkSession) extends Rule[LogicalPlan
    * is configured with an OpenHouse catalog-impl) and returns a map of
    * {@code lowercase_column_name -> stored_column_name}.
    *
-   * Tables with case-duplicate columns (e.g. both "id" and "ID") are excluded: the target column
-   * is ambiguous and normalization could silently misdirect a read.
+   * Two exclusions apply:
+   * <ol>
+   *   <li>Tables with case-duplicate columns (e.g. both "id" and "ID") are skipped — the target
+   *       column is ambiguous and normalization could silently misdirect a read.</li>
+   *   <li>Column names that also appear (case-insensitively) in any non-OH resolved relation in
+   *       the same plan are excluded. [[plan.transformExpressions]] is applied to the whole plan
+   *       tree and cannot distinguish which [[UnresolvedAttribute]] belongs to which catalog.
+   *       Renaming a name that also exists in a Hive/other-catalog relation would corrupt
+   *       resolution for those references under {@code caseSensitive=true}.</li>
+   * </ol>
    */
   private def collectOHColumnMappings(plan: LogicalPlan): Map[String, String] = {
-    val builder = Map.newBuilder[String, String]
+    val ohBuilder = Map.newBuilder[String, String]
+    val nonOHLower = collection.mutable.Set[String]()
 
     plan.foreach {
       case rel: DataSourceV2Relation if isOHRelation(rel) =>
@@ -63,12 +76,19 @@ class OHCaseInsensitiveResolveRule(spark: SparkSession) extends Rule[LogicalPlan
         // Skip tables where two columns share the same case-folded name.
         val grouped = fieldNames.groupBy(_.toLowerCase)
         if (grouped.values.forall(_.size == 1)) {
-          fieldNames.foreach(name => builder += (name.toLowerCase -> name))
+          fieldNames.foreach(name => ohBuilder += (name.toLowerCase -> name))
         }
+      case node: LeafNode if node.resolved =>
+        // Track all column names from every other resolved relation (Hive, other v2 catalogs,
+        // file scans, etc.) so we can exclude ambiguous names below.
+        node.output.foreach(attr => nonOHLower += attr.name.toLowerCase)
       case _ =>
     }
 
-    builder.result()
+    // Only keep names that are unambiguously OH-specific. If the same case-folded name appears
+    // in a non-OH relation, skip the rename — we cannot tell which UnresolvedAttribute belongs
+    // to which catalog when transformExpressions walks the whole plan tree.
+    ohBuilder.result().filterKeys(k => !nonOHLower.contains(k))
   }
 
   /**

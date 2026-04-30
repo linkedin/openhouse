@@ -489,22 +489,32 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
   @Test
   public void testCaseDuplicateTableIsExcludedFromNormalization() throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      // The OH server validates schemas on write and rejects case-duplicate column names (columns
-      // whose names differ only in casing, e.g. "id" and "ID"). This server-side guard is the
-      // primary defence: it prevents such tables from ever being created.
-      // OHCaseInsensitiveResolveRule
-      // contains a matching defensive exclusion so that, if a case-duplicate table somehow existed
-      // (e.g. pre-dating the server-side validation), the rule skips normalization rather than
-      // silently misdirecting column references.
+      // The open-source server does not reject case-duplicate column names at CREATE TABLE time
+      // (that guard lives in the li-openhouse extension's LiSchemaValidator for schema evolution).
+      // Such a table can therefore exist, e.g. created before server-side validation was added.
+      // OHCaseInsensitiveResolveRule contains a matching defensive exclusion: it skips
+      // normalization for case-duplicate tables rather than silently misdirecting references.
+      // The net effect is that Spark's own ResolveReferences handles the ambiguous column, which
+      // raises an AnalysisException instead of resolving to the wrong column.
       Catalog catalog = getOpenHouseCatalog(spark);
       Schema schema =
           new Schema(
               Types.NestedField.required(1, "id", Types.StringType.get()),
               Types.NestedField.optional(2, "ID", Types.StringType.get()));
+
+      // CREATE succeeds — no CREATE-time case-duplicate validation in open-source server.
+      catalog.createTable(TableIdentifier.of("d1", "case_dup_test"), schema);
+      spark.sql("INSERT INTO openhouse.d1.case_dup_test VALUES ('lower', 'upper')");
+
+      // With caseSensitive=false (default), the ambiguous lowercase reference "id" must throw.
+      // The rule's empty mapping for this table means no silent rename occurs; Spark detects
+      // the ambiguity itself.
       Assertions.assertThrows(
           Exception.class,
-          () -> catalog.createTable(TableIdentifier.of("d1", "case_dup_test"), schema),
-          "OH server must reject table creation with case-duplicate column names");
+          () -> spark.sql("SELECT id FROM openhouse.d1.case_dup_test").collectAsList(),
+          "Ambiguous reference against case-duplicate table must throw");
+
+      spark.sql("DROP TABLE openhouse.d1.case_dup_test");
     }
   }
 }
