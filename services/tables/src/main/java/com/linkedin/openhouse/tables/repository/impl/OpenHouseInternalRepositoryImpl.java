@@ -34,6 +34,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,6 +42,8 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.BaseTransaction;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -48,6 +51,7 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
@@ -79,7 +83,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired private PoliciesSpecMapper policiesMapper;
 
-  @Autowired private TablePolicyUpdater tablePolicyUpdater;
+  @Autowired private TablePolicyManager tablePolicyManager;
 
   @Autowired PartitionSpecMapper partitionSpecMapper;
 
@@ -99,6 +103,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
+  @WithSpan("InternalRepository.save")
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
   public TableDto save(TableDto tableDto) {
@@ -122,6 +127,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           writeSchema,
           partitionSpec);
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
+      tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       String tableLocation =
           storageSelector
               .selectStorage(tableDto.getDatabaseId(), tableDto.getTableId())
@@ -140,6 +146,25 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           "create for table {} took {} ms",
           tableIdentifier,
           System.currentTimeMillis() - startTime);
+    } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
+      PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
+      log.info(
+          "Replacing a user table: {} with schema: {} and partitionSpec: {}",
+          tableIdentifier,
+          writeSchema,
+          partitionSpec);
+      Map<String, String> tableProps = computePropsForTableCreation(tableDto);
+      tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
+      SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
+      String tableLocation =
+          tableDto.getTableVersion().substring(0, tableDto.getTableVersion().lastIndexOf("/"));
+      table =
+          replaceTable(
+              tableIdentifier, writeSchema, partitionSpec, tableLocation, tableProps, sortOrder);
+      log.info(
+          "replace for table {} took {} ms",
+          tableIdentifier,
+          System.currentTimeMillis() - startTime);
     } else {
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
@@ -151,7 +176,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       boolean propsUpdated = doUpdateUserPropsIfNeeded(updateProperties, tableDto, table);
       boolean snapshotsUpdated = doUpdateSnapshotsIfNeeded(updateProperties, tableDto);
       boolean policiesUpdated =
-          tablePolicyUpdater.updatePoliciesIfNeeded(updateProperties, tableDto, table.properties());
+          tablePolicyManager.managePoliciesOnUpdateIfNeeded(
+              updateProperties, tableDto, table.properties());
       boolean sortOrderUpdated =
           doUpdateSortOrderIfNeeded(updateProperties, tableDto, table, writeSchema);
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
@@ -203,6 +229,31 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .withProperties(tableProps)
         .withSortOrder(sortOrder)
         .create();
+  }
+
+  protected Table replaceTable(
+      TableIdentifier tableIdentifier,
+      Schema writeSchema,
+      PartitionSpec partitionSpec,
+      String tableLocation,
+      Map<String, String> tableProps,
+      SortOrder sortOrder) {
+    BaseTransaction txn =
+        (BaseTransaction)
+            catalog
+                .buildTable(tableIdentifier, writeSchema)
+                .withPartitionSpec(partitionSpec)
+                .withLocation(tableLocation)
+                .withProperties(tableProps)
+                .withSortOrder(sortOrder)
+                .replaceTransaction();
+    txn.commitTransaction();
+    // The transaction's table would refresh metadata from HTS on access, returning stale metadata.
+    // Instead, use underlyingOps which has refresh disabled after commit and still holds the
+    // newly committed metadata.
+    TableOperations ops = txn.underlyingOps();
+    String fullname = "openhouse." + tableIdentifier.namespace() + "." + tableIdentifier.name();
+    return new BaseTable(ops, fullname);
   }
 
   private boolean doUpdateSortOrderIfNeeded(
@@ -263,6 +314,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * Check the eligibility of table updates. Throw exceptions when invalidate behaviors detected for
    * {@link com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler} to deal with
    */
+  @WithSpan("InternalRepository.updateEligibilityCheck")
   protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
     if (!skipEligibilityCheck(existingTable.properties(), tableDto.getTableProperties())) {
       // eligibility check is relaxed for request from replication flow since preserved properties
@@ -377,7 +429,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String htsFieldName : HTS_FIELD_NAMES) {
       if (dtoMap.get(htsFieldName) != null) {
-        propertiesMap.put(getCanonicalFieldName(htsFieldName), dtoMap.get(htsFieldName));
+        if (htsFieldName.equals("tableLocation")) {
+          propertiesMap.put(
+              getCanonicalFieldName(htsFieldName), getSchemeLessPath(dtoMap.get(htsFieldName)));
+        } else {
+          propertiesMap.put(getCanonicalFieldName(htsFieldName), dtoMap.get(htsFieldName));
+        }
       }
     }
 
@@ -414,6 +471,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.isStageCreate()) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_CREATED_CTR_STAGED).increment();
       propertiesMap.put(IS_STAGE_CREATE_KEY, String.valueOf(tableDto.isStageCreate()));
+    }
+
+    if (tableDto.isStageReplace()) {
+      meterRegistry.counter(MetricsConstant.REPO_TABLE_REPLACED_CTR_STAGED).increment();
+      propertiesMap.put(IS_STAGE_REPLACE_KEY, String.valueOf(tableDto.isStageReplace()));
     }
 
     propertiesMap.put(

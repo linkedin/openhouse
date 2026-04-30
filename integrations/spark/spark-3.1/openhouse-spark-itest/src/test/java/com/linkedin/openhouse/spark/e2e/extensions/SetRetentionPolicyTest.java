@@ -60,6 +60,8 @@ public class SetRetentionPolicyTest {
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(201, tableAfterSetRetention)); // doCommit()
+    mockTableService.enqueue(
+        mockResponse(200, tableAfterSetRetention)); // doRefresh() after commit (Iceberg 1.2+)
     String ddlWithSchema = "ALTER TABLE openhouse.dbSetRetention.t1 SET POLICY (RETENTION=300d)";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
   }
@@ -110,6 +112,8 @@ public class SetRetentionPolicyTest {
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(201, tableAfterSetRetention)); // doCommit()
+    mockTableService.enqueue(
+        mockResponse(200, tableAfterSetRetention)); // doRefresh() after commit (Iceberg 1.2+)
     String ddlWithSchema = "ALTER TABLE openhouse.0_.0_ SET POLICY (RETENTION=300d)";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
   }
@@ -162,6 +166,8 @@ public class SetRetentionPolicyTest {
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(201, tableAfterSetRetention)); // doCommit()
+    mockTableService.enqueue(
+        mockResponse(200, tableAfterSetRetention)); // doRefresh() after commit (Iceberg 1.2+)
     String ddlWithSchema =
         "\n" + "alter table openhouse.dbSetRetention.t2 set  policy ( retention = 300d )\n";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
@@ -238,6 +244,8 @@ public class SetRetentionPolicyTest {
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(200, existingOpenhouseTable)); // doRefresh()
     mockTableService.enqueue(mockResponse(201, tableAfterSetRetention)); // doCommit()
+    mockTableService.enqueue(
+        mockResponse(200, tableAfterSetRetention)); // doRefresh() after commit (Iceberg 1.2+)
     String ddlWithSchema = "ALTER TABLE openhouse.`dbSetRetention`.t4 SET POLICY (RETENTION=300d)";
     Assertions.assertDoesNotThrow(() -> spark.sql(ddlWithSchema));
   }

@@ -34,7 +34,8 @@ public class LivyJobsCoordinatorTest {
             "test.jar",
             Collections.emptyList(),
             Maps.newHashMap(),
-            "livy");
+            "livy",
+            null);
     responseBody.addProperty("id", testExecutionId);
     ExchangeFunction exchangeFunction =
         request -> {
@@ -60,7 +61,8 @@ public class LivyJobsCoordinatorTest {
             "test.jar",
             Collections.emptyList(),
             Maps.newHashMap(),
-            "livy");
+            "livy",
+            null);
     ExchangeFunction exchangeFunction =
         request -> {
           Assertions.assertEquals(HttpMethod.POST, request.method());

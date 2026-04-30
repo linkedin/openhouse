@@ -1,0 +1,6 @@
+services:
+  openhouse-housetables:
+    volumes:
+      - ../../../../build/otel/opentelemetry-javaagent.jar:/home/openhouse/otel/opentelemetry-javaagent.jar:ro
+    environment:
+      - OTEL_SERVICE_NAME=openhouse-housetables

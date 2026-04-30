@@ -40,10 +40,6 @@ public class CTASTest {
             mockGetAllTableResponseBody())); // Verify table to create doesn't exist, in doRefresh()
     mockTableService.enqueue(
         mockResponse(
-            404, mockGetAllTableResponseBody())); // Verify database to create doesn't exist, in
-    // doRefresh()
-    mockTableService.enqueue(
-        mockResponse(
             404,
             mockGetAllTableResponseBody())); // Verify table to create doesn't exist, in doRefresh()
     mockTableService.enqueue(

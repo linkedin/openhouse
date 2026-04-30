@@ -3,8 +3,8 @@ ext {
 }
 
 dependencies {
-  implementation('com.linkedin.iceberg:iceberg-aws:' + icebergAwsVersion)
-  implementation('software.amazon.awssdk:s3:2.20.18')
-  implementation('software.amazon.awssdk:sts:2.20.18')
-  implementation('software.amazon.awssdk:url-connection-client:2.20.18')
+  api('com.linkedin.iceberg:iceberg-aws:' + icebergAwsVersion)
+  api('software.amazon.awssdk:s3:2.20.18')
+  api('software.amazon.awssdk:sts:2.20.18')
+  api('software.amazon.awssdk:url-connection-client:2.20.18')
 }

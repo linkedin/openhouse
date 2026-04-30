@@ -37,11 +37,11 @@ configurations {
 
 
 dependencies {
-  implementation project(':services:common')
-  implementation project(':iceberg:openhouse:htscatalog')
-  implementation project(':cluster:configs')
-  implementation project(':cluster:storage')
-  implementation project(':cluster:metrics')
+  api project(':services:common')
+  api project(':iceberg:openhouse:htscatalog')
+  api project(':cluster:configs')
+  api project(':cluster:storage')
+  api project(':cluster:metrics')
   implementation "com.github.spotbugs:spotbugs-annotations:4.8.1"
   // JAX-B dependencies for JDK 9+
   // See https://stackoverflow.com/questions/43574426 for details.
