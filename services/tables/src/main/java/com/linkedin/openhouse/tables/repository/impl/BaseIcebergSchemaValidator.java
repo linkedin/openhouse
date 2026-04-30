@@ -3,11 +3,8 @@ package com.linkedin.openhouse.tables.repository.impl;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.relocated.com.google.common.collect.MapDifference;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
@@ -28,57 +25,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class BaseIcebergSchemaValidator implements SchemaValidator {
-
-  /**
-   * Returns true if {@code schema} has, at any nesting depth, two sibling fields whose names differ
-   * only in case (e.g. {@code "id"} and {@code "ID"} inside the same struct). Such schemas are
-   * excluded from case-insensitive write normalization because the target field would be ambiguous.
-   *
-   * <p>Note: fields with the same name in <em>different</em> structs (e.g. {@code user.id} and
-   * {@code session.id}) are not considered duplicates — Iceberg's field-ID semantics treat them as
-   * independent fields.
-   */
-  static boolean hasCaseDuplicateFields(Schema schema) {
-    return Boolean.TRUE.equals(
-        TypeUtil.visit(
-            schema,
-            new TypeUtil.SchemaVisitor<Boolean>() {
-              @Override
-              public Boolean schema(Schema s, Boolean structResult) {
-                return structResult;
-              }
-
-              @Override
-              public Boolean struct(Types.StructType struct, List<Boolean> childResults) {
-                if (childResults.stream().anyMatch(Boolean.TRUE::equals)) return true;
-                Set<String> seen = new HashSet<>();
-                for (Types.NestedField f : struct.fields()) {
-                  if (!seen.add(f.name().toLowerCase(Locale.ROOT))) return true;
-                }
-                return false;
-              }
-
-              @Override
-              public Boolean field(Types.NestedField f, Boolean fieldResult) {
-                return fieldResult;
-              }
-
-              @Override
-              public Boolean list(Types.ListType l, Boolean elementResult) {
-                return elementResult;
-              }
-
-              @Override
-              public Boolean map(Types.MapType m, Boolean kRes, Boolean vRes) {
-                return Boolean.TRUE.equals(kRes) || Boolean.TRUE.equals(vRes);
-              }
-
-              @Override
-              public Boolean primitive(Type.PrimitiveType p) {
-                return false;
-              }
-            }));
-  }
 
   /**
    * Rewrites every field name in {@code writeSchema} — at top level <em>and</em> inside nested

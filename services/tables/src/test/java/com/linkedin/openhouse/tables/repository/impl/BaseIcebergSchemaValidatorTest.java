@@ -11,106 +11,6 @@ public class BaseIcebergSchemaValidatorTest {
 
   private static final BaseIcebergSchemaValidator VALIDATOR = new BaseIcebergSchemaValidator();
 
-  // ===== hasCaseDuplicateFields =====
-
-  @Test
-  void hasCaseDuplicateFields_returnsFalse_whenAllNamesUnique() {
-    Schema schema =
-        new Schema(
-            Types.NestedField.required(1, "id", Types.StringType.get()),
-            Types.NestedField.optional(2, "name", Types.StringType.get()));
-    assertFalse(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
-  @Test
-  void hasCaseDuplicateFields_returnsTrue_whenTwoColumnsDifferOnlyInCase() {
-    Schema schema =
-        new Schema(
-            Types.NestedField.required(1, "id", Types.StringType.get()),
-            Types.NestedField.optional(2, "ID", Types.StringType.get()));
-    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
-  @Test
-  void hasCaseDuplicateFields_returnsTrue_forMixedCaseDuplicate() {
-    Schema schema =
-        new Schema(
-            Types.NestedField.required(1, "datePartition", Types.StringType.get()),
-            Types.NestedField.optional(2, "datepartition", Types.StringType.get()),
-            Types.NestedField.optional(3, "value", Types.LongType.get()));
-    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
-  @Test
-  void hasCaseDuplicateFields_returnsFalse_whenSingleColumn() {
-    Schema schema = new Schema(Types.NestedField.required(1, "id", Types.StringType.get()));
-    assertFalse(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
-  @Test
-  void hasCaseDuplicateFields_returnsTrue_forCaseDuplicateInsideNestedStruct() {
-    // event: struct<ID: string, id: string> — siblings inside the nested struct are duplicates
-    Schema schema =
-        new Schema(
-            Types.NestedField.optional(
-                1,
-                "event",
-                Types.StructType.of(
-                    Types.NestedField.required(2, "ID", Types.StringType.get()),
-                    Types.NestedField.optional(3, "id", Types.StringType.get()))));
-    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
-  @Test
-  void hasCaseDuplicateFields_returnsFalse_forSameNameInDifferentStructs() {
-    // user.id and session.id are in different structs — not siblings, not duplicates
-    Schema schema =
-        new Schema(
-            Types.NestedField.optional(
-                1,
-                "user",
-                Types.StructType.of(Types.NestedField.required(2, "id", Types.StringType.get()))),
-            Types.NestedField.optional(
-                3,
-                "session",
-                Types.StructType.of(Types.NestedField.required(4, "id", Types.StringType.get()))));
-    assertFalse(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
-  @Test
-  void hasCaseDuplicateFields_returnsTrue_forCaseDuplicateInsideListElement() {
-    // events: list<struct<ID: string, id: string>> — duplicate inside the list element struct
-    Schema schema =
-        new Schema(
-            Types.NestedField.optional(
-                1,
-                "events",
-                Types.ListType.ofOptional(
-                    2,
-                    Types.StructType.of(
-                        Types.NestedField.required(3, "ID", Types.StringType.get()),
-                        Types.NestedField.optional(4, "id", Types.StringType.get())))));
-    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
-  @Test
-  void hasCaseDuplicateFields_returnsTrue_forCaseDuplicateInsideMapValue() {
-    // metadata: map<string, struct<ID: string, id: string>> — duplicate in map value struct
-    Schema schema =
-        new Schema(
-            Types.NestedField.optional(
-                1,
-                "metadata",
-                Types.MapType.ofOptional(
-                    2,
-                    3,
-                    Types.StringType.get(),
-                    Types.StructType.of(
-                        Types.NestedField.required(4, "ID", Types.StringType.get()),
-                        Types.NestedField.optional(5, "id", Types.StringType.get())))));
-    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
-  }
-
   // ===== normalizeSchemaCasingToTable =====
 
   @Test
@@ -299,7 +199,7 @@ public class BaseIcebergSchemaValidatorTest {
     Schema writeSchema = new Schema(Types.NestedField.required(1, "id", Types.StringType.get()));
 
     assertFalse(
-        BaseIcebergSchemaValidator.hasCaseDuplicateFields(tableSchema),
+        SchemaValidationUtil.hasDuplicateCaseInsensitiveColumnNames(tableSchema),
         "table has no case duplicates, normalization should apply");
 
     Schema normalized =
@@ -325,7 +225,7 @@ public class BaseIcebergSchemaValidatorTest {
             Types.NestedField.optional(2, "ID", Types.StringType.get()));
 
     assertTrue(
-        BaseIcebergSchemaValidator.hasCaseDuplicateFields(tableSchema),
+        SchemaValidationUtil.hasDuplicateCaseInsensitiveColumnNames(tableSchema),
         "table should be detected as having case-duplicate columns");
 
     // Since normalization is skipped, validateWriteSchema sees "Id" vs expected "id" → failure

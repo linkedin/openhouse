@@ -466,7 +466,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     // that submits "id" for a table column named "ID" will have its schema normalized to "ID"
     // before any comparison or storage, so the table's existing casing is never changed.
     // Tables where two columns share a case-folded name are excluded (ambiguous target column).
-    if (!BaseIcebergSchemaValidator.hasCaseDuplicateFields(tableSchema)) {
+    if (!SchemaValidationUtil.hasDuplicateCaseInsensitiveColumnNames(tableSchema)) {
       writeSchema =
           BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
     }
