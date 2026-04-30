@@ -24,7 +24,8 @@ public class CTASNonNullTestSpark3_5 extends OpenHouseSparkITest {
 
       // Verify spark catalogs have correct classes configured
       assertEquals(
-          "org.apache.iceberg.spark.SparkCatalog", spark.conf().get("spark.sql.catalog.openhouse"));
+          "com.linkedin.openhouse.spark.OHSparkCatalog",
+          spark.conf().get("spark.sql.catalog.openhouse"));
 
       // Verify id column is preserved in good catalog, not preserved in bad catalog
       assertFalse(sourceSchema.apply("id").nullable(), "Source table id column should be required");

@@ -504,9 +504,9 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
 
       // CREATE succeeds — no CREATE-time case-duplicate validation in open-source server.
       catalog.createTable(TableIdentifier.of("d1", "case_dup_test"), schema);
-      spark.sql("INSERT INTO openhouse.d1.case_dup_test VALUES ('lower', 'upper')");
 
-      // With caseSensitive=false (default), the ambiguous lowercase reference "id" must throw.
+      // With caseSensitive=false (default), the ambiguous lowercase reference "id" must throw
+      // at analysis time — this is independent of whether the table has data.
       // The rule's empty mapping for this table means no silent rename occurs; Spark detects
       // the ambiguity itself.
       Assertions.assertThrows(
@@ -515,6 +515,45 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
           "Ambiguous reference against case-duplicate table must throw");
 
       spark.sql("DROP TABLE openhouse.d1.case_dup_test");
+    }
+  }
+
+  @Test
+  public void testWriteWithCaseMismatch_succeedsWithCaseSensitiveTrue() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // Create a table with uppercase column "ID" — the common case for tables originally created
+      // by Hive or engines that preserve user-specified casing.
+      Catalog catalog = getOpenHouseCatalog(spark);
+      Schema schema = new Schema(Types.NestedField.required(1, "ID", Types.StringType.get()));
+      catalog.createTable(TableIdentifier.of("d1", "write_case_test"), schema);
+
+      // With caseSensitive=true, Spark's ResolveOutputRelation uses a case-sensitive resolver and
+      // cannot find source column "id" in the target schema column "ID". Vanilla Spark would throw
+      // "Cannot find data for output column 'ID'" at analysis time.
+      //
+      // OHSparkCatalog advertises ACCEPT_ANY_SCHEMA so outputResolved=true and
+      // ResolveOutputRelation skips OH writes. OHWriteSchemaNormalizationRule (post-hoc) then
+      // inserts a Project(Alias("id" → "ID")) so Iceberg sees the correct stored casing.
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      try {
+        Assertions.assertDoesNotThrow(
+            () -> spark.sql("SELECT 'row1' AS id").writeTo("openhouse.d1.write_case_test").append(),
+            "writeTo().append() must succeed when source has lowercase 'id' and OH table has 'ID'");
+
+        // Verify the row was written with the correct stored casing.
+        List<Row> rows = spark.sql("SELECT id FROM openhouse.d1.write_case_test").collectAsList();
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertEquals("row1", rows.get(0).getString(0));
+
+        // The rule must NOT mutate spark.sql.caseSensitive.
+        Assertions.assertEquals(
+            "true",
+            spark.conf().get("spark.sql.caseSensitive"),
+            "OHWriteSchemaNormalizationRule must not modify spark.sql.caseSensitive");
+      } finally {
+        spark.conf().set("spark.sql.caseSensitive", "false");
+        spark.sql("DROP TABLE openhouse.d1.write_case_test");
+      }
     }
   }
 }
