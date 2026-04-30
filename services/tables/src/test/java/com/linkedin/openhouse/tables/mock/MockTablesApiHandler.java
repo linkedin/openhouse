@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
+import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -343,6 +344,9 @@ public class MockTablesApiHandler implements TablesApiHandler {
             "Unsupported Client Operation Exception");
       case "accessdeniedexception":
         throw new AccessDeniedException("Access Denied Exception");
+      case "invalidtablemetadataexception":
+        throw new InvalidTableMetadataException(
+            "testDb", "testTable", "corrupt metadata", new RuntimeException());
       case "illegalstateexception":
         throw new IllegalStateException("Illegal State Exception");
       case "authorizationserviceexception":

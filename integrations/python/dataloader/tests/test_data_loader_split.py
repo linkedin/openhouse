@@ -1,6 +1,8 @@
 """Tests for DataLoaderSplit functionality."""
 
 import os
+import pickle
+from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.orc as orc
@@ -17,9 +19,18 @@ from pyiceberg.table.name_mapping import create_mapping_from_schema
 from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
 from pyiceberg.types import BooleanType, DoubleType, LongType, NestedField, StringType
 
-from openhouse.dataloader.data_loader_split import DataLoaderSplit, TableScanContext
+from openhouse.dataloader.data_loader_split import (
+    DataLoaderSplit,
+    TableScanContext,
+    _bind_batch_table,
+    to_sql_identifier,
+)
+from openhouse.dataloader.table_identifier import TableIdentifier
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 FILE_FORMATS = pytest.mark.parametrize("file_format", [FileFormat.PARQUET, FileFormat.ORC], ids=["parquet", "orc"])
+
+_DEFAULT_TABLE_ID = TableIdentifier("test_db", "test_tbl")
 
 
 def _create_test_split(
@@ -27,6 +38,12 @@ def _create_test_split(
     table: pa.Table,
     file_format: FileFormat,
     iceberg_schema: Schema,
+    io_properties: dict[str, str] | None = None,
+    filename: str | None = None,
+    transform_sql: str | None = None,
+    table_id: TableIdentifier = _DEFAULT_TABLE_ID,
+    udf_registry: UDFRegistry | None = None,
+    batch_size: int | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -35,12 +52,17 @@ def _create_test_split(
         table: PyArrow table containing test data
         file_format: File format to use (PARQUET or ORC)
         iceberg_schema: Iceberg schema with field IDs for column mapping
+        io_properties: Optional properties passed to load_file_io (e.g. DEFAULT_SCHEME, DEFAULT_NETLOC)
+        filename: Optional filename override (default: test.<ext>)
+        transform_sql: Optional SQL transformation to apply
+        table_id: Table identifier for the scan context
+        udf_registry: Optional UDF registry for transform execution
 
     Returns:
         DataLoaderSplit configured to read the written test file
     """
     ext = file_format.name.lower()
-    file_path = str(tmp_path / f"test.{ext}")
+    file_path = str(tmp_path / (filename or f"test.{ext}"))
 
     properties = {}
     if file_format == FileFormat.PARQUET:
@@ -63,12 +85,10 @@ def _create_test_split(
 
     scan_context = TableScanContext(
         table_metadata=metadata,
-        io=load_file_io(properties={}, location=file_path),
+        io=load_file_io(properties=io_properties or {}, location=file_path),
         projected_schema=iceberg_schema,
+        table_id=table_id,
     )
-
-    ctx = SessionContext()
-    plan = ctx.sql("SELECT 1 as a").logical_plan()
 
     data_file = DataFile.from_args(
         file_path=file_path,
@@ -80,9 +100,11 @@ def _create_test_split(
     task = FileScanTask(data_file=data_file)
 
     return DataLoaderSplit(
-        plan=plan,
-        file_scan_task=task,
+        file_scan_tasks=[task],
         scan_context=scan_context,
+        transform_sql=transform_sql,
+        udf_registry=udf_registry,
+        batch_size=batch_size,
     )
 
 
@@ -144,3 +166,332 @@ def test_split_handles_wide_tables_with_many_columns(tmp_path, file_format):
 
     for i in range(num_cols):
         assert result.column(f"col_{i}").to_pylist() == list(range(5)), f"Column col_{i} values mismatch"
+
+
+_ID_SCHEMA = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
+_ID_TABLE = pa.table({"x": pa.array([1], type=pa.int64())})
+
+
+def test_split_id_differs_for_different_splits(tmp_path):
+    """Different splits produce different ids."""
+    split_a = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA, filename="a.parquet")
+    split_b = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA, filename="b.parquet")
+    assert split_a.id != split_b.id
+
+
+def test_split_id_is_deterministic(tmp_path):
+    """Two independently constructed splits from the same file produce the same id."""
+    split_a = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    split_b = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    assert split_a.id == split_b.id
+
+
+def test_split_id_ignores_default_netloc(tmp_path):
+    """The id depends only on the file path in the manifest, not the catalog's DEFAULT_NETLOC."""
+    netloc_a = "nn1.example.com:9000"
+    netloc_b = "nn2.example.com:9000"
+    split_a = _create_test_split(
+        tmp_path,
+        _ID_TABLE,
+        FileFormat.PARQUET,
+        _ID_SCHEMA,
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_a},
+    )
+    split_b = _create_test_split(
+        tmp_path,
+        _ID_TABLE,
+        FileFormat.PARQUET,
+        _ID_SCHEMA,
+        io_properties={"DEFAULT_SCHEME": "hdfs", "DEFAULT_NETLOC": netloc_b},
+    )
+
+    assert split_a.id == split_b.id
+
+    # Without this check, the test would pass even if DEFAULT_NETLOC was
+    # silently dropped — both splits share the same file path so their ids
+    # would match regardless. Spy on fs_by_scheme (where PyIceberg resolves
+    # scheme + netloc into a filesystem) to confirm each netloc is used.
+    local_fs = load_file_io(properties={}, location=str(tmp_path)).fs_by_scheme("file", None)
+    for split, expected_netloc in [(split_a, netloc_a), (split_b, netloc_b)]:
+        split._scan_context.io.fs_by_scheme = MagicMock(return_value=local_fs)
+        list(split)
+        split._scan_context.io.fs_by_scheme.assert_called_with("hdfs", expected_netloc)
+
+
+# --- Transform tests ---
+
+_TRANSFORM_SCHEMA = Schema(
+    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+    NestedField(field_id=2, name="name", field_type=StringType(), required=False),
+)
+
+_TABLE_ID = TableIdentifier("db", "tbl")
+
+_MASKING_SQL = f"SELECT id, 'MASKED' as name FROM {to_sql_identifier(_TABLE_ID)}"
+
+
+def _make_transform_split(tmp_path, table, transform_sql, table_id=_TABLE_ID):
+    """Create a DataLoaderSplit with a transform SQL string for testing."""
+    return _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
+        transform_sql=transform_sql,
+        table_id=table_id,
+    )
+
+
+class _CountingRegistry(UDFRegistry):
+    def __init__(self):
+        self.calls = 0
+
+    def register_udfs(self, session_context: SessionContext) -> None:
+        self.calls += 1
+
+
+def test_split_with_transformer_transforms_batches(tmp_path):
+    """A transformer that masks a column is applied to each batch."""
+    table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["alice", "bob"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    result = pa.Table.from_batches(list(split))
+
+    assert result.num_rows == 2
+    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+def test_split_with_transformer_and_empty_batches(tmp_path):
+    """An empty batch with a transformer yields no rows."""
+    table = pa.table(
+        {
+            "id": pa.array([], type=pa.int64()),
+            "name": pa.array([], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    batches = list(split)
+    total_rows = sum(b.num_rows for b in batches)
+    assert total_rows == 0
+
+
+def test_bind_batch_table_rebinds_each_batch():
+    """Batch binding always deregisters before registering to avoid collisions."""
+    session = MagicMock(spec=SessionContext)
+    batch = MagicMock(spec=pa.RecordBatch)
+
+    _bind_batch_table(session, _TABLE_ID, batch)
+
+    session.deregister_table.assert_called_once_with(to_sql_identifier(_TABLE_ID))
+    session.register_record_batches.assert_called_once_with(to_sql_identifier(_TABLE_ID), [[batch]])
+
+
+def test_split_transform_reuses_session_per_split_and_rebinds_per_batch(tmp_path, monkeypatch):
+    """Transform path uses one session per split and rebinds table for each batch."""
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+    registry = _CountingRegistry()
+    split = _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
+        transform_sql=_MASKING_SQL,
+        table_id=_TABLE_ID,
+        udf_registry=registry,
+    )
+
+    batch_one = pa.record_batch({"id": pa.array([1], type=pa.int64()), "name": pa.array(["alice"], type=pa.string())})
+    batch_two = pa.record_batch({"id": pa.array([2], type=pa.int64()), "name": pa.array(["bob"], type=pa.string())})
+
+    def _fake_to_record_batches(self, scan_tasks, **kwargs):
+        return iter([batch_one, batch_two])
+
+    monkeypatch.setattr("openhouse.dataloader.data_loader_split.ArrowScan.to_record_batches", _fake_to_record_batches)
+
+    result = pa.Table.from_batches(list(split)).sort_by("id")
+
+    assert registry.calls == 1
+    assert result.column("id").to_pylist() == [1, 2]
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+# --- Pickle tests ---
+
+
+def test_pickle_round_trip_no_plan(tmp_path):
+    """A split without a transform survives pickle round-trip."""
+    split = _create_test_split(tmp_path, _ID_TABLE, FileFormat.PARQUET, _ID_SCHEMA)
+    restored = pickle.loads(pickle.dumps(split))
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.column("x").to_pylist() == [1]
+
+
+def test_pickle_round_trip_with_transform(tmp_path):
+    """A split with transform SQL survives pickle round-trip."""
+    table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["alice", "bob"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    restored = pickle.loads(pickle.dumps(split))
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.num_rows == 2
+    assert result.column("name").to_pylist() == ["MASKED", "MASKED"]
+
+
+def test_pickle_double_round_trip(tmp_path):
+    """A split survives two pickle round-trips."""
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, _MASKING_SQL)
+    restored = pickle.loads(pickle.dumps(pickle.loads(pickle.dumps(split))))
+
+    result = pa.Table.from_batches(list(restored))
+    assert result.num_rows == 1
+    assert result.column("name").to_pylist() == ["MASKED"]
+
+
+# --- Identifier escaping tests ---
+
+
+def test_to_sql_identifier_escapes_double_quotes():
+    """to_sql_identifier escapes embedded double quotes."""
+    table_id = TableIdentifier('my"db', 'my"tbl')
+    assert to_sql_identifier(table_id) == '"my""db"."my""tbl"'
+
+
+def test_transform_with_quoted_identifier(tmp_path):
+    """A transform works when the table identifier contains characters that need escaping."""
+    table_id = TableIdentifier('test"db', "tbl")
+    sql = f"SELECT id, 'MASKED' as name FROM {to_sql_identifier(table_id)}"
+    table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "name": pa.array(["alice"], type=pa.string()),
+        }
+    )
+
+    split = _make_transform_split(tmp_path, table, sql, table_id=table_id)
+    result = pa.Table.from_batches(list(split))
+
+    assert result.num_rows == 1
+    assert result.column("name").to_pylist() == ["MASKED"]
+
+
+# --- JVM args tests ---
+
+
+def test_worker_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
+    """worker_jvm_args is applied to LIBHDFS_OPTS when iterating a split."""
+    from openhouse.dataloader._jvm import LIBHDFS_OPTS_ENV
+
+    monkeypatch.delenv(LIBHDFS_OPTS_ENV, raising=False)
+
+    table = pa.table({"x": [1]})
+    schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
+
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, schema)
+    split._scan_context = TableScanContext(
+        table_metadata=split._scan_context.table_metadata,
+        io=split._scan_context.io,
+        projected_schema=split._scan_context.projected_schema,
+        table_id=split._scan_context.table_id,
+        worker_jvm_args="-Xmx512m",
+    )
+
+    list(split)
+
+    assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx512m"
+
+
+# --- batch_size tests ---
+
+_BATCH_SCHEMA = Schema(
+    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+)
+
+
+def _make_table(num_rows: int) -> pa.Table:
+    return pa.table({"id": pa.array(list(range(num_rows)), type=pa.int64())})
+
+
+def test_split_batch_size_limits_rows_per_batch(tmp_path):
+    """When batch_size is set, each RecordBatch has at most that many rows."""
+    table = _make_table(100)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=10)
+
+    batches = list(split)
+
+    assert len(batches) >= 2, "Expected multiple batches with batch_size=10 and 100 rows"
+    for batch in batches:
+        assert batch.num_rows <= 10
+    assert sum(b.num_rows for b in batches) == 100
+
+
+def test_split_batch_size_none_returns_all_rows(tmp_path):
+    """Default batch_size (None) returns all data correctly."""
+    table = _make_table(50)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 50
+    assert sorted(result.column("id").to_pylist()) == list(range(50))
+
+
+def test_split_batch_size_preserves_data(tmp_path):
+    """batch_size controls chunking but all data is preserved."""
+    table = _make_table(25)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=7)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 25
+    assert sorted(result.column("id").to_pylist()) == list(range(25))
+
+
+# --- multi-file split tests ---
+
+
+def test_multi_file_split_returns_all_rows(tmp_path):
+    """A split with multiple files yields rows from all files."""
+    schema = _BATCH_SCHEMA
+    table_a = pa.table({"id": pa.array([1, 2, 3], type=pa.int64())})
+    table_b = pa.table({"id": pa.array([4, 5, 6], type=pa.int64())})
+    split_a = _create_test_split(tmp_path, table_a, FileFormat.PARQUET, schema, filename="a.parquet")
+    split_b = _create_test_split(tmp_path, table_b, FileFormat.PARQUET, schema, filename="b.parquet")
+
+    combined = DataLoaderSplit(
+        file_scan_tasks=split_a._file_scan_tasks + split_b._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    result = pa.Table.from_batches(list(combined))
+
+    assert result.num_rows == 6
+    assert sorted(result.column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
+
+    reversed_split = DataLoaderSplit(
+        file_scan_tasks=split_b._file_scan_tasks + split_a._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    assert reversed_split.id == combined.id

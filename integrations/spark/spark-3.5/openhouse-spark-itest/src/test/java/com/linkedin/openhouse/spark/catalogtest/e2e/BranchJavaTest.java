@@ -92,9 +92,9 @@ public class BranchJavaTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           5, list(table.snapshots()).size()); // 5 committed snapshots in snapshots list
 
-      // 4. Expiration - use epoch timestamp to ensure no test snapshots are expired
-      // This verifies that expiration doesn't break reachable snapshots without timing dependency
-      table.expireSnapshots().expireOlderThan(1L).commit();
+      // 4. Expiration (use 10s window to avoid flakiness in slow CI - we only need to verify
+      // expiration doesn't remove reachable snapshots)
+      table.expireSnapshots().expireOlderThan(System.currentTimeMillis() - 10_000).commit();
       table = catalog.loadTable(TableIdentifier.parse(name));
       // Should still have the latest snapshots on branches and main
       Assertions.assertNotNull(table.currentSnapshot());
@@ -126,8 +126,11 @@ public class BranchJavaTest extends OpenHouseSparkITest {
 
       // Verify sizes
       // Main history: snap1 -> snap2 -> snap3 -> snap4(cherry1) -> snap5(cherry2)
-      if (table.history().size() != 5) {
-        System.out.println("HISTORY SIZE MISMATCH: " + table.history().size());
+      int historySize = table.history().size();
+      int snapshotCount = list(table.snapshots()).size();
+      if (historySize != 5 || snapshotCount != 9) {
+        System.out.println("HISTORY SIZE: " + historySize + " (expected 5)");
+        System.out.println("SNAPSHOT COUNT: " + snapshotCount + " (expected 9)");
         System.out.println("Refs: " + table.refs());
         table
             .snapshots()
@@ -141,10 +144,12 @@ public class BranchJavaTest extends OpenHouseSparkITest {
                             + ", Ts: "
                             + s.timestampMillis()));
       }
-      Assertions.assertEquals(5, table.history().size());
+      Assertions.assertEquals(
+          5, historySize, "Main history should have 5 entries: snap1->snap2->snap3->snap4->snap5");
 
       // Total Snapshots: 5 (Main) + 2 (featureA unique) + 2 (featureB unique) = 9
-      Assertions.assertEquals(9, list(table.snapshots()).size());
+      Assertions.assertEquals(
+          9, snapshotCount, "Total snapshots should be 9 (5 main + 2 featureA + 2 featureB)");
 
       // Fast-forward / Staged
       table.newAppend().appendFile(F1).stageOnly().commit();

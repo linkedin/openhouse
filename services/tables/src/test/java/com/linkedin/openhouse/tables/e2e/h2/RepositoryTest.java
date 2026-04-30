@@ -95,6 +95,67 @@ public class RepositoryTest {
   }
 
   @Test
+  void testPoliciesKeyIsPreserved() {
+    // Verify that 'policies' is recognized as a preserved key
+    Assertions.assertTrue(preservedKeyChecker.isKeyPreserved("policies"));
+    Assertions.assertFalse(preservedKeyChecker.isKeyPreserved("userKey"));
+
+    // Verify that extractPreservedProps includes 'policies'
+    Map<String, String> inputMap = new HashMap<>();
+    inputMap.put("openhouse.key1", "value1");
+    inputMap.put("policies", "{\"retention\":{\"count\":3,\"granularity\":\"HOUR\"}}");
+    inputMap.put("userKey", "userValue");
+    TableDto mockTableDto = Mockito.mock(TableDto.class);
+
+    Map<String, String> result =
+        InternalRepositoryUtils.extractPreservedProps(inputMap, mockTableDto, preservedKeyChecker);
+
+    Assertions.assertEquals(2, result.size());
+    Assertions.assertTrue(result.containsKey("openhouse.key1"));
+    Assertions.assertTrue(result.containsKey("policies"));
+    Assertions.assertFalse(result.containsKey("userKey"));
+  }
+
+  @Test
+  public void testUpdateTableWithModifiedPoliciesInTablePropsBlocked() {
+    // Create a table with policies
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblPoliciesPreserved")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .policies(TABLE_POLICIES)
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+
+    // Attempt to update the table with modified 'policies' in tableProperties
+    Map<String, String> updatedTableProps = new HashMap<>(createdDto.getTableProperties());
+    updatedTableProps.put("policies", "{}");
+    TableDto updateDto =
+        createdDto
+            .toBuilder()
+            .tableId("tblPoliciesPreserved")
+            .tableVersion(createdDto.getTableLocation())
+            .tableProperties(updatedTableProps)
+            .build();
+
+    UnsupportedClientOperationException e =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> openHouseInternalRepository.save(updateDto));
+    Assertions.assertTrue(e.getMessage().contains("policies"));
+
+    // Cleanup
+    TableDtoPrimaryKey primaryKey =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblPoliciesPreserved")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
   public void testOpenHouseRepository() {
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
 
@@ -357,7 +418,7 @@ public class RepositoryTest {
         e.getMessage()
             .startsWith(
                 "Bad tblproperties provided: Can't add, alter or drop table properties due to the restriction: "
-                    + "[table properties starting with `openhouse.` cannot be modified], diff in existing "
+                    + "[table properties starting with `openhouse.` and the `policies` key cannot be modified], diff in existing "
                     + "& provided table properties: {"));
 
     openHouseInternalRepository.deleteById(primaryKey);

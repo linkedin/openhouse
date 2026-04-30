@@ -19,7 +19,7 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
    * in different environment.
    */
   public boolean isKeyPreserved(String key) {
-    return IS_OH_PREFIXED.test(key);
+    return IS_OH_PREFIXED.test(key) || InternalRepositoryUtils.POLICIES_KEY.equals(key);
   }
 
   /**
@@ -47,6 +47,6 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
 
   @Override
   public String describePreservedSpace() {
-    return "table properties starting with `openhouse.` cannot be modified";
+    return "table properties starting with `openhouse.` and the `policies` key cannot be modified";
   }
 }

@@ -30,4 +30,5 @@ public class JobLaunchConf implements Serializable {
   @Builder.Default private List<String> dependencies = new ArrayList<>();
   @Builder.Default private Map<String, String> sparkProperties = new HashMap<>();
   private String engineType;
+  private String sparkVersion;
 }
