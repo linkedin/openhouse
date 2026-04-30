@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.scheduler;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
 import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
@@ -34,6 +35,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +49,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -88,6 +92,7 @@ public class JobsScheduler {
   private static final int JOB_SUBMISSION_PAUSE_IN_MILLIS_DEFAULT = 60000;
   private static final int SUBMIT_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 30;
   private static final int STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT = 15;
+  private static final long SHUTDOWN_GRACE_PERIOD_MS_DEFAULT = 120_000;
   private static final String DURATION_FORMAT_DEFAULT = "HH:mm";
   private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
@@ -128,6 +133,7 @@ public class JobsScheduler {
   private final JobsClient jobsClient;
   private AtomicBoolean jobLaunchTasksSubmissionCompleted = new AtomicBoolean(false);
   private AtomicBoolean jobStatusTasksSubmissionCompleted = new AtomicBoolean(false);
+  private volatile boolean isShutdownInitiated = false;
 
   @Getter(AccessLevel.PROTECTED)
   private final OperationTaskManager operationTaskManager;
@@ -161,6 +167,21 @@ public class JobsScheduler {
     this.jobInfoManager = jobInfoManager;
     this.tasksBuilder = tasksBuilder;
     this.otelEmitter = otelEmitter;
+  }
+
+  /**
+   * Initiates a graceful shutdown of the scheduler. This is called from a JVM shutdown hook when
+   * SIGTERM is received. It sets the isShutdownInitiated flag to stop submission loops, clears
+   * pending task queues, and logs the current job state summary.
+   */
+  protected void initiateGracefulShutdown() {
+    log.info("Initiating graceful shutdown of scheduler...");
+    isShutdownInitiated = true;
+  }
+
+  @VisibleForTesting
+  boolean isShutdownInitiated() {
+    return isShutdownInitiated;
   }
 
   public static void main(String[] args) {
@@ -229,6 +250,21 @@ public class JobsScheduler {
             jobInfoManager,
             tasksBuilder,
             otelEmitter);
+    Thread mainThread = Thread.currentThread();
+    long shutdownGracePeriodMs = getShutdownGracePeriodMs(cmdLine);
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                () -> {
+                  log.info("SIGTERM received, initiating graceful shutdown of scheduler...");
+                  app.initiateGracefulShutdown();
+                  try {
+                    mainThread.join(shutdownGracePeriodMs);
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                  }
+                  log.info("Shutdown hook completed.");
+                }));
     app.run(
         operationType,
         operationTaskCls.toString(),
@@ -335,6 +371,12 @@ public class JobsScheduler {
           "Submitting and running {} jobs based on the job type: {}", taskList.size(), jobType);
 
       for (OperationTask<?> operationTask : taskList) {
+        if (isShutdownInitiated) {
+          log.info(
+              "Shutdown signal received, stopping sequential job submission for job type: {}",
+              jobType);
+          break;
+        }
         taskFutures.add(jobExecutors.submit(operationTask));
       }
       // get job status from task future and update job state for SINGLE mode
@@ -360,9 +402,10 @@ public class JobsScheduler {
         "The total run duration of job scheduler for job type {} is : {} hours (HH:mm format)",
         jobType,
         totalRunDuration);
-    jobExecutors.shutdown();
+    // All futures have been drained/resolved by this point, so no active tasks remain.
+    jobExecutors.shutdownNow();
     if (statusExecutors != null) {
-      statusExecutors.shutdown();
+      statusExecutors.shutdownNow();
     }
     otelEmitter.count(METRICS_SCOPE, "scheduler_end_count", 1, attributes);
     reportMetrics(jobStateCountMap, attributes, startTimeMillis);
@@ -604,6 +647,13 @@ public class JobsScheduler {
             .longOpt("statusOperationPreSlaGracePeriodInMinutes")
             .desc("Pre sla grace period in minutes to stop submitting new status check jobs")
             .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt("shutdownGracePeriodMs")
+            .desc("Grace period in milliseconds to wait for in-flight work to complete on SIGTERM")
+            .build());
     CommandLineParser parser = new BasicParser();
     try {
       return parser.parse(options, args);
@@ -728,6 +778,11 @@ public class JobsScheduler {
             () -> {
               int currentBatchSize = 0;
               do {
+                if (isShutdownInitiated) {
+                  log.info(
+                      "Shutdown signal received, stopping job launch task submission for job type");
+                  break;
+                }
                 try {
                   OperationTask<?> task = operationTaskManager.getData();
                   if (task != null) {
@@ -826,6 +881,12 @@ public class JobsScheduler {
     return CompletableFuture.runAsync(
             () -> {
               do {
+                if (isShutdownInitiated) {
+                  log.info(
+                      "Shutdown signal received, stopping status task submission for job type: {}",
+                      jobType);
+                  break;
+                }
                 try {
                   JobInfo jobInfo = jobInfoManager.getData();
                   log.debug("Received job info: {} from submitted job queue", jobInfo);
@@ -907,6 +968,10 @@ public class JobsScheduler {
       List<OperationTask<?>> taskList,
       List<Future<Optional<JobState>>> taskFutures) {
     do {
+      if (isShutdownInitiated) {
+        log.info("Shutdown signal received, stopping job submission for job type: {}", jobType);
+        break;
+      }
       try {
         OperationTask<?> task = operationTaskManager.getData();
         if (task != null) {
@@ -1014,6 +1079,13 @@ public class JobsScheduler {
     return STATUS_OPERATION_PRE_SLA_GRACE_PERIOD_MINUTES_DEFAULT;
   }
 
+  protected static long getShutdownGracePeriodMs(CommandLine cmdLine) {
+    if (cmdLine.hasOption("shutdownGracePeriodMs")) {
+      return Long.parseLong(cmdLine.getOptionValue("shutdownGracePeriodMs"));
+    }
+    return SHUTDOWN_GRACE_PERIOD_MS_DEFAULT;
+  }
+
   protected static long getTaskPollIntervalMs(CommandLine cmdLine) {
     if (cmdLine.hasOption("taskPollIntervalMs")) {
       return Long.parseLong(cmdLine.getOptionValue("taskPollIntervalMs"));
@@ -1035,7 +1107,15 @@ public class JobsScheduler {
     return OperationTask.TASK_TIMEOUT_MS_DEFAULT;
   }
 
-  private void updateJobStateFromTaskFutures(
+  private static final long FUTURE_POLL_INTERVAL_MS = 1000;
+
+  /**
+   * Collects job states from submitted task futures using a round-robin polling approach. Futures
+   * are polled with short timeouts so completed ones are collected promptly regardless of
+   * submission order. Remaining futures are cancelled if the SLA deadline is exceeded.
+   */
+  @VisibleForTesting
+  void updateJobStateFromTaskFutures(
       JobConf.JobTypeEnum jobType,
       ThreadPoolExecutor executors,
       List<OperationTask<?>> taskList,
@@ -1043,54 +1123,111 @@ public class JobsScheduler {
       long startTimeMillis,
       int tasksWaitHours,
       boolean skipStateCountUpdate) {
-    for (int taskIndex = 0; taskIndex < taskList.size(); ++taskIndex) {
-      Optional<JobState> jobState = Optional.empty();
-      OperationTask<?> task = taskList.get(taskIndex);
-      Future<Optional<JobState>> taskFuture = taskFutures.get(taskIndex);
+    // Queue of indices — poll from front, put back at end if not done yet
+    LinkedList<Integer> pending =
+        IntStream.range(0, taskFutures.size())
+            .boxed()
+            .collect(Collectors.toCollection(LinkedList::new));
+
+    while (!pending.isEmpty()) {
+      long remainingTimeMillis =
+          TimeUnit.HOURS.toMillis(tasksWaitHours) - (System.currentTimeMillis() - startTimeMillis);
+      if (remainingTimeMillis <= 0 || isShutdownInitiated) {
+        drainRemainingFutures(
+            jobType,
+            executors,
+            taskList,
+            taskFutures,
+            pending,
+            tasksWaitHours,
+            skipStateCountUpdate);
+        break;
+      }
+
+      int idx = pending.remove();
+      OperationTask<?> task = taskList.get(idx);
+      Future<Optional<JobState>> future = taskFutures.get(idx);
       try {
-        long passedTimeMillis = System.currentTimeMillis() - startTimeMillis;
-        long remainingTimeMillis = TimeUnit.HOURS.toMillis(tasksWaitHours) - passedTimeMillis;
-        log.info("Task {} has remainingTimeMillis={}", task.getJobId(), remainingTimeMillis);
-        jobState = taskFuture.get(remainingTimeMillis, TimeUnit.MILLISECONDS);
-        log.info(
-            "Successfully get job state for task {}: {}",
-            task.getJobId(),
-            jobState.orElse(JobState.SKIPPED));
+        Optional<JobState> jobState = future.get(FUTURE_POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        // Success — update state count
+        JobState state = jobState.orElse(JobState.SKIPPED);
+        log.info("Collected job state for task {}: {}", task.getJobId(), state);
+        if (!skipStateCountUpdate) {
+          jobStateCountMap.put(state, jobStateCountMap.get(state) + 1);
+        }
+      } catch (TimeoutException e) {
+        // SLA not expired — put back for retry
+        pending.add(idx);
       } catch (ExecutionException e) {
         log.error(String.format("Operation for %s failed with exception", task), e);
-        jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
-      } catch (InterruptedException e) {
-        throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
-      } catch (TimeoutException e) {
-        // Clear queue to stop internal tasks submission
-        if (!executors.getQueue().isEmpty()) {
-          log.warn(
-              "Drops {} tasks for job type {} from wait queue due to timeout",
-              executors.getQueue().size(),
-              jobType);
-          executors.getQueue().clear();
-        }
-        log.warn(
-            "Attempting to cancel task for {} because of timeout of {} hours",
-            task,
-            tasksWaitHours);
-        if (taskFuture.cancel(true)) {
-          log.warn("Cancelled task for {} because of timeout of {} hours", task, tasksWaitHours);
-        }
-      } finally {
         if (!skipStateCountUpdate) {
-          if (jobState.isPresent()) {
-            jobStateCountMap.put(jobState.get(), jobStateCountMap.get(jobState.get()) + 1);
-          } else if (taskFuture.isCancelled()) {
-            // Even though the jobs are reported as cancelled, they might be queued or running.
-            jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
-          } else {
-            // Jobs that are skipped due to replica or missing retention policy, etc.
-            jobStateCountMap.put(JobState.SKIPPED, jobStateCountMap.get(JobState.SKIPPED) + 1);
-          }
+          jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
         }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException("Scheduler thread is interrupted, shutting down", e);
       }
     }
     log.info("Completed collecting jobs state on futures for job type {}", jobType);
+  }
+
+  private void drainRemainingFutures(
+      JobConf.JobTypeEnum jobType,
+      ThreadPoolExecutor executors,
+      List<OperationTask<?>> taskList,
+      List<Future<Optional<JobState>>> taskFutures,
+      LinkedList<Integer> pending,
+      int tasksWaitHours,
+      boolean skipStateCountUpdate) {
+    String reason =
+        isShutdownInitiated
+            ? "Sigterm graceful shutdown"
+            : String.format("SLA timeout of %d hours", tasksWaitHours);
+    log.warn(
+        "Draining {} remaining futures for job type: {} due to {}",
+        pending.size(),
+        jobType,
+        reason);
+    // Clear queue first to prevent threads from picking up queued tasks
+    // and causing a burst of submissions while we cancel remaining futures
+    if (!executors.getQueue().isEmpty()) {
+      log.warn(
+          "Drops {} tasks for job type {} from wait queue due to {}",
+          executors.getQueue().size(),
+          jobType,
+          reason);
+      executors.getQueue().clear();
+    }
+    for (int remainingIdx : pending) {
+      Future<Optional<JobState>> future = taskFutures.get(remainingIdx);
+      if (future.isDone()) {
+        try {
+          Optional<JobState> jobState = future.get();
+          JobState state = jobState.orElse(JobState.SKIPPED);
+          log.info(
+              "Collected job state for task {}: {} (completed at drain)",
+              taskList.get(remainingIdx).getJobId(),
+              state);
+          if (!skipStateCountUpdate) {
+            jobStateCountMap.put(state, jobStateCountMap.get(state) + 1);
+          }
+        } catch (ExecutionException e) {
+          log.error(
+              String.format("Operation for %s failed with exception", taskList.get(remainingIdx)),
+              e);
+          if (!skipStateCountUpdate) {
+            jobStateCountMap.put(JobState.FAILED, jobStateCountMap.get(JobState.FAILED) + 1);
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      } else {
+        future.cancel(true);
+        log.warn("Cancelled task for {} due to {}", taskList.get(remainingIdx), reason);
+        if (!skipStateCountUpdate) {
+          jobStateCountMap.put(JobState.CANCELLED, jobStateCountMap.get(JobState.CANCELLED) + 1);
+        }
+      }
+    }
   }
 }

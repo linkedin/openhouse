@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,7 +56,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     boolean backupEnabled =
         Boolean.parseBoolean(
             table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
-    ZonedDateTime now = ZonedDateTime.now();
+    ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
     log.info(
         "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, ts={}",
         fqtn,

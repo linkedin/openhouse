@@ -12,6 +12,7 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -22,6 +23,12 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCa
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
@@ -55,6 +62,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
@@ -92,6 +100,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     return this.fileIO;
   }
 
+  @WithSpan("IcebergTableOps.doRefresh")
   @Override
   protected void doRefresh() {
     Optional<HouseTable> houseTable = Optional.empty();
@@ -120,6 +129,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /** A wrapper function to encapsulate timer logic for loading metadata. */
+  @WithSpan("IcebergTableOps.refreshMetadata")
   protected void refreshMetadata(final String metadataLoc) {
     long startTime = System.currentTimeMillis();
     boolean needToReload = !Objects.equal(currentMetadataLocation(), metadataLoc);
@@ -135,6 +145,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           "refreshMetadata from location {} succeeded, took {} ms",
           metadataLoc,
           System.currentTimeMillis() - startTime);
+    } catch (IllegalArgumentException
+        | IllegalStateException
+        | NotFoundException
+        | ValidationException e) {
+      log.error(
+          "refreshMetadata from location {} failed after {} ms",
+          metadataLoc,
+          System.currentTimeMillis() - startTime,
+          e);
+      throw new InvalidTableMetadataException(
+          tableIdentifier.namespace().toString(), tableIdentifier.name(), e.getMessage(), e);
     } catch (Exception e) {
       log.error(
           "refreshMetadata from location {} failed after {} ms",
@@ -176,7 +197,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   /**
    * {@link BaseMetastoreTableOperations#commit(TableMetadata, TableMetadata)} operation forces
    * doRefresh() after a doCommit() operation succeeds. This workflow is problematic for
-   * isStageCreate=true tables, for which metadata.json is created but not persisted in hts.
+   * isStageCreate=true or isStageReplace=true tables, for which metadata.json is created but not
+   * persisted in hts.
    *
    * <p>We override the default behavior and disable forced refresh for newly committed staged
    * tables.
@@ -185,8 +207,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   public void commit(TableMetadata base, TableMetadata metadata) {
     boolean isStageCreate =
         Boolean.parseBoolean(metadata.properties().get(CatalogConstants.IS_STAGE_CREATE_KEY));
+    boolean isStageReplace =
+        Boolean.parseBoolean(metadata.properties().get(CatalogConstants.IS_STAGE_REPLACE_KEY));
     super.commit(base, metadata);
-    if (isStageCreate) {
+    if (isStageCreate || isStageReplace) {
       disableRefresh(); /* disable forced refresh */
     }
   }
@@ -217,6 +241,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
+  @WithSpan("IcebergTableOps.doCommit")
   @SuppressWarnings("checkstyle:MissingSwitchDefault")
   @Override
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
@@ -265,6 +290,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
           Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
+      boolean isStageReplace =
+          Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_REPLACE_KEY));
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 
@@ -318,8 +345,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
 
       final TableMetadata updatedMtDataRef = metadataToCommit;
+      Tracer tracer = GlobalOpenTelemetry.getTracer("openhouse-tables");
+      Span writeSpan = tracer.spanBuilder("IcebergTableOps.writeMetadata").startSpan();
       long metadataUpdateStartTime = System.currentTimeMillis();
-      try {
+      try (Scope ignored = writeSpan.makeCurrent()) {
         metricsReporter.executeWithStats(
             () ->
                 TableMetadataParser.write(
@@ -331,12 +360,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             newMetadataLocation,
             System.currentTimeMillis() - metadataUpdateStartTime);
       } catch (Exception e) {
+        writeSpan.recordException(e);
+        writeSpan.setStatus(StatusCode.ERROR);
         log.error(
             "updateMetadata to location {} failed after {} ms",
             newMetadataLocation,
             System.currentTimeMillis() - metadataUpdateStartTime,
             e);
         throw e;
+      } finally {
+        writeSpan.end();
       }
 
       houseTable = houseTableMapper.toHouseTable(metadataToCommit, fileIO);
@@ -355,8 +388,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             properties.get(CatalogConstants.OPENHOUSE_DATABASEID_KEY),
             properties.get(CatalogConstants.OPENHOUSE_TABLEID_KEY),
             newMetadataLocation);
-      } else if (!isStageCreate) {
-        houseTableRepository.save(houseTable);
+      } else if (!isStageCreate && !isStageReplace) {
+        Span htsSpan = tracer.spanBuilder("IcebergTableOps.saveHouseTable").startSpan();
+        try (Scope ignored = htsSpan.makeCurrent()) {
+          houseTableRepository.save(houseTable);
+        } catch (Exception e) {
+          htsSpan.recordException(e);
+          htsSpan.setStatus(StatusCode.ERROR);
+          throw e;
+        } finally {
+          htsSpan.end();
+        }
       } else {
         /**
          * Refresh current metadata for staged tables from newly created metadata file and disable

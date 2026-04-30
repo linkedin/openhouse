@@ -51,10 +51,14 @@ public final class ValidationUtilities {
    */
   static void validatePolicies(MvcResult result, Policies policies)
       throws UnsupportedEncodingException {
-    int tableRetentionDays =
-        JsonPath.read(result.getResponse().getContentAsString(), "$.policies.retention.count");
-
-    Assertions.assertEquals(tableRetentionDays, policies.getRetention().getCount());
+    Object policiesResult = JsonPath.read(result.getResponse().getContentAsString(), "$.policies");
+    if (policies == null) {
+      Assertions.assertNull(policiesResult);
+    } else {
+      int tableRetentionDays =
+          JsonPath.read(result.getResponse().getContentAsString(), "$.policies.retention.count");
+      Assertions.assertEquals(tableRetentionDays, policies.getRetention().getCount());
+    }
   }
 
   static void validateUUID(MvcResult result, String uuid) throws UnsupportedEncodingException {
@@ -116,12 +120,15 @@ public final class ValidationUtilities {
 
   static void validateTimePartition(MvcResult result, TimePartitionSpec timePartitionSpec)
       throws UnsupportedEncodingException {
-    Assertions.assertEquals(
-        new TimePartitionSpecConverter()
-            .convertToEntityAttribute(
-                JsonPath.read(result.getResponse().getContentAsString(), "$.timePartitioning")
-                    .toString()),
-        timePartitionSpec);
+    Object timePartitionResult =
+        JsonPath.read(result.getResponse().getContentAsString(), "$.timePartitioning");
+    if (timePartitionSpec == null) {
+      Assertions.assertNull(timePartitionResult);
+    } else {
+      Assertions.assertEquals(
+          new TimePartitionSpecConverter().convertToEntityAttribute(timePartitionResult.toString()),
+          timePartitionSpec);
+    }
   }
 
   /**
@@ -186,5 +193,12 @@ public final class ValidationUtilities {
             .map(s -> SnapshotParser.fromJson(s))
             .collect(Collectors.toList());
     Assertions.assertEquals(expectedSnapshots, putSnapshots);
+  }
+
+  /**
+   * Getting rid of "file:" part if needed for ease of comparison of tableLocation / tableVersion
+   */
+  static String stripPathScheme(String path) {
+    return path.startsWith("file:") ? path.split("file:")[1] : path;
   }
 }

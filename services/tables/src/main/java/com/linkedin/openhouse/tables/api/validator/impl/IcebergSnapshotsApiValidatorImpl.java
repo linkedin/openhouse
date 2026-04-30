@@ -72,6 +72,13 @@ public class IcebergSnapshotsApiValidatorImpl implements IcebergSnapshotsApiVali
               databaseId, tableId));
     }
 
+    if (requestBody.isStageReplace()) {
+      validationFailures.add(
+          String.format(
+              "Replacing staged table %s.%s with putSnapshot is not supported",
+              databaseId, tableId));
+    }
+
     if (!baseTableVersion.equals(requestBody.getBaseTableVersion())) {
       validationFailures.add(
           "Base version provided in metadata and data request body is inconsistent. "

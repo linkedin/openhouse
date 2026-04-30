@@ -20,7 +20,6 @@ public class CreateTableWithPropsTest {
   public void testCreateTableWithPropsSuccessful() {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
-    mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
     GetTableResponseBody mockResponse =
         mockGetTableResponseBody(
@@ -39,6 +38,8 @@ public class CreateTableWithPropsTest {
     tblProps.put("k", "v");
     GetTableResponseBody responseWithProp = decorateResponse(mockResponse, tblProps);
     mockTableService.enqueue(mockResponse(201, responseWithProp)); // doCommit()
+    mockTableService.enqueue(
+        mockResponse(200, responseWithProp)); // doRefresh() after commit (Iceberg 1.2+)
 
     Assertions.assertDoesNotThrow(
         () ->

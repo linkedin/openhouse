@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
@@ -31,7 +30,6 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import scala.collection.JavaConverters;
 
 public class CatalogOperationTest extends OpenHouseSparkITest {
 
@@ -240,29 +238,6 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       table.updateSchema().addColumn("a", "e", Types.StringType.get()).commit();
       Assertions.assertEquals(5, table.schema().findField("a.e").fieldId());
     }
-  }
-
-  /**
-   * This is a copy of com.linkedin.openhouse.jobs.spark.Operations#getCatalog() temporarily.
-   * Refactoring these pieces require deployment coordination, thus we shall create an artifact
-   * module that can be pulled by :apps module.
-   */
-  private Catalog getOpenHouseCatalog(SparkSession spark) {
-    final Map<String, String> catalogProperties = new HashMap<>();
-    final String catalogPropertyPrefix = String.format("spark.sql.catalog.openhouse.");
-    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
-    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
-      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
-        catalogProperties.put(
-            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
-      }
-    }
-    // this initializes the catalog based on runtime Catalog class passed in catalog-impl conf.
-    return CatalogUtil.loadCatalog(
-        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
-        "openhouse",
-        catalogProperties,
-        spark.sparkContext().hadoopConfiguration());
   }
 
   private Policies getPoliciesObj(String tableName, SparkSession spark) {

@@ -1,29 +1,37 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 
-from datafusion.context import SessionContext
-from datafusion.dataframe import DataFrame
-
 from openhouse.dataloader.table_identifier import TableIdentifier
 
 
 class TableTransformer(ABC):
-    """Interface for applying additional transformation logic to the data
-    being loaded (e.g. column masking, row filtering)
+    """Applies transformation logic to the base table that is being loaded.
+
+    Implementations must preserve the original column names in their output
+    SQL.  Columns may be transformed (e.g. masked or derived), but the output
+    column names must match the original table schema so that user-supplied
+    projections and filters can reference them.
+
+    Args:
+        dialect: The SQL dialect used by ``transform()`` (e.g. ``"spark"``).
     """
 
+    def __init__(self, dialect: str) -> None:
+        self.dialect: str = dialect
+
     @abstractmethod
-    def transform(
-        self, session_context: SessionContext, table: TableIdentifier, context: Mapping[str, str]
-    ) -> DataFrame | None:
-        """Applies transformation logic to the base table that is being loaded.
+    def transform(self, table: TableIdentifier, context: Mapping[str, str]) -> str | None:
+        """Builds a SQL string representing the transformation to apply.
+
+        The returned SQL must be a SELECT statement that reads from the table
+        identified by *table*.  Output column names must match the original
+        table schema.
 
         Args:
             table: Identifier for the table
             context: Dictionary of context information (e.g. tenant, environment, etc.)
 
         Returns:
-            The DataFrame representing the transformation. This is expected to read from the exact
-            base table identifier passed in as input. If no transformation is required, None is returned.
+            A SQL string, or None if no transformation is needed.
         """
         pass

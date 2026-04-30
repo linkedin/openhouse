@@ -24,6 +24,7 @@ from openhouse.dataloader.filters import (
     NotStartsWith,
     Or,
     StartsWith,
+    _to_datafusion_sql,
     _to_pyiceberg,
     always_true,
 )
@@ -342,3 +343,11 @@ class TestPyIcebergUnsupportedType:
 
         with pytest.raises(TypeError, match="Unsupported filter type"):
             _to_pyiceberg(CustomFilter())
+
+    def test_datafusion_sql_raises_on_unknown_filter(self):
+        class CustomFilter(Filter):
+            def __repr__(self) -> str:
+                return "custom"
+
+        with pytest.raises(TypeError, match="Unsupported filter type"):
+            _to_datafusion_sql(CustomFilter())

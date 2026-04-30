@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
+import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 
 import com.google.common.collect.ImmutableMap;
@@ -89,13 +90,6 @@ public class TablesServiceTest {
     } else {
       Assertions.assertEquals(INITIAL_TABLE_VERSION, actual.getTableVersion());
     }
-  }
-
-  /**
-   * Getting rid of "file:" part if needed for ease of comparison of tableLocation / tableVersion
-   */
-  static String stripPathScheme(String path) {
-    return path.startsWith("file:") ? path.split("file:")[1] : path;
   }
 
   private TableDto verifyPutTableRequest(
@@ -567,9 +561,9 @@ public class TablesServiceTest {
     tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }
 
-  /** Test that if tableType is REPLICA_TABLE only system admin can update the table. required. */
+  /** Test replica table permissions: update requires SYSTEM_ADMIN, delete uses DELETE_TABLE. */
   @Test
-  public void testReplicaTableUpdateAsNonSystemAdmin() {
+  public void testReplicaTableUpdateAndDeletePermissions() {
     UUID expectedUUID = UUID.randomUUID();
     TableDto tableDtoCopy =
         TABLE_DTO
@@ -592,25 +586,31 @@ public class TablesServiceTest {
     TableDto putResultCreate = verifyPutTableRequest(tableDtoCopy, null, true);
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.REPLICA_TABLE);
     Assertions.assertEquals(putResultCreate.getTableUUID(), expectedUUID.toString());
-    // Read Table
-    Assertions.assertEquals(
-        expectedUUID.toString(),
-        tablesService
-            .getTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER)
-            .getTableUUID());
 
+    // Deny SYSTEM_ADMIN — update on replica should fail
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(false);
     Assertions.assertThrows(
         AccessDeniedException.class,
+        () -> verifyPutTableRequest(tableDtoCopy, putResultCreate, false));
+
+    // Deny DELETE_TABLE — delete on replica should fail
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
+        .thenReturn(false);
+    Assertions.assertThrows(
+        AccessDeniedException.class,
         () ->
             tablesService.deleteTable(
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+
+    // Allow DELETE_TABLE — delete on replica should succeed (SYSTEM_ADMIN still denied)
     Mockito.when(
             authorizationHandler.checkAccessDecision(
-                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.SYSTEM_ADMIN)))
+                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
         .thenReturn(true);
     tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }

@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Self
 
 import requests
 from pyiceberg.catalog import Catalog
@@ -55,19 +55,18 @@ class OpenHouseCatalog(Catalog):
         if ssl_ca_cert is not None:
             self._session.verify = ssl_ca_cert
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *_: Any):
+    def __exit__(self, *_: Any) -> None:
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         self._session.close()
 
     def load_table(self, identifier: str | Identifier) -> Table:
         database, table = self.identifier_to_database_and_table(identifier)
         url = f"{self._uri}/v1/databases/{database}/tables/{table}"
-        logger.info("Calling load_table for table: %s.%s", database, table)
 
         response = self._session.get(url, timeout=self._timeout)
         if not response.ok:
@@ -88,7 +87,6 @@ class OpenHouseCatalog(Catalog):
         metadata_file = file_io.new_input(metadata_location)
         metadata = FromInputFile.table_metadata(metadata_file)
 
-        logger.debug("Calling load_table succeeded")
         return Table(
             identifier=(database, table),
             metadata=metadata,
