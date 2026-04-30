@@ -3,12 +3,15 @@ package com.linkedin.openhouse.tables.repository.impl;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.relocated.com.google.common.collect.MapDifference;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.springframework.stereotype.Component;
@@ -19,59 +22,144 @@ import org.springframework.stereotype.Component;
  * ordering than table.
  *
  * <p>Also provides static helpers used by {@link OpenHouseInternalRepositoryImpl} to normalize a
- * write schema's top-level column names to the casing already present in the table schema, enabling
- * case-insensitive writes without mutating the table's existing column casing.
+ * write schema's column names — at top level and at any nesting depth — to the casing already
+ * present in the table schema, enabling case-insensitive writes without mutating the table's
+ * existing column casing.
  */
 @Component
 public class BaseIcebergSchemaValidator implements SchemaValidator {
 
   /**
-   * Returns true if {@code schema} has two or more top-level columns whose names differ only in
-   * case (e.g. "id" and "ID"). Such tables are excluded from case-insensitive write normalization
-   * because the target column would be ambiguous.
+   * Returns true if {@code schema} has, at any nesting depth, two sibling fields whose names differ
+   * only in case (e.g. {@code "id"} and {@code "ID"} inside the same struct). Such schemas are
+   * excluded from case-insensitive write normalization because the target field would be ambiguous.
+   *
+   * <p>Note: fields with the same name in <em>different</em> structs (e.g. {@code user.id} and
+   * {@code session.id}) are not considered duplicates — Iceberg's field-ID semantics treat them as
+   * independent fields.
    */
   static boolean hasCaseDuplicateFields(Schema schema) {
-    Map<String, Integer> seen = new HashMap<>();
-    for (Types.NestedField field : schema.columns()) {
-      String lower = field.name().toLowerCase();
-      if (seen.containsKey(lower) && !seen.get(lower).equals(field.fieldId())) {
-        return true;
-      }
-      seen.put(lower, field.fieldId());
-    }
-    return false;
+    return Boolean.TRUE.equals(
+        TypeUtil.visit(
+            schema,
+            new TypeUtil.SchemaVisitor<Boolean>() {
+              @Override
+              public Boolean schema(Schema s, Boolean structResult) {
+                return structResult;
+              }
+
+              @Override
+              public Boolean struct(Types.StructType struct, List<Boolean> childResults) {
+                if (childResults.stream().anyMatch(Boolean.TRUE::equals)) return true;
+                Set<String> seen = new HashSet<>();
+                for (Types.NestedField f : struct.fields()) {
+                  if (!seen.add(f.name().toLowerCase(Locale.ROOT))) return true;
+                }
+                return false;
+              }
+
+              @Override
+              public Boolean field(Types.NestedField f, Boolean fieldResult) {
+                return fieldResult;
+              }
+
+              @Override
+              public Boolean list(Types.ListType l, Boolean elementResult) {
+                return elementResult;
+              }
+
+              @Override
+              public Boolean map(Types.MapType m, Boolean kRes, Boolean vRes) {
+                return Boolean.TRUE.equals(kRes) || Boolean.TRUE.equals(vRes);
+              }
+
+              @Override
+              public Boolean primitive(Type.PrimitiveType p) {
+                return false;
+              }
+            }));
   }
 
   /**
-   * Renames top-level fields in {@code writeSchema} to use the casing from {@code tableSchema},
-   * matched by Iceberg field ID (not by name). Fields in {@code writeSchema} whose ID does not
-   * appear in {@code tableSchema} (genuinely new columns) are left unchanged.
+   * Rewrites every field name in {@code writeSchema} — at top level <em>and</em> inside nested
+   * structs, list elements, and map keys/values — to use the casing from {@code tableSchema},
+   * matched by Iceberg field ID. Fields whose ID is absent from {@code tableSchema} (genuinely new
+   * columns) are left unchanged. All other field attributes (type, doc, optional/required,
+   * identifier-field-ids) are preserved.
    *
-   * <p>This preserves the table's existing column casing when a writer submits columns with
-   * different casing (e.g. writer sends "id", table has "ID" → normalized to "ID").
+   * <p>Uses {@code TypeUtil.indexById} to build a single flat {@code Map<Integer, NestedField>} for
+   * the entire table schema in one O(n) walk, giving O(1) name lookup at any depth. Uses {@code
+   * TypeUtil.visit} to recurse through the write schema — covering struct, list, and map container
+   * types exhaustively via Iceberg's visitor contract.
    */
   static Schema normalizeSchemaCasingToTable(Schema writeSchema, Schema tableSchema) {
-    // Build fieldId → table column name map for O(1) lookup
-    Map<Integer, String> tableNameById = new HashMap<>();
-    for (Types.NestedField field : tableSchema.columns()) {
-      tableNameById.put(field.fieldId(), field.name());
-    }
+    // One O(n) walk over the full table schema tree; lookup at any depth is then O(1).
+    final Map<Integer, Types.NestedField> tableById = TypeUtil.indexById(tableSchema.asStruct());
 
-    List<Types.NestedField> normalizedFields = new ArrayList<>();
-    for (Types.NestedField field : writeSchema.columns()) {
-      String tableName = tableNameById.get(field.fieldId());
-      if (tableName != null && !tableName.equals(field.name())) {
-        // Existing column with different casing: rename to table casing, keep all other attributes
-        normalizedFields.add(
-            field.isOptional()
-                ? Types.NestedField.optional(field.fieldId(), tableName, field.type(), field.doc())
-                : Types.NestedField.required(
-                    field.fieldId(), tableName, field.type(), field.doc()));
-      } else {
-        normalizedFields.add(field);
-      }
-    }
-    return new Schema(writeSchema.schemaId(), normalizedFields, writeSchema.identifierFieldIds());
+    Type rewritten =
+        TypeUtil.visit(
+            writeSchema,
+            new TypeUtil.SchemaVisitor<Type>() {
+              @Override
+              public Type schema(Schema s, Type structResult) {
+                return structResult;
+              }
+
+              @Override
+              public Type struct(Types.StructType struct, List<Type> fieldTypes) {
+                List<Types.NestedField> originals = struct.fields();
+                List<Types.NestedField> rebuilt = new ArrayList<>(originals.size());
+                for (int i = 0; i < originals.size(); i++) {
+                  Types.NestedField original = originals.get(i);
+                  Types.NestedField tableField = tableById.get(original.fieldId());
+                  String name = (tableField != null) ? tableField.name() : original.name();
+                  Type type = fieldTypes.get(i);
+                  // Reuse the original if nothing changed (cheap reference-equality short-circuit).
+                  if (name.equals(original.name()) && type == original.type()) {
+                    rebuilt.add(original);
+                  } else {
+                    rebuilt.add(
+                        original.isOptional()
+                            ? Types.NestedField.optional(
+                                original.fieldId(), name, type, original.doc())
+                            : Types.NestedField.required(
+                                original.fieldId(), name, type, original.doc()));
+                  }
+                }
+                return Types.StructType.of(rebuilt);
+              }
+
+              @Override
+              public Type field(Types.NestedField f, Type fieldResult) {
+                return fieldResult;
+              }
+
+              @Override
+              public Type list(Types.ListType list, Type elementResult) {
+                Types.NestedField elem = list.fields().get(0);
+                return elem.isOptional()
+                    ? Types.ListType.ofOptional(elem.fieldId(), elementResult)
+                    : Types.ListType.ofRequired(elem.fieldId(), elementResult);
+              }
+
+              @Override
+              public Type map(Types.MapType map, Type keyResult, Type valueResult) {
+                Types.NestedField k = map.fields().get(0);
+                Types.NestedField v = map.fields().get(1);
+                return v.isOptional()
+                    ? Types.MapType.ofOptional(k.fieldId(), v.fieldId(), keyResult, valueResult)
+                    : Types.MapType.ofRequired(k.fieldId(), v.fieldId(), keyResult, valueResult);
+              }
+
+              @Override
+              public Type primitive(Type.PrimitiveType p) {
+                return p;
+              }
+            });
+
+    Types.StructType normalizedStruct = (Types.StructType) rewritten;
+    return new Schema(
+        writeSchema.schemaId(), normalizedStruct.fields(), writeSchema.identifierFieldIds());
   }
 
   @Override

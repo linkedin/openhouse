@@ -47,6 +47,70 @@ public class BaseIcebergSchemaValidatorTest {
     assertFalse(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
   }
 
+  @Test
+  void hasCaseDuplicateFields_returnsTrue_forCaseDuplicateInsideNestedStruct() {
+    // event: struct<ID: string, id: string> — siblings inside the nested struct are duplicates
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "event",
+                Types.StructType.of(
+                    Types.NestedField.required(2, "ID", Types.StringType.get()),
+                    Types.NestedField.optional(3, "id", Types.StringType.get()))));
+    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
+  }
+
+  @Test
+  void hasCaseDuplicateFields_returnsFalse_forSameNameInDifferentStructs() {
+    // user.id and session.id are in different structs — not siblings, not duplicates
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "user",
+                Types.StructType.of(Types.NestedField.required(2, "id", Types.StringType.get()))),
+            Types.NestedField.optional(
+                3,
+                "session",
+                Types.StructType.of(Types.NestedField.required(4, "id", Types.StringType.get()))));
+    assertFalse(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
+  }
+
+  @Test
+  void hasCaseDuplicateFields_returnsTrue_forCaseDuplicateInsideListElement() {
+    // events: list<struct<ID: string, id: string>> — duplicate inside the list element struct
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "events",
+                Types.ListType.ofOptional(
+                    2,
+                    Types.StructType.of(
+                        Types.NestedField.required(3, "ID", Types.StringType.get()),
+                        Types.NestedField.optional(4, "id", Types.StringType.get())))));
+    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
+  }
+
+  @Test
+  void hasCaseDuplicateFields_returnsTrue_forCaseDuplicateInsideMapValue() {
+    // metadata: map<string, struct<ID: string, id: string>> — duplicate in map value struct
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "metadata",
+                Types.MapType.ofOptional(
+                    2,
+                    3,
+                    Types.StringType.get(),
+                    Types.StructType.of(
+                        Types.NestedField.required(4, "ID", Types.StringType.get()),
+                        Types.NestedField.optional(5, "id", Types.StringType.get())))));
+    assertTrue(BaseIcebergSchemaValidator.hasCaseDuplicateFields(schema));
+  }
+
   // ===== normalizeSchemaCasingToTable =====
 
   @Test
@@ -126,6 +190,104 @@ public class BaseIcebergSchemaValidatorTest {
         BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
 
     assertEquals("the identifier", normalized.findField(1).doc());
+  }
+
+  @Test
+  void normalizeSchemaCasingToTable_renamesFieldsInsideNestedStruct() {
+    // Table: event: struct<EventId: string, Value: long>
+    // Writer: event: struct<eventid: string, value: long>  (wrong casing at nested level)
+    Schema tableSchema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "event",
+                Types.StructType.of(
+                    Types.NestedField.required(2, "EventId", Types.StringType.get()),
+                    Types.NestedField.optional(3, "Value", Types.LongType.get()))));
+    Schema writeSchema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "event",
+                Types.StructType.of(
+                    Types.NestedField.required(2, "eventid", Types.StringType.get()),
+                    Types.NestedField.optional(3, "value", Types.LongType.get()))));
+
+    Schema normalized =
+        BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
+
+    Types.StructType nestedStruct = normalized.findField(1).type().asStructType();
+    assertEquals("EventId", nestedStruct.field(2).name());
+    assertEquals("Value", nestedStruct.field(3).name());
+  }
+
+  @Test
+  void normalizeSchemaCasingToTable_renamesFieldsInsideListElement() {
+    // Table: events: list<struct<EventId: string>>
+    // Writer: events: list<struct<eventid: string>>
+    Schema tableSchema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "events",
+                Types.ListType.ofOptional(
+                    2,
+                    Types.StructType.of(
+                        Types.NestedField.required(3, "EventId", Types.StringType.get())))));
+    Schema writeSchema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "events",
+                Types.ListType.ofOptional(
+                    2,
+                    Types.StructType.of(
+                        Types.NestedField.required(3, "eventid", Types.StringType.get())))));
+
+    Schema normalized =
+        BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
+
+    Types.ListType listType = (Types.ListType) normalized.findField(1).type();
+    Types.StructType elementStruct = listType.elementType().asStructType();
+    assertEquals("EventId", elementStruct.field(3).name());
+  }
+
+  @Test
+  void normalizeSchemaCasingToTable_renamesFieldsInsideMapValue() {
+    // Table: metadata: map<string, struct<Key: string, Val: long>>
+    // Writer: metadata: map<string, struct<key: string, val: long>>
+    Schema tableSchema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "metadata",
+                Types.MapType.ofOptional(
+                    2,
+                    3,
+                    Types.StringType.get(),
+                    Types.StructType.of(
+                        Types.NestedField.required(4, "Key", Types.StringType.get()),
+                        Types.NestedField.optional(5, "Val", Types.LongType.get())))));
+    Schema writeSchema =
+        new Schema(
+            Types.NestedField.optional(
+                1,
+                "metadata",
+                Types.MapType.ofOptional(
+                    2,
+                    3,
+                    Types.StringType.get(),
+                    Types.StructType.of(
+                        Types.NestedField.required(4, "key", Types.StringType.get()),
+                        Types.NestedField.optional(5, "val", Types.LongType.get())))));
+
+    Schema normalized =
+        BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
+
+    Types.MapType mapType = (Types.MapType) normalized.findField(1).type();
+    Types.StructType valueStruct = mapType.valueType().asStructType();
+    assertEquals("Key", valueStruct.field(4).name());
+    assertEquals("Val", valueStruct.field(5).name());
   }
 
   // ===== Integration: validateWriteSchema passes after normalization =====
