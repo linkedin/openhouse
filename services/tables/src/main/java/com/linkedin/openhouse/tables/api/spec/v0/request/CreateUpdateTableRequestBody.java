@@ -105,6 +105,24 @@ public class CreateUpdateTableRequestBody {
   @Builder.Default
   private boolean stageCreate = false;
 
+  @Schema(
+      defaultValue = "false",
+      description =
+          "Boolean that determines replacing an existing table in a staged manner. "
+              + "When true, schema and partition evolution checks are bypassed.",
+      example = "false")
+  @Builder.Default
+  private boolean stageReplace = false;
+
+  @Schema(
+      defaultValue = "false",
+      description =
+          "Boolean that determines committing a previously staged replace. "
+              + "When true, the table is saved as a new table without requiring INITIAL_TABLE_VERSION.",
+      example = "false")
+  @Builder.Default
+  private boolean replaceCommit = false;
+
   @Schema(description = "The version of table that the current update is based upon")
   @NotEmpty(message = "baseTableVersion cannot be empty")
   private String baseTableVersion;

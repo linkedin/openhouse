@@ -4,18 +4,15 @@ import com.linkedin.openhouse.javaclient.OpenHouseCatalog;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import scala.collection.JavaConverters;
 
 public class SparkMultiSchemaEvolutionTest extends OpenHouseSparkITest {
 
@@ -181,23 +178,5 @@ public class SparkMultiSchemaEvolutionTest extends OpenHouseSparkITest {
         spark.sql("DROP TABLE openhouse.multiSchemaTest.t2");
       }
     }
-  }
-
-  private Catalog getOpenHouseCatalog(SparkSession spark) {
-    final Map<String, String> catalogProperties = new HashMap<>();
-    final String catalogPropertyPrefix = "spark.sql.catalog.openhouse.";
-    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
-    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
-      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
-        catalogProperties.put(
-            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
-      }
-    }
-    // this initializes the catalog based on runtime Catalog class passed in catalog-impl conf.
-    return CatalogUtil.loadCatalog(
-        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
-        "openhouse",
-        catalogProperties,
-        spark.sparkContext().hadoopConfiguration());
   }
 }

@@ -52,20 +52,27 @@ sourceSets {
 
 // Specify order of tests to avoid spark session conflicts
 // Non-openhouse catalog tests should run before e2e tests start
+// --add-opens/--add-exports are Java 9+ only; skip when running on Java 8 to avoid "Unrecognized option" JVM failure
 task statementTest(type: Test) {
   filter {
     includeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
   }
-  jvmArgs \
-      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    jvmArgs \
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
+  }
 }
 
 task catalogTest(type: Test) {
   filter {
     includeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
   }
-  jvmArgs \
-      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    jvmArgs \
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
+  }
 }
 
 test {
@@ -73,11 +80,13 @@ test {
     excludeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
     excludeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
   }
-  jvmArgs \
-      '--add-opens=java.base/java.nio=ALL-UNNAMED',
-      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
-      '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
-      '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED'
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    jvmArgs \
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+        '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED'
+  }
 }
 
 test.dependsOn statementTest

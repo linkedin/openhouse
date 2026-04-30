@@ -2,6 +2,7 @@ package com.linkedin.openhouse.common.metrics;
 
 import static io.opentelemetry.semconv.resource.attributes.ResourceAttributes.SERVICE_NAME;
 
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
@@ -61,9 +62,21 @@ public final class DefaultOtelConfig {
   /**
    * Initialize OpenTelemetry SDK with metrics exporter only which pushes metrics to
    * collector @link{COLLECTOR_ENDPOINT}
+   *
+   * <p>When the OTel Java Agent is attached (-javaagent), it provides its own global OpenTelemetry
+   * instance that handles both tracing and metrics. In that case, we reuse the agent's instance
+   * instead of creating a second SDK to avoid conflicts.
    */
   private static OpenTelemetry initOpenTelemetry() {
-    log.info("initializing open-telemetry sdk");
+    // If the OTel Java Agent is attached, it registers a non-noop global OpenTelemetry.
+    // Reuse it to avoid IllegalStateException from double SDK registration.
+    OpenTelemetry globalOtel = GlobalOpenTelemetry.get();
+    if (globalOtel != OpenTelemetry.noop()) {
+      log.info("OpenTelemetry Java Agent detected, reusing agent-provided instance");
+      return globalOtel;
+    }
+
+    log.info("initializing open-telemetry sdk (no agent detected)");
     Resource resource = Resource.getDefault().merge(Resource.create(getCommonAttributes()));
 
     // Every Meter is provided from SdkMeterProvider in OpenTelemetrySdk.

@@ -8,12 +8,12 @@ dependencies {
   // implementation('com.linkedin.iceberg:iceberg-azure:' + icebergAzureVersion)
   // implementation('com.linkedin.iceberg:iceberg-azure-bundle:' + icebergAzureVersion)
 
-  implementation("com.azure:azure-storage-file-datalake:12.19.1") {
+  api("com.azure:azure-storage-file-datalake:12.19.1") {
     exclude group: 'io.netty'
     exclude group: 'io.projectreactor.netty'
   }
 
-  implementation("com.azure:azure-identity:1.12.1") {
+  api("com.azure:azure-identity:1.12.1") {
     exclude group: 'io.netty'
     exclude group: 'io.projectreactor.netty'
   }

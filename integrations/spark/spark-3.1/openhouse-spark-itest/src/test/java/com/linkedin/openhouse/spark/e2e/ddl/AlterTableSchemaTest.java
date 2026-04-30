@@ -46,6 +46,8 @@ public class AlterTableSchemaTest {
                 ResourceIoHelper.getSchemaJsonFromResource("evolved_dummy_healthy_schema.json"),
                 null,
                 null))); // doCommit()
+    mockTableService.enqueue(
+        mockResponse(200, existingTable)); // doRefresh() after commit (Iceberg 1.2+)
 
     Assertions.assertDoesNotThrow(
         () -> spark.sql("ALTER TABLE openhouse.dbAlterS.tb1 ADD columns (favorite_number int)"));

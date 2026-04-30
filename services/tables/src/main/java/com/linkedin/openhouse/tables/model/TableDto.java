@@ -79,6 +79,10 @@ public class TableDto {
 
   private boolean stageCreate;
 
+  private boolean stageReplace;
+
+  private boolean replaceCommit;
+
   /**
    * Bundling eligible string type field into a map as {@link org.mapstruct.Mapper} doesn't provide
    * easy interface to achieve so.

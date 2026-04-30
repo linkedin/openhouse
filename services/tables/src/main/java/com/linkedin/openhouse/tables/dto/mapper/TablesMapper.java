@@ -59,6 +59,8 @@ public interface TablesMapper {
     @Mapping(source = "requestBody.newIntermediateSchemas", target = "newIntermediateSchemas"),
     @Mapping(source = "requestBody.policies", target = "policies", qualifiedByName = "mapPolicies"),
     @Mapping(source = "requestBody.stageCreate", target = "stageCreate"),
+    @Mapping(source = "requestBody.stageReplace", target = "stageReplace"),
+    @Mapping(source = "requestBody.replaceCommit", target = "replaceCommit"),
     @Mapping(
         source = "requestBody.tableType",
         target = "tableType",
@@ -105,6 +107,12 @@ public interface TablesMapper {
         source = "requestBody.createUpdateTableRequestBody.stageCreate",
         target = "stageCreate"),
     @Mapping(
+        source = "requestBody.createUpdateTableRequestBody.stageReplace",
+        target = "stageReplace"),
+    @Mapping(
+        source = "requestBody.createUpdateTableRequestBody.replaceCommit",
+        target = "replaceCommit"),
+    @Mapping(
         source = "requestBody.createUpdateTableRequestBody.tableType",
         target = "tableType",
         defaultExpression = "java(TableType.PRIMARY_TABLE)"),
@@ -127,8 +135,8 @@ public interface TablesMapper {
 
   @Mappings({
     @Mapping(
-        conditionExpression = "java(tableIdentifier.namespace() != null)",
-        expression = "java(tableIdentifier.namespace().toString())",
+        expression =
+            "java(tableIdentifier.namespace() != null ? tableIdentifier.namespace().toString() : null)",
         target = "databaseId"),
     @Mapping(expression = "java(tableIdentifier.name())", target = "tableId")
   })
@@ -142,8 +150,8 @@ public interface TablesMapper {
 
   @Mappings({
     @Mapping(
-        conditionExpression = "java(tableIdentifier.namespace() != null)",
-        expression = "java(tableIdentifier.namespace().toString())",
+        expression =
+            "java(tableIdentifier.namespace() != null ? tableIdentifier.namespace().toString() : null)",
         target = "databaseId"),
     @Mapping(expression = "java(tableIdentifier.name())", target = "tableId")
   })
