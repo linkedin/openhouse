@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
+import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.common.exception.JobStateConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchEntityException;
@@ -293,6 +294,21 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(accessDeniedException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(accessDeniedException))
             .cause(getExceptionCause(accessDeniedException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  @Hidden
+  @ExceptionHandler(InvalidTableMetadataException.class)
+  protected ResponseEntity<ErrorResponseBody> handleInvalidTableMetadataException(
+      InvalidTableMetadataException invalidTableMetadataException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+            .message(invalidTableMetadataException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(invalidTableMetadataException))
+            .cause(getExceptionCause(invalidTableMetadataException))
             .build();
     return buildResponseEntity(errorResponseBody);
   }

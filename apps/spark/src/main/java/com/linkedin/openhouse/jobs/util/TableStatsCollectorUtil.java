@@ -5,6 +5,7 @@ import static org.apache.spark.sql.functions.*;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.stats.model.BaseEventModels;
 import com.linkedin.openhouse.common.stats.model.BaseEventModels.BaseTableIdentifier;
@@ -17,6 +18,7 @@ import com.linkedin.openhouse.common.stats.model.CommitOperation;
 import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
+import com.linkedin.openhouse.common.stats.model.ReplicationPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
@@ -42,6 +44,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.SparkTableUtil;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
@@ -222,10 +225,18 @@ public final class TableStatsCollectorUtil {
     // location using filesystem call. This just replicates hdfs dfs -count and hdfs dfs -du -s.
     long sumOfTotalDirectorySizeInBytes = 0;
     long numOfObjectsInDirectory = 0;
+    Path tableRootPath = new Path(table.location());
+    String tableRootPrefix = tableRootPath.toString() + "/";
     try {
-      RemoteIterator<LocatedFileStatus> it = fs.listFiles(new Path(table.location()), true);
+      RemoteIterator<LocatedFileStatus> it = fs.listFiles(tableRootPath, true);
       while (it.hasNext()) {
         LocatedFileStatus status = it.next();
+        // Skip files under hidden directories (starting with '.') at the table root level,
+        // e.g. .backup, .trash
+        String relativePath = status.getPath().toString().substring(tableRootPrefix.length());
+        if (relativePath.startsWith(".")) {
+          continue;
+        }
         numOfObjectsInDirectory++;
         sumOfTotalDirectorySizeInBytes += status.getLen();
       }
@@ -269,6 +280,7 @@ public final class TableStatsCollectorUtil {
         .tableLocation(table.location())
         .sharingEnabled(policyStats.getSharingEnabled())
         .retentionPolicies(policyStats.getRetentionPolicy())
+        .replicationPolicies(policyStats.getReplicationPolicies())
         .build();
   }
 
@@ -353,7 +365,7 @@ public final class TableStatsCollectorUtil {
     return convertObjectToPolicyStats(policiesObject);
   }
 
-  private static PolicyStats convertObjectToPolicyStats(JsonObject jsonObject) {
+  static PolicyStats convertObjectToPolicyStats(JsonObject jsonObject) {
     PolicyStats policyStats = new PolicyStats();
     // Set defaults
     RetentionStatsSchema defaultRetentionPolicy = RetentionStatsSchema.builder().count(0).build();
@@ -385,6 +397,22 @@ public final class TableStatsCollectorUtil {
     }
     if (jsonObject.has("sharingEnabled")) {
       policyStats.setSharingEnabled(jsonObject.get("sharingEnabled").getAsBoolean());
+    }
+    if (jsonObject.has("replication")) {
+      JsonObject replicationObj = jsonObject.getAsJsonObject("replication");
+      if (replicationObj.has("config")) {
+        List<ReplicationPolicyStatsSchema> replicationPolicies = new ArrayList<>();
+        for (JsonElement configElement : replicationObj.getAsJsonArray("config")) {
+          JsonObject config = configElement.getAsJsonObject();
+          replicationPolicies.add(
+              ReplicationPolicyStatsSchema.builder()
+                  .destination(
+                      config.has("destination") ? config.get("destination").getAsString() : null)
+                  .interval(config.has("interval") ? config.get("interval").getAsString() : null)
+                  .build());
+        }
+        policyStats.setReplicationPolicies(replicationPolicies);
+      }
     }
     return policyStats;
   }
@@ -736,8 +764,11 @@ public final class TableStatsCollectorUtil {
     List<String> columnNames = getColumnNamesFromReadableMetrics(table, spark, fullTableName);
 
     if (columnNames.isEmpty()) {
-      log.warn("No columns with metrics found for partitioned table: {}", fullTableName);
-      return Collections.emptyList();
+      log.warn(
+          "No columns with readable_metrics found for partitioned table: {}. "
+              + "Will still emit rowCount and columnCount (schema has {} columns).",
+          fullTableName,
+          schema.columns().size());
     }
 
     Dataset<Row> partitionStatsDF =
@@ -792,10 +823,21 @@ public final class TableStatsCollectorUtil {
     List<String> columnAggExpressions = buildColumnAggregationExpressions(columnNames);
 
     // Build SQL query with GROUP BY partition
-    String aggregationQuery =
-        String.format(
-            "SELECT partition, sum(record_count) as total_row_count, %s FROM %s.data_files GROUP BY partition",
-            String.join(", ", columnAggExpressions), fullTableName);
+    String aggregationQuery;
+    if (columnAggExpressions.isEmpty()) {
+      // No column-level metrics available — just get row count per partition
+      aggregationQuery =
+          String.format(
+              "SELECT partition, sum(record_count) as total_row_count"
+                  + " FROM %s.data_files GROUP BY partition",
+              fullTableName);
+    } else {
+      aggregationQuery =
+          String.format(
+              "SELECT partition, sum(record_count) as total_row_count, %s"
+                  + " FROM %s.data_files GROUP BY partition",
+              String.join(", ", columnAggExpressions), fullTableName);
+    }
 
     log.debug("Building partition stats aggregation query");
     return spark.sql(aggregationQuery);
@@ -806,16 +848,17 @@ public final class TableStatsCollectorUtil {
       Dataset<Row> latestCommitsDF, Dataset<Row> partitionStatsDF) {
     log.info("Joining partition stats with commit metadata...");
 
-    // Perform inner join on partition
+    // Use left join so partitions with commits but no current data_files (e.g., fully
+    // deleted partitions) are still emitted with rowCount=0 instead of being silently dropped.
     Dataset<Row> joinedDF =
         latestCommitsDF
             .join(
                 partitionStatsDF,
                 latestCommitsDF.col("partition").equalTo(partitionStatsDF.col("partition")),
-                "inner")
+                "left")
             .drop(
                 partitionStatsDF.col(
-                    "partition")); // Drop duplicate partition column from right side
+                    "partition")); // Safe with left join: Spark drops by plan reference, not value
 
     log.debug("Join operation defined (will execute on first action)");
     return joinedDF;
@@ -894,8 +937,11 @@ public final class TableStatsCollectorUtil {
     log.info("Found {} columns with metrics for unpartitioned table", columnNames.size());
 
     if (columnNames.isEmpty()) {
-      log.warn("No columns with metrics found for unpartitioned table: {}", fullTableName);
-      return Collections.emptyList();
+      log.warn(
+          "No columns with readable_metrics found for unpartitioned table: {}. "
+              + "Will still emit rowCount and columnCount (schema has {} columns).",
+          fullTableName,
+          schema.columns().size());
     }
 
     // Step 2: Aggregate statistics from ALL data_files (no partitioning)
@@ -938,10 +984,18 @@ public final class TableStatsCollectorUtil {
     List<String> columnAggExpressions = buildColumnAggregationExpressions(columnNames);
 
     // Build SQL query WITHOUT GROUP BY (aggregate all files)
-    String aggregationQuery =
-        String.format(
-            "SELECT sum(record_count) as total_row_count, %s FROM %s.data_files",
-            String.join(", ", columnAggExpressions), fullTableName);
+    String aggregationQuery;
+    if (columnAggExpressions.isEmpty()) {
+      // No column-level metrics available — just get row count
+      aggregationQuery =
+          String.format(
+              "SELECT sum(record_count) as total_row_count FROM %s.data_files", fullTableName);
+    } else {
+      aggregationQuery =
+          String.format(
+              "SELECT sum(record_count) as total_row_count, %s FROM %s.data_files",
+              String.join(", ", columnAggExpressions), fullTableName);
+    }
 
     log.debug("Building unpartitioned table stats aggregation query");
     Dataset<Row> statsDF = spark.sql(aggregationQuery);
@@ -1134,10 +1188,18 @@ public final class TableStatsCollectorUtil {
     result.put("maxValue", new ArrayList<>());
     result.put("columnSize", new ArrayList<>());
 
-    // Create a map for quick column type lookup
+    // Create a map for quick column type lookup.
+    // Use TypeUtil.indexByName() to recursively index all leaf fields by their full
+    // dot-separated paths (e.g., "memberMetadata.standardizedTitleId"), so that nested
+    // column stats from readable_metrics are not silently dropped. schema.columns() only
+    // returns top-level fields and would cause all nested column stats to be skipped.
+    Map<Integer, Types.NestedField> idToField = TypeUtil.indexById(schema.asStruct());
     Map<String, org.apache.iceberg.types.Type> columnTypeMap = new HashMap<>();
-    for (Types.NestedField field : schema.columns()) {
-      columnTypeMap.put(field.name(), field.type());
+    for (Map.Entry<String, Integer> entry : TypeUtil.indexByName(schema.asStruct()).entrySet()) {
+      Types.NestedField field = idToField.get(entry.getValue());
+      if (field != null) {
+        columnTypeMap.put(entry.getKey(), field.type());
+      }
     }
 
     for (String colName : columnNames) {

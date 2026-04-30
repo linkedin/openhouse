@@ -26,6 +26,7 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -85,6 +86,7 @@ public class TablesServiceImpl implements TablesService {
     return openHouseInternalRepository.searchTables(databaseId, pageable);
   }
 
+  @WithSpan("TablesService.putTable")
   @Override
   public Pair<TableDto, Boolean> putTable(
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
@@ -97,7 +99,10 @@ public class TablesServiceImpl implements TablesService {
             TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
 
     // Special case handling
-    if (tableDto.isPresent()) {
+    if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
+      // Check if table creator has the privilege to replace the table.
+      authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
+    } else if (tableDto.isPresent()) {
       if (failOnExist) {
         throw new AlreadyExistsException("Table", String.format("%s.%s", databaseId, tableId));
       }
@@ -205,7 +210,7 @@ public class TablesServiceImpl implements TablesService {
     if (!tableDto.isPresent()) {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
-    authorizationUtils.checkTableWritePathPrivileges(
+    authorizationUtils.checkTableDropPrivilege(
         tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
 
     openHouseInternalRepository.deleteById(tableDtoPrimaryKey);

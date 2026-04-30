@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -19,6 +20,12 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.data.SpanData;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -1814,5 +1821,77 @@ public class OpenHouseInternalTableOperationsTest {
           "Exception message should indicate stale snapshot or sequence number issue: "
               + exception.getMessage());
     }
+  }
+
+  /**
+   * Tests that doCommit creates the expected programmatic OpenTelemetry spans
+   * (IcebergTableOps.writeMetadata and IcebergTableOps.saveHouseTable). Note: @WithSpan annotations
+   * require the OTEL Java Agent at runtime and cannot be verified in unit tests.
+   */
+  @Test
+  void testDoCommitCreatesOtelSpans() {
+    InMemorySpanExporter spanExporter = InMemorySpanExporter.create();
+    SdkTracerProvider tracerProvider =
+        SdkTracerProvider.builder()
+            .addSpanProcessor(SimpleSpanProcessor.create(spanExporter))
+            .build();
+    GlobalOpenTelemetry.resetForTest();
+    OpenTelemetrySdk.builder().setTracerProvider(tracerProvider).buildAndRegisterGlobal();
+
+    try {
+      try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+          Mockito.mockStatic(TableMetadataParser.class)) {
+        Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+        TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+        openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
+      }
+
+      List<String> spanNames =
+          spanExporter.getFinishedSpanItems().stream()
+              .map(SpanData::getName)
+              .collect(Collectors.toList());
+
+      Assertions.assertTrue(
+          spanNames.contains("IcebergTableOps.writeMetadata"),
+          "Expected IcebergTableOps.writeMetadata span, found: " + spanNames);
+      Assertions.assertTrue(
+          spanNames.contains("IcebergTableOps.saveHouseTable"),
+          "Expected IcebergTableOps.saveHouseTable span, found: " + spanNames);
+    } finally {
+      GlobalOpenTelemetry.resetForTest();
+      tracerProvider.close();
+    }
+  }
+
+  /**
+   * Simulates the real-world bug where a table's metadata file references a schema ID that doesn't
+   * exist in the schemas list. Iceberg's TableMetadataParser throws IllegalArgumentException:
+   * "Cannot find schema with current-schema-id=6 from schemas". Verifies that this is wrapped as
+   * InvalidTableMetadataException.
+   */
+  @Test
+  void testRefreshMetadataCorruptSchemaIdThrowsInvalidTableMetadataException() throws IOException {
+    // Write a valid metadata file from BASE_TABLE_METADATA, then corrupt the current-schema-id
+    java.nio.file.Path tempDir = Files.createTempDirectory("corrupt-metadata-test");
+    java.nio.file.Path metadataFile = tempDir.resolve("00001-abc.metadata.json");
+    String validJson = TableMetadataParser.toJson(BASE_TABLE_METADATA);
+    // Corrupt: change current-schema-id to a non-existent schema ID
+    String corruptJson = validJson.replace("\"current-schema-id\":0", "\"current-schema-id\":999");
+
+    Files.write(metadataFile, corruptJson.getBytes());
+
+    Assertions.assertThrows(
+        InvalidTableMetadataException.class,
+        () -> openHouseInternalTableOperations.refreshMetadata(metadataFile.toString()));
+  }
+
+  /** Verifies that a missing metadata file is surfaced as InvalidTableMetadataException. */
+  @Test
+  void testRefreshMetadataMissingFileThrowsInvalidTableMetadataException() {
+    String nonExistentPath = "/tmp/non-existent-" + UUID.randomUUID() + "/metadata.json";
+
+    Assertions.assertThrows(
+        InvalidTableMetadataException.class,
+        () -> openHouseInternalTableOperations.refreshMetadata(nonExistentPath));
   }
 }

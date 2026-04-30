@@ -2,8 +2,8 @@ package com.linkedin.openhouse.tablestest;
 
 import java.util.Collections;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.test.util.TestSocketUtils;
 
 /**
  * Standalone embedded OH server that can be started and stopped from any Java code (to be used for
@@ -17,8 +17,9 @@ public class OpenHouseLocalServer {
   private int port;
   private ConfigurableApplicationContext appContext;
 
+  /** Create server with OS-assigned port (determined at startup time). */
   public OpenHouseLocalServer() {
-    this.port = TestSocketUtils.findAvailableTcpPort();
+    this.port = 0;
     this.appContext = null;
   }
 
@@ -42,6 +43,7 @@ public class OpenHouseLocalServer {
         fixTomcatInstantiation();
       }
       appContext = application.run();
+      this.port = ((WebServerApplicationContext) appContext).getWebServer().getPort();
     } else {
       throw new IllegalArgumentException(
           "OpenHouse test server has already been started, please stop the application first with OpenHouseJavaItestService#Start");
