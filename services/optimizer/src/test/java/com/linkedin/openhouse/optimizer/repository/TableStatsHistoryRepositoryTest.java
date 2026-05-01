@@ -84,28 +84,52 @@ class TableStatsHistoryRepositoryTest {
   }
 
   @Test
-  void autoIncrementId() {
+  void callerSetIdIsPreserved() {
     String tableUuid = UUID.randomUUID().toString();
+    String id1 = UUID.randomUUID().toString();
+    String id2 = UUID.randomUUID().toString();
     Instant now = Instant.now();
 
-    TableStatsHistoryRow row1 = repository.save(buildRow(tableUuid, "db1", "tbl1", 1L, 0L, now));
-    TableStatsHistoryRow row2 = repository.save(buildRow(tableUuid, "db1", "tbl1", 2L, 0L, now));
+    TableStatsHistoryRow row1 =
+        repository.save(buildRow(id1, tableUuid, "db1", "tbl1", 1L, 0L, now));
+    TableStatsHistoryRow row2 =
+        repository.save(buildRow(id2, tableUuid, "db1", "tbl1", 2L, 0L, now));
 
-    assertThat(row1.getId()).isNotNull();
-    assertThat(row2.getId()).isNotNull();
-    assertThat(row2.getId()).isGreaterThan(row1.getId());
+    assertThat(row1.getId()).isEqualTo(id1);
+    assertThat(row2.getId()).isEqualTo(id2);
+    assertThat(repository.findById(id1)).isPresent();
+    assertThat(repository.findById(id2)).isPresent();
   }
 
   private static TableStatsHistoryRow buildRow(
       String tableUuid,
-      String databaseId,
+      String databaseName,
+      String tableName,
+      long numFilesAdded,
+      long numFilesDeleted,
+      Instant recordedAt) {
+    return buildRow(
+        UUID.randomUUID().toString(),
+        tableUuid,
+        databaseName,
+        tableName,
+        numFilesAdded,
+        numFilesDeleted,
+        recordedAt);
+  }
+
+  private static TableStatsHistoryRow buildRow(
+      String id,
+      String tableUuid,
+      String databaseName,
       String tableName,
       long numFilesAdded,
       long numFilesDeleted,
       Instant recordedAt) {
     return TableStatsHistoryRow.builder()
+        .id(id)
         .tableUuid(tableUuid)
-        .databaseId(databaseId)
+        .databaseName(databaseName)
         .tableName(tableName)
         .stats(
             TableStats.builder()

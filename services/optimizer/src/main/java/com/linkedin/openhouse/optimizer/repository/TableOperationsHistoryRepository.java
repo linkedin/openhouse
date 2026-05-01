@@ -12,14 +12,15 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 /**
- * Repository for {@link TableOperationsHistoryRow}. Append-only; PK is auto-increment {@code id}.
+ * Repository for {@link TableOperationsHistoryRow}. Append-only; PK is the UUID set by the caller
+ * (same UUID as the originating {@code table_operations.id}).
  */
 @Repository
 public interface TableOperationsHistoryRepository
-    extends JpaRepository<TableOperationsHistoryRow, Long> {
+    extends JpaRepository<TableOperationsHistoryRow, String> {
 
   /**
-   * Return history rows matching the given filters, ordered by {@code submittedAt} descending.
+   * Return history rows matching the given filters, ordered by {@code completedAt} descending.
    * Every parameter is optional — pass {@code null} to skip that filter.
    */
   @Query(
@@ -29,9 +30,9 @@ public interface TableOperationsHistoryRepository
           + "AND (:tableUuid IS NULL OR r.tableUuid = :tableUuid) "
           + "AND (:operationType IS NULL OR r.operationType = :operationType) "
           + "AND (:status IS NULL OR r.status = :status) "
-          + "AND (:since IS NULL OR r.submittedAt >= :since) "
-          + "AND (:until IS NULL OR r.submittedAt <= :until) "
-          + "ORDER BY r.submittedAt DESC")
+          + "AND (:since IS NULL OR r.completedAt >= :since) "
+          + "AND (:until IS NULL OR r.completedAt <= :until) "
+          + "ORDER BY r.completedAt DESC")
   List<TableOperationsHistoryRow> find(
       @Param("databaseName") String databaseName,
       @Param("tableName") String tableName,

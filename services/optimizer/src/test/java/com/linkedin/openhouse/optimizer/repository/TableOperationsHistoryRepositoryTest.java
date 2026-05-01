@@ -36,7 +36,7 @@ class TableOperationsHistoryRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .submittedAt(t1)
+            .completedAt(t1)
             .status(OperationHistoryStatus.SUCCESS)
             .jobId("job-001")
             .build());
@@ -48,7 +48,7 @@ class TableOperationsHistoryRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .submittedAt(t2)
+            .completedAt(t2)
             .status(OperationHistoryStatus.FAILED)
             .jobId("job-002")
             .result(JobResult.builder().errorMessage("out of memory").errorType("OOM").build())
@@ -75,7 +75,7 @@ class TableOperationsHistoryRepositoryTest {
               .databaseName("db1")
               .tableName("tbl2")
               .operationType(OperationType.ORPHAN_FILES_DELETION)
-              .submittedAt(now.plusSeconds(i))
+              .completedAt(now.plusSeconds(i))
               .status(OperationHistoryStatus.SUCCESS)
               .build());
     }
@@ -97,7 +97,7 @@ class TableOperationsHistoryRepositoryTest {
               .databaseName("db1")
               .tableName("tbl3")
               .operationType(OperationType.ORPHAN_FILES_DELETION)
-              .submittedAt(now.plusSeconds(i))
+              .completedAt(now.plusSeconds(i))
               .status(OperationHistoryStatus.SUCCESS)
               .build());
     }
@@ -120,7 +120,7 @@ class TableOperationsHistoryRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .submittedAt(now)
+            .completedAt(now)
             .status(OperationHistoryStatus.SUCCESS)
             .build());
     repository.save(
@@ -130,7 +130,7 @@ class TableOperationsHistoryRepositoryTest {
             .databaseName("db2")
             .tableName("tbl2")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .submittedAt(now.plusSeconds(1))
+            .completedAt(now.plusSeconds(1))
             .status(OperationHistoryStatus.FAILED)
             .build());
 
@@ -154,7 +154,7 @@ class TableOperationsHistoryRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .submittedAt(old)
+            .completedAt(old)
             .status(OperationHistoryStatus.SUCCESS)
             .build());
     repository.save(
@@ -164,7 +164,7 @@ class TableOperationsHistoryRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .submittedAt(recent)
+            .completedAt(recent)
             .status(OperationHistoryStatus.FAILED)
             .build());
 
@@ -180,13 +180,13 @@ class TableOperationsHistoryRepositoryTest {
             null,
             PageRequest.of(0, 100));
     assertThat(failed).hasSize(1);
-    assertThat(failed.get(0).getSubmittedAt()).isEqualTo(recent);
+    assertThat(failed.get(0).getCompletedAt()).isEqualTo(recent);
 
     // Filter by time window
     Instant cutoff = Instant.parse("2024-03-01T00:00:00Z");
     List<TableOperationsHistoryRow> afterCutoff =
         repository.find(null, null, null, null, null, cutoff, null, PageRequest.of(0, 100));
     assertThat(afterCutoff).hasSize(1);
-    assertThat(afterCutoff.get(0).getSubmittedAt()).isEqualTo(recent);
+    assertThat(afterCutoff.get(0).getCompletedAt()).isEqualTo(recent);
   }
 }
