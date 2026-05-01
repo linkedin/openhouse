@@ -22,7 +22,7 @@ public class OrphanFilesDeletionSparkAppTest extends OpenHouseSparkITest {
       // create and test ofd spark job
       OrphanFilesDeletionSparkApp app =
           new OrphanFilesDeletionSparkApp(
-              "test-ofd-job1", null, tableName, 86400, otelEmitter, ".backup");
+              "test-ofd-job1", null, tableName, 86400, otelEmitter, ".backup", 1, false, 100);
       Assertions.assertEquals(86400, app.getTtlSeconds());
     }
   }
@@ -37,7 +37,7 @@ public class OrphanFilesDeletionSparkAppTest extends OpenHouseSparkITest {
       // create and test ofd spark job
       OrphanFilesDeletionSparkApp app =
           new OrphanFilesDeletionSparkApp(
-              "test-ofd-job2", null, tableName, 259200, otelEmitter, ".backup");
+              "test-ofd-job2", null, tableName, 259200, otelEmitter, ".backup", 1, false, 100);
       Assertions.assertEquals(259200, app.getTtlSeconds());
     }
   }
@@ -52,7 +52,7 @@ public class OrphanFilesDeletionSparkAppTest extends OpenHouseSparkITest {
       // create and test ofd spark job
       OrphanFilesDeletionSparkApp app =
           new OrphanFilesDeletionSparkApp(
-              "test-ofd-job3", null, tableName, 86400, otelEmitter, ".backup");
+              "test-ofd-job3", null, tableName, 86400, otelEmitter, ".backup", 1, false, 100);
       app.runInner(ops);
       Assertions.assertEquals(259200, app.getTtlSeconds());
     }
@@ -68,7 +68,7 @@ public class OrphanFilesDeletionSparkAppTest extends OpenHouseSparkITest {
       // create and test ofd spark job
       OrphanFilesDeletionSparkApp app =
           new OrphanFilesDeletionSparkApp(
-              "test-ofd-job4", null, tableName, 259200, otelEmitter, ".backup");
+              "test-ofd-job4", null, tableName, 259200, otelEmitter, ".backup", 1, false, 100);
       app.runInner(ops);
       Assertions.assertEquals(259200, app.getTtlSeconds());
     }

@@ -34,7 +34,7 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   private final boolean streamResults;
   private final int maxOrphanFileSampleSize;
   private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
-  private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 2;
+  private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
