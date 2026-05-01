@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** REST controller for {@code table_operations}. */
 @RestController
-@RequestMapping("/v1/table-operations")
+@RequestMapping("/v1/optimizer/operations")
 @RequiredArgsConstructor
 public class TableOperationsController {
 
