@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** REST controller for {@code table_operations_history}. */
 @RestController
-@RequestMapping("/v1/table-operations-history")
+@RequestMapping("/v1/optimizer/operations-history")
 @RequiredArgsConstructor
 public class TableOperationsHistoryController {
 

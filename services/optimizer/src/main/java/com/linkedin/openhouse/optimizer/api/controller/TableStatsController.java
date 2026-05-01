@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** REST controller for managing per-table stats in the optimizer DB. */
 @RestController
-@RequestMapping("/v1/table-stats")
+@RequestMapping("/v1/optimizer/stats")
 @RequiredArgsConstructor
 public class TableStatsController {
 
