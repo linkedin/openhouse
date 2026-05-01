@@ -217,7 +217,7 @@ class OrphanFilesDeletionAnalyzerTest {
             : Map.of(OrphanFilesDeletionAnalyzer.OFD_ENABLED_PROPERTY, value);
     return Table.builder()
         .tableUuid("test-uuid")
-        .databaseId("db1")
+        .databaseName("db1")
         .tableId("tbl1")
         .tableProperties(props)
         .build();
@@ -230,12 +230,12 @@ class OrphanFilesDeletionAnalyzerTest {
     return op;
   }
 
-  private TableOperationHistoryRow historyWithStatus(String status, Instant submittedAt) {
+  private TableOperationHistoryRow historyWithStatus(String status, Instant completedAt) {
     return TableOperationHistoryRow.builder()
         .id("hist-id")
         .tableUuid("test-uuid")
         .operationType("ORPHAN_FILES_DELETION")
-        .submittedAt(submittedAt)
+        .completedAt(completedAt)
         .status(status)
         .build();
   }

@@ -49,10 +49,10 @@ public class TableStatsController {
    */
   @GetMapping
   public ResponseEntity<List<TableStatsDto>> listTableStats(
-      @RequestParam(required = false) String databaseId,
+      @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
-    return ResponseEntity.ok(service.listTableStats(databaseId, tableName, tableUuid));
+    return ResponseEntity.ok(service.listTableStats(databaseName, tableName, tableUuid));
   }
 
   /**

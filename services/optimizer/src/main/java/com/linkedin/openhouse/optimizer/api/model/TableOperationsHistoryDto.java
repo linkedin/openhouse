@@ -24,7 +24,7 @@ public class TableOperationsHistoryDto {
   private OperationType operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
-  private Instant submittedAt;
+  private Instant completedAt;
 
   /** {@code SUCCESS} or {@code FAILED}. */
   private OperationHistoryStatus status;

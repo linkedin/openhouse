@@ -5,8 +5,6 @@ import com.vladmihalcea.hibernate.type.json.JsonStringType;
 import java.time.Instant;
 import javax.persistence.Column;
 import javax.persistence.Entity;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
 import javax.persistence.Id;
 import javax.persistence.Index;
 import javax.persistence.Table;
@@ -42,17 +40,16 @@ import org.hibernate.annotations.TypeDef;
 public class TableStatsHistoryRow {
 
   @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  @Column(name = "id", nullable = false)
-  private Long id;
+  @Column(name = "id", nullable = false, length = 36)
+  private String id;
 
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
-  @Column(name = "database_id", nullable = false, length = 255)
-  private String databaseId;
+  @Column(name = "database_name", nullable = false, length = 128)
+  private String databaseName;
 
-  @Column(name = "table_name", nullable = false, length = 255)
+  @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
   @Type(type = "json")

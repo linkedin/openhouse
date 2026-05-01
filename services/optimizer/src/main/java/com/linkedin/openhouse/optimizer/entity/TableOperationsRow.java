@@ -53,10 +53,10 @@ public class TableOperationsRow {
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
-  @Column(name = "database_name", nullable = false, length = 255)
+  @Column(name = "database_name", nullable = false, length = 128)
   private String databaseName;
 
-  @Column(name = "table_name", nullable = false, length = 255)
+  @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
   @Enumerated(EnumType.STRING)
@@ -85,11 +85,4 @@ public class TableOperationsRow {
    */
   @Column(name = "version")
   private Long version;
-
-  /**
-   * Reserved for future per-operation metadata. Stored as JSON text; currently unused. The Analyzer
-   * reads stats directly from {@code table_stats} instead of duplicating them here.
-   */
-  @Column(name = "metrics")
-  private String metrics;
 }

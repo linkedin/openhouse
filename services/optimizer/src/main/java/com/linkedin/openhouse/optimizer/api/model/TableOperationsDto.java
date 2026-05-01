@@ -39,7 +39,4 @@ public class TableOperationsDto {
 
   /** Job ID returned by the Jobs Service after successful submission. */
   private String jobId;
-
-  /** Reserved for future per-operation metadata; currently unused. */
-  private String metrics;
 }

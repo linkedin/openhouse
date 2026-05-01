@@ -58,7 +58,7 @@ public interface OptimizerDataService {
    * List stats rows matching the given filters. Every parameter is optional — pass {@code null} to
    * skip that filter. No filters returns all rows.
    */
-  List<TableStatsDto> listTableStats(String databaseId, String tableName, String tableUuid);
+  List<TableStatsDto> listTableStats(String databaseName, String tableName, String tableUuid);
 
   /**
    * Return per-commit stats history for {@code tableUuid}, newest first.

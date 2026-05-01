@@ -48,11 +48,11 @@ class AnalyzerRunnerTest {
   void analyze_insertsNewRow_forEligibleTableWithNoExistingOp() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseId("db1");
+    statsEntity.setDatabaseName("db1");
     statsEntity.setTableName("tbl1");
 
     Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
 
     when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
@@ -83,11 +83,11 @@ class AnalyzerRunnerTest {
   void analyze_noOp_whenCadencePolicyReturnsFalseForPending() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseId("db1");
+    statsEntity.setDatabaseName("db1");
     statsEntity.setTableName("tbl1");
 
     Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
 
     TableOperationRow existingEntity = new TableOperationRow();
     existingEntity.setId("existing-op-id");
@@ -185,11 +185,11 @@ class AnalyzerRunnerTest {
   void analyze_skipsTable_whenCircuitBreakerTrips() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseId("db1");
+    statsEntity.setDatabaseName("db1");
     statsEntity.setTableName("tbl1");
 
     Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
 
     List<TableOperationHistoryRow> failures =
         IntStream.range(0, 3)
@@ -199,7 +199,7 @@ class AnalyzerRunnerTest {
                         .id("fail-" + i)
                         .tableUuid("uuid-1")
                         .operationType("ORPHAN_FILES_DELETION")
-                        .submittedAt(Instant.now().minusSeconds(i * 60))
+                        .completedAt(Instant.now().minusSeconds(i * 60))
                         .status("FAILED")
                         .build())
             .collect(Collectors.toList());
@@ -225,11 +225,11 @@ class AnalyzerRunnerTest {
   void analyze_doesNotTrip_whenFewerFailuresThanThreshold() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseId("db1");
+    statsEntity.setDatabaseName("db1");
     statsEntity.setTableName("tbl1");
 
     Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseId("db1").tableId("tbl1").build();
+        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
 
     List<TableOperationHistoryRow> failures =
         IntStream.range(0, 3)
@@ -239,7 +239,7 @@ class AnalyzerRunnerTest {
                         .id("fail-" + i)
                         .tableUuid("uuid-1")
                         .operationType("ORPHAN_FILES_DELETION")
-                        .submittedAt(Instant.now().minusSeconds(i * 60))
+                        .completedAt(Instant.now().minusSeconds(i * 60))
                         .status("FAILED")
                         .build())
             .collect(Collectors.toList());
