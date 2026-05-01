@@ -26,6 +26,12 @@ public class TableOperationHistoryRow {
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
+  @Column(name = "database_name", nullable = false, length = 128)
+  private String databaseName;
+
+  @Column(name = "table_name", nullable = false, length = 128)
+  private String tableName;
+
   @Column(name = "operation_type", nullable = false, length = 50)
   private String operationType;
 
