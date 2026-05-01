@@ -36,7 +36,8 @@ import lombok.NoArgsConstructor;
       @Index(name = "idx_op_type_hist", columnList = "operation_type"),
       @Index(name = "idx_completed_at", columnList = "completed_at"),
       @Index(name = "idx_status_hist", columnList = "status"),
-      @Index(name = "idx_job_id", columnList = "job_id")
+      @Index(name = "idx_job_id", columnList = "job_id"),
+      @Index(name = "idx_toph_db_table", columnList = "database_name, table_name")
     })
 @Getter
 @EqualsAndHashCode
