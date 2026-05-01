@@ -40,6 +40,7 @@ public class TableStats {
   @Builder(toBuilder = true)
   @NoArgsConstructor
   @AllArgsConstructor
+  @JsonIgnoreProperties(ignoreUnknown = true)
   public static class CommitDelta {
     private Long numFilesAdded;
     private Long numFilesDeleted;

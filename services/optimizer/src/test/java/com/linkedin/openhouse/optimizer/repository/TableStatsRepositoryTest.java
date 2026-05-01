@@ -34,7 +34,7 @@ class TableStatsRepositoryTest {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(tableUuid)
-            .databaseId("db1")
+            .databaseName("db1")
             .tableName("tbl1")
             .stats(stats)
             .tableProperties(Map.of("maintenance.optimizer.ofd.enabled", "true"))
@@ -43,7 +43,7 @@ class TableStatsRepositoryTest {
 
     Optional<TableStatsRow> found = repository.findById(tableUuid);
     assertThat(found).isPresent();
-    assertThat(found.get().getDatabaseId()).isEqualTo("db1");
+    assertThat(found.get().getDatabaseName()).isEqualTo("db1");
     assertThat(found.get().getStats().getSnapshot().getTableSizeBytes()).isEqualTo(1024L);
     assertThat(found.get().getTableProperties())
         .containsEntry("maintenance.optimizer.ofd.enabled", "true");
@@ -56,7 +56,7 @@ class TableStatsRepositoryTest {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(tableUuid)
-            .databaseId("db1")
+            .databaseName("db1")
             .tableName("tbl1")
             .stats(
                 TableStats.builder()
@@ -68,7 +68,7 @@ class TableStatsRepositoryTest {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(tableUuid)
-            .databaseId("db1")
+            .databaseName("db1")
             .tableName("tbl1")
             .stats(
                 TableStats.builder()
@@ -87,7 +87,7 @@ class TableStatsRepositoryTest {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(UUID.randomUUID().toString())
-            .databaseId("db1")
+            .databaseName("db1")
             .tableName("tbl1")
             .stats(
                 TableStats.builder()
@@ -98,7 +98,7 @@ class TableStatsRepositoryTest {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(UUID.randomUUID().toString())
-            .databaseId("db2")
+            .databaseName("db2")
             .tableName("tbl2")
             .stats(
                 TableStats.builder()
@@ -115,7 +115,7 @@ class TableStatsRepositoryTest {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(UUID.randomUUID().toString())
-            .databaseId("db1")
+            .databaseName("db1")
             .tableName("tbl1")
             .stats(
                 TableStats.builder()
@@ -126,7 +126,7 @@ class TableStatsRepositoryTest {
     repository.save(
         TableStatsRow.builder()
             .tableUuid(UUID.randomUUID().toString())
-            .databaseId("db2")
+            .databaseName("db2")
             .tableName("tbl2")
             .stats(
                 TableStats.builder()
@@ -136,6 +136,6 @@ class TableStatsRepositoryTest {
             .build());
 
     assertThat(repository.find("db1", null, null)).hasSize(1);
-    assertThat(repository.find("db1", null, null).get(0).getDatabaseId()).isEqualTo("db1");
+    assertThat(repository.find("db1", null, null).get(0).getDatabaseName()).isEqualTo("db1");
   }
 }
