@@ -37,15 +37,25 @@ class OHCaseInsensitiveResolveRule(spark: SparkSession) extends Rule[LogicalPlan
     val mappings = collectOHColumnMappings(plan)
     if (mappings.isEmpty) return plan
 
-    plan.transformExpressions {
-      case attr: UnresolvedAttribute =>
-        val colName = attr.nameParts.last
-        mappings.get(colName.toLowerCase) match {
-          case Some(storedName) if storedName != colName =>
-            // Rename to the stored casing so ResolveReferences finds an exact match.
-            UnresolvedAttribute(attr.nameParts.dropRight(1) :+ storedName)
-          case _ =>
-            attr
+    // Use resolveOperatorsDown so the rename is applied to every *unresolved* plan node in the
+    // tree — Sort, Project, Filter, etc. — not just the top-level node.
+    // plan.transformExpressions alone only applies mapExpressions to the root plan node's own
+    // expression fields (via mapProductIterator) and does not descend into child plan nodes, so
+    // for queries like "SELECT id FROM v ORDER BY id" the Project's expressions were left
+    // untouched.  resolveOperatorsDown visits every unanalyzed node (skipping already-resolved
+    // view bodies) and applies transformExpressions to each one.
+    plan.resolveOperatorsDown {
+      case p: LogicalPlan =>
+        p.transformExpressions {
+          case attr: UnresolvedAttribute =>
+            val colName = attr.nameParts.last
+            mappings.get(colName.toLowerCase) match {
+              case Some(storedName) if storedName != colName =>
+                // Rename to the stored casing so ResolveReferences finds an exact match.
+                UnresolvedAttribute(attr.nameParts.dropRight(1) :+ storedName)
+              case _ =>
+                attr
+            }
         }
     }
   }

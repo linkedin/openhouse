@@ -462,18 +462,49 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       catalog.createTable(TableIdentifier.of("d1", "view_case_test"), schema);
       spark.sql("INSERT INTO openhouse.d1.view_case_test VALUES ('a', 1), ('b', 2)");
 
-      // A view whose SQL references lowercase "id" against a table that stores "ID".
-      // With caseSensitive=true and without the rule this view would fail to resolve.
+      // View defined with explicit lowercase column references against a table that stores "ID".
+      // With caseSensitive=true and without the rule both the view definition and any outer query
+      // referencing a mismatched column name would fail to resolve.
       spark.sql(
           "CREATE OR REPLACE TEMP VIEW v_case AS "
               + "SELECT id, count FROM openhouse.d1.view_case_test");
 
+      // View defined with SELECT * — columns come from star-expansion over the OH table schema.
+      spark.sql(
+          "CREATE OR REPLACE TEMP VIEW v_case_star AS "
+              + "SELECT * FROM openhouse.d1.view_case_test");
+
       spark.conf().set("spark.sql.caseSensitive", "true");
       try {
-        // Reading via the view triggers the same resolution path; the rule normalizes the
-        // inlined view SQL and the query must return all rows.
-        List<Row> rows = spark.sql("SELECT * FROM v_case ORDER BY id").collectAsList();
-        Assertions.assertEquals(2, rows.size());
+        // SELECT * from explicit-column view: the rule normalises the inlined view SQL and the
+        // query must return all rows with correct values.
+        List<Row> selectStar = spark.sql("SELECT * FROM v_case ORDER BY id").collectAsList();
+        Assertions.assertEquals(2, selectStar.size());
+        Assertions.assertEquals("a", selectStar.get(0).getString(0));
+        Assertions.assertEquals("b", selectStar.get(1).getString(0));
+
+        // SELECT id from explicit-column view: the outer query uses a case-mismatched column
+        // reference against the view output — the rule must normalise it at the outer level too.
+        List<Row> selectId = spark.sql("SELECT id FROM v_case ORDER BY id").collectAsList();
+        Assertions.assertEquals(2, selectId.size());
+        Assertions.assertEquals("a", selectId.get(0).getString(0));
+        Assertions.assertEquals("b", selectId.get(1).getString(0));
+
+        // SELECT * from star view: star-expansion over the OH table schema produces "ID"; the
+        // rule must make reading it back case-insensitive.
+        List<Row> starViewSelectStar =
+            spark.sql("SELECT * FROM v_case_star ORDER BY id").collectAsList();
+        Assertions.assertEquals(2, starViewSelectStar.size());
+        Assertions.assertEquals("a", starViewSelectStar.get(0).getString(0));
+        Assertions.assertEquals("b", starViewSelectStar.get(1).getString(0));
+
+        // SELECT id from star view: explicit column reference with case mismatch against
+        // star-expanded view output must also resolve correctly.
+        List<Row> starViewSelectId =
+            spark.sql("SELECT id FROM v_case_star ORDER BY id").collectAsList();
+        Assertions.assertEquals(2, starViewSelectId.size());
+        Assertions.assertEquals("a", starViewSelectId.get(0).getString(0));
+        Assertions.assertEquals("b", starViewSelectId.get(1).getString(0));
 
         Assertions.assertEquals(
             "true",

@@ -24,9 +24,9 @@ import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
  * v2 catalogs) safe: (1) tables where two or more columns share the same case-folded name are
  * skipped (ambiguous target), consistent with the server-side write-path guard; (2) column names
  * that also appear in any non-OH resolved relation in the same plan are excluded — because
- * {@code transformExpressions} walks the whole plan tree and cannot tell which
- * {@link UnresolvedAttribute} belongs to which catalog, renaming a shared name could break
- * resolution for non-OH references under {@code caseSensitive=true}.
+ * {@code resolveOperatorsDown} + {@code transformExpressions} walks the whole plan tree and cannot
+ * tell which {@link UnresolvedAttribute} belongs to which catalog, renaming a shared name could
+ * break resolution for non-OH references under {@code caseSensitive=true}.
  *
  * <p>The rule does NOT modify {@code spark.sql.caseSensitive} and has no effect on non-OH tables
  * or intermediate DataFrame operations in the same query.
@@ -37,15 +37,25 @@ class OHCaseInsensitiveResolveRule(spark: SparkSession) extends Rule[LogicalPlan
     val mappings = collectOHColumnMappings(plan)
     if (mappings.isEmpty) return plan
 
-    plan.transformExpressions {
-      case attr: UnresolvedAttribute =>
-        val colName = attr.nameParts.last
-        mappings.get(colName.toLowerCase) match {
-          case Some(storedName) if storedName != colName =>
-            // Rename to the stored casing so ResolveReferences finds an exact match.
-            UnresolvedAttribute(attr.nameParts.dropRight(1) :+ storedName)
-          case _ =>
-            attr
+    // Use resolveOperatorsDown so the rename is applied to every *unresolved* plan node in the
+    // tree — Sort, Project, Filter, etc. — not just the top-level node.
+    // plan.transformExpressions alone only applies mapExpressions to the root plan node's own
+    // expression fields (via mapProductIterator) and does not descend into child plan nodes, so
+    // for queries like "SELECT id FROM v ORDER BY id" the Project's expressions were left
+    // untouched.  resolveOperatorsDown visits every unanalyzed node (skipping already-resolved
+    // view bodies) and applies transformExpressions to each one.
+    plan.resolveOperatorsDown {
+      case p: LogicalPlan =>
+        p.transformExpressions {
+          case attr: UnresolvedAttribute =>
+            val colName = attr.nameParts.last
+            mappings.get(colName.toLowerCase) match {
+              case Some(storedName) if storedName != colName =>
+                // Rename to the stored casing so ResolveReferences finds an exact match.
+                UnresolvedAttribute(attr.nameParts.dropRight(1) :+ storedName)
+              case _ =>
+                attr
+            }
         }
     }
   }
@@ -60,10 +70,10 @@ class OHCaseInsensitiveResolveRule(spark: SparkSession) extends Rule[LogicalPlan
    *   <li>Tables with case-duplicate columns (e.g. both "id" and "ID") are skipped — the target
    *       column is ambiguous and normalization could silently misdirect a read.</li>
    *   <li>Column names that also appear (case-insensitively) in any non-OH resolved relation in
-   *       the same plan are excluded. [[plan.transformExpressions]] is applied to the whole plan
-   *       tree and cannot distinguish which [[UnresolvedAttribute]] belongs to which catalog.
-   *       Renaming a name that also exists in a Hive/other-catalog relation would corrupt
-   *       resolution for those references under {@code caseSensitive=true}.</li>
+   *       the same plan are excluded. [[resolveOperatorsDown]] + [[transformExpressions]] walks
+   *       the whole plan tree and cannot distinguish which [[UnresolvedAttribute]] belongs to
+   *       which catalog. Renaming a name that also exists in a Hive/other-catalog relation would
+   *       corrupt resolution for those references under {@code caseSensitive=true}.</li>
    * </ol>
    */
   private def collectOHColumnMappings(plan: LogicalPlan): Map[String, String] = {
