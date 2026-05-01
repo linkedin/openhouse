@@ -47,5 +47,6 @@ CREATE TABLE IF NOT EXISTS table_operations_history (
   status         VARCHAR(20)   NOT NULL,
   job_id                VARCHAR(255),
   result                TEXT,
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  INDEX idx_toph_db_table (database_name, table_name)
 );
