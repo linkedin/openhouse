@@ -197,4 +197,132 @@ public class OHCaseInsensitiveResolveRuleTest {
       spark.sql("DROP TABLE IF EXISTS testhelper.dbCrossJoin.nonOhTable");
     }
   }
+
+  /**
+   * Verifies that {@code OHCaseInsensitiveResolveRule} normalizes nested struct field name parts in
+   * addition to top-level column names.
+   *
+   * <p>Setup: an OH table whose top-level column and all struct field names are stored in UPPERCASE
+   * — mimicking Hive-migrated tables where the engine normalises every identifier to upper case.
+   * With {@code spark.sql.caseSensitive=true}, a lower-case reference to {@code payload.event_id}
+   * must be renamed to {@code PAYLOAD.EVENT_ID} so that {@code ResolveReferences} can resolve the
+   * struct field access. Similarly, {@code payload.nested.value} must become {@code
+   * PAYLOAD.NESTED.VALUE}.
+   *
+   * <p><b>Why the top-level name must also be upper-case in this test</b>: {@code
+   * OHCaseInsensitiveResolveRule} is injected as an {@code extendedResolutionRule}, which Spark
+   * places <em>after</em> {@code ResolveReferences} in the Resolution batch. When the top-level
+   * column name is an <em>exact</em> case match (e.g. stored as {@code payload}, queried as {@code
+   * payload}), {@code ResolveReferences} finds the struct attribute and immediately calls {@code
+   * ExtractValue} on the nested field name — which throws {@code AnalysisException} before our rule
+   * gets a chance to run. Making the top-level name upper-case ({@code PAYLOAD}) means the
+   * case-sensitive resolver does <em>not</em> match {@code payload}, leaves the entire attribute
+   * unresolved, and our rule is reached on the same fixed-point iteration where it can normalise
+   * the full dotted path.
+   *
+   * <p>Without the nested-field normalization, the rule would leave {@code payload.event_id}
+   * unchanged and Spark would throw an {@code AnalysisException} because {@code EVENT_ID} ≠ {@code
+   * event_id} under {@code caseSensitive=true}.
+   */
+  @SneakyThrows
+  @Test
+  public void testNestedStructField_normalizedCaseInsensitively() {
+    // Build an OH table schema where EVERY stored name is in uppercase (Hive convention).
+    // Schema: PAYLOAD STRUCT<EVENT_ID: string, NESTED: STRUCT<VALUE: long>>
+    // Using all-uppercase ensures the top-level column also has a case mismatch with the
+    // lowercase query references, which is required for our rule to intercept the plan before
+    // Spark's ResolveReferences throws (see Javadoc above).
+    TableIdentifier tableId = TableIdentifier.of("dbNestedStruct", "nestedTbl");
+    Schema nestedSchema =
+        new Schema(
+            Types.NestedField.required(
+                1,
+                "PAYLOAD",
+                Types.StructType.of(
+                    Types.NestedField.required(101, "EVENT_ID", Types.StringType.get()),
+                    Types.NestedField.optional(
+                        102,
+                        "NESTED",
+                        Types.StructType.of(
+                            Types.NestedField.optional(201, "VALUE", Types.LongType.get()))))));
+
+    String warehouse = spark.conf().get("spark.sql.catalog.testhelper.warehouse");
+    Catalog hadoopCatalog =
+        CatalogUtil.buildIcebergCatalog(
+            "testhelper_nested",
+            ImmutableMap.of(
+                CatalogProperties.WAREHOUSE_LOCATION, warehouse, ICEBERG_CATALOG_TYPE, "hadoop"),
+            new Configuration());
+    hadoopCatalog.createTable(tableId, nestedSchema);
+
+    Table table = hadoopCatalog.loadTable(tableId);
+    Path metadataPath =
+        Paths.get(((BaseTable) table).operations().current().metadataFileLocation());
+    String copiedMetadata =
+        Files.copy(
+                metadataPath,
+                metadataPath.resolveSibling(
+                    new Random().nextInt(Integer.MAX_VALUE) + "-.metadata.json"))
+            .toString();
+
+    mockTableService.enqueue(
+        mockResponse(
+            200,
+            mockGetTableResponseBody(
+                "dbNestedStruct",
+                "nestedTbl",
+                "c1",
+                "dbNestedStruct.nestedTbl.c1",
+                "UUID",
+                copiedMetadata,
+                "v1",
+                SchemaParser.toJson(nestedSchema),
+                null,
+                null)));
+
+    // Enqueue a second response for the second query below (each table load consumes one mock).
+    String copiedMetadata2 =
+        Files.copy(
+                metadataPath,
+                metadataPath.resolveSibling(
+                    new Random().nextInt(Integer.MAX_VALUE) + "-.metadata.json"))
+            .toString();
+    mockTableService.enqueue(
+        mockResponse(
+            200,
+            mockGetTableResponseBody(
+                "dbNestedStruct",
+                "nestedTbl",
+                "c1",
+                "dbNestedStruct.nestedTbl.c1",
+                "UUID",
+                copiedMetadata2,
+                "v1",
+                SchemaParser.toJson(nestedSchema),
+                null,
+                null)));
+
+    spark.conf().set("spark.sql.caseSensitive", "true");
+    try {
+      // Single-level nested field: payload.event_id must resolve to PAYLOAD.EVENT_ID.
+      Assertions.assertDoesNotThrow(
+          () ->
+              spark
+                  .sql("SELECT payload.event_id FROM openhouse.dbNestedStruct.nestedTbl")
+                  .queryExecution()
+                  .analyzed(),
+          "Single-level nested field reference must resolve case-insensitively");
+
+      // Two-level nested field: payload.nested.value must resolve to PAYLOAD.NESTED.VALUE.
+      Assertions.assertDoesNotThrow(
+          () ->
+              spark
+                  .sql("SELECT payload.nested.value FROM openhouse.dbNestedStruct.nestedTbl")
+                  .queryExecution()
+                  .analyzed(),
+          "Two-level nested field reference must resolve case-insensitively");
+    } finally {
+      spark.conf().set("spark.sql.caseSensitive", "false");
+    }
+  }
 }
