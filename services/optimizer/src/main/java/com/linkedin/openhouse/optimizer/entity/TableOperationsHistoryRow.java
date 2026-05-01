@@ -34,7 +34,7 @@ import lombok.NoArgsConstructor;
     indexes = {
       @Index(name = "idx_table_uuid_hist", columnList = "table_uuid"),
       @Index(name = "idx_op_type_hist", columnList = "operation_type"),
-      @Index(name = "idx_submitted_at", columnList = "submitted_at"),
+      @Index(name = "idx_completed_at", columnList = "completed_at"),
       @Index(name = "idx_status_hist", columnList = "status"),
       @Index(name = "idx_job_id", columnList = "job_id")
     })
@@ -53,10 +53,10 @@ public class TableOperationsHistoryRow {
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
-  @Column(name = "database_name", nullable = false, length = 255)
+  @Column(name = "database_name", nullable = false, length = 128)
   private String databaseName;
 
-  @Column(name = "table_name", nullable = false, length = 255)
+  @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
   @Enumerated(EnumType.STRING)
@@ -64,8 +64,8 @@ public class TableOperationsHistoryRow {
   private OperationType operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
-  @Column(name = "submitted_at", nullable = false)
-  private Instant submittedAt;
+  @Column(name = "completed_at", nullable = false)
+  private Instant completedAt;
 
   /** {@code SUCCESS} or {@code FAILED}. */
   @Enumerated(EnumType.STRING)

@@ -9,7 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /** Append-only repository for per-commit stats history rows. */
-public interface TableStatsHistoryRepository extends JpaRepository<TableStatsHistoryRow, Long> {
+public interface TableStatsHistoryRepository extends JpaRepository<TableStatsHistoryRow, String> {
 
   /**
    * Return history rows for a table, newest first. Pass {@code null} for {@code since} to skip the

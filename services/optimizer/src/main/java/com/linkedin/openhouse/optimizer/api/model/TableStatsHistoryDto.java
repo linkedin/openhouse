@@ -13,14 +13,14 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class TableStatsHistoryDto {
 
-  /** Auto-increment primary key. */
-  private Long id;
+  /** UUID primary key set by the caller. */
+  private String id;
 
   /** Stable Iceberg table UUID. */
   private String tableUuid;
 
   /** Denormalized database name for display. */
-  private String databaseId;
+  private String databaseName;
 
   /** Denormalized table name for display. */
   private String tableName;
