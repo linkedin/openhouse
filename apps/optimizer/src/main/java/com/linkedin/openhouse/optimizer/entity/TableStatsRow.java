@@ -34,10 +34,10 @@ public class TableStatsRow {
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
-  @Column(name = "database_id", nullable = false, length = 255)
-  private String databaseId;
+  @Column(name = "database_name", nullable = false, length = 128)
+  private String databaseName;
 
-  @Column(name = "table_name", nullable = false, length = 255)
+  @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
   @Type(type = "json")

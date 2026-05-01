@@ -59,7 +59,7 @@ public class TableOperation {
     TableOperation op = new TableOperation();
     op.id = UUID.randomUUID().toString();
     op.tableUuid = table.getTableUuid();
-    op.databaseName = table.getDatabaseId();
+    op.databaseName = table.getDatabaseName();
     op.tableName = table.getTableId();
     op.operationType = operationType;
     op.status = "PENDING";

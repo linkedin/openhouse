@@ -78,9 +78,9 @@ public class CadencePolicy {
   private boolean decideFromHistoryEntry(TableOperationHistoryRow entry) {
     switch (entry.getStatus()) {
       case "SUCCESS":
-        return pastInterval(entry.getSubmittedAt(), successRetryInterval);
+        return pastInterval(entry.getCompletedAt(), successRetryInterval);
       case "FAILED":
-        return pastInterval(entry.getSubmittedAt(), failureRetryInterval);
+        return pastInterval(entry.getCompletedAt(), failureRetryInterval);
       default:
         return true;
     }

@@ -121,7 +121,7 @@ public class AnalyzerRunner {
                     log.info(
                         "Created PENDING {} operation for table {}.{}",
                         analyzer.getOperationType(),
-                        table.getDatabaseId(),
+                        table.getDatabaseName(),
                         table.getTableId());
                   }
                 }));

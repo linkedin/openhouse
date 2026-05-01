@@ -29,8 +29,8 @@ public class TableOperationHistoryRow {
   @Column(name = "operation_type", nullable = false, length = 50)
   private String operationType;
 
-  @Column(name = "submitted_at", nullable = false)
-  private Instant submittedAt;
+  @Column(name = "completed_at", nullable = false)
+  private Instant completedAt;
 
   @Column(name = "status", nullable = false, length = 20)
   private String status;

@@ -21,7 +21,7 @@ import lombok.NoArgsConstructor;
 public class Table {
 
   private String tableUuid;
-  private String databaseId;
+  private String databaseName;
   private String tableId;
 
   @Builder.Default private Map<String, String> tableProperties = Collections.emptyMap();
@@ -32,7 +32,7 @@ public class Table {
   public static Table from(TableStatsRow row) {
     return Table.builder()
         .tableUuid(row.getTableUuid())
-        .databaseId(row.getDatabaseId())
+        .databaseName(row.getDatabaseName())
         .tableId(row.getTableName())
         .tableProperties(
             row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
