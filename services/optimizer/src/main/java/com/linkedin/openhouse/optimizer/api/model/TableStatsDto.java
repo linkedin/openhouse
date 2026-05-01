@@ -18,7 +18,7 @@ public class TableStatsDto {
   private String tableUuid;
 
   /** Denormalized database name for display. */
-  private String databaseId;
+  private String databaseName;
 
   /** Denormalized table name for display. */
   private String tableName;

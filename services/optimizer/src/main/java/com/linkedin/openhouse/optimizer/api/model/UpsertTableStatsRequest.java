@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 /**
  * Request body for {@code PUT /v1/table-stats/{tableUuid}}.
  *
- * <p>{@code tableUuid} comes from the path variable. {@code databaseId} and {@code tableName} are
+ * <p>{@code tableUuid} comes from the path variable. {@code databaseName} and {@code tableName} are
  * denormalized display columns carried in the body.
  */
 @Data
@@ -19,7 +19,7 @@ import lombok.NoArgsConstructor;
 public class UpsertTableStatsRequest {
 
   /** Denormalized database name for display. */
-  private String databaseId;
+  private String databaseName;
 
   /** Denormalized table name for display. */
   private String tableName;
