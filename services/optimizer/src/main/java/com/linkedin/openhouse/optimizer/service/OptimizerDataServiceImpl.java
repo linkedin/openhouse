@@ -20,6 +20,7 @@ import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -67,7 +68,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                       .databaseName(row.getDatabaseName())
                       .tableName(row.getTableName())
                       .operationType(row.getOperationType())
-                      .submittedAt(Instant.now())
+                      .completedAt(Instant.now())
                       .status(request.getStatus())
                       .jobId(row.getJobId())
                       .result(request.getResult())
@@ -94,7 +95,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                 existing ->
                     existing
                         .toBuilder()
-                        .databaseId(request.getDatabaseId())
+                        .databaseName(request.getDatabaseName())
                         .tableName(request.getTableName())
                         .stats(request.getStats())
                         .tableProperties(request.getTableProperties())
@@ -103,7 +104,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             .orElse(
                 TableStatsRow.builder()
                     .tableUuid(tableUuid)
-                    .databaseId(request.getDatabaseId())
+                    .databaseName(request.getDatabaseName())
                     .tableName(request.getTableName())
                     .stats(request.getStats())
                     .tableProperties(request.getTableProperties())
@@ -113,8 +114,9 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
     statsHistoryRepository.save(
         TableStatsHistoryRow.builder()
+            .id(UUID.randomUUID().toString())
             .tableUuid(tableUuid)
-            .databaseId(request.getDatabaseId())
+            .databaseName(request.getDatabaseName())
             .tableName(request.getTableName())
             .stats(request.getStats())
             .recordedAt(now)
@@ -129,8 +131,9 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   }
 
   @Override
-  public List<TableStatsDto> listTableStats(String databaseId, String tableName, String tableUuid) {
-    return statsRepository.find(databaseId, tableName, tableUuid).stream()
+  public List<TableStatsDto> listTableStats(
+      String databaseName, String tableName, String tableUuid) {
+    return statsRepository.find(databaseName, tableName, tableUuid).stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
@@ -154,7 +157,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             .databaseName(dto.getDatabaseName())
             .tableName(dto.getTableName())
             .operationType(dto.getOperationType())
-            .submittedAt(dto.getSubmittedAt() != null ? dto.getSubmittedAt() : Instant.now())
+            .completedAt(dto.getCompletedAt() != null ? dto.getCompletedAt() : Instant.now())
             .status(dto.getStatus())
             .jobId(dto.getJobId())
             .result(dto.getResult())

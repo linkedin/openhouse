@@ -67,7 +67,7 @@ class OptimizerDataServiceImplTest {
     assertThat(result.get().getJobId()).isEqualTo("spark-job-123");
     assertThat(result.get().getOperationType()).isEqualTo(OperationType.ORPHAN_FILES_DELETION);
     assertThat(result.get().getDatabaseName()).isEqualTo("db1");
-    assertThat(result.get().getSubmittedAt()).isNotNull();
+    assertThat(result.get().getCompletedAt()).isNotNull();
   }
 
   @Test
@@ -98,14 +98,14 @@ class OptimizerDataServiceImplTest {
         service.upsertTableStats(
             tableUuid,
             UpsertTableStatsRequest.builder()
-                .databaseId("db1")
+                .databaseName("db1")
                 .tableName("tbl1")
                 .stats(stats)
                 .tableProperties(Map.of("maintenance.optimizer.ofd.enabled", "true"))
                 .build());
 
     assertThat(dto.getTableUuid()).isEqualTo(tableUuid);
-    assertThat(dto.getDatabaseId()).isEqualTo("db1");
+    assertThat(dto.getDatabaseName()).isEqualTo("db1");
     assertThat(dto.getStats().getSnapshot().getTableSizeBytes()).isEqualTo(1024L);
     assertThat(dto.getTableProperties()).containsEntry("maintenance.optimizer.ofd.enabled", "true");
     assertThat(statsRepository.findById(tableUuid)).isPresent();
@@ -128,7 +128,7 @@ class OptimizerDataServiceImplTest {
     service.upsertTableStats(
         tableUuid,
         UpsertTableStatsRequest.builder()
-            .databaseId("db1")
+            .databaseName("db1")
             .tableName("tbl1")
             .stats(firstStats)
             .build());
@@ -136,7 +136,7 @@ class OptimizerDataServiceImplTest {
         service.upsertTableStats(
             tableUuid,
             UpsertTableStatsRequest.builder()
-                .databaseId("db1")
+                .databaseName("db1")
                 .tableName("tbl1")
                 .stats(secondStats)
                 .build());
