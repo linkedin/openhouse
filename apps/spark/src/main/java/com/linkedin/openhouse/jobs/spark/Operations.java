@@ -13,6 +13,7 @@ import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
@@ -347,8 +348,9 @@ public final class Operations implements AutoCloseable {
 
   private void writeBackupDataManifests(
       Map<String, List<String>> manifestCache, Table table, String backupDir, ZonedDateTime now) {
-    for (String partitionPath : manifestCache.keySet()) {
-      List<String> files = manifestCache.get(partitionPath);
+    for (Map.Entry<String, List<String>> entry : manifestCache.entrySet()) {
+      String partitionPath = entry.getKey();
+      List<String> files = entry.getValue();
       List<String> backupFiles =
           files.stream()
               .map(file -> getTrashPath(table, file, backupDir).toString())
@@ -367,7 +369,7 @@ public final class Operations implements AutoCloseable {
           fs.mkdirs(destPath.getParent());
         }
         try (FSDataOutputStream out = fs.create(destPath, true)) {
-          out.write(jsonStr.getBytes());
+          out.write(jsonStr.getBytes(StandardCharsets.UTF_8));
         }
         log.info("Wrote {} with {} backup files", destPath, backupFiles.size());
       } catch (IOException e) {
