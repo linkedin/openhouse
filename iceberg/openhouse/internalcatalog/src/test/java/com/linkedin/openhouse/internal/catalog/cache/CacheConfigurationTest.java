@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.internal.catalog.cache;
 
 import com.linkedin.openhouse.internal.catalog.config.InternalCatalogSettings;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -23,7 +25,8 @@ class CacheConfigurationTest {
   private final ApplicationContextRunner tableMetadataCacheContextRunner =
       new ApplicationContextRunner()
           .withUserConfiguration(CacheConfiguration.class)
-          .withBean(SpringTableMetadataCache.class, SpringTableMetadataCache::new);
+          .withBean(SpringTableMetadataCache.class, SpringTableMetadataCache::new)
+          .withBean(MeterRegistry.class, SimpleMeterRegistry::new);
 
   @Test
   public void testDefaultMetadataCacheConfiguration() {

@@ -1,11 +1,15 @@
 package com.linkedin.openhouse.internal.catalog.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Weigher;
+import com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant;
 import com.linkedin.openhouse.internal.catalog.config.InternalCatalogSettings;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -24,7 +28,8 @@ public class CacheConfiguration {
   }
 
   @Bean
-  public CacheManager internalCatalogCacheManager(InternalCatalogSettings settings) {
+  public CacheManager internalCatalogCacheManager(
+      InternalCatalogSettings settings, ObjectProvider<MeterRegistry> meterRegistry) {
     CaffeineCacheManager cacheManager = new CaffeineCacheManager();
     cacheManager.setAllowNullValues(false);
     cacheManager.setCacheNames(List.of("tableMetadata"));
@@ -33,6 +38,7 @@ public class CacheConfiguration {
             .expireAfterWrite(settings.getMetadataCache().getTtl())
             .maximumWeight(settings.getMetadataCache().getMaxWeight().toBytes())
             .weigher(tableMetadataWeigher())
+            .removalListener(removalListener(meterRegistry))
             .recordStats());
     return cacheManager;
   }
@@ -44,5 +50,18 @@ public class CacheConfiguration {
       }
       return 1;
     };
+  }
+
+  private static RemovalListener<Object, Object> removalListener(
+      ObjectProvider<MeterRegistry> meterRegistry) {
+    return (key, value, cause) ->
+        meterRegistry.ifAvailable(
+            registry ->
+                registry
+                    .counter(
+                        InternalCatalogMetricsConstant.METADATA_CACHE_REMOVAL_CTR,
+                        InternalCatalogMetricsConstant.CACHE_REMOVAL_CAUSE_TAG,
+                        cause.name())
+                    .increment());
   }
 }
