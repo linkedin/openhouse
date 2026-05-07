@@ -1,8 +1,11 @@
 package com.linkedin.openhouse.internal.catalog.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Weigher;
 import com.linkedin.openhouse.internal.catalog.config.InternalCatalogSettings;
 import java.util.List;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -28,8 +31,18 @@ public class CacheConfiguration {
     cacheManager.setCaffeine(
         Caffeine.newBuilder()
             .expireAfterWrite(settings.getMetadataCache().getTtl())
-            .maximumSize(settings.getMetadataCache().getMaxSize())
+            .maximumWeight(settings.getMetadataCache().getMaxWeight().toBytes())
+            .weigher(tableMetadataWeigher())
             .recordStats());
     return cacheManager;
+  }
+
+  private static Weigher<Object, Object> tableMetadataWeigher() {
+    return (key, value) -> {
+      if (value instanceof TableMetadata) {
+        return TableMetadataParser.toJson((TableMetadata) value).length();
+      }
+      return 1;
+    };
   }
 }

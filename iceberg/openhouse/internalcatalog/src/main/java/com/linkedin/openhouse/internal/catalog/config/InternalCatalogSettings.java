@@ -3,6 +3,7 @@ package com.linkedin.openhouse.internal.catalog.config;
 import java.time.Duration;
 import lombok.Getter;
 import lombok.Setter;
+import org.springframework.util.unit.DataSize;
 
 @Getter
 @Setter
@@ -14,6 +15,6 @@ public class InternalCatalogSettings {
   @Setter
   public static class MetadataCache {
     private Duration ttl = Duration.ofMinutes(5);
-    private long maxSize = 1000;
+    private DataSize maxWeight = DataSize.ofGigabytes(1);
   }
 }

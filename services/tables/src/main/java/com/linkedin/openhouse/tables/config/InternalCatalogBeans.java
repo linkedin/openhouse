@@ -18,8 +18,8 @@ public class InternalCatalogBeans {
       if (metadataCacheOverrides.getTtl() != null) {
         settings.getMetadataCache().setTtl(metadataCacheOverrides.getTtl());
       }
-      if (metadataCacheOverrides.getMaxSize() != null) {
-        settings.getMetadataCache().setMaxSize(metadataCacheOverrides.getMaxSize());
+      if (metadataCacheOverrides.getMaxWeight() != null) {
+        settings.getMetadataCache().setMaxWeight(metadataCacheOverrides.getMaxWeight());
       }
     }
 

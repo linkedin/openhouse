@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.cache.CacheManager;
+import org.springframework.util.unit.DataSize;
 
 class InternalCatalogBeansTest {
 
@@ -23,7 +24,7 @@ class InternalCatalogBeansTest {
     contextRunner.run(
         context -> {
           assertMetadataCacheOverrides(context, null, null);
-          assertMetadataCacheSettings(context, Duration.ofMinutes(5), 1000);
+          assertMetadataCacheSettings(context, Duration.ofMinutes(5), DataSize.ofGigabytes(1));
           Assertions.assertFalse(context.containsBean("internalCatalogCacheManager"));
         });
   }
@@ -33,11 +34,12 @@ class InternalCatalogBeansTest {
     contextRunner
         .withPropertyValues(
             "cluster.iceberg.tables.metadata-cache.ttl=7m",
-            "cluster.iceberg.tables.metadata-cache.max-size=42")
+            "cluster.iceberg.tables.metadata-cache.max-weight=42MB")
         .run(
             context -> {
-              assertMetadataCacheOverrides(context, Duration.ofMinutes(7), 42L);
-              assertMetadataCacheSettings(context, Duration.ofMinutes(7), 42);
+              assertMetadataCacheOverrides(
+                  context, Duration.ofMinutes(7), DataSize.ofMegabytes(42));
+              assertMetadataCacheSettings(context, Duration.ofMinutes(7), DataSize.ofMegabytes(42));
               Assertions.assertFalse(context.containsBean("internalCatalogCacheManager"));
             });
   }
@@ -47,30 +49,31 @@ class InternalCatalogBeansTest {
     crossModuleContextRunner
         .withPropertyValues(
             "cluster.iceberg.tables.metadata-cache.ttl=7m",
-            "cluster.iceberg.tables.metadata-cache.max-size=42")
+            "cluster.iceberg.tables.metadata-cache.max-weight=42MB")
         .run(
             context -> {
-              assertMetadataCacheOverrides(context, Duration.ofMinutes(7), 42L);
-              assertMetadataCacheSettings(context, Duration.ofMinutes(7), 42);
+              assertMetadataCacheOverrides(
+                  context, Duration.ofMinutes(7), DataSize.ofMegabytes(42));
+              assertMetadataCacheSettings(context, Duration.ofMinutes(7), DataSize.ofMegabytes(42));
               Assertions.assertNotNull(context.getBean(CacheManager.class));
             });
   }
 
   private void assertMetadataCacheOverrides(
-      AssertableApplicationContext context, Duration expectedTtl, Long expectedMaxSize) {
+      AssertableApplicationContext context, Duration expectedTtl, DataSize expectedMaxWeight) {
     Assertions.assertNull(context.getStartupFailure());
 
     InternalCatalogProperties properties = context.getBean(InternalCatalogProperties.class);
     Assertions.assertEquals(expectedTtl, properties.getMetadataCache().getTtl());
-    Assertions.assertEquals(expectedMaxSize, properties.getMetadataCache().getMaxSize());
+    Assertions.assertEquals(expectedMaxWeight, properties.getMetadataCache().getMaxWeight());
   }
 
   private void assertMetadataCacheSettings(
-      AssertableApplicationContext context, Duration expectedTtl, long expectedMaxSize) {
+      AssertableApplicationContext context, Duration expectedTtl, DataSize expectedMaxWeight) {
     Assertions.assertNull(context.getStartupFailure());
 
     InternalCatalogSettings settings = context.getBean(InternalCatalogSettings.class);
     Assertions.assertEquals(expectedTtl, settings.getMetadataCache().getTtl());
-    Assertions.assertEquals(expectedMaxSize, settings.getMetadataCache().getMaxSize());
+    Assertions.assertEquals(expectedMaxWeight, settings.getMetadataCache().getMaxWeight());
   }
 }

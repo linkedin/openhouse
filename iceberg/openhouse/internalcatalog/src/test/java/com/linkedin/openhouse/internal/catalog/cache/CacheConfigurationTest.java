@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.assertj.AssertableApplicationContex
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.util.unit.DataSize;
 
 class CacheConfigurationTest {
 
@@ -28,24 +29,35 @@ class CacheConfigurationTest {
   public void testDefaultMetadataCacheConfiguration() {
     contextRunner
         .withBean(InternalCatalogSettings.class, InternalCatalogSettings::new)
-        .run(context -> assertMetadataCacheConfiguration(context, Duration.ofMinutes(5), 1000));
+        .run(
+            context ->
+                assertMetadataCacheConfiguration(
+                    context, Duration.ofMinutes(5), DataSize.ofGigabytes(1)));
   }
 
   @Test
   public void testConfiguredMetadataCacheConfiguration() {
     contextRunner
-        .withBean(InternalCatalogSettings.class, () -> buildSettings(Duration.ofMinutes(7), 42))
-        .run(context -> assertMetadataCacheConfiguration(context, Duration.ofMinutes(7), 42));
+        .withBean(
+            InternalCatalogSettings.class,
+            () -> buildSettings(Duration.ofMinutes(7), DataSize.ofMegabytes(42)))
+        .run(
+            context ->
+                assertMetadataCacheConfiguration(
+                    context, Duration.ofMinutes(7), DataSize.ofMegabytes(42)));
   }
 
   @Test
   public void testSpringTableMetadataCacheUsesConfiguredTableMetadataCache() {
     tableMetadataCacheContextRunner
-        .withBean(InternalCatalogSettings.class, () -> buildSettings(Duration.ofMinutes(7), 42))
+        .withBean(
+            InternalCatalogSettings.class,
+            () -> buildSettings(Duration.ofMinutes(7), DataSize.ofMegabytes(42)))
         .run(
             context -> {
               CaffeineCache tableMetadataCache =
-                  assertMetadataCacheConfiguration(context, Duration.ofMinutes(7), 42);
+                  assertMetadataCacheConfiguration(
+                      context, Duration.ofMinutes(7), DataSize.ofMegabytes(42));
               TableMetadataCache cache = context.getBean(TableMetadataCache.class);
               String metadataLocation = "metadata-location";
               TableMetadata seededMetadata = Mockito.mock(TableMetadata.class);
@@ -67,20 +79,20 @@ class CacheConfigurationTest {
             });
   }
 
-  private InternalCatalogSettings buildSettings(Duration ttl, long maxSize) {
+  private InternalCatalogSettings buildSettings(Duration ttl, DataSize maxWeight) {
     InternalCatalogSettings settings = new InternalCatalogSettings();
     settings.getMetadataCache().setTtl(ttl);
-    settings.getMetadataCache().setMaxSize(maxSize);
+    settings.getMetadataCache().setMaxWeight(maxWeight);
     return settings;
   }
 
   private CaffeineCache assertMetadataCacheConfiguration(
-      AssertableApplicationContext context, Duration expectedTtl, long expectedMaxSize) {
+      AssertableApplicationContext context, Duration expectedTtl, DataSize expectedMaxWeight) {
     Assertions.assertNull(context.getStartupFailure());
 
     InternalCatalogSettings settings = context.getBean(InternalCatalogSettings.class);
     Assertions.assertEquals(expectedTtl, settings.getMetadataCache().getTtl());
-    Assertions.assertEquals(expectedMaxSize, settings.getMetadataCache().getMaxSize());
+    Assertions.assertEquals(expectedMaxWeight, settings.getMetadataCache().getMaxWeight());
 
     CaffeineCacheManager cacheManager =
         context.getBean("internalCatalogCacheManager", CaffeineCacheManager.class);
@@ -100,7 +112,8 @@ class CacheConfigurationTest {
             .orElseThrow()
             .getExpiresAfter(TimeUnit.NANOSECONDS));
     Assertions.assertEquals(
-        expectedMaxSize, nativeCache.policy().eviction().orElseThrow().getMaximum());
+        expectedMaxWeight.toBytes(), nativeCache.policy().eviction().orElseThrow().getMaximum());
+    Assertions.assertTrue(nativeCache.policy().eviction().orElseThrow().isWeighted());
     return tableMetadataCache;
   }
 }
