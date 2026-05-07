@@ -53,4 +53,38 @@
     <Bug pattern="MS_EXPOSE_REP"/>
   </Match>
 
+  <Match>
+    <!--
+      SpotBugs false positive: try-with-resources generates a synthetic null check on the
+      AutoCloseable variable in the compiler-emitted finally block.  SpotBugs (4.x) sees this as
+      "null check of value previously dereferenced" (RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE)
+      even though the dereference and the null check are in separate compiler-generated paths.
+    -->
+    <Class name="com.linkedin.openhouse.jobs.spark.Operations"/>
+    <Method name="prepareBackupDataManifests"/>
+    <Bug pattern="RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE"/>
+  </Match>
+
+  <Match>
+    <!--
+      Test-fixture interface: softDeletedTables is a mutable static field declared directly in the
+      HouseTablesH2Repository interface (implicitly public).  Moving it to a concrete class would
+      require significant refactoring of test infrastructure; suppressing here is safe because this
+      field is only used in test code and is never exposed to untrusted callers.
+    -->
+    <Class name="com.linkedin.openhouse.tablestest.HouseTablesH2Repository"/>
+    <Bug pattern="MS_MUTABLE_COLLECTION_PKGPROTECT"/>
+  </Match>
+
+  <Match>
+    <!--
+      Test-fixture class: OpenHouseSparkITest.getBuilder() performs lazy initialization of the
+      static openHouseLocalServer field without synchronization.  This is intentional for test
+      infrastructure where single-threaded sequential test execution is guaranteed by JUnit 5.
+    -->
+    <Class name="com.linkedin.openhouse.tablestest.OpenHouseSparkITest"/>
+    <Method name="getBuilder"/>
+    <Bug pattern="LI_LAZY_INIT_STATIC"/>
+  </Match>
+
 </FindBugsFilter>
