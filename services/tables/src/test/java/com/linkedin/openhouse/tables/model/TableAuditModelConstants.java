@@ -223,6 +223,8 @@ public final class TableAuditModelConstants {
           .user(USER)
           .operationStatus(OperationStatus.SUCCESS)
           .operationType(OperationType.COMMIT)
+          .currentSnapshotId(2151407017102313398L)
+          .currentSnapshotTimestampMs(1669126937912L)
           .build();
 
   public static final TableAuditEvent TABLE_AUDIT_EVENT_PUT_ICEBERG_SNAPSHOTS_FAILED =
@@ -233,6 +235,8 @@ public final class TableAuditModelConstants {
           .user(USER)
           .operationStatus(OperationStatus.FAILED)
           .operationType(OperationType.COMMIT)
+          .currentSnapshotId(2151407017102313398L)
+          .currentSnapshotTimestampMs(1669126937912L)
           .build();
 
   public static final TableAuditEvent TABLE_AUDIT_EVENT_PUT_ICEBERG_SNAPSHOTS_CTAS =
@@ -243,6 +247,8 @@ public final class TableAuditModelConstants {
           .user(USER)
           .operationStatus(OperationStatus.SUCCESS)
           .operationType(OperationType.STAGED_COMMIT)
+          .currentSnapshotId(2151407017102313398L)
+          .currentSnapshotTimestampMs(1669126937912L)
           .build();
 
   public static final TableAuditEvent TABLE_AUDIT_EVENT_GET_ALL_DATABASES_SUCCESS =

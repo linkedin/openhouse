@@ -43,6 +43,7 @@ def _create_test_split(
     transform_sql: str | None = None,
     table_id: TableIdentifier = _DEFAULT_TABLE_ID,
     udf_registry: UDFRegistry | None = None,
+    batch_size: int | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -99,10 +100,11 @@ def _create_test_split(
     task = FileScanTask(data_file=data_file)
 
     return DataLoaderSplit(
-        file_scan_task=task,
+        file_scan_tasks=[task],
         scan_context=scan_context,
         transform_sql=transform_sql,
         udf_registry=udf_registry,
+        batch_size=batch_size,
     )
 
 
@@ -396,3 +398,133 @@ def test_transform_with_quoted_identifier(tmp_path):
 
     assert result.num_rows == 1
     assert result.column("name").to_pylist() == ["MASKED"]
+
+
+# --- JVM args tests ---
+
+
+def test_worker_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
+    """worker_jvm_args is applied to LIBHDFS_OPTS when iterating a split."""
+    from openhouse.dataloader._jvm import LIBHDFS_OPTS_ENV
+
+    monkeypatch.delenv(LIBHDFS_OPTS_ENV, raising=False)
+
+    table = pa.table({"x": [1]})
+    schema = Schema(NestedField(field_id=1, name="x", field_type=LongType(), required=False))
+
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, schema)
+    split._scan_context = TableScanContext(
+        table_metadata=split._scan_context.table_metadata,
+        io=split._scan_context.io,
+        projected_schema=split._scan_context.projected_schema,
+        table_id=split._scan_context.table_id,
+        worker_jvm_args="-Xmx512m",
+    )
+
+    list(split)
+
+    assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx512m"
+
+
+# --- batch_size tests ---
+
+_BATCH_SCHEMA = Schema(
+    NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+)
+
+
+def _make_table(num_rows: int) -> pa.Table:
+    return pa.table({"id": pa.array(list(range(num_rows)), type=pa.int64())})
+
+
+def test_split_batch_size_limits_rows_per_batch(tmp_path):
+    """When batch_size is set, each RecordBatch has at most that many rows."""
+    table = _make_table(100)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=10)
+
+    batches = list(split)
+
+    assert len(batches) >= 2, "Expected multiple batches with batch_size=10 and 100 rows"
+    for batch in batches:
+        assert batch.num_rows <= 10
+    assert sum(b.num_rows for b in batches) == 100
+
+
+def test_split_batch_size_none_returns_all_rows(tmp_path):
+    """Default batch_size (None) returns all data correctly."""
+    table = _make_table(50)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 50
+    assert sorted(result.column("id").to_pylist()) == list(range(50))
+
+
+def test_split_batch_size_preserves_data(tmp_path):
+    """batch_size controls chunking but all data is preserved."""
+    table = _make_table(25)
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, _BATCH_SCHEMA, batch_size=7)
+
+    result = pa.Table.from_batches(list(split))
+    assert result.num_rows == 25
+    assert sorted(result.column("id").to_pylist()) == list(range(25))
+
+
+def test_split_batch_size_honored_with_transform(tmp_path):
+    """When batch_size exceeds DataFusion's default, transforms must not fragment batches.
+
+    Without propagating the user's batch_size to the SessionConfig, DataFusion
+    splits output at its default boundary.
+    """
+    from datafusion import Config
+
+    df_default = int(Config().get("datafusion.execution.batch_size"))
+    num_rows = df_default + 1000
+    table = pa.table(
+        {
+            "id": pa.array(list(range(num_rows)), type=pa.int64()),
+            "name": pa.array([f"n{i}" for i in range(num_rows)], type=pa.string()),
+        }
+    )
+    identity_sql = f"SELECT id, name FROM {to_sql_identifier(_TABLE_ID)}"
+
+    split = _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
+        transform_sql=identity_sql,
+        table_id=_TABLE_ID,
+        batch_size=num_rows,
+    )
+    batches = list(split)
+
+    assert len(batches) == 1
+    assert batches[0].num_rows == num_rows
+
+
+# --- multi-file split tests ---
+
+
+def test_multi_file_split_returns_all_rows(tmp_path):
+    """A split with multiple files yields rows from all files."""
+    schema = _BATCH_SCHEMA
+    table_a = pa.table({"id": pa.array([1, 2, 3], type=pa.int64())})
+    table_b = pa.table({"id": pa.array([4, 5, 6], type=pa.int64())})
+    split_a = _create_test_split(tmp_path, table_a, FileFormat.PARQUET, schema, filename="a.parquet")
+    split_b = _create_test_split(tmp_path, table_b, FileFormat.PARQUET, schema, filename="b.parquet")
+
+    combined = DataLoaderSplit(
+        file_scan_tasks=split_a._file_scan_tasks + split_b._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    result = pa.Table.from_batches(list(combined))
+
+    assert result.num_rows == 6
+    assert sorted(result.column("id").to_pylist()) == [1, 2, 3, 4, 5, 6]
+
+    reversed_split = DataLoaderSplit(
+        file_scan_tasks=split_b._file_scan_tasks + split_a._file_scan_tasks,
+        scan_context=split_a._scan_context,
+    )
+    assert reversed_split.id == combined.id

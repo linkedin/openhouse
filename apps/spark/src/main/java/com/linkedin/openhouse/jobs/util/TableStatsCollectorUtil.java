@@ -5,6 +5,7 @@ import static org.apache.spark.sql.functions.*;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.stats.model.BaseEventModels;
 import com.linkedin.openhouse.common.stats.model.BaseEventModels.BaseTableIdentifier;
@@ -17,6 +18,7 @@ import com.linkedin.openhouse.common.stats.model.CommitOperation;
 import com.linkedin.openhouse.common.stats.model.HistoryPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
+import com.linkedin.openhouse.common.stats.model.ReplicationPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
@@ -42,6 +44,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.spark.SparkTableUtil;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
@@ -277,6 +280,7 @@ public final class TableStatsCollectorUtil {
         .tableLocation(table.location())
         .sharingEnabled(policyStats.getSharingEnabled())
         .retentionPolicies(policyStats.getRetentionPolicy())
+        .replicationPolicies(policyStats.getReplicationPolicies())
         .build();
   }
 
@@ -361,7 +365,7 @@ public final class TableStatsCollectorUtil {
     return convertObjectToPolicyStats(policiesObject);
   }
 
-  private static PolicyStats convertObjectToPolicyStats(JsonObject jsonObject) {
+  static PolicyStats convertObjectToPolicyStats(JsonObject jsonObject) {
     PolicyStats policyStats = new PolicyStats();
     // Set defaults
     RetentionStatsSchema defaultRetentionPolicy = RetentionStatsSchema.builder().count(0).build();
@@ -393,6 +397,22 @@ public final class TableStatsCollectorUtil {
     }
     if (jsonObject.has("sharingEnabled")) {
       policyStats.setSharingEnabled(jsonObject.get("sharingEnabled").getAsBoolean());
+    }
+    if (jsonObject.has("replication")) {
+      JsonObject replicationObj = jsonObject.getAsJsonObject("replication");
+      if (replicationObj.has("config")) {
+        List<ReplicationPolicyStatsSchema> replicationPolicies = new ArrayList<>();
+        for (JsonElement configElement : replicationObj.getAsJsonArray("config")) {
+          JsonObject config = configElement.getAsJsonObject();
+          replicationPolicies.add(
+              ReplicationPolicyStatsSchema.builder()
+                  .destination(
+                      config.has("destination") ? config.get("destination").getAsString() : null)
+                  .interval(config.has("interval") ? config.get("interval").getAsString() : null)
+                  .build());
+        }
+        policyStats.setReplicationPolicies(replicationPolicies);
+      }
     }
     return policyStats;
   }
@@ -1168,10 +1188,18 @@ public final class TableStatsCollectorUtil {
     result.put("maxValue", new ArrayList<>());
     result.put("columnSize", new ArrayList<>());
 
-    // Create a map for quick column type lookup
+    // Create a map for quick column type lookup.
+    // Use TypeUtil.indexByName() to recursively index all leaf fields by their full
+    // dot-separated paths (e.g., "memberMetadata.standardizedTitleId"), so that nested
+    // column stats from readable_metrics are not silently dropped. schema.columns() only
+    // returns top-level fields and would cause all nested column stats to be skipped.
+    Map<Integer, Types.NestedField> idToField = TypeUtil.indexById(schema.asStruct());
     Map<String, org.apache.iceberg.types.Type> columnTypeMap = new HashMap<>();
-    for (Types.NestedField field : schema.columns()) {
-      columnTypeMap.put(field.name(), field.type());
+    for (Map.Entry<String, Integer> entry : TypeUtil.indexByName(schema.asStruct()).entrySet()) {
+      Types.NestedField field = idToField.get(entry.getValue());
+      if (field != null) {
+        columnTypeMap.put(entry.getKey(), field.type());
+      }
     }
 
     for (String colName : columnNames) {

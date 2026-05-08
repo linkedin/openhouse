@@ -108,9 +108,15 @@ public final class Operations implements AutoCloseable {
       long olderThanTimestampMillis,
       boolean backupEnabled,
       String backupDir,
-      int concurrentDeletes) {
+      int concurrentDeletes,
+      boolean streamResults,
+      int maxOrphanFileSampleSize) {
 
-    DeleteOrphanFiles operation = SparkActions.get(spark).deleteOrphanFiles(table);
+    DeleteOrphanFiles operation =
+        SparkActions.get(spark)
+            .deleteOrphanFiles(table)
+            .option("stream-results", String.valueOf(streamResults))
+            .option("max-orphan-file-sample-size", String.valueOf(maxOrphanFileSampleSize));
     // if time filter is not provided it defaults to 3 days
     if (olderThanTimestampMillis > 0) {
       operation = operation.olderThan(olderThanTimestampMillis);

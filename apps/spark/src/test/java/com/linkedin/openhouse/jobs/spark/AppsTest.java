@@ -3,13 +3,20 @@ package com.linkedin.openhouse.jobs.spark;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.Table;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
@@ -118,5 +125,42 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.timeout((minNumHeartbeats * heartbeatIntervalSeconds) + 2)
                 .atLeast(minNumHeartbeats))
         .sendHeartbeat(jobId);
+  }
+
+  @Test
+  public void testRetentionSparkAppPassesUtcNowToRunRetention() {
+    final String tableName = "db.test_retention_app";
+    Operations ops = Mockito.mock(Operations.class);
+    Table table = Mockito.mock(Table.class);
+    StateManager stateManagerMock = Mockito.mock(StateManager.class);
+    Mockito.when(ops.getTable(tableName)).thenReturn(table);
+    Mockito.when(table.properties()).thenReturn(Map.of(AppConstants.BACKUP_ENABLED_KEY, "true"));
+
+    RetentionSparkApp app =
+        new RetentionSparkApp(
+            "test-job-id",
+            stateManagerMock,
+            tableName,
+            "ts",
+            "yyyy-MM-dd-HH",
+            "DAY",
+            7,
+            otelEmitter,
+            ".backup");
+
+    app.runInner(ops);
+
+    ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
+    Mockito.verify(ops)
+        .runRetention(
+            Mockito.eq(tableName),
+            Mockito.eq("ts"),
+            Mockito.eq("yyyy-MM-dd-HH"),
+            Mockito.eq("DAY"),
+            Mockito.eq(7),
+            Mockito.eq(true),
+            Mockito.eq(".backup"),
+            nowCaptor.capture());
+    Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
   }
 }

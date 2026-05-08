@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.mockito.Mock;
@@ -492,25 +493,13 @@ public class JobsSchedulerTest {
   }
 
   /**
-   * Integration test for graceful shutdown in sequential mode. Simulates a production-like
-   * environment where jobs are submitted to a thread pool with realistic delays. A graceful
-   * shutdown is triggered mid-execution to verify:
+   * Creates a scheduler configured for shutdown integration tests: short poll interval (100ms),
+   * 4-thread pool, sequential mode, mock OtelEmitter. Starts the scheduler on a background thread.
    *
-   * <ul>
-   *   <li>The scheduler exits cleanly without hanging
-   *   <li>Already-running jobs complete and report their state
-   *   <li>Pending jobs are cancelled
-   * </ul>
+   * @return a handle containing the scheduler and its thread
    */
-  @Test
-  public void testGracefulShutdownDuringExecution() throws InterruptedException {
+  private SchedulerHandle startSequentialScheduler(OtelEmitter emitter) {
     JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
-    OtelEmitter mockOtelEmitter = createMockOtelEmitter();
-    CountDownLatch launchLatch = new CountDownLatch(4);
-    AtomicInteger launchCount = mockLaunchJobWithDelay(300, launchLatch);
-    mockStatusPolling(null, JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
-
-    // Create scheduler with short poll interval (100ms) for faster status checks
     OperationTaskFactory<? extends OperationTask<?>> taskFactory =
         new OperationTaskFactory<>(
             jobTypeToClassMap.get(jobType), jobsClient, tablesClient, 100L, 2000L, 3000L);
@@ -531,11 +520,10 @@ public class JobsSchedulerTest {
             operationTaskManager,
             jobInfoManager,
             operationTasksBuilder,
-            mockOtelEmitter);
-    mockbuildOperationTaskList(scheduler, mockOtelEmitter);
+            emitter);
+    mockbuildOperationTaskList(scheduler, emitter);
 
-    // Run scheduler in sequential mode (parallelMetadataFetch=false, multiOperation=false)
-    Thread schedulerThread =
+    Thread thread =
         new Thread(
             () ->
                 scheduler.run(
@@ -551,30 +539,131 @@ public class JobsSchedulerTest {
                     1000,
                     30,
                     15));
-    schedulerThread.start();
+    thread.start();
+    return new SchedulerHandle(scheduler, thread);
+  }
 
-    // Wait for 4 jobs to be launched, then trigger graceful shutdown
-    launchLatch.await(30, TimeUnit.SECONDS);
-    scheduler.initiateGracefulShutdown();
+  private void awaitSchedulerExit(SchedulerHandle handle) throws InterruptedException {
+    handle.thread.join(30_000);
+    Assertions.assertFalse(handle.thread.isAlive(), "Scheduler should have exited cleanly");
+  }
 
-    // Scheduler should exit cleanly
-    schedulerThread.join(30_000);
-    Assertions.assertFalse(schedulerThread.isAlive(), "Scheduler should have exited cleanly");
+  private static class SchedulerHandle {
+    final JobsScheduler scheduler;
+    final Thread thread;
 
-    // Some jobs should have completed, some should have been cancelled
-    int succeeded = scheduler.getJobStateCountMap().get(JobState.SUCCEEDED);
-    int cancelled = scheduler.getJobStateCountMap().get(JobState.CANCELLED);
+    SchedulerHandle(JobsScheduler scheduler, Thread thread) {
+      this.scheduler = scheduler;
+      this.thread = thread;
+    }
+  }
+
+  /**
+   * Integration test for graceful shutdown in sequential mode. Uses a gate to deterministically
+   * control which tasks complete vs. which are still in-flight when shutdown runs:
+   *
+   * <ul>
+   *   <li>Tasks 1-4 complete instantly (guaranteed SUCCEEDED)
+   *   <li>Tasks 5-16 block on a gate (guaranteed CANCELLED when drain runs)
+   * </ul>
+   */
+  @Test
+  public void testGracefulShutdownDuringExecution() throws InterruptedException {
+    OtelEmitter mockOtelEmitter = createMockOtelEmitter();
+
+    // First 4 tasks complete instantly; the rest block until cancelled by drain.
+    CountDownLatch blockingGate = new CountDownLatch(1);
+    AtomicInteger launchCount = new AtomicInteger(0);
+    Mockito.when(
+            jobsClient.launch(
+                Mockito.anyString(),
+                Mockito.any(),
+                Mockito.anyString(),
+                Mockito.anyMap(),
+                Mockito.anyList()))
+        .thenAnswer(
+            invocation -> {
+              if (launchCount.incrementAndGet() > 4) {
+                blockingGate.await(30, TimeUnit.SECONDS);
+              }
+              return Optional.of(UUID.randomUUID().toString());
+            });
+    mockStatusPolling(null, JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
+
+    SchedulerHandle handle = startSequentialScheduler(mockOtelEmitter);
+
+    // Wait until the scheduler has collected at least one SUCCEEDED future, then shut down.
+    long deadline = System.currentTimeMillis() + 30_000;
+    while (handle.scheduler.getJobStateCountMap().getOrDefault(JobState.SUCCEEDED, 0) < 1
+        && System.currentTimeMillis() < deadline) {
+      Thread.sleep(50);
+    }
+    handle.scheduler.initiateGracefulShutdown();
+
+    awaitSchedulerExit(handle);
+    blockingGate.countDown(); // release any stragglers for clean thread pool shutdown
+
+    int succeeded = handle.scheduler.getJobStateCountMap().get(JobState.SUCCEEDED);
+    int cancelled = handle.scheduler.getJobStateCountMap().get(JobState.CANCELLED);
     Assertions.assertTrue(succeeded > 0, "Some jobs should have completed successfully");
     Assertions.assertTrue(cancelled > 0, "Some jobs should have been cancelled");
     Assertions.assertTrue(succeeded + cancelled <= 16, "Total should not exceed number of tables");
 
-    shutDownJobScheduler(scheduler);
+    shutDownJobScheduler(handle.scheduler);
   }
 
   /**
-   * Integration test for graceful shutdown in multi-operation mode. In this mode, job submission
-   * (SUBMIT) and status polling (POLL) are decoupled into separate pipelines connected by the
-   * jobInfoManager queue. Verifies:
+   * Reproducer for the timing-dependent race that made the old shutdown test flaky.
+   *
+   * <p>The old approach used a 300ms launch delay with a latch that counted down before the sleep.
+   * All 16 tasks were submitted instantly, so with 4 threads × 300ms × 4 batches ≈ 1200ms, all work
+   * could finish before shutdown took effect. This test demonstrates the broken pattern: shutdown
+   * arrives after all tasks have completed, so cancelled == 0 and succeeded == 16 — the shutdown
+   * was a no-op.
+   *
+   * <p>Disabled because the timing is inherently unreliable (the same CI load / GC jitter that
+   * caused the original flake can cause this reproducer to fail too). Kept as documentation of the
+   * anti-pattern that the gate-based tests above replace.
+   */
+  @Disabled("Timing-dependent reproducer — kept as documentation, not meant to run in CI")
+  @Test
+  public void testGracefulShutdownDuringExecution_racingReproducer() throws InterruptedException {
+    OtelEmitter mockOtelEmitter = createMockOtelEmitter();
+
+    CountDownLatch launchLatch = new CountDownLatch(4);
+    mockLaunchJobWithDelay(300, launchLatch);
+    mockStatusPolling(null, JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
+
+    SchedulerHandle handle = startSequentialScheduler(mockOtelEmitter);
+
+    // 2s sleep > 1.2s total task time → all tasks finish before shutdown fires.
+    launchLatch.await(30, TimeUnit.SECONDS);
+    Thread.sleep(2000);
+    handle.scheduler.initiateGracefulShutdown();
+
+    awaitSchedulerExit(handle);
+
+    int succeeded = handle.scheduler.getJobStateCountMap().get(JobState.SUCCEEDED);
+    int cancelled = handle.scheduler.getJobStateCountMap().get(JobState.CANCELLED);
+    Assertions.assertEquals(
+        0,
+        cancelled,
+        String.format(
+            "REPRODUCER: expected 0 cancelled but got succeeded=%d, cancelled=%d",
+            succeeded, cancelled));
+    Assertions.assertEquals(
+        16,
+        succeeded,
+        String.format("REPRODUCER: expected all 16 succeeded but got %d", succeeded));
+
+    shutDownJobScheduler(handle.scheduler);
+  }
+
+  /**
+   * Integration test for graceful shutdown in multi-operation mode. Uses a gate to
+   * deterministically control which tasks complete vs. which are still in-flight when shutdown
+   * runs. In this mode, job submission (SUBMIT) and status polling (POLL) are decoupled into
+   * separate pipelines connected by the jobInfoManager queue. Verifies:
    *
    * <ul>
    *   <li>The scheduler exits cleanly without hanging
@@ -586,8 +675,24 @@ public class JobsSchedulerTest {
   public void testGracefulShutdownMultiOperationMode() throws InterruptedException {
     JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
     OtelEmitter mockOtelEmitter = createMockOtelEmitter();
-    CountDownLatch launchLatch = new CountDownLatch(6);
-    AtomicInteger launchCount = mockLaunchJobWithDelay(300, launchLatch);
+
+    // First 4 tasks complete instantly; the rest block until cancelled by drain.
+    CountDownLatch blockingGate = new CountDownLatch(1);
+    AtomicInteger launchCount = new AtomicInteger(0);
+    Mockito.when(
+            jobsClient.launch(
+                Mockito.anyString(),
+                Mockito.any(),
+                Mockito.anyString(),
+                Mockito.anyMap(),
+                Mockito.anyList()))
+        .thenAnswer(
+            invocation -> {
+              if (launchCount.incrementAndGet() > 4) {
+                blockingGate.await(30, TimeUnit.SECONDS);
+              }
+              return Optional.of(UUID.randomUUID().toString());
+            });
     mockStatusPolling(null, JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
 
     // Create scheduler with both job and status executors for multi-operation mode
@@ -634,22 +739,26 @@ public class JobsSchedulerTest {
                     15));
     schedulerThread.start();
 
-    // Wait for 6 jobs to be launched, then trigger graceful shutdown
-    launchLatch.await(30, TimeUnit.SECONDS);
+    // Wait until the scheduler has collected at least one SUCCEEDED future, then shut down.
+    long deadline = System.currentTimeMillis() + 30_000;
+    while (scheduler.getJobStateCountMap().getOrDefault(JobState.SUCCEEDED, 0) < 1
+        && System.currentTimeMillis() < deadline) {
+      Thread.sleep(50);
+    }
     scheduler.initiateGracefulShutdown();
 
     // Scheduler should exit cleanly. The status polling loop may block for up to 1s on the
     // spied getData() poll timeout after the jobInfoManager queue is drained, so allow extra time.
     schedulerThread.join(30_000);
     Assertions.assertFalse(schedulerThread.isAlive(), "Scheduler should have exited cleanly");
+    blockingGate.countDown(); // release any stragglers for clean thread pool shutdown
 
     // In multi-operation mode, state counts come from status polling (submit side skips counts).
-    // Some jobs should have made it through the full submit->status pipeline.
+    // Jobs blocked on the gate never complete launch, so they never enter the status pipeline
+    // and are not reflected in the state count map.
     int succeeded = scheduler.getJobStateCountMap().get(JobState.SUCCEEDED);
-    int cancelled = scheduler.getJobStateCountMap().get(JobState.CANCELLED);
     Assertions.assertTrue(succeeded > 0, "Some jobs should have completed through status polling");
     Assertions.assertTrue(succeeded < 16, "Not all jobs should have completed due to shutdown");
-    Assertions.assertTrue(succeeded + cancelled <= 16, "Total should not exceed number of tables");
     Assertions.assertTrue(launchCount.get() < 16, "Shutdown should have stopped further launches");
 
     shutDownJobScheduler(scheduler);

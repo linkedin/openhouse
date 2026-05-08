@@ -53,6 +53,13 @@ public class MetricsHistogramConfigurationTest {
       "${management.metrics.distribution.maximum-expected-value.catalog_metadata_retrieval_latency:}")
   private String maxExpectedValueConfig;
 
+  @Value(
+      "${management.metrics.distribution.maximum-expected-value.catalog_metadata_update_latency:}")
+  private String maxExpectedValueUpdateConfig;
+
+  @Value("${management.metrics.distribution.maximum-expected-value.http.server.requests:}")
+  private String maxExpectedValueHttpConfig;
+
   @Value("${management.metrics.distribution.percentiles-histogram.all:false}")
   private boolean percentilesHistogramEnabled;
 
@@ -78,6 +85,23 @@ public class MetricsHistogramConfigurationTest {
         "600s",
         maxExpectedValueConfig,
         "maximum-expected-value.catalog_metadata_retrieval_latency should be set to 600s");
+  }
+
+  @Test
+  void testMaxExpectedValueConfigurationIsSetForUpdateLatency() {
+    assertEquals(
+        "600s",
+        maxExpectedValueUpdateConfig,
+        "maximum-expected-value.catalog_metadata_update_latency should be set to 600s");
+  }
+
+  @Test
+  void testMaxExpectedValueConfigurationIsSetForHttpServerRequests() {
+    assertEquals(
+        "600s",
+        maxExpectedValueHttpConfig,
+        "maximum-expected-value.http.server.requests should be set to 600s so that "
+            + "http_server_requests_seconds histogram buckets do not saturate at the default 30s cap");
   }
 
   /** Tests that percentiles histogram is enabled for all metrics. */
@@ -158,6 +182,60 @@ public class MetricsHistogramConfigurationTest {
                 + "This validates the maximum-expected-value.catalog_metadata_retrieval_latency=600s configuration. "
                 + "Found max bucket: %.1fs, all buckets: [%s]",
             maxBucketSeconds, bucketList));
+  }
+
+  @Test
+  void testHistogramBucketsExtendTo600SecondsForUpdateLatency() {
+    assertTimerHistogramExtendsTo600s(
+        "catalog_metadata_update_latency",
+        "maximum-expected-value.catalog_metadata_update_latency=600s");
+  }
+
+  @Test
+  void testHistogramBucketsExtendTo600SecondsForHttpServerRequests() {
+    // Spring Boot's auto-instrumented timer for HTTP requests is registered as
+    // "http.server.requests" — it's exported to Prometheus as http_server_requests_seconds.
+    assertTimerHistogramExtendsTo600s(
+        "http.server.requests", "maximum-expected-value.http.server.requests=600s");
+  }
+
+  private void assertTimerHistogramExtendsTo600s(String timerName, String configDescription) {
+    Timer timer = meterRegistry.timer(timerName);
+
+    timer.record(100, TimeUnit.MILLISECONDS);
+    timer.record(1, TimeUnit.SECONDS);
+    timer.record(60, TimeUnit.SECONDS);
+    timer.record(600, TimeUnit.SECONDS);
+    timer.record(700, TimeUnit.SECONDS);
+
+    HistogramSnapshot snapshot = timer.takeSnapshot();
+    CountAtBucket[] buckets = snapshot.histogramCounts();
+
+    assertTrue(
+        buckets.length > 0,
+        String.format("Histogram for %s should have bucket entries", timerName));
+
+    double maxBucketSeconds =
+        Arrays.stream(buckets)
+            .mapToDouble(b -> b.bucket(TimeUnit.SECONDS))
+            .filter(b -> b != Double.POSITIVE_INFINITY)
+            .max()
+            .orElse(0);
+
+    String bucketList =
+        Arrays.stream(buckets)
+            .map(b -> String.valueOf(b.bucket(TimeUnit.SECONDS)))
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("none");
+
+    assertTrue(
+        maxBucketSeconds >= 600.0,
+        String.format(
+            "Histogram for %s should have buckets extending to at least 600s. "
+                + "This validates the %s configuration. "
+                + "Without this override the default 30s cap would saturate p99/max around 31s. "
+                + "Found max bucket: %.1fs, all buckets: [%s]",
+            timerName, configDescription, maxBucketSeconds, bucketList));
   }
 
   /**

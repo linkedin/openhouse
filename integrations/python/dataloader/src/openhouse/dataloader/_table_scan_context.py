@@ -16,6 +16,7 @@ def _unpickle_scan_context(
     projected_schema: Schema,
     row_filter: BooleanExpression,
     table_id: TableIdentifier,
+    worker_jvm_args: str | None = None,
 ) -> TableScanContext:
     return TableScanContext(
         table_metadata=table_metadata,
@@ -23,6 +24,7 @@ def _unpickle_scan_context(
         projected_schema=projected_schema,
         row_filter=row_filter,
         table_id=table_id,
+        worker_jvm_args=worker_jvm_args,
     )
 
 
@@ -39,6 +41,7 @@ class TableScanContext:
         projected_schema: Subset of columns to read (equals table schema when no projection)
         table_id: Identifier for the table being scanned
         row_filter: Row-level filter expression pushed down to the scan
+        worker_jvm_args: JVM arguments applied when the JNI JVM is created in worker processes
     """
 
     table_metadata: TableMetadata
@@ -46,9 +49,17 @@ class TableScanContext:
     projected_schema: Schema
     table_id: TableIdentifier
     row_filter: BooleanExpression = AlwaysTrue()
+    worker_jvm_args: str | None = None
 
     def __reduce__(self) -> tuple:
         return (
             _unpickle_scan_context,
-            (self.table_metadata, dict(self.io.properties), self.projected_schema, self.row_filter, self.table_id),
+            (
+                self.table_metadata,
+                dict(self.io.properties),
+                self.projected_schema,
+                self.row_filter,
+                self.table_id,
+                self.worker_jvm_args,
+            ),
         )

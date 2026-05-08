@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.client.ssl;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import java.net.MalformedURLException;
@@ -32,7 +33,9 @@ public final class HousetablesApiClientFactory extends WebClientFactory {
   @Override
   protected WebClient.Builder createWebClientBuilder() {
     DateFormat defaultDateFormat = ApiClient.createDefaultDateFormat();
-    ObjectMapper defaultObjectMapper = ApiClient.createDefaultObjectMapper(defaultDateFormat);
+    ObjectMapper defaultObjectMapper =
+        ApiClient.createDefaultObjectMapper(defaultDateFormat)
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     return ApiClient.buildWebClientBuilder(defaultObjectMapper);
   }
 

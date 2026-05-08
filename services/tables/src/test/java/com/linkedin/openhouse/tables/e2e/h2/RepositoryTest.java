@@ -95,6 +95,67 @@ public class RepositoryTest {
   }
 
   @Test
+  void testPoliciesKeyIsPreserved() {
+    // Verify that 'policies' is recognized as a preserved key
+    Assertions.assertTrue(preservedKeyChecker.isKeyPreserved("policies"));
+    Assertions.assertFalse(preservedKeyChecker.isKeyPreserved("userKey"));
+
+    // Verify that extractPreservedProps includes 'policies'
+    Map<String, String> inputMap = new HashMap<>();
+    inputMap.put("openhouse.key1", "value1");
+    inputMap.put("policies", "{\"retention\":{\"count\":3,\"granularity\":\"HOUR\"}}");
+    inputMap.put("userKey", "userValue");
+    TableDto mockTableDto = Mockito.mock(TableDto.class);
+
+    Map<String, String> result =
+        InternalRepositoryUtils.extractPreservedProps(inputMap, mockTableDto, preservedKeyChecker);
+
+    Assertions.assertEquals(2, result.size());
+    Assertions.assertTrue(result.containsKey("openhouse.key1"));
+    Assertions.assertTrue(result.containsKey("policies"));
+    Assertions.assertFalse(result.containsKey("userKey"));
+  }
+
+  @Test
+  public void testUpdateTableWithModifiedPoliciesInTablePropsBlocked() {
+    // Create a table with policies
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblPoliciesPreserved")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .policies(TABLE_POLICIES)
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+
+    // Attempt to update the table with modified 'policies' in tableProperties
+    Map<String, String> updatedTableProps = new HashMap<>(createdDto.getTableProperties());
+    updatedTableProps.put("policies", "{}");
+    TableDto updateDto =
+        createdDto
+            .toBuilder()
+            .tableId("tblPoliciesPreserved")
+            .tableVersion(createdDto.getTableLocation())
+            .tableProperties(updatedTableProps)
+            .build();
+
+    UnsupportedClientOperationException e =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> openHouseInternalRepository.save(updateDto));
+    Assertions.assertTrue(e.getMessage().contains("policies"));
+
+    // Cleanup
+    TableDtoPrimaryKey primaryKey =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblPoliciesPreserved")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
   public void testOpenHouseRepository() {
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
 
@@ -357,7 +418,7 @@ public class RepositoryTest {
         e.getMessage()
             .startsWith(
                 "Bad tblproperties provided: Can't add, alter or drop table properties due to the restriction: "
-                    + "[table properties starting with `openhouse.` cannot be modified], diff in existing "
+                    + "[table properties starting with `openhouse.` and the `policies` key cannot be modified], diff in existing "
                     + "& provided table properties: {"));
 
     openHouseInternalRepository.deleteById(primaryKey);
@@ -868,6 +929,213 @@ public class RepositoryTest {
     Assertions.assertFalse(openHouseInternalRepository.existsById(key1));
     Assertions.assertFalse(openHouseInternalRepository.existsById(key2));
     Assertions.assertFalse(openHouseInternalRepository.existsById(key3));
+  }
+
+  // ===== Case-insensitive write normalization =====
+
+  @Test
+  void testCaseInsensitiveWrite_succeeds_andPreservesTableCasing() {
+    // Table is created with uppercase column name "ID".
+    // A subsequent save with lowercase "id" (same field id) should succeed and leave
+    // the stored schema using the original "ID" casing.
+    Schema tableSchema =
+        new Schema(
+            required(1, "ID", Types.StringType.get()), optional(2, "value", Types.LongType.get()));
+
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("case_insensitive_write_test")
+            .schema(SchemaParser.toJson(tableSchema, false))
+            .timePartitioning(null)
+            .clustering(null)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .build();
+
+    TableDto savedDto = openHouseInternalRepository.save(createDto);
+
+    // Writer submits schema with lowercase "id" (same field id=1) — simulates a case-insensitive
+    // Spark/Trino write that sends column names in a different casing than the table.
+    Schema writeSchema =
+        new Schema(
+            required(1, "id", Types.StringType.get()), optional(2, "value", Types.LongType.get()));
+
+    TableDto updateDto =
+        savedDto
+            .toBuilder()
+            .schema(SchemaParser.toJson(writeSchema, false))
+            .tableVersion(savedDto.getTableLocation())
+            .build();
+
+    // Save should succeed without throwing InvalidSchemaEvolutionException
+    TableDto updatedDto =
+        Assertions.assertDoesNotThrow(
+            () -> openHouseInternalRepository.save(updateDto),
+            "save() with differently-cased column names should succeed");
+
+    // The stored schema must preserve the original table casing ("ID", not "id")
+    Schema storedSchema = SchemaParser.fromJson(updatedDto.getSchema());
+    Assertions.assertEquals(
+        "ID",
+        storedSchema.findField(1).name(),
+        "Table casing must be preserved after a case-insensitive write");
+
+    TableDtoPrimaryKey primaryKey =
+        TableDtoPrimaryKey.builder()
+            .tableId("case_insensitive_write_test")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
+  void testCaseInsensitiveWrite_blockedForCaseDuplicateTable() {
+    // A table with case-duplicate columns (both "id" and "ID") must NOT apply normalization.
+    // A write with mismatched casing on such a table should still throw.
+    Schema tableSchema =
+        new Schema(
+            required(1, "id", Types.StringType.get()), optional(2, "ID", Types.StringType.get()));
+
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("case_duplicate_write_test")
+            .schema(SchemaParser.toJson(tableSchema, false))
+            .timePartitioning(null)
+            .clustering(null)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .build();
+
+    TableDto savedDto = openHouseInternalRepository.save(createDto);
+
+    // Writer sends "Id" for field id=1 (table has "id") — casing mismatch on a case-dup table
+    Schema writeSchema =
+        new Schema(
+            required(1, "Id", Types.StringType.get()), optional(2, "ID", Types.StringType.get()));
+
+    TableDto updateDto =
+        savedDto
+            .toBuilder()
+            .schema(SchemaParser.toJson(writeSchema, false))
+            .tableVersion(savedDto.getTableLocation())
+            .build();
+
+    Assertions.assertThrows(
+        InvalidSchemaEvolutionException.class,
+        () -> openHouseInternalRepository.save(updateDto),
+        "save() with mismatched casing on a case-duplicate table must throw");
+
+    TableDtoPrimaryKey primaryKey =
+        TableDtoPrimaryKey.builder()
+            .tableId("case_duplicate_write_test")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
+  void testCaseInsensitiveWrite_succeedsWithColumnAddition_andPreservesTableCasing() {
+    // Path B: writer has wrong casing on an existing column AND adds a new column.
+    // Normalization must fix the existing column casing first; then validateWriteSchema
+    // sees a valid evolution (existing IDs intact, new column appended) and must accept it.
+    Schema tableSchema =
+        new Schema(
+            required(1, "ID", Types.StringType.get()), optional(2, "value", Types.LongType.get()));
+
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("case_insensitive_evolution_test")
+            .schema(SchemaParser.toJson(tableSchema, false))
+            .timePartitioning(null)
+            .clustering(null)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .build();
+
+    TableDto savedDto = openHouseInternalRepository.save(createDto);
+
+    // Writer submits wrong casing on "ID" (sends "id") and also adds new column "new_col" (id=3).
+    Schema writeSchema =
+        new Schema(
+            required(1, "id", Types.StringType.get()),
+            optional(2, "value", Types.LongType.get()),
+            optional(3, "new_col", Types.LongType.get()));
+
+    TableDto updateDto =
+        savedDto
+            .toBuilder()
+            .schema(SchemaParser.toJson(writeSchema, false))
+            .tableVersion(savedDto.getTableLocation())
+            .build();
+
+    // After normalization "id" → "ID", sameSchema is false (new_col added), so
+    // validateWriteSchema is invoked and must accept the valid column addition.
+    TableDto updatedDto =
+        Assertions.assertDoesNotThrow(
+            () -> openHouseInternalRepository.save(updateDto),
+            "save() with casing mismatch + new column should succeed");
+
+    Schema storedSchema = SchemaParser.fromJson(updatedDto.getSchema());
+    Assertions.assertEquals(
+        "ID", storedSchema.findField(1).name(), "Existing column casing must be preserved");
+    Assertions.assertNotNull(
+        storedSchema.findField(3), "New column must be present in stored schema");
+
+    TableDtoPrimaryKey primaryKey =
+        TableDtoPrimaryKey.builder()
+            .tableId("case_insensitive_evolution_test")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
+  void testCaseInsensitiveWrite_caseDuplicateTable_succeedsWithExactCasing() {
+    // Path D: table has case-duplicate columns — normalization guard skips normalization.
+    // A write with exactly matching casing must still succeed (sameSchema = true).
+    // This verifies the guard does not break legitimate writes to legacy case-duplicate tables.
+    Schema tableSchema =
+        new Schema(
+            required(1, "id", Types.StringType.get()), optional(2, "ID", Types.StringType.get()));
+
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("case_duplicate_exact_write_test")
+            .schema(SchemaParser.toJson(tableSchema, false))
+            .timePartitioning(null)
+            .clustering(null)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .build();
+
+    TableDto savedDto = openHouseInternalRepository.save(createDto);
+
+    // Write with exact same casing as the table — normalization is skipped but sameSchema = true.
+    Schema writeSchema =
+        new Schema(
+            required(1, "id", Types.StringType.get()), optional(2, "ID", Types.StringType.get()));
+
+    TableDto updateDto =
+        savedDto
+            .toBuilder()
+            .schema(SchemaParser.toJson(writeSchema, false))
+            .tableVersion(savedDto.getTableLocation())
+            .build();
+
+    Assertions.assertDoesNotThrow(
+        () -> openHouseInternalRepository.save(updateDto),
+        "save() with exact casing on a case-duplicate table must succeed");
+
+    TableDtoPrimaryKey primaryKey =
+        TableDtoPrimaryKey.builder()
+            .tableId("case_duplicate_exact_write_test")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
   }
 
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {

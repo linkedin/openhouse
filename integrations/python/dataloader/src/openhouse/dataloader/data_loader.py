@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import logging
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
+from itertools import islice
 from types import MappingProxyType
+from typing import TypeVar
 
 from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
@@ -10,6 +14,7 @@ from pyiceberg.table.snapshots import Snapshot
 from requests import HTTPError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
+from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
@@ -37,7 +42,16 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(exc, OSError)
 
 
-def _retry[T](fn: Callable[[], T], label: str, max_attempts: int) -> T:
+_T = TypeVar("_T")  # lets the type checker infer that return types match input types
+
+
+def _batched(iterable: Iterable[_T], n: int) -> Iterator[tuple[_T, ...]]:
+    it = iter(iterable)
+    while batch := tuple(islice(it, n)):
+        yield batch
+
+
+def _retry(fn: Callable[[], _T], label: str, max_attempts: int) -> _T:
     """Call *fn* with retry logic, logging duration of each attempt.
 
     Retries on ``OSError`` (transient network/storage I/O failures),
@@ -55,6 +69,29 @@ def _retry[T](fn: Callable[[], T], label: str, max_attempts: int) -> T:
     raise AssertionError("unreachable")  # pragma: no cover
 
 
+@dataclass(frozen=True)
+class JvmConfig:
+    """JVM arguments for JNI-based storage access (e.g. HDFS via libhdfs).
+
+    The JVM is created once per process.  If another library has already
+    started a JVM these arguments will have no effect.
+
+    Args:
+        planner_args: JVM arguments (e.g. ``-Xmx2g``) applied when the JNI
+            JVM is created in the planner process — the process that loads
+            table metadata and plans splits.
+        worker_args: JVM arguments applied when the JNI JVM is created in
+            worker processes that materialize splits.  Only honored if the
+            JVM has not already been started in the worker process.  When
+            splits are materialized in the same process as the planner,
+            only ``planner_args`` takes effect because the JVM is already
+            running.
+    """
+
+    planner_args: str | None = None
+    worker_args: str | None = None
+
+
 @dataclass
 class DataLoaderContext:
     """Context and customization for the DataLoader.
@@ -66,11 +103,14 @@ class DataLoaderContext:
         execution_context: Dictionary of execution context information (e.g. tenant, environment)
         table_transformer: Transformation to apply to the table before loading (e.g. column masking)
         udf_registry: UDFs required for the table transformation
+        jvm_config: JVM configuration for JNI-based storage access.  Currently only HDFS is supported
+            via the ``LIBHDFS_OPTS`` environment variable.  See :class:`JvmConfig`.
     """
 
     execution_context: Mapping[str, str] | None = None
     table_transformer: TableTransformer | None = None
     udf_registry: UDFRegistry | None = None
+    jvm_config: JvmConfig | None = None
 
 
 class OpenHouseDataLoader:
@@ -87,6 +127,8 @@ class OpenHouseDataLoader:
         filters: Filter | None = None,
         context: DataLoaderContext | None = None,
         max_attempts: int = 3,
+        batch_size: int | None = None,
+        files_per_split: int = 1,
     ):
         """
         Args:
@@ -99,11 +141,19 @@ class OpenHouseDataLoader:
             filters: Row filter expression, defaults to always_true() (all rows)
             context: Data loader context
             max_attempts: Total number of attempts including the initial try (default 3)
+            batch_size: Maximum number of rows per RecordBatch yielded by each split.
+                Passed to PyArrow's Scanner which produces batches of at most this many
+                rows. Smaller values reduce peak memory but increase per-batch overhead.
+                None uses the PyArrow default (~131K rows).
+            files_per_split: Number of files each split reads concurrently.
+                Default is 1 (one file per split).
         """
         if branch is not None and branch.strip() == "":
             raise ValueError("branch must not be empty or whitespace")
         if branch is not None and snapshot_id is not None:
             raise ValueError("Cannot specify both branch and snapshot_id")
+        if files_per_split < 1:
+            raise ValueError("files_per_split must be at least 1")
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
         self._snapshot_id = snapshot_id
@@ -111,6 +161,11 @@ class OpenHouseDataLoader:
         self._filters = filters if filters is not None else always_true()
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
+        self._batch_size = batch_size
+        self._files_per_split = files_per_split
+
+        if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
+            apply_libhdfs_opts(self._context.jvm_config.planner_args)
 
     @cached_property
     def _iceberg_table(self) -> Table:
@@ -185,11 +240,16 @@ class OpenHouseDataLoader:
 
         query = self._build_query()
         if query is not None:
-            plan = optimize_scan(query, dialect=DataFusion.DIALECT)
+            plan = optimize_scan(
+                query,
+                dialect=DataFusion.DIALECT,
+                database=self._table_id.database,
+                table=self._table_id.table,
+                column_names=[f.name for f in table.schema().fields],
+            )
             optimized_sql = plan.sql
             row_filter = _to_pyiceberg(plan.row_filter)
-            if plan.source_columns is not None:
-                scan_kwargs["selected_fields"] = tuple(plan.source_columns)
+            scan_kwargs["selected_fields"] = tuple(plan.source_columns)
             logger.info(
                 "Split SQL optimized from '%s' to '%s' with pushdown predicates %s and projections %s",
                 query,
@@ -215,6 +275,7 @@ class OpenHouseDataLoader:
             projected_schema=scan.projection(),
             row_filter=row_filter,
             table_id=self._table_id,
+            worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
@@ -223,10 +284,11 @@ class OpenHouseDataLoader:
             lambda: scan.plan_files(), label=f"plan_files {self._table_id}", max_attempts=self._max_attempts
         )
 
-        for scan_task in scan_tasks:
+        for chunk in _batched(scan_tasks, self._files_per_split):
             yield DataLoaderSplit(
-                file_scan_task=scan_task,
+                file_scan_tasks=chunk,
                 scan_context=scan_context,
                 transform_sql=optimized_sql,
                 udf_registry=self._context.udf_registry,
+                batch_size=self._batch_size,
             )

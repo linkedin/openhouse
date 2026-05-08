@@ -2,8 +2,11 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.tables.e2e.h2.RequestAndValidateHelper.putSnapshotsAndValidateResponse;
+import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.IcebergSnapshotsModelTestUtilities.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
+import static org.hamcrest.Matchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.google.common.collect.ImmutableList;
 import com.jayway.jsonpath.JsonPath;
@@ -29,6 +32,7 @@ import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.Table;
@@ -36,6 +40,7 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -301,6 +306,79 @@ public class SnapshotsControllerTest {
             .snapshotRefs(obtainSnapshotRefsFromSnapshot(snapshots.get(snapshots.size() - 1)))
             .build();
     putSnapshotsAndValidateResponse(catalog, mvc, icebergSnapshotRequestBody, false);
+  }
+
+  @ParameterizedTest
+  @MethodSource("responseBodyFeeder")
+  public void testPutSnapshotsReplaceCommit(GetTableResponseBody getTableResponseBody)
+      throws Exception {
+    // Step 1: Create a table
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            getTableResponseBody, mvc, storageManager);
+    GetTableResponseBody getResponseBody = buildGetTableResponseBody(createResult);
+
+    // Step 2: Build a replace commit request with a new schema, partition spec, and table
+    // properties
+    String currentTableLocation =
+        RequestAndValidateHelper.getCurrentTableLocation(
+            mvc, getResponseBody.getDatabaseId(), getResponseBody.getTableId());
+
+    // New schema: add a new column "newCol"
+    Schema newSchema =
+        new Schema(
+            Types.NestedField.required(1, "id", Types.StringType.get()),
+            Types.NestedField.required(2, "name", Types.StringType.get()),
+            Types.NestedField.required(3, "timestampCol", Types.TimestampType.withoutZone()),
+            Types.NestedField.optional(
+                7,
+                "newCol",
+                Types.StringType.get())); // the old schema has 6 columns, so the next id is 7
+    String newSchemaJson =
+        com.linkedin.openhouse.common.schema.IcebergSchemaHelper.getSchemaJsonFromSchema(newSchema);
+
+    // New table properties
+    Map<String, String> newTableProps = new HashMap<>(getResponseBody.getTableProperties());
+    newTableProps.put("user.replaced", "true");
+    newTableProps.put("policies", ""); // policy will be empty since we didn't set it in the request
+
+    // Create a snapshot by appending a data file
+    Table table =
+        catalog.loadTable(
+            TableIdentifier.of(getResponseBody.getDatabaseId(), getResponseBody.getTableId()));
+    String dataFilePath =
+        storageManager.getDefaultStorage().getClient().getRootPrefix() + "/data_replace.orc";
+    DataFile newDataFile =
+        createDummyDataFile(dataFilePath, getPartitionSpec(getTableResponseBody));
+    Snapshot newSnapshot = table.newAppend().appendFile(newDataFile).apply();
+    List<String> jsonSnapshots = Collections.singletonList(SnapshotParser.toJson(newSnapshot));
+    Map<String, String> snapshotRefs =
+        obtainSnapshotRefsFromSnapshot(SnapshotParser.toJson(newSnapshot));
+
+    // Build the replace commit request body
+    CreateUpdateTableRequestBody replaceRequestBody =
+        buildCreateUpdateTableRequestBody(getResponseBody)
+            .toBuilder()
+            .baseTableVersion(currentTableLocation)
+            .schema(newSchemaJson)
+            .timePartitioning(null) // new partition spec
+            .clustering(null)
+            .policies(null) // remove policies
+            .tableProperties(newTableProps)
+            .replaceCommit(true)
+            .build();
+
+    IcebergSnapshotsRequestBody replaceCommitRequest =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(currentTableLocation)
+            .createUpdateTableRequestBody(replaceRequestBody)
+            .jsonSnapshots(jsonSnapshots)
+            .snapshotRefs(snapshotRefs)
+            .build();
+
+    // Step 3: Verify the table is overwritten with new schema, partition spec, properties, and
+    // snapshots
+    putSnapshotsAndValidateResponse(catalog, mvc, replaceCommitRequest, false);
   }
 
   @AfterEach

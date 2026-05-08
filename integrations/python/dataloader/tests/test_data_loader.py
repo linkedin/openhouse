@@ -15,10 +15,11 @@ from pyiceberg.types import DoubleType, LongType, NestedField, StringType
 from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
-from openhouse.dataloader import DataLoaderContext, OpenHouseDataLoader, __version__
+from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader, __version__
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import col
 from openhouse.dataloader.table_transformer import TableTransformer
+from openhouse.dataloader.udf_registry import UDFRegistry
 
 
 def test_package_imports():
@@ -102,6 +103,7 @@ def _make_real_catalog(
     mock_table = MagicMock()
     mock_table.metadata = metadata
     mock_table.io = io
+    mock_table.schema.return_value = iceberg_schema
     mock_table.scan.side_effect = fake_scan
 
     catalog = MagicMock()
@@ -512,8 +514,8 @@ def test_branch_snapshot_id_resolves():
     catalog = MagicMock()
     mock_snapshot = MagicMock()
     mock_snapshot.snapshot_id = 123
-    catalog.load_table.return_value.snapshot_by_name.side_effect = (
-        lambda name: mock_snapshot if name == "my-branch" else None
+    catalog.load_table.return_value.snapshot_by_name.side_effect = lambda name: (
+        mock_snapshot if name == "my-branch" else None
     )
 
     loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch")
@@ -559,12 +561,88 @@ def test_branch_reads_data_from_branch_snapshot():
     # Without branch: splits come from main snapshot
     main_splits = list(OpenHouseDataLoader(catalog=catalog, database="db", table="tbl"))
     assert len(main_splits) == 1
-    assert main_splits[0]._file_scan_task.file.file_path == "main.parquet"
+    assert main_splits[0]._file_scan_tasks[0].file.file_path == "main.parquet"
 
     # With branch: splits come from branch snapshot
     branch_splits = list(OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", branch="my-branch"))
     assert len(branch_splits) == 1
-    assert branch_splits[0]._file_scan_task.file.file_path == "branch.parquet"
+    assert branch_splits[0]._file_scan_tasks[0].file.file_path == "branch.parquet"
+
+
+# --- batch_size tests ---
+
+
+def test_batch_size_forwarded_to_splits(tmp_path):
+    """batch_size is correctly passed through to each DataLoaderSplit."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", batch_size=32768)
+    splits = list(loader)
+
+    assert len(splits) >= 1
+    for split in splits:
+        assert split._batch_size == 32768
+
+
+def test_batch_size_default_is_none(tmp_path):
+    """Omitting batch_size defaults to None in each split."""
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    splits = list(loader)
+
+    assert len(splits) >= 1
+    for split in splits:
+        assert split._batch_size is None
+
+
+# --- files_per_split tests ---
+
+
+def _add_file_tasks(catalog, num_tasks: int) -> None:
+    """Override plan_files on a catalog from _make_real_catalog to return multiple mock tasks."""
+    mock_table = catalog.load_table.return_value
+    original_scan = mock_table.scan.side_effect
+
+    def multi_file_scan(**kwargs):
+        scan = original_scan(**kwargs)
+        scan.plan_files.return_value = [
+            MagicMock(file=MagicMock(file_path=f"file_{i}.parquet")) for i in range(num_tasks)
+        ]
+        return scan
+
+    mock_table.scan.side_effect = multi_file_scan
+
+
+def test_files_per_split_groups_tasks(tmp_path):
+    """files_per_split=2 groups 4 files into 2 splits of 2 files each."""
+    catalog = _make_real_catalog(tmp_path)
+    _add_file_tasks(catalog, 4)
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=2)
+    splits = list(loader)
+
+    assert len(splits) == 2
+    for split in splits:
+        assert len(split._file_scan_tasks) == 2
+
+
+def test_files_per_split_remainder_split(tmp_path):
+    """When files don't divide evenly, the last split gets the remainder."""
+    catalog = _make_real_catalog(tmp_path)
+    _add_file_tasks(catalog, 5)
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=3)
+    splits = list(loader)
+
+    assert len(splits) == 2
+    assert len(splits[0]._file_scan_tasks) == 3
+    assert len(splits[1]._file_scan_tasks) == 2
+
+
+def test_files_per_split_invalid_raises():
+    """files_per_split < 1 raises ValueError."""
+    catalog = MagicMock()
+    with pytest.raises(ValueError, match="files_per_split must be at least 1"):
+        OpenHouseDataLoader(catalog=catalog, database="db", table="tbl", files_per_split=0)
 
 
 # --- Predicate pushdown with transformer tests ---
@@ -700,6 +778,82 @@ class _PassthroughTransformer(TableTransformer):
         return f"SELECT id, name, value FROM {to_sql_identifier(table)}"
 
 
+MIXED_CASE_SCHEMA = Schema(
+    NestedField(field_id=1, name="purchaseAmount", field_type=DoubleType(), required=False),
+    NestedField(field_id=2, name="itemCount", field_type=LongType(), required=False),
+    NestedField(field_id=3, name="discountRate", field_type=DoubleType(), required=False),
+)
+
+MIXED_CASE_DATA = {
+    "purchaseAmount": [19.99, 49.95, 9.99],
+    "itemCount": [2, 5, 1],
+    "discountRate": [0.1, 0.2, 0.0],
+}
+
+
+class _MixedCaseTransformer(TableTransformer):
+    """Transformer that selects mixed-case columns."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        return f'SELECT "purchaseAmount", "itemCount", "discountRate" FROM {to_sql_identifier(table)}'
+
+
+def test_iter_with_transformer_preserves_mixed_case_columns(tmp_path):
+    """Transformer with mixed-case columns preserves original casing in Iceberg scan.
+
+    camelCase columns like purchaseAmount, itemCount, discountRate would lose
+    their casing under a lowercasing dialect, breaking Iceberg field lookups.
+    """
+    catalog = _make_real_catalog(tmp_path, data=MIXED_CASE_DATA, iceberg_schema=MIXED_CASE_SCHEMA)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=["purchaseAmount", "itemCount"],
+        context=DataLoaderContext(table_transformer=_MixedCaseTransformer()),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    # Verify scan received original camelCase names, not lowercased
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    selected = scan_kwargs["selected_fields"]
+    assert "purchaseAmount" in selected
+    assert "itemCount" in selected
+    assert "purchaseamount" not in selected
+    assert "itemcount" not in selected
+
+
+def test_iter_with_transformer_preserves_mixed_case_filter_columns(tmp_path):
+    """Pushed-down filter column names preserve original mixed-case casing.
+
+    Filtering on itemCount must not cause it to appear as 'itemcount' in the scan.
+    """
+    catalog = _make_real_catalog(tmp_path, data=MIXED_CASE_DATA, iceberg_schema=MIXED_CASE_SCHEMA)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        filters=col("itemCount") > 3,
+        context=DataLoaderContext(table_transformer=_MixedCaseTransformer()),
+    )
+    _materialize(loader)
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    selected = scan_kwargs["selected_fields"]
+    # All projected columns must use original camelCase from the Iceberg schema
+    allowed = {"purchaseAmount", "itemCount", "discountRate"}
+    for field in selected:
+        assert field in allowed, f"Unexpected field '{field}' — likely lowercased"
+
+
 @pytest.mark.parametrize(
     "filter_expr, expected_names",
     [
@@ -745,3 +899,181 @@ def test_starts_with_wildcard_literals(tmp_path, filter_expr, expected_names):
     )
     result = _materialize(loader)
     assert sorted(result.column(COL_NAME).to_pylist()) == sorted(expected_names)
+
+
+# --- JVM args tests ---
+
+
+def test_planner_jvm_args_sets_libhdfs_opts(tmp_path, monkeypatch):
+    """JvmConfig.planner_args is applied to LIBHDFS_OPTS during __init__."""
+    from openhouse.dataloader._jvm import LIBHDFS_OPTS_ENV
+
+    monkeypatch.delenv(LIBHDFS_OPTS_ENV, raising=False)
+    catalog = _make_real_catalog(tmp_path)
+
+    OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(jvm_config=JvmConfig(planner_args="-Xmx256m")),
+    )
+
+    assert os.environ[LIBHDFS_OPTS_ENV] == "-Xmx256m"
+
+
+# --- Materialization of optimized queries with nested subqueries and mixed-case columns ---
+
+_PUSHDOWN_SCHEMA = Schema(
+    NestedField(field_id=1, name="memberId", field_type=LongType(), required=False),
+    NestedField(field_id=2, name="policyField", field_type=StringType(), required=False),
+    NestedField(field_id=3, name="otherField", field_type=StringType(), required=False),
+)
+
+_PUSHDOWN_DATA = {
+    "memberId": [100, 200, 300],
+    "policyField": ["policy_a", "policy_b", "policy_c"],
+    "otherField": ["x", "y", "z"],
+}
+
+
+class _FooBarUDFRegistry(UDFRegistry):
+    """Registers mock UDFs for testing pushdown materialization.
+
+    foo(utf8, int64) -> bool   — always returns true (filter UDF)
+    bar(bool, utf8, utf8, utf8) -> utf8 — conditional replacement UDF
+    """
+
+    def register_udfs(self, session_context):
+        import datafusion
+
+        def foo(arg, member_id):
+            return pa.array([True] * len(arg), type=pa.bool_())
+
+        session_context.register_udf(datafusion.udf(foo, [pa.utf8(), pa.int64()], pa.bool_(), "stable", name="foo"))
+
+        def bar(condition, value, field_name, replacement):
+            cond = condition.to_pylist()
+            vals = value.to_pylist()
+            repls = replacement.to_pylist()
+            return pa.array([r if c else v for c, v, r in zip(cond, vals, repls, strict=True)], type=pa.utf8())
+
+        session_context.register_udf(
+            datafusion.udf(bar, [pa.bool_(), pa.utf8(), pa.utf8(), pa.utf8()], pa.utf8(), "stable", name="bar")
+        )
+
+
+class _NestedUDFTransformer(TableTransformer):
+    """Nested subquery with UDF at two levels — triggers alias rewrite bug."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return (
+            f"SELECT * "
+            f"FROM (SELECT * FROM {tbl} AS {alias} "
+            f'      WHERE foo(\'arg1\', {alias}."memberId")) AS "t" '
+            f'WHERE foo(\'arg2\', "t"."memberId")'
+        )
+
+
+class _SelectStarUDFTransformer(TableTransformer):
+    """SELECT * with UDF — triggers unquoted column bug after projection pushdown."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return f"SELECT * FROM {tbl} AS {alias} WHERE foo('arg1', {alias}.\"memberId\")"
+
+
+class _ProjectionUDFTransformer(TableTransformer):
+    """UDF in projection with inner SELECT * — triggers unquoted column bug in projection."""
+
+    def __init__(self):
+        super().__init__(dialect="datafusion")
+
+    def transform(self, table, context):
+        tbl = to_sql_identifier(table)
+        alias = f'"{table.table}"'
+        return (
+            f'SELECT "t"."memberId", "t"."policyField", '
+            f'       bar(NOT foo(\'arg1\', "t"."memberId"), '
+            f'           "t"."otherField", \'otherField\', \'REPLACED\') AS "otherField" '
+            f"FROM (SELECT * FROM {tbl} AS {alias} "
+            f'      WHERE foo(\'arg2\', {alias}."memberId")) AS "t"'
+        )
+
+
+def test_nested_udf_transformer_materializes(tmp_path):
+    """Nested subquery with UDF at two levels materializes after optimization."""
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(
+            table_transformer=_NestedUDFTransformer(),
+            udf_registry=_FooBarUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField", "otherField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+    assert result.column("otherField").to_pylist() == ["x", "y", "z"]
+
+
+def test_select_star_projection_with_mixed_case_materializes(tmp_path):
+    """SELECT * with mixed-case columns materializes after projection pushdown."""
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        columns=["memberId", "policyField"],
+        context=DataLoaderContext(
+            table_transformer=_SelectStarUDFTransformer(),
+            udf_registry=_FooBarUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+
+
+def test_projection_udf_with_mixed_case_materializes(tmp_path):
+    """UDF in projection with inner SELECT * and mixed-case columns materializes."""
+    catalog = _make_real_catalog(tmp_path, data=_PUSHDOWN_DATA, iceberg_schema=_PUSHDOWN_SCHEMA)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="db",
+        table="tbl",
+        context=DataLoaderContext(
+            table_transformer=_ProjectionUDFTransformer(),
+            udf_registry=_FooBarUDFRegistry(),
+        ),
+    )
+    result = _materialize(loader)
+
+    assert result.num_rows == 3
+    assert set(result.column_names) == {"memberId", "policyField", "otherField"}
+    result = result.sort_by("memberId")
+    assert result.column("memberId").to_pylist() == [100, 200, 300]
+    assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
+    # foo returns True; NOT True = False; bar(False, val, ...) returns val (not replaced)
+    assert result.column("otherField").to_pylist() == ["x", "y", "z"]

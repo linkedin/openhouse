@@ -20,7 +20,6 @@ public class CreateTableTest {
   public void testCreateTable() {
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
     mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
-    mockTableService.enqueue(mockResponse(404, mockGetAllTableResponseBody())); // doRefresh()
 
     Object getTableResponseBody =
         mockGetTableResponseBody(

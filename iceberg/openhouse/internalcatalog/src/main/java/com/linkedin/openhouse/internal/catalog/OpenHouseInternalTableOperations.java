@@ -12,6 +12,7 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -62,6 +63,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
@@ -149,6 +151,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           "refreshMetadata from location {} succeeded, took {} ms",
           metadataLoc,
           System.currentTimeMillis() - startTime);
+    } catch (IllegalArgumentException
+        | IllegalStateException
+        | NotFoundException
+        | ValidationException e) {
+      log.error(
+          "refreshMetadata from location {} failed after {} ms",
+          metadataLoc,
+          System.currentTimeMillis() - startTime,
+          e);
+      throw new InvalidTableMetadataException(
+          tableIdentifier.namespace().toString(), tableIdentifier.name(), e.getMessage(), e);
     } catch (Exception e) {
       log.error(
           "refreshMetadata from location {} failed after {} ms",
@@ -190,7 +203,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   /**
    * {@link BaseMetastoreTableOperations#commit(TableMetadata, TableMetadata)} operation forces
    * doRefresh() after a doCommit() operation succeeds. This workflow is problematic for
-   * isStageCreate=true tables, for which metadata.json is created but not persisted in hts.
+   * isStageCreate=true or isStageReplace=true tables, for which metadata.json is created but not
+   * persisted in hts.
    *
    * <p>We override the default behavior and disable forced refresh for newly committed staged
    * tables.
@@ -199,8 +213,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   public void commit(TableMetadata base, TableMetadata metadata) {
     boolean isStageCreate =
         Boolean.parseBoolean(metadata.properties().get(CatalogConstants.IS_STAGE_CREATE_KEY));
+    boolean isStageReplace =
+        Boolean.parseBoolean(metadata.properties().get(CatalogConstants.IS_STAGE_REPLACE_KEY));
     super.commit(base, metadata);
-    if (isStageCreate) {
+    if (isStageCreate || isStageReplace) {
       disableRefresh(); /* disable forced refresh */
     }
   }
@@ -280,6 +296,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
       boolean isStageCreate =
           Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
+      boolean isStageReplace =
+          Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_REPLACE_KEY));
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 
@@ -377,7 +395,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             properties.get(CatalogConstants.OPENHOUSE_DATABASEID_KEY),
             properties.get(CatalogConstants.OPENHOUSE_TABLEID_KEY),
             newMetadataLocation);
-      } else if (!isStageCreate) {
+      } else if (!isStageCreate && !isStageReplace) {
         Span htsSpan = tracer.spanBuilder("IcebergTableOps.saveHouseTable").startSpan();
         try (Scope ignored = htsSpan.makeCurrent()) {
           houseTableRepository.save(houseTable);

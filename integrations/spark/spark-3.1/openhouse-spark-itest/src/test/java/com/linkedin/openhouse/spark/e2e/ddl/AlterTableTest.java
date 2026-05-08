@@ -51,6 +51,34 @@ public class AlterTableTest {
   }
 
   @Test
+  public void testSetPoliciesTablePropsBlocked() {
+    GetTableResponseBody existingTable =
+        mockGetTableResponseBody(
+            "dbAlter",
+            "tb2",
+            "c1",
+            "dbAlter.tb2.c1",
+            "UUID",
+            mockTableLocationDefaultSchema(TableIdentifier.of("dbAlter", "tb2")),
+            "v1",
+            baseSchema,
+            null,
+            null);
+    mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
+    mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
+    mockTableService.enqueue(mockResponse(200, existingTable)); // doRefresh()
+
+    // Server rejects the commit because 'policies' is a preserved key
+    mockTableService.enqueue(mockResponse(400, existingTable)); // doCommit()
+
+    Assertions.assertThrows(
+        Exception.class,
+        () ->
+            spark.sql(
+                "ALTER TABLE openhouse.dbAlter.tb2 SET TBLPROPERTIES('policies'='{\"retention\":{\"count\":1,\"granularity\":\"DAY\"}}')"));
+  }
+
+  @Test
   public void testUnsetTableProps() {
     final String key = "key";
     final String value = "value";
