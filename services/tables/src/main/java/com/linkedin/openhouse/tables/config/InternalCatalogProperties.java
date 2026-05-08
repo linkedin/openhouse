@@ -16,6 +16,7 @@ public class InternalCatalogProperties {
   @Getter
   @Setter
   public static class MetadataCache {
+    private Boolean enabled;
     private Duration ttl;
     private DataSize maxWeight;
   }

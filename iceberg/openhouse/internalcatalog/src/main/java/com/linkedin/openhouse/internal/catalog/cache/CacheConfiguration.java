@@ -14,6 +14,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -30,6 +31,9 @@ public class CacheConfiguration {
   @Bean
   public CacheManager internalCatalogCacheManager(
       InternalCatalogSettings settings, ObjectProvider<MeterRegistry> meterRegistry) {
+    if (!settings.getMetadataCache().isEnabled()) {
+      return new NoOpCacheManager();
+    }
     CaffeineCacheManager cacheManager = new CaffeineCacheManager();
     cacheManager.setAllowNullValues(false);
     cacheManager.setCacheNames(List.of("tableMetadata"));

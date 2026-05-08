@@ -13,8 +13,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.util.unit.DataSize;
 
 class CacheConfigurationTest {
@@ -29,21 +31,26 @@ class CacheConfigurationTest {
           .withBean(MeterRegistry.class, SimpleMeterRegistry::new);
 
   @Test
-  public void testDefaultMetadataCacheConfiguration() {
+  public void testMetadataCacheDisabledByDefault() {
     contextRunner
         .withBean(InternalCatalogSettings.class, InternalCatalogSettings::new)
         .run(
-            context ->
-                assertMetadataCacheConfiguration(
-                    context, Duration.ofMinutes(5), DataSize.ofGigabytes(1)));
+            context -> {
+              Assertions.assertNull(context.getStartupFailure());
+              Assertions.assertFalse(
+                  context.getBean(InternalCatalogSettings.class).getMetadataCache().isEnabled());
+              Assertions.assertTrue(
+                  context.getBean("internalCatalogCacheManager", CacheManager.class)
+                      instanceof NoOpCacheManager);
+            });
   }
 
   @Test
-  public void testConfiguredMetadataCacheConfiguration() {
+  public void testEnabledMetadataCacheConfiguration() {
     contextRunner
         .withBean(
             InternalCatalogSettings.class,
-            () -> buildSettings(Duration.ofMinutes(7), DataSize.ofMegabytes(42)))
+            () -> buildEnabledSettings(Duration.ofMinutes(7), DataSize.ofMegabytes(42)))
         .run(
             context ->
                 assertMetadataCacheConfiguration(
@@ -55,7 +62,7 @@ class CacheConfigurationTest {
     tableMetadataCacheContextRunner
         .withBean(
             InternalCatalogSettings.class,
-            () -> buildSettings(Duration.ofMinutes(7), DataSize.ofMegabytes(42)))
+            () -> buildEnabledSettings(Duration.ofMinutes(7), DataSize.ofMegabytes(42)))
         .run(
             context -> {
               CaffeineCache tableMetadataCache =
@@ -82,8 +89,9 @@ class CacheConfigurationTest {
             });
   }
 
-  private InternalCatalogSettings buildSettings(Duration ttl, DataSize maxWeight) {
+  private InternalCatalogSettings buildEnabledSettings(Duration ttl, DataSize maxWeight) {
     InternalCatalogSettings settings = new InternalCatalogSettings();
+    settings.getMetadataCache().setEnabled(true);
     settings.getMetadataCache().setTtl(ttl);
     settings.getMetadataCache().setMaxWeight(maxWeight);
     return settings;
@@ -94,6 +102,7 @@ class CacheConfigurationTest {
     Assertions.assertNull(context.getStartupFailure());
 
     InternalCatalogSettings settings = context.getBean(InternalCatalogSettings.class);
+    Assertions.assertTrue(settings.getMetadataCache().isEnabled());
     Assertions.assertEquals(expectedTtl, settings.getMetadataCache().getTtl());
     Assertions.assertEquals(expectedMaxWeight, settings.getMetadataCache().getMaxWeight());
 

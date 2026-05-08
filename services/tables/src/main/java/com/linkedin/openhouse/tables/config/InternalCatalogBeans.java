@@ -15,6 +15,9 @@ public class InternalCatalogBeans {
     InternalCatalogProperties.MetadataCache metadataCacheOverrides = properties.getMetadataCache();
 
     if (metadataCacheOverrides != null) {
+      if (metadataCacheOverrides.getEnabled() != null) {
+        settings.getMetadataCache().setEnabled(metadataCacheOverrides.getEnabled());
+      }
       if (metadataCacheOverrides.getTtl() != null) {
         settings.getMetadataCache().setTtl(metadataCacheOverrides.getTtl());
       }

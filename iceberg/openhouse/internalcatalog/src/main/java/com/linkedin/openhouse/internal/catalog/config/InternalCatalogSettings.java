@@ -14,6 +14,7 @@ public class InternalCatalogSettings {
   @Getter
   @Setter
   public static class MetadataCache {
+    private boolean enabled = false;
     private Duration ttl = Duration.ofMinutes(5);
     private DataSize maxWeight = DataSize.ofGigabytes(1);
   }
