@@ -27,7 +27,7 @@ class InternalCatalogBeansTest {
         context -> {
           assertMetadataCacheOverrides(context, null, null, null);
           assertMetadataCacheSettings(
-              context, false, Duration.ofMinutes(5), DataSize.ofGigabytes(1));
+              context, false, Duration.ofMinutes(5), DataSize.ofGigabytes(2));
           Assertions.assertFalse(context.containsBean("internalCatalogCacheManager"));
         });
   }
@@ -54,7 +54,7 @@ class InternalCatalogBeansTest {
     crossModuleContextRunner.run(
         context -> {
           assertMetadataCacheSettings(
-              context, false, Duration.ofMinutes(5), DataSize.ofGigabytes(1));
+              context, false, Duration.ofMinutes(5), DataSize.ofGigabytes(2));
           Assertions.assertTrue(context.getBean(CacheManager.class) instanceof NoOpCacheManager);
         });
   }
