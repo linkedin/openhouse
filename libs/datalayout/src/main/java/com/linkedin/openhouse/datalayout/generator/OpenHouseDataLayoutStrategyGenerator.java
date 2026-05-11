@@ -10,17 +10,15 @@ import com.linkedin.openhouse.datalayout.datasource.TableSnapshotStats;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import lombok.Builder;
 import org.apache.iceberg.FileContent;
 import org.apache.spark.api.java.function.FilterFunction;
-import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Encoders;
 import scala.Tuple3;
 
 /**
@@ -116,28 +114,34 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
       String partitionValues,
       String partitionColumns) {
 
-    Dataset<FileStat> dataFiles =
-        fileStats.filter((FilterFunction<FileStat>) file -> file.getContent() == FileContent.DATA);
+    // Single Spark action: collect all files once, then partition/aggregate in driver memory.
+    // Replaces 4 separate Spark actions (count + 3x collectAsList) with 1.
+    List<FileStat> allFiles = fileStats.collectAsList();
 
-    Dataset<FileStat> filteredDataFiles =
-        dataFiles.filter(
-            (FilterFunction<FileStat>)
-                file ->
-                    file.getSizeInBytes()
-                        < TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
+    long minByteSize =
+        (long) (TARGET_BYTES_SIZE * DataCompactionConfig.MIN_BYTE_SIZE_RATIO_DEFAULT);
 
-    // Check whether we have anything to map/reduce on for cost computation, this is only the case
-    // if we have small files that need to be compacted.
-    if (filteredDataFiles.count() == 0) {
+    Tuple3<Long, Integer, Long> filteredDataFileStats =
+        aggregateInMemory(
+            allFiles, f -> f.getContent() == FileContent.DATA && f.getSizeInBytes() < minByteSize);
+
+    // Early-return if no small data files to compact.
+    if (filteredDataFileStats._2() == 0) {
       return Optional.empty();
     }
 
-    Tuple3<Long, Integer, Long> filteredDataFileStats =
-        computeFileStats(filteredDataFiles, FileContent.DATA);
     Tuple3<Long, Integer, Long> posDeleteStats =
-        computeFileStats(fileStats, FileContent.POSITION_DELETES);
+        aggregateInMemory(allFiles, f -> f.getContent() == FileContent.POSITION_DELETES);
     Tuple3<Long, Integer, Long> eqDeleteStats =
-        computeFileStats(fileStats, FileContent.EQUALITY_DELETES);
+        aggregateInMemory(allFiles, f -> f.getContent() == FileContent.EQUALITY_DELETES);
+
+    // Derive DATA file sizes (used by computeEntropy) from the same in-memory list instead of
+    // issuing another Spark action.
+    List<Long> dataFileSizes =
+        allFiles.stream()
+            .filter(f -> f.getContent() == FileContent.DATA)
+            .map(FileStat::getSizeInBytes)
+            .collect(Collectors.toList());
 
     long rewriteFileBytes = filteredDataFileStats._1();
     int rewriteFileCount = filteredDataFileStats._2();
@@ -161,10 +165,7 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
             .cost(computeGbHr)
             .gain(reducedFileCount)
             .score(reducedFileCountPerComputeGbHr)
-            .entropy(
-                computeEntropy(
-                    dataFiles.map(
-                        (MapFunction<FileStat, Long>) FileStat::getSizeInBytes, Encoders.LONG())))
+            .entropy(computeEntropy(dataFileSizes))
             .partitionId(partitionValues)
             .partitionColumns(partitionColumns)
             .posDeleteFileBytes(posDeleteStats._1())
@@ -236,39 +237,37 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
     return rewriteHours * EXECUTOR_MEMORY_GB + COMPUTE_STARTUP_COST_GB_HR;
   }
 
-  /** Computes the file entropy as the difference of a set of file's target and actual file size. */
-  private double computeEntropy(Dataset<Long> fileSizes) {
-    // If no files available, MSE is 0.
-    if (fileSizes.count() == 0) {
+  /**
+   * Computes file entropy as mean-squared error from TARGET_BYTES_SIZE over a pre-collected list.
+   */
+  private double computeEntropy(List<Long> fileSizes) {
+    if (fileSizes.isEmpty()) {
       return 0;
     }
-    // Compute the mean-squared error.
     double mse = 0.0;
-    Iterator<Long> itr = fileSizes.toLocalIterator();
-    while (itr.hasNext()) {
-      mse += Math.pow(TARGET_BYTES_SIZE - itr.next(), 2);
+    for (long size : fileSizes) {
+      double diff = TARGET_BYTES_SIZE - (double) size;
+      mse += diff * diff;
     }
-    // Normalize.
-    return mse / fileSizes.count();
+    return mse / fileSizes.size();
   }
 
   /**
-   * Computes statistics for files of a content type, including total bytes, file count, and record
-   * count.
-   *
-   * @param files Dataset of FileStat objects
-   * @param content a type of file in iceberg
-   * @return A Tuple3 containing (totalBytes, fileCount, recordCount)
+   * Aggregates a (totalBytes, count, totalRecords) tuple from a pre-collected list of FileStats
+   * matching the given predicate. Pure driver-side; issues no Spark actions.
    */
-  private Tuple3<Long, Integer, Long> computeFileStats(
-      Dataset<FileStat> files, FileContent content) {
-    Stream<FileStat> filesOfContent =
-        files.collectAsList().stream().filter(file -> file.getContent().equals(content));
-
-    return filesOfContent
-        .map(file -> new Tuple3<>(file.getSizeInBytes(), 1, file.getRecordCount()))
-        .reduce(
-            new Tuple3<>(0L, 0, 0L), // Default value for empty collection
-            (a, b) -> new Tuple3<>(a._1() + b._1(), a._2() + b._2(), a._3() + b._3()));
+  private Tuple3<Long, Integer, Long> aggregateInMemory(
+      List<FileStat> files, Predicate<FileStat> predicate) {
+    long totalBytes = 0L;
+    int count = 0;
+    long totalRecords = 0L;
+    for (FileStat f : files) {
+      if (predicate.test(f)) {
+        totalBytes += f.getSizeInBytes();
+        count++;
+        totalRecords += f.getRecordCount();
+      }
+    }
+    return new Tuple3<>(totalBytes, count, totalRecords);
   }
 }
