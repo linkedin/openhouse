@@ -29,4 +29,24 @@ public interface TableOperationHistoryRepository
       @Param("status") String status,
       @Param("since") Instant since,
       Pageable pageable);
+
+  /**
+   * Return the most-recent history row per {@code (table_uuid, operation_type)}, filtered to a
+   * single operation type. Used by the Analyzer to evaluate cadence without materializing every
+   * historical row.
+   *
+   * <p>The correlated subquery is portable across MySQL and H2 (MySQL mode). On a large {@code
+   * table_operations_history} table this benefits from an index on {@code (operation_type,
+   * table_uuid, completed_at)} — TODO add it to the schema.
+   *
+   * <p>Ties on {@code completed_at} for the same {@code (table_uuid, operation_type)} return all
+   * tied rows; callers should dedupe in memory.
+   */
+  @Query(
+      "SELECT r FROM TableOperationHistoryRow r "
+          + "WHERE r.operationType = :operationType "
+          + "AND r.completedAt = ("
+          + "  SELECT MAX(r2.completedAt) FROM TableOperationHistoryRow r2 "
+          + "  WHERE r2.tableUuid = r.tableUuid AND r2.operationType = r.operationType)")
+  List<TableOperationHistoryRow> findLatestPerTable(@Param("operationType") String operationType);
 }

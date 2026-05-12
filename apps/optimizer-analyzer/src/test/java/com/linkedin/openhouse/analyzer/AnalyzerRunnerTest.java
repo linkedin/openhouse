@@ -24,7 +24,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class AnalyzerRunnerTest {
@@ -55,7 +54,7 @@ class AnalyzerRunnerTest {
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(Collections.emptyList());
-    when(historyRepo.find("ORPHAN_FILES_DELETION", null, null, null, Pageable.unpaged()))
+    when(historyRepo.findLatestPerTable("ORPHAN_FILES_DELETION"))
         .thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
@@ -95,7 +94,7 @@ class AnalyzerRunnerTest {
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(List.of(existingEntity));
-    when(historyRepo.find("ORPHAN_FILES_DELETION", null, null, null, Pageable.unpaged()))
+    when(historyRepo.findLatestPerTable("ORPHAN_FILES_DELETION"))
         .thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
@@ -119,7 +118,7 @@ class AnalyzerRunnerTest {
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(Collections.emptyList());
-    when(historyRepo.find("ORPHAN_FILES_DELETION", null, null, null, Pageable.unpaged()))
+    when(historyRepo.findLatestPerTable("ORPHAN_FILES_DELETION"))
         .thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(false);
 
@@ -146,7 +145,7 @@ class AnalyzerRunnerTest {
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(List.of(scheduled));
-    when(historyRepo.find("ORPHAN_FILES_DELETION", null, null, null, Pageable.unpaged()))
+    when(historyRepo.findLatestPerTable("ORPHAN_FILES_DELETION"))
         .thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
@@ -168,8 +167,7 @@ class AnalyzerRunnerTest {
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(Collections.emptyList());
-    when(historyRepo.find(anyString(), any(), any(), any(), any()))
-        .thenReturn(Collections.emptyList());
+    when(historyRepo.findLatestPerTable(anyString())).thenReturn(Collections.emptyList());
 
     runner.analyze();
 
