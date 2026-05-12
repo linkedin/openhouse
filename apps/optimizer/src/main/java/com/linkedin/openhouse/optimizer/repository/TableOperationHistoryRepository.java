@@ -13,7 +13,7 @@ public interface TableOperationHistoryRepository
     extends JpaRepository<TableOperationHistoryRow, String> {
 
   /**
-   * Return history rows matching the given filters, ordered by {@code submittedAt} descending.
+   * Return history rows matching the given filters, ordered by {@code completedAt} descending.
    * Every parameter is optional — pass {@code null} to skip that filter.
    */
   @Query(
@@ -21,8 +21,8 @@ public interface TableOperationHistoryRepository
           + "WHERE (:operationType IS NULL OR r.operationType = :operationType) "
           + "AND (:tableUuid IS NULL OR r.tableUuid = :tableUuid) "
           + "AND (:status IS NULL OR r.status = :status) "
-          + "AND (:since IS NULL OR r.submittedAt >= :since) "
-          + "ORDER BY r.submittedAt DESC")
+          + "AND (:since IS NULL OR r.completedAt >= :since) "
+          + "ORDER BY r.completedAt DESC")
   List<TableOperationHistoryRow> find(
       @Param("operationType") String operationType,
       @Param("tableUuid") String tableUuid,
