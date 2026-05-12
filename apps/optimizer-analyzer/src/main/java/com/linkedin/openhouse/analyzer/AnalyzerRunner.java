@@ -7,7 +7,8 @@ import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
 import com.linkedin.openhouse.optimizer.repository.TableOperationHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
-import java.util.Collections;
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,16 +22,15 @@ import org.springframework.stereotype.Component;
  * Core analysis loop. Loads {@code table_stats} rows and evaluates each table against every
  * registered {@link OperationAnalyzer} in a single pass.
  *
- * <p>The two sides of the join — current operations and circuit-breaker history — are loaded into
- * memory once per run before the table loop. Both are naturally bounded (only tables with active or
- * recently failed operations have rows), so holding them in maps is safe at any table scale.
+ * <p>Both sides of the join — current operations and latest history per (table, type) — are loaded
+ * into maps once per run before the table loop. Both are bounded by the number of tables, so
+ * holding them in memory is safe at any realistic scale.
  *
  * <p>// TODO: Iterate per-database instead of loading all tables at once. This scopes memory usage
- * and allows incremental progress. When we go per-db we may still see 10k tables per iteration, but
- * that should be fine.
+ * and allows incremental progress.
  *
- * <p>// TODO: Add benchmarking and scale tests. Measure memory footprint at 10k tables per
- * iteration to validate the in-memory join approach.
+ * <p>// TODO: Benchmark memory footprint at 10k tables per iteration to validate the in-memory join
+ * approach.
  */
 @Slf4j
 @Component
@@ -79,7 +79,10 @@ public class AnalyzerRunner {
                                     TableOperation::from,
                                     TableOperation::mostRecent))));
 
-    Map<String, Map<String, List<TableOperationHistoryRow>>> historyByType =
+    // TODO(perf): replace this full-history scan with a windowed query that returns at most one
+    // row per (table_uuid, operation_type) — the analyzer only consumes the latest entry. Today
+    // this is O(H) per analyzer where H is total history rows; bounded but unnecessary.
+    Map<String, Map<String, TableOperationHistoryRow>> latestHistoryByType =
         activeAnalyzers.stream()
             .collect(
                 Collectors.toMap(
@@ -87,8 +90,12 @@ public class AnalyzerRunner {
                     a ->
                         historyRepo.find(a.getOperationType(), null, null, null, Pageable.unpaged())
                             .stream()
+                            .filter(r -> r.getTableUuid() != null)
                             .collect(
-                                Collectors.groupingBy(TableOperationHistoryRow::getTableUuid))));
+                                Collectors.toMap(
+                                    TableOperationHistoryRow::getTableUuid,
+                                    r -> r,
+                                    AnalyzerRunner::moreRecentHistory))));
 
     List<Table> tables =
         statsRepo.find(databaseName, tableName, tableUuid).stream()
@@ -108,14 +115,13 @@ public class AnalyzerRunner {
                   Optional<TableOperation> currentOp =
                       Optional.ofNullable(
                           opsByType.get(analyzer.getOperationType()).get(table.getTableUuid()));
-                  List<TableOperationHistoryRow> history =
-                      historyByType
-                          .get(analyzer.getOperationType())
-                          .getOrDefault(table.getTableUuid(), Collections.emptyList());
-                  Optional<TableOperationHistoryRow> latestHistory = history.stream().findFirst();
+                  Optional<TableOperationHistoryRow> latestHistory =
+                      Optional.ofNullable(
+                          latestHistoryByType
+                              .get(analyzer.getOperationType())
+                              .get(table.getTableUuid()));
 
-                  if (analyzer.shouldSchedule(table, currentOp, latestHistory)
-                      && !analyzer.isCircuitBroken(table.getTableUuid(), history)) {
+                  if (analyzer.shouldSchedule(table, currentOp, latestHistory)) {
                     TableOperation op = TableOperation.pending(table, analyzer.getOperationType());
                     operationsRepo.save(op.toRow());
                     log.info(
@@ -127,5 +133,12 @@ public class AnalyzerRunner {
                 }));
 
     log.info("Analysis complete");
+  }
+
+  private static TableOperationHistoryRow moreRecentHistory(
+      TableOperationHistoryRow a, TableOperationHistoryRow b) {
+    Comparator<TableOperationHistoryRow> byCompletedAt =
+        Comparator.comparing(r -> r.getCompletedAt() != null ? r.getCompletedAt() : Instant.EPOCH);
+    return byCompletedAt.compare(a, b) >= 0 ? a : b;
   }
 }

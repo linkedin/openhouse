@@ -3,12 +3,17 @@ package com.linkedin.openhouse.analyzer;
 import com.linkedin.openhouse.analyzer.model.Table;
 import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
-import java.util.List;
 import java.util.Optional;
 
 /**
  * Strategy interface for a single operation type. Each implementation decides whether a given table
  * needs an operation recommendation upserted in the Optimizer Service.
+ *
+ * <p>// TODO(circuit-breaker): a chronically-failing table currently produces a new PENDING row on
+ * every Analyzer pass. Add a circuit breaker that suppresses scheduling for a (table, type) after N
+ * consecutive FAILED history entries. Requirements: configurable threshold per operation type,
+ * automatic reset via exponential backoff so tables can recover, and an operator-visible signal
+ * (metric or query) so tripped breakers are diagnosable.
  */
 public interface OperationAnalyzer {
 
@@ -32,35 +37,4 @@ public interface OperationAnalyzer {
       Table table,
       Optional<TableOperation> currentOp,
       Optional<TableOperationHistoryRow> latestHistory);
-
-  /**
-   * Maximum number of consecutive FAILED history entries before the circuit breaker trips and
-   * scheduling is suppressed for this (table, operation_type). Override per operation type. Returns
-   * 0 to disable the circuit breaker.
-   */
-  default int getCircuitBreakerThreshold() {
-    return 5;
-  }
-
-  /**
-   * Returns {@code true} if the circuit breaker has tripped for this table. The default
-   * implementation checks whether the last N history entries are all FAILED. Individual analyzers
-   * can override this to implement different strategies (e.g., time-based backoff).
-   *
-   * <p>// TODO: Add circuit breaker reset with exponential backoff so tables can recover
-   * automatically after a cooldown period instead of staying tripped permanently.
-   *
-   * <p>// TODO: Add a communication path to surface tripped circuit breakers to users (e.g.,
-   * metrics, alerts, or a dashboard query).
-   *
-   * @param tableUuid the table whose history to check
-   * @param history recent history entries for this (table, type), newest first
-   */
-  default boolean isCircuitBroken(String tableUuid, List<TableOperationHistoryRow> history) {
-    int threshold = getCircuitBreakerThreshold();
-    if (threshold <= 0 || history.size() < threshold) {
-      return false;
-    }
-    return history.stream().limit(threshold).allMatch(r -> "FAILED".equals(r.getStatus()));
-  }
 }
