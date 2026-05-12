@@ -15,7 +15,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -79,17 +78,15 @@ public class AnalyzerRunner {
                                     TableOperation::from,
                                     TableOperation::mostRecent))));
 
-    // TODO(perf): replace this full-history scan with a windowed query that returns at most one
-    // row per (table_uuid, operation_type) — the analyzer only consumes the latest entry. Today
-    // this is O(H) per analyzer where H is total history rows; bounded but unnecessary.
+    // Latest history row per (table_uuid, operation_type), one query per analyzer. The repo query
+    // may return tied rows for the same key on identical completed_at; dedupe in memory.
     Map<String, Map<String, TableOperationHistoryRow>> latestHistoryByType =
         activeAnalyzers.stream()
             .collect(
                 Collectors.toMap(
                     OperationAnalyzer::getOperationType,
                     a ->
-                        historyRepo.find(a.getOperationType(), null, null, null, Pageable.unpaged())
-                            .stream()
+                        historyRepo.findLatestPerTable(a.getOperationType()).stream()
                             .filter(r -> r.getTableUuid() != null)
                             .collect(
                                 Collectors.toMap(
