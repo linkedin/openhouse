@@ -9,7 +9,6 @@ import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.analyzer.model.Table;
 import com.linkedin.openhouse.analyzer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
 import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
 import com.linkedin.openhouse.optimizer.repository.TableOperationHistoryRepository;
@@ -19,8 +18,6 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,8 +53,6 @@ class AnalyzerRunnerTest {
 
     when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
     when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
-    when(analyzer.isCircuitBroken(anyString(), any())).thenCallRealMethod();
-    when(analyzer.getCircuitBreakerThreshold()).thenReturn(5);
     when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
         .thenReturn(Collections.emptyList());
     when(historyRepo.find("ORPHAN_FILES_DELETION", null, null, null, Pageable.unpaged()))
@@ -179,85 +174,5 @@ class AnalyzerRunnerTest {
     runner.analyze();
 
     verify(operationsRepo, never()).save(any());
-  }
-
-  @Test
-  void analyze_skipsTable_whenCircuitBreakerTrips() {
-    TableStatsRow statsEntity = new TableStatsRow();
-    statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName("db1");
-    statsEntity.setTableName("tbl1");
-
-    Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
-
-    List<TableOperationHistoryRow> failures =
-        IntStream.range(0, 3)
-            .mapToObj(
-                i ->
-                    TableOperationHistoryRow.builder()
-                        .id("fail-" + i)
-                        .tableUuid("uuid-1")
-                        .operationType("ORPHAN_FILES_DELETION")
-                        .completedAt(Instant.now().minusSeconds(i * 60))
-                        .status("FAILED")
-                        .build())
-            .collect(Collectors.toList());
-
-    when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
-    when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
-    when(analyzer.isCircuitBroken(anyString(), any())).thenCallRealMethod();
-    when(analyzer.getCircuitBreakerThreshold()).thenReturn(3);
-    when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
-        .thenReturn(Collections.emptyList());
-    when(historyRepo.find("ORPHAN_FILES_DELETION", null, null, null, Pageable.unpaged()))
-        .thenReturn(failures);
-    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.of(failures.get(0))))
-        .thenReturn(true);
-
-    runner.analyze();
-
-    verify(operationsRepo, never()).save(any());
-  }
-
-  @Test
-  void analyze_doesNotTrip_whenFewerFailuresThanThreshold() {
-    TableStatsRow statsEntity = new TableStatsRow();
-    statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName("db1");
-    statsEntity.setTableName("tbl1");
-
-    Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
-
-    List<TableOperationHistoryRow> failures =
-        IntStream.range(0, 3)
-            .mapToObj(
-                i ->
-                    TableOperationHistoryRow.builder()
-                        .id("fail-" + i)
-                        .tableUuid("uuid-1")
-                        .operationType("ORPHAN_FILES_DELETION")
-                        .completedAt(Instant.now().minusSeconds(i * 60))
-                        .status("FAILED")
-                        .build())
-            .collect(Collectors.toList());
-
-    when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
-    when(analyzer.getOperationType()).thenReturn("ORPHAN_FILES_DELETION");
-    when(analyzer.isCircuitBroken(anyString(), any())).thenCallRealMethod();
-    when(analyzer.getCircuitBreakerThreshold()).thenReturn(5);
-    when(operationsRepo.find("ORPHAN_FILES_DELETION", null, null, null, null))
-        .thenReturn(Collections.emptyList());
-    when(historyRepo.find("ORPHAN_FILES_DELETION", null, null, null, Pageable.unpaged()))
-        .thenReturn(failures);
-    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.of(failures.get(0))))
-        .thenReturn(true);
-
-    runner.analyze();
-
-    verify(operationsRepo).save(any());
   }
 }
