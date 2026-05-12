@@ -55,7 +55,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
    * multiplier as attempt increases) between each retry. So the overall retry process should
    * complete within 60 sec.
    */
-  private static final int READ_REQUEST_TIMEOUT_SECONDS = 30;
+  private static final int READ_REQUEST_TIMEOUT_SECONDS = 60;
 
   /** Write request timeout is 60 secs due to no retries on table write operations */
   private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 60;
