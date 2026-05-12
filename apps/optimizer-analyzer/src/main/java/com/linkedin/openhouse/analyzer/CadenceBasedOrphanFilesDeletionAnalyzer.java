@@ -12,14 +12,14 @@ import org.springframework.stereotype.Component;
 
 /** Analyzer for the {@link OperationType#ORPHAN_FILES_DELETION} operation type. */
 @Component
-public class OrphanFilesDeletionAnalyzer implements OperationAnalyzer {
+public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyzer {
 
   static final String OFD_ENABLED_PROPERTY = "maintenance.optimizer.ofd.enabled";
 
   private final CadencePolicy cadencePolicy;
 
   @Autowired
-  public OrphanFilesDeletionAnalyzer(
+  public CadenceBasedOrphanFilesDeletionAnalyzer(
       @Value("${ofd.success-retry-hours:24}") long successRetryHours,
       @Value("${ofd.failure-retry-hours:1}") long failureRetryHours,
       @Value("${ofd.scheduled-timeout-hours:6}") long scheduledTimeoutHours) {
@@ -31,7 +31,7 @@ public class OrphanFilesDeletionAnalyzer implements OperationAnalyzer {
   }
 
   /** Package-private for tests that supply a pre-built {@link CadencePolicy}. */
-  OrphanFilesDeletionAnalyzer(CadencePolicy cadencePolicy) {
+  CadenceBasedOrphanFilesDeletionAnalyzer(CadencePolicy cadencePolicy) {
     this.cadencePolicy = cadencePolicy;
   }
 

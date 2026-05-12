@@ -14,18 +14,18 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class OrphanFilesDeletionAnalyzerTest {
+class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   private static final Duration SUCCESS_INTERVAL = Duration.ofHours(24);
   private static final Duration FAILURE_INTERVAL = Duration.ofHours(1);
   private static final Duration SCHEDULED_TIMEOUT = Duration.ofHours(6);
 
-  private OrphanFilesDeletionAnalyzer analyzer;
+  private CadenceBasedOrphanFilesDeletionAnalyzer analyzer;
 
   @BeforeEach
   void setUp() {
     analyzer =
-        new OrphanFilesDeletionAnalyzer(
+        new CadenceBasedOrphanFilesDeletionAnalyzer(
             new CadencePolicy(SUCCESS_INTERVAL, FAILURE_INTERVAL, SCHEDULED_TIMEOUT));
   }
 
@@ -215,7 +215,7 @@ class OrphanFilesDeletionAnalyzerTest {
     Map<String, String> props =
         value == null
             ? Collections.emptyMap()
-            : Map.of(OrphanFilesDeletionAnalyzer.OFD_ENABLED_PROPERTY, value);
+            : Map.of(CadenceBasedOrphanFilesDeletionAnalyzer.OFD_ENABLED_PROPERTY, value);
     return Table.builder()
         .tableUuid("test-uuid")
         .databaseName("db1")
