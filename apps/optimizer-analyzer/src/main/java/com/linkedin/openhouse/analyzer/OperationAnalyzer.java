@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.analyzer;
 
+import com.linkedin.openhouse.analyzer.model.OperationType;
 import com.linkedin.openhouse.analyzer.model.Table;
 import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
@@ -17,8 +18,8 @@ import java.util.Optional;
  */
 public interface OperationAnalyzer {
 
-  /** The operation type this analyzer handles (e.g., {@code "ORPHAN_FILES_DELETION"}). */
-  String getOperationType();
+  /** The operation type this analyzer handles. */
+  OperationType getOperationType();
 
   /**
    * Returns {@code true} if this operation is opted-in for the given table. Tables that return

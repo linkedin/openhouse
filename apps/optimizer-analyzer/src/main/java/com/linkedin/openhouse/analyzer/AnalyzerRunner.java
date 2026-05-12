@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.analyzer;
 
+import com.linkedin.openhouse.analyzer.model.OperationType;
 import com.linkedin.openhouse.analyzer.model.Table;
 import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
@@ -51,25 +52,30 @@ public class AnalyzerRunner {
    * table UUID. Pass {@code null} for any parameter to skip that filter.
    */
   public void analyze(
-      String operationType, String databaseName, String tableName, String tableUuid) {
+      OperationType operationType, String databaseName, String tableName, String tableUuid) {
 
     List<OperationAnalyzer> activeAnalyzers =
         operationType == null
             ? analyzers
             : analyzers.stream()
-                .filter(a -> a.getOperationType().equals(operationType))
+                .filter(a -> a.getOperationType() == operationType)
                 .collect(Collectors.toList());
 
     // Pre-load the small sides of the joins — one query per analyzer type.
     // TODO: Move to a query builder (Criteria API or jOOQ) as filter count grows.
-    Map<String, Map<String, TableOperation>> opsByType =
+    Map<OperationType, Map<String, TableOperation>> opsByType =
         activeAnalyzers.stream()
             .collect(
                 Collectors.toMap(
                     OperationAnalyzer::getOperationType,
                     a ->
                         operationsRepo
-                            .find(a.getOperationType(), null, tableUuid, databaseName, tableName)
+                            .find(
+                                a.getOperationType().name(),
+                                null,
+                                tableUuid,
+                                databaseName,
+                                tableName)
                             .stream()
                             .filter(e -> e.getTableUuid() != null)
                             .collect(
@@ -80,13 +86,13 @@ public class AnalyzerRunner {
 
     // Latest history row per (table_uuid, operation_type), one query per analyzer. The repo query
     // may return tied rows for the same key on identical completed_at; dedupe in memory.
-    Map<String, Map<String, TableOperationHistoryRow>> latestHistoryByType =
+    Map<OperationType, Map<String, TableOperationHistoryRow>> latestHistoryByType =
         activeAnalyzers.stream()
             .collect(
                 Collectors.toMap(
                     OperationAnalyzer::getOperationType,
                     a ->
-                        historyRepo.findLatestPerTable(a.getOperationType()).stream()
+                        historyRepo.findLatestPerTable(a.getOperationType().name()).stream()
                             .filter(r -> r.getTableUuid() != null)
                             .collect(
                                 Collectors.toMap(

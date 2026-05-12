@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.analyzer;
 
+import com.linkedin.openhouse.analyzer.model.OperationType;
 import com.linkedin.openhouse.analyzer.model.Table;
 import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
@@ -9,11 +10,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** Analyzer for the {@code ORPHAN_FILES_DELETION} operation type. */
+/** Analyzer for the {@link OperationType#ORPHAN_FILES_DELETION} operation type. */
 @Component
 public class OrphanFilesDeletionAnalyzer implements OperationAnalyzer {
 
-  static final String OPERATION_TYPE = "ORPHAN_FILES_DELETION";
   static final String OFD_ENABLED_PROPERTY = "maintenance.optimizer.ofd.enabled";
 
   private final CadencePolicy cadencePolicy;
@@ -36,8 +36,8 @@ public class OrphanFilesDeletionAnalyzer implements OperationAnalyzer {
   }
 
   @Override
-  public String getOperationType() {
-    return OPERATION_TYPE;
+  public OperationType getOperationType() {
+    return OperationType.ORPHAN_FILES_DELETION;
   }
 
   @Override

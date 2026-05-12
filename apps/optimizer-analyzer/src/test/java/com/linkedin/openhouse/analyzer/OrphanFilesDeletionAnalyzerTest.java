@@ -2,6 +2,7 @@ package com.linkedin.openhouse.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.linkedin.openhouse.analyzer.model.OperationStatus;
 import com.linkedin.openhouse.analyzer.model.Table;
 import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
@@ -111,7 +112,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("PENDING", null)),
+                Optional.of(opWithStatus(OperationStatus.PENDING, null)),
                 Optional.empty()))
         .isFalse();
   }
@@ -121,7 +122,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULING", null)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULING, null)),
                 Optional.empty()))
         .isFalse();
   }
@@ -134,7 +135,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULED", recent)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED, recent)),
                 Optional.empty()))
         .isFalse();
   }
@@ -145,7 +146,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULED", longAgo)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED, longAgo)),
                 Optional.empty()))
         .isTrue();
   }
@@ -155,7 +156,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULED", null)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED, null)),
                 Optional.empty()))
         .isTrue();
   }
@@ -167,7 +168,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULED", scheduledAt)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
                 Optional.of(historyWithStatus("SUCCESS", historyAt))))
         .isTrue();
   }
@@ -179,7 +180,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULED", scheduledAt)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
                 Optional.of(historyWithStatus("SUCCESS", historyAt))))
         .isFalse();
   }
@@ -191,7 +192,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULED", scheduledAt)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
                 Optional.of(historyWithStatus("FAILED", historyAt))))
         .isTrue();
   }
@@ -203,7 +204,7 @@ class OrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus("SCHEDULED", scheduledAt)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
                 Optional.of(historyWithStatus("FAILED", historyAt))))
         .isFalse();
   }
@@ -223,7 +224,7 @@ class OrphanFilesDeletionAnalyzerTest {
         .build();
   }
 
-  private TableOperation opWithStatus(String status, Instant scheduledAt) {
+  private TableOperation opWithStatus(OperationStatus status, Instant scheduledAt) {
     TableOperation op = new TableOperation();
     op.setStatus(status);
     op.setScheduledAt(scheduledAt);
