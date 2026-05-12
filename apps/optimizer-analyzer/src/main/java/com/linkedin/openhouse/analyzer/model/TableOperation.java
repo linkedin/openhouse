@@ -22,17 +22,17 @@ public class TableOperation {
   /** The table this operation targets. */
   private String tableUuid;
 
-  /** Database name, denormalized for display. */
+  /** Database name. */
   private String databaseName;
 
-  /** Table name, denormalized for display. */
+  /** Table name. */
   private String tableName;
 
-  /** Operation type (e.g., {@code "ORPHAN_FILES_DELETION"}). */
-  private String operationType;
+  /** Operation type. */
+  private OperationType operationType;
 
-  /** Current lifecycle status: PENDING, SCHEDULING, SCHEDULED. */
-  private String status;
+  /** Current lifecycle status. */
+  private OperationStatus status;
 
   /** When this operation record was created. */
   private Instant createdAt;
@@ -42,29 +42,28 @@ public class TableOperation {
 
   /** Build a {@code TableOperation} from an existing JPA row. */
   public static TableOperation from(TableOperationRow row) {
-    TableOperation op = new TableOperation();
-    op.id = row.getId();
-    op.tableUuid = row.getTableUuid();
-    op.databaseName = row.getDatabaseName();
-    op.tableName = row.getTableName();
-    op.operationType = row.getOperationType();
-    op.status = row.getStatus();
-    op.createdAt = row.getCreatedAt();
-    op.scheduledAt = row.getScheduledAt();
-    return op;
+    return build(
+        row.getId(),
+        row.getTableUuid(),
+        row.getDatabaseName(),
+        row.getTableName(),
+        OperationType.valueOf(row.getOperationType()),
+        OperationStatus.valueOf(row.getStatus()),
+        row.getCreatedAt(),
+        row.getScheduledAt());
   }
 
   /** Create a new PENDING operation for the given table and operation type. */
-  public static TableOperation pending(Table table, String operationType) {
-    TableOperation op = new TableOperation();
-    op.id = UUID.randomUUID().toString();
-    op.tableUuid = table.getTableUuid();
-    op.databaseName = table.getDatabaseName();
-    op.tableName = table.getTableId();
-    op.operationType = operationType;
-    op.status = "PENDING";
-    op.createdAt = Instant.now();
-    return op;
+  public static TableOperation pending(Table table, OperationType operationType) {
+    return build(
+        UUID.randomUUID().toString(),
+        table.getTableUuid(),
+        table.getDatabaseName(),
+        table.getTableId(),
+        operationType,
+        OperationStatus.PENDING,
+        Instant.now(),
+        null);
   }
 
   /** Convert to a JPA entity for persistence. */
@@ -74,8 +73,8 @@ public class TableOperation {
         .tableUuid(tableUuid)
         .databaseName(databaseName)
         .tableName(tableName)
-        .operationType(operationType)
-        .status(status)
+        .operationType(operationType.name())
+        .status(status.name())
         .createdAt(createdAt)
         .scheduledAt(scheduledAt)
         .version(0L)
@@ -87,5 +86,26 @@ public class TableOperation {
     Comparator<TableOperation> byCreatedAt =
         Comparator.comparing(r -> r.getCreatedAt() != null ? r.getCreatedAt() : Instant.EPOCH);
     return byCreatedAt.compare(a, b) >= 0 ? a : b;
+  }
+
+  private static TableOperation build(
+      String id,
+      String tableUuid,
+      String databaseName,
+      String tableName,
+      OperationType operationType,
+      OperationStatus status,
+      Instant createdAt,
+      Instant scheduledAt) {
+    TableOperation op = new TableOperation();
+    op.id = id;
+    op.tableUuid = tableUuid;
+    op.databaseName = databaseName;
+    op.tableName = tableName;
+    op.operationType = operationType;
+    op.status = status;
+    op.createdAt = createdAt;
+    op.scheduledAt = scheduledAt;
+    return op;
   }
 }

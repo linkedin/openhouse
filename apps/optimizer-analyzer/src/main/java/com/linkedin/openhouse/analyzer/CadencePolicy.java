@@ -55,16 +55,22 @@ public class CadencePolicy {
     }
     TableOperation op = currentOp.get();
     switch (op.getStatus()) {
-      case "PENDING":
-      case "SCHEDULING":
+      case PENDING:
+      case SCHEDULING:
         return false;
-      case "SCHEDULED":
-        if (latestHistory.isEmpty()) {
-          return pastInterval(op.getScheduledAt(), scheduledTimeout);
-        }
-        return decideFromHistoryEntry(latestHistory.get());
+      case SCHEDULED:
+        // Two scenarios for a SCHEDULED row:
+        //  - no history yet: the job is still running (or crashed); fall through to the
+        //    scheduledTimeout safety net.
+        //  - history present: the job completed and history was written; defer to cadence policy
+        //    on the history entry.
+        return latestHistory.isPresent()
+            ? decideFromHistory(latestHistory)
+            : pastInterval(op.getScheduledAt(), scheduledTimeout);
+      case CANCELED:
+        return decideFromHistory(latestHistory);
       default:
-        return true;
+        throw new IllegalStateException("Unhandled operation status: " + op.getStatus());
     }
   }
 
@@ -72,10 +78,7 @@ public class CadencePolicy {
     if (latestHistory.isEmpty()) {
       return true;
     }
-    return decideFromHistoryEntry(latestHistory.get());
-  }
-
-  private boolean decideFromHistoryEntry(TableOperationHistoryRow entry) {
+    TableOperationHistoryRow entry = latestHistory.get();
     switch (entry.getStatus()) {
       case "SUCCESS":
         return pastInterval(entry.getCompletedAt(), successRetryInterval);
@@ -86,6 +89,7 @@ public class CadencePolicy {
     }
   }
 
+  /** {@code true} if {@code timestamp} is null or {@code interval} has elapsed since then. */
   private boolean pastInterval(Instant timestamp, Duration interval) {
     return timestamp == null || Duration.between(timestamp, Instant.now()).compareTo(interval) > 0;
   }
