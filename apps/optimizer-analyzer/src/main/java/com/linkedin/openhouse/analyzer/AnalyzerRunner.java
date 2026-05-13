@@ -56,7 +56,6 @@ public class AnalyzerRunner {
       Optional<String> databaseName,
       Optional<String> tableName,
       Optional<String> tableUuid) {
-
     Optional<OperationAnalyzer> analyzerOpt =
         analyzers.stream().filter(a -> a.getOperationType() == operationType).findFirst();
     if (analyzerOpt.isEmpty()) {
@@ -64,12 +63,9 @@ public class AnalyzerRunner {
       return;
     }
     OperationAnalyzer analyzer = analyzerOpt.get();
-
     List<String> dbs = databaseName.map(List::of).orElseGet(statsRepo::findDistinctDatabaseNames);
     log.info("Analyzing {} across {} database(s)", operationType, dbs.size());
-
     dbs.forEach(db -> analyzeDatabase(analyzer, db, tableName, tableUuid));
-
     log.info("Analysis complete for {}", operationType);
   }
 
@@ -93,8 +89,6 @@ public class AnalyzerRunner {
                     TableOperation::from,
                     TableOperation::mostRecent));
 
-    // Latest history row per (table_uuid, op_type) for this analyzer. The repo query may return
-    // tied rows on identical completed_at; dedupe in memory.
     Map<String, TableOperationHistoryRow> latestHistory =
         historyRepo.findLatestPerTable(operationType).stream()
             .filter(r -> r.getTableUuid() != null)
