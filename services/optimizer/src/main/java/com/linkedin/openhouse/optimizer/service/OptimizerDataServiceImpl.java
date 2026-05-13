@@ -42,12 +42,18 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public List<TableOperationsDto> listTableOperations(
-      OperationType operationType,
-      OperationStatus status,
-      String databaseName,
-      String tableName,
-      String tableUuid) {
-    return operationsRepository.find(operationType, status, databaseName, tableName, tableUuid)
+      Optional<OperationType> operationType,
+      Optional<OperationStatus> status,
+      Optional<String> databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid) {
+    return operationsRepository
+        .find(
+            operationType.orElse(null),
+            status.orElse(null),
+            databaseName.orElse(null),
+            tableName.orElse(null),
+            tableUuid.orElse(null))
         .stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
@@ -132,15 +138,18 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public List<TableStatsDto> listTableStats(
-      String databaseName, String tableName, String tableUuid) {
-    return statsRepository.find(databaseName, tableName, tableUuid).stream()
+      Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid) {
+    return statsRepository
+        .find(databaseName.orElse(null), tableName.orElse(null), tableUuid.orElse(null)).stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
 
   @Override
-  public List<TableStatsHistoryDto> getStatsHistory(String tableUuid, Instant since, int limit) {
-    return statsHistoryRepository.find(tableUuid, since, PageRequest.of(0, limit)).stream()
+  public List<TableStatsHistoryDto> getStatsHistory(
+      String tableUuid, Optional<Instant> since, int limit) {
+    return statsHistoryRepository.find(tableUuid, since.orElse(null), PageRequest.of(0, limit))
+        .stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
@@ -175,23 +184,23 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public List<TableOperationsHistoryDto> listHistory(
-      String databaseName,
-      String tableName,
-      String tableUuid,
-      OperationType operationType,
-      OperationHistoryStatus status,
-      Instant since,
-      Instant until,
+      Optional<String> databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid,
+      Optional<OperationType> operationType,
+      Optional<OperationHistoryStatus> status,
+      Optional<Instant> since,
+      Optional<Instant> until,
       int limit) {
     return historyRepository
         .find(
-            databaseName,
-            tableName,
-            tableUuid,
-            operationType,
-            status,
-            since,
-            until,
+            databaseName.orElse(null),
+            tableName.orElse(null),
+            tableUuid.orElse(null),
+            operationType.orElse(null),
+            status.orElse(null),
+            since.orElse(null),
+            until.orElse(null),
             PageRequest.of(0, limit))
         .stream()
         .map(mapper::toDto)

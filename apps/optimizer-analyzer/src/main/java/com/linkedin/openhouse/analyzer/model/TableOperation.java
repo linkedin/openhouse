@@ -4,6 +4,8 @@ import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.UUID;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -13,7 +15,9 @@ import lombok.NoArgsConstructor;
  * new PENDING operation). Converts back to a JPA row via {@link #toRow()}.
  */
 @Data
+@Builder
 @NoArgsConstructor
+@AllArgsConstructor
 public class TableOperation {
 
   /** Unique operation ID (UUID). */
@@ -42,28 +46,29 @@ public class TableOperation {
 
   /** Build a {@code TableOperation} from an existing JPA row. */
   public static TableOperation from(TableOperationRow row) {
-    return build(
-        row.getId(),
-        row.getTableUuid(),
-        row.getDatabaseName(),
-        row.getTableName(),
-        OperationType.valueOf(row.getOperationType()),
-        OperationStatus.valueOf(row.getStatus()),
-        row.getCreatedAt(),
-        row.getScheduledAt());
+    return TableOperation.builder()
+        .id(row.getId())
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .operationType(OperationType.valueOf(row.getOperationType()))
+        .status(OperationStatus.valueOf(row.getStatus()))
+        .createdAt(row.getCreatedAt())
+        .scheduledAt(row.getScheduledAt())
+        .build();
   }
 
   /** Create a new PENDING operation for the given table and operation type. */
   public static TableOperation pending(Table table, OperationType operationType) {
-    return build(
-        UUID.randomUUID().toString(),
-        table.getTableUuid(),
-        table.getDatabaseName(),
-        table.getTableId(),
-        operationType,
-        OperationStatus.PENDING,
-        Instant.now(),
-        null);
+    return TableOperation.builder()
+        .id(UUID.randomUUID().toString())
+        .tableUuid(table.getTableUuid())
+        .databaseName(table.getDatabaseName())
+        .tableName(table.getTableId())
+        .operationType(operationType)
+        .status(OperationStatus.PENDING)
+        .createdAt(Instant.now())
+        .build();
   }
 
   /** Convert to a JPA entity for persistence. */
@@ -86,26 +91,5 @@ public class TableOperation {
     Comparator<TableOperation> byCreatedAt =
         Comparator.comparing(r -> r.getCreatedAt() != null ? r.getCreatedAt() : Instant.EPOCH);
     return byCreatedAt.compare(a, b) >= 0 ? a : b;
-  }
-
-  private static TableOperation build(
-      String id,
-      String tableUuid,
-      String databaseName,
-      String tableName,
-      OperationType operationType,
-      OperationStatus status,
-      Instant createdAt,
-      Instant scheduledAt) {
-    TableOperation op = new TableOperation();
-    op.id = id;
-    op.tableUuid = tableUuid;
-    op.databaseName = databaseName;
-    op.tableName = tableName;
-    op.operationType = operationType;
-    op.status = status;
-    op.createdAt = createdAt;
-    op.scheduledAt = scheduledAt;
-    return op;
   }
 }

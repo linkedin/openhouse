@@ -6,6 +6,7 @@ import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,7 +53,11 @@ public class TableStatsController {
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
-    return ResponseEntity.ok(service.listTableStats(databaseName, tableName, tableUuid));
+    return ResponseEntity.ok(
+        service.listTableStats(
+            Optional.ofNullable(databaseName),
+            Optional.ofNullable(tableName),
+            Optional.ofNullable(tableUuid)));
   }
 
   /**
@@ -64,6 +69,6 @@ public class TableStatsController {
       @PathVariable String tableUuid,
       @RequestParam(required = false) Instant since,
       @RequestParam(defaultValue = "100") int limit) {
-    return ResponseEntity.ok(service.getStatsHistory(tableUuid, since, limit));
+    return ResponseEntity.ok(service.getStatsHistory(tableUuid, Optional.ofNullable(since), limit));
   }
 }

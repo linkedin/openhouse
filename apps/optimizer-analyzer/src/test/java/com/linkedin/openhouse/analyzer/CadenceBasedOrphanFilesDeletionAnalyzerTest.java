@@ -18,7 +18,6 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   private static final Duration SUCCESS_INTERVAL = Duration.ofHours(24);
   private static final Duration FAILURE_INTERVAL = Duration.ofHours(1);
-  private static final Duration SCHEDULED_TIMEOUT = Duration.ofHours(6);
 
   private CadenceBasedOrphanFilesDeletionAnalyzer analyzer;
 
@@ -26,7 +25,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void setUp() {
     analyzer =
         new CadenceBasedOrphanFilesDeletionAnalyzer(
-            new CadencePolicy(SUCCESS_INTERVAL, FAILURE_INTERVAL, SCHEDULED_TIMEOUT));
+            new CadencePolicy(SUCCESS_INTERVAL, FAILURE_INTERVAL));
   }
 
   // --- isEnabled ---
@@ -105,14 +104,14 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
         .isFalse();
   }
 
-  // --- shouldSchedule: PENDING / SCHEDULING ---
+  // --- shouldSchedule: active op (non-CANCELED) → analyzer stays out ---
 
   @Test
   void shouldSchedule_pending_returnsFalse() {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.PENDING, null)),
+                Optional.of(opWithStatus(OperationStatus.PENDING)),
                 Optional.empty()))
         .isFalse();
   }
@@ -122,91 +121,54 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULING, null)),
-                Optional.empty()))
-        .isFalse();
-  }
-
-  // --- shouldSchedule: SCHEDULED + history ---
-
-  @Test
-  void shouldSchedule_scheduledNoHistory_withinTimeout_returnsFalse() {
-    Instant recent = Instant.now().minus(SCHEDULED_TIMEOUT).plusSeconds(60);
-    assertThat(
-            analyzer.shouldSchedule(
-                tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED, recent)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULING)),
                 Optional.empty()))
         .isFalse();
   }
 
   @Test
-  void shouldSchedule_scheduledNoHistory_pastTimeout_returnsTrue() {
-    Instant longAgo = Instant.now().minus(SCHEDULED_TIMEOUT).minusSeconds(60);
-    assertThat(
-            analyzer.shouldSchedule(
-                tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED, longAgo)),
-                Optional.empty()))
-        .isTrue();
-  }
-
-  @Test
-  void shouldSchedule_scheduledWithNullScheduledAt_noHistory_returnsTrue() {
-    assertThat(
-            analyzer.shouldSchedule(
-                tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED, null)),
-                Optional.empty()))
-        .isTrue();
-  }
-
-  @Test
-  void shouldSchedule_scheduledWithSuccessHistory_afterCooldown_returnsTrue() {
-    Instant scheduledAt = Instant.now().minusSeconds(3600);
+  void shouldSchedule_scheduled_returnsFalse_regardlessOfHistory() {
     Instant historyAt = Instant.now().minus(SUCCESS_INTERVAL).minusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
-                Optional.of(historyWithStatus("SUCCESS", historyAt))))
-        .isTrue();
-  }
-
-  @Test
-  void shouldSchedule_scheduledWithSuccessHistory_beforeCooldown_returnsFalse() {
-    Instant scheduledAt = Instant.now().minusSeconds(3600);
-    Instant historyAt = Instant.now().minus(SUCCESS_INTERVAL).plusSeconds(60);
-    assertThat(
-            analyzer.shouldSchedule(
-                tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
+                Optional.of(opWithStatus(OperationStatus.SCHEDULED)),
                 Optional.of(historyWithStatus("SUCCESS", historyAt))))
         .isFalse();
   }
 
+  // --- shouldSchedule: CANCELED → cadence on history ---
+
   @Test
-  void shouldSchedule_scheduledWithFailedHistory_afterRetry_returnsTrue() {
-    Instant scheduledAt = Instant.now().minusSeconds(3600);
-    Instant historyAt = Instant.now().minus(FAILURE_INTERVAL).minusSeconds(60);
+  void shouldSchedule_canceled_successHistoryAfterCooldown_returnsTrue() {
+    Instant longAgo = Instant.now().minus(SUCCESS_INTERVAL).minusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
-                Optional.of(historyWithStatus("FAILED", historyAt))))
+                Optional.of(opWithStatus(OperationStatus.CANCELED)),
+                Optional.of(historyWithStatus("SUCCESS", longAgo))))
         .isTrue();
   }
 
   @Test
-  void shouldSchedule_scheduledWithFailedHistory_beforeRetry_returnsFalse() {
-    Instant scheduledAt = Instant.now().minusSeconds(3600);
-    Instant historyAt = Instant.now().minus(FAILURE_INTERVAL).plusSeconds(60);
+  void shouldSchedule_canceled_successHistoryBeforeCooldown_returnsFalse() {
+    Instant recent = Instant.now().minus(SUCCESS_INTERVAL).plusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED, scheduledAt)),
-                Optional.of(historyWithStatus("FAILED", historyAt))))
+                Optional.of(opWithStatus(OperationStatus.CANCELED)),
+                Optional.of(historyWithStatus("SUCCESS", recent))))
         .isFalse();
+  }
+
+  @Test
+  void shouldSchedule_canceled_noHistory_returnsTrue() {
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty("true"),
+                Optional.of(opWithStatus(OperationStatus.CANCELED)),
+                Optional.empty()))
+        .isTrue();
   }
 
   // --- helpers ---
@@ -224,11 +186,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
         .build();
   }
 
-  private TableOperation opWithStatus(OperationStatus status, Instant scheduledAt) {
-    TableOperation op = new TableOperation();
-    op.setStatus(status);
-    op.setScheduledAt(scheduledAt);
-    return op;
+  private TableOperation opWithStatus(OperationStatus status) {
+    return TableOperation.builder().status(status).build();
   }
 
   private TableOperationHistoryRow historyWithStatus(String status, Instant completedAt) {

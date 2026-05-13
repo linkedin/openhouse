@@ -29,7 +29,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class AnalyzerRunnerTest {
 
-  private static final String OFD = OperationType.ORPHAN_FILES_DELETION.name();
+  private static final OperationType OFD_TYPE = OperationType.ORPHAN_FILES_DELETION;
+  private static final String OFD = OFD_TYPE.name();
+  private static final String DB = "db1";
 
   @Mock private TableStatsRepository statsRepo;
   @Mock private TableOperationsRepository operationsRepo;
@@ -41,33 +43,34 @@ class AnalyzerRunnerTest {
   @BeforeEach
   void setUp() {
     runner = new AnalyzerRunner(List.of(analyzer), statsRepo, operationsRepo, historyRepo);
+    when(analyzer.getOperationType()).thenReturn(OFD_TYPE);
+    when(statsRepo.findDistinctDatabaseNames()).thenReturn(List.of(DB));
   }
 
   @Test
   void analyze_insertsNewRow_forEligibleTableWithNoExistingOp() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName("db1");
+    statsEntity.setDatabaseName(DB);
     statsEntity.setTableName("tbl1");
 
     Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
+        Table.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
 
-    when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
-    when(analyzer.getOperationType()).thenReturn(OperationType.ORPHAN_FILES_DELETION);
-    when(operationsRepo.find(OFD, null, null, null, null)).thenReturn(Collections.emptyList());
+    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(Collections.emptyList());
     when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
         .thenReturn(true);
 
-    runner.analyze();
+    runner.analyze(OFD_TYPE);
 
     ArgumentCaptor<TableOperationRow> captor = ArgumentCaptor.forClass(TableOperationRow.class);
     verify(operationsRepo).save(captor.capture());
     TableOperationRow saved = captor.getValue();
     assertThat(saved.getTableUuid()).isEqualTo("uuid-1");
-    assertThat(saved.getDatabaseName()).isEqualTo("db1");
+    assertThat(saved.getDatabaseName()).isEqualTo(DB);
     assertThat(saved.getTableName()).isEqualTo("tbl1");
     assertThat(saved.getOperationType()).isEqualTo(OFD);
     assertThat(saved.getStatus()).isEqualTo("PENDING");
@@ -78,11 +81,11 @@ class AnalyzerRunnerTest {
   void analyze_noOp_whenCadencePolicyReturnsFalseForPending() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName("db1");
+    statsEntity.setDatabaseName(DB);
     statsEntity.setTableName("tbl1");
 
     Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseName("db1").tableId("tbl1").build();
+        Table.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
 
     TableOperationRow existingEntity = new TableOperationRow();
     existingEntity.setId("existing-op-id");
@@ -91,9 +94,8 @@ class AnalyzerRunnerTest {
     existingEntity.setOperationType(OFD);
     existingEntity.setCreatedAt(Instant.now());
 
-    when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
-    when(analyzer.getOperationType()).thenReturn(OperationType.ORPHAN_FILES_DELETION);
-    when(operationsRepo.find(OFD, null, null, null, null)).thenReturn(List.of(existingEntity));
+    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(List.of(existingEntity));
     when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
@@ -101,7 +103,7 @@ class AnalyzerRunnerTest {
     when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty()))
         .thenReturn(false);
 
-    runner.analyze();
+    runner.analyze(OFD_TYPE);
 
     verify(operationsRepo, never()).save(any());
   }
@@ -110,16 +112,16 @@ class AnalyzerRunnerTest {
   void analyze_skipsTable_whenNotEnabled() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
+    statsEntity.setDatabaseName(DB);
 
-    Table expectedTable = Table.builder().tableUuid("uuid-1").build();
+    Table expectedTable = Table.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
-    when(analyzer.getOperationType()).thenReturn(OperationType.ORPHAN_FILES_DELETION);
-    when(operationsRepo.find(OFD, null, null, null, null)).thenReturn(Collections.emptyList());
+    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(Collections.emptyList());
     when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(false);
 
-    runner.analyze();
+    runner.analyze(OFD_TYPE);
 
     verify(operationsRepo, never()).save(any());
   }
@@ -128,8 +130,9 @@ class AnalyzerRunnerTest {
   void analyze_skipsTable_whenShouldScheduleReturnsFalse() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid("uuid-1");
+    statsEntity.setDatabaseName(DB);
 
-    Table expectedTable = Table.builder().tableUuid("uuid-1").build();
+    Table expectedTable = Table.builder().tableUuid("uuid-1").databaseName(DB).build();
 
     TableOperationRow scheduled = new TableOperationRow();
     scheduled.setId("op-id");
@@ -138,9 +141,8 @@ class AnalyzerRunnerTest {
     scheduled.setOperationType(OFD);
     scheduled.setCreatedAt(Instant.now());
 
-    when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
-    when(analyzer.getOperationType()).thenReturn(OperationType.ORPHAN_FILES_DELETION);
-    when(operationsRepo.find(OFD, null, null, null, null)).thenReturn(List.of(scheduled));
+    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(List.of(scheduled));
     when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
@@ -148,7 +150,7 @@ class AnalyzerRunnerTest {
     when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty()))
         .thenReturn(false);
 
-    runner.analyze();
+    runner.analyze(OFD_TYPE);
 
     verify(operationsRepo, never()).save(any());
   }
@@ -157,13 +159,13 @@ class AnalyzerRunnerTest {
   void analyze_skipsTable_whenTableUuidIsNull() {
     TableStatsRow statsEntity = new TableStatsRow();
     statsEntity.setTableUuid(null);
+    statsEntity.setDatabaseName(DB);
 
-    when(statsRepo.find(null, null, null)).thenReturn(List.of(statsEntity));
-    when(analyzer.getOperationType()).thenReturn(OperationType.ORPHAN_FILES_DELETION);
-    when(operationsRepo.find(OFD, null, null, null, null)).thenReturn(Collections.emptyList());
+    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(Collections.emptyList());
     when(historyRepo.findLatestPerTable(anyString())).thenReturn(Collections.emptyList());
 
-    runner.analyze();
+    runner.analyze(OFD_TYPE);
 
     verify(operationsRepo, never()).save(any());
   }

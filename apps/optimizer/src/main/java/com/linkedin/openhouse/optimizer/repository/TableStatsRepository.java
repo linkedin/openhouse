@@ -22,4 +22,12 @@ public interface TableStatsRepository extends JpaRepository<TableStatsRow, Strin
       @Param("databaseName") String databaseName,
       @Param("tableName") String tableName,
       @Param("tableUuid") String tableUuid);
+
+  /**
+   * Return the distinct {@code database_name} values present in {@code table_stats}. Used by the
+   * Analyzer to enumerate databases when iterating per-db; the result set size is bounded by the
+   * number of databases (small even at million-table scale).
+   */
+  @Query("SELECT DISTINCT r.databaseName FROM TableStatsRow r")
+  List<String> findDistinctDatabaseNames();
 }
