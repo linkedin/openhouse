@@ -48,5 +48,9 @@ CREATE TABLE IF NOT EXISTS table_operations_history (
   job_id                VARCHAR(255),
   result                TEXT,
   PRIMARY KEY (id),
-  INDEX idx_toph_db_table (database_name, table_name)
+  INDEX idx_toph_db_table (database_name, table_name),
+  -- Drives TableOperationHistoryRepository.findLatestPerTable: the correlated
+  -- MAX(completed_at) subquery becomes an index-only lookup per (operation_type,
+  -- table_uuid) instead of an O(N²) scan.
+  INDEX idx_toph_optype_uuid_completed (operation_type, table_uuid, completed_at)
 );

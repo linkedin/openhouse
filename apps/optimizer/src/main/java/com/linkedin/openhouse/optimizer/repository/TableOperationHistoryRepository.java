@@ -35,9 +35,9 @@ public interface TableOperationHistoryRepository
    * single operation type. Used by the Analyzer to evaluate cadence without materializing every
    * historical row.
    *
-   * <p>The correlated subquery is portable across MySQL and H2 (MySQL mode). On a large {@code
-   * table_operations_history} table this benefits from an index on {@code (operation_type,
-   * table_uuid, completed_at)} — TODO add it to the schema.
+   * <p>The correlated subquery is portable across MySQL and H2 (MySQL mode). Backed by index {@code
+   * idx_toph_optype_uuid_completed (operation_type, table_uuid, completed_at)} on {@code
+   * table_operations_history}, the subquery becomes an index-only lookup per outer row.
    *
    * <p>Ties on {@code completed_at} for the same {@code (table_uuid, operation_type)} return all
    * tied rows; callers should dedupe in memory.
