@@ -3,6 +3,7 @@ package com.linkedin.openhouse.optimizer.api.controller;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +31,14 @@ public class TableByNameController {
       @PathVariable String tableName,
       @RequestParam(defaultValue = "100") int limit) {
     return ResponseEntity.ok(
-        service.listHistory(databaseName, tableName, null, null, null, null, null, limit));
+        service.listHistory(
+            Optional.of(databaseName),
+            Optional.of(tableName),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            limit));
   }
 }

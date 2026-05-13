@@ -7,6 +7,7 @@ import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -61,6 +62,11 @@ public class TableOperationsController {
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
     return ResponseEntity.ok(
-        service.listTableOperations(operationType, status, databaseName, tableName, tableUuid));
+        service.listTableOperations(
+            Optional.ofNullable(operationType),
+            Optional.ofNullable(status),
+            Optional.ofNullable(databaseName),
+            Optional.ofNullable(tableName),
+            Optional.ofNullable(tableUuid)));
   }
 }
