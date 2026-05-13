@@ -19,15 +19,15 @@ public interface OptimizerDataService {
   // --- TableOperations ---
 
   /**
-   * List operations matching the given filters. Every parameter is optional — pass {@code null} to
-   * skip that filter. No filters returns all rows.
+   * List operations matching the given filters. Every parameter is optional — pass {@link
+   * Optional#empty()} to skip that filter. No filters returns all rows.
    */
   List<TableOperationsDto> listTableOperations(
-      OperationType operationType,
-      OperationStatus status,
-      String databaseName,
-      String tableName,
-      String tableUuid);
+      Optional<OperationType> operationType,
+      Optional<OperationStatus> status,
+      Optional<String> databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid);
 
   /**
    * Complete an operation by writing a history entry. Looks up the operation row by {@code id},
@@ -55,19 +55,20 @@ public interface OptimizerDataService {
   Optional<TableStatsDto> getTableStats(String tableUuid);
 
   /**
-   * List stats rows matching the given filters. Every parameter is optional — pass {@code null} to
-   * skip that filter. No filters returns all rows.
+   * List stats rows matching the given filters. Every parameter is optional — pass {@link
+   * Optional#empty()} to skip that filter. No filters returns all rows.
    */
-  List<TableStatsDto> listTableStats(String databaseName, String tableName, String tableUuid);
+  List<TableStatsDto> listTableStats(
+      Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid);
 
   /**
    * Return per-commit stats history for {@code tableUuid}, newest first.
    *
    * @param tableUuid the stable table UUID
-   * @param since if non-null, only return rows recorded at or after this instant
+   * @param since if present, only return rows recorded at or after this instant
    * @param limit maximum number of rows to return
    */
-  List<TableStatsHistoryDto> getStatsHistory(String tableUuid, Instant since, int limit);
+  List<TableStatsHistoryDto> getStatsHistory(String tableUuid, Optional<Instant> since, int limit);
 
   // --- TableOperationsHistory ---
 
@@ -84,15 +85,16 @@ public interface OptimizerDataService {
 
   /**
    * List history rows matching the given filters, ordered newest first. Every parameter is optional
-   * — pass {@code null} to skip that filter. No filters returns all rows up to {@code limit}.
+   * — pass {@link Optional#empty()} to skip that filter. No filters returns all rows up to {@code
+   * limit}.
    */
   List<TableOperationsHistoryDto> listHistory(
-      String databaseName,
-      String tableName,
-      String tableUuid,
-      OperationType operationType,
-      OperationHistoryStatus status,
-      Instant since,
-      Instant until,
+      Optional<String> databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid,
+      Optional<OperationType> operationType,
+      Optional<OperationHistoryStatus> status,
+      Optional<Instant> since,
+      Optional<Instant> until,
       int limit);
 }

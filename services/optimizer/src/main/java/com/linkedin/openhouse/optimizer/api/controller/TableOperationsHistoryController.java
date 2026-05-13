@@ -6,6 +6,7 @@ import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -55,6 +56,13 @@ public class TableOperationsHistoryController {
       @RequestParam(defaultValue = "100") int limit) {
     return ResponseEntity.ok(
         service.listHistory(
-            databaseName, tableName, tableUuid, operationType, status, since, until, limit));
+            Optional.ofNullable(databaseName),
+            Optional.ofNullable(tableName),
+            Optional.ofNullable(tableUuid),
+            Optional.ofNullable(operationType),
+            Optional.ofNullable(status),
+            Optional.ofNullable(since),
+            Optional.ofNullable(until),
+            limit));
   }
 }
