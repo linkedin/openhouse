@@ -217,9 +217,7 @@ def _is_literal_like(node: exp.Expression) -> bool:
     """
     if isinstance(node, exp.Literal):
         return True
-    if isinstance(node, exp.Cast) and isinstance(node.this, exp.Literal):
-        return True
-    return False
+    return isinstance(node, exp.Cast) and isinstance(node.this, exp.Literal)
 
 
 def _convert_comparison(node: exp.EQ | exp.NEQ | exp.GT | exp.GTE | exp.LT | exp.LTE) -> Filter | None:
