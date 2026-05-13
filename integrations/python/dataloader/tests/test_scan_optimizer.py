@@ -169,6 +169,33 @@ def test_comparison_types():
         assert plan.row_filter == expected_filter, f"row_filter mismatch for: {where_clause}"
 
 
+def test_cast_timestamp_pushed_as_datetime():
+    """`CAST('YYYY-MM-DD HH:MM:SS' AS TIMESTAMP)` (the form emitted by
+    `filters._literal_to_sql()` for datetime values, see PR #569) round-trips
+    back through `_convert_comparison` as a `datetime` Python value, restoring
+    Iceberg partition pruning on day(timestamp_col) partitions.
+    """
+    import datetime as _dt
+
+    cases = [
+        (
+            "\"x\" >= CAST('2026-05-02 00:00:00.000000+0000' AS TIMESTAMP)",
+            GreaterThanOrEqual("x", _dt.datetime(2026, 5, 2, 0, 0, 0, tzinfo=_dt.timezone.utc)),
+        ),
+        (
+            "\"x\" < CAST('2026-05-04 00:00:00' AS TIMESTAMP)",
+            LessThan("x", _dt.datetime(2026, 5, 4, 0, 0, 0)),
+        ),
+        (
+            "\"x\" = CAST('2026-05-02' AS DATE)",
+            EqualTo("x", _dt.date(2026, 5, 2)),
+        ),
+    ]
+    for where_clause, expected_filter in cases:
+        plan = optimize_scan(f'SELECT "a" FROM "db"."tbl" WHERE {where_clause}')
+        assert plan.row_filter == expected_filter, f"row_filter mismatch for: {where_clause}; got {plan.row_filter!r}"
+
+
 def test_non_convertible_predicates_not_pushed():
     """Predicates with functions or column-vs-column are not pushed."""
     cases = [
