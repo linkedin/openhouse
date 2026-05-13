@@ -19,15 +19,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Core analysis loop. Loads {@code table_stats} rows and evaluates each table against every
- * registered {@link OperationAnalyzer} in a single pass.
+ * Core analysis loop. For one operation type per call, iterates databases and evaluates each table
+ * in a database against the matching {@link OperationAnalyzer}.
  *
  * <p>Both sides of the join — current operations and latest history per (table, type) — are loaded
- * into maps once per run before the table loop. This is correct at small scale (≤~100k tables);
- * past that the runner OOMs and exceeds the cadence window. Scale-up work (per-op enablement
- * column, cooldown anti-join push-down, per-db iteration, streaming reads, batched writes, rate
- * limiting) is tracked in <a
- * href="https://linkedin.atlassian.net/browse/BDP-102182">BDP-102182</a>.
+ * into maps once per database before the table loop. This is correct at small scale (≤~100k
+ * tables); past that the per-db query shape and projection need further tuning. Scale-up work is
+ * tracked in <a href="https://linkedin.atlassian.net/browse/BDP-102182">BDP-102182</a>.
  */
 @Slf4j
 @Component
@@ -39,100 +37,99 @@ public class AnalyzerRunner {
   private final TableOperationsRepository operationsRepo;
   private final TableOperationHistoryRepository historyRepo;
 
-  /** Run the full analysis loop once with no filters. */
-  public void analyze() {
-    analyze(null, null, null, null);
+  /**
+   * Run the analysis loop for {@code operationType} across all databases, with no filters.
+   * Equivalent to {@link #analyze(OperationType, Optional, Optional, Optional)} with all-empty
+   * filters.
+   */
+  public void analyze(OperationType operationType) {
+    analyze(operationType, Optional.empty(), Optional.empty(), Optional.empty());
   }
 
   /**
-   * Run the analysis loop, optionally scoped to a specific operation type, database, table name, or
-   * table UUID. Pass {@code null} for any parameter to skip that filter.
+   * Run the analysis loop for the given operation type, optionally scoped to a single database,
+   * table name, or table UUID. Iterates databases one at a time so the working set is bounded by
+   * tables-per-db, not tables-total.
    */
   public void analyze(
-      OperationType operationType, String databaseName, String tableName, String tableUuid) {
+      OperationType operationType,
+      Optional<String> databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid) {
 
-    List<OperationAnalyzer> activeAnalyzers =
-        operationType == null
-            ? analyzers
-            : analyzers.stream()
-                .filter(a -> a.getOperationType() == operationType)
-                .collect(Collectors.toList());
+    Optional<OperationAnalyzer> analyzerOpt =
+        analyzers.stream().filter(a -> a.getOperationType() == operationType).findFirst();
+    if (analyzerOpt.isEmpty()) {
+      log.warn("No analyzer registered for operation type {}; skipping", operationType);
+      return;
+    }
+    OperationAnalyzer analyzer = analyzerOpt.get();
 
-    // Pre-load the small sides of the joins — one query per analyzer type.
-    // TODO: Move to a query builder (Criteria API or jOOQ) as filter count grows.
-    Map<OperationType, Map<String, TableOperation>> opsByType =
-        activeAnalyzers.stream()
+    List<String> dbs = databaseName.map(List::of).orElseGet(statsRepo::findDistinctDatabaseNames);
+    log.info("Analyzing {} across {} database(s)", operationType, dbs.size());
+
+    dbs.forEach(db -> analyzeDatabase(analyzer, db, tableName, tableUuid));
+
+    log.info("Analysis complete for {}", operationType);
+  }
+
+  private void analyzeDatabase(
+      OperationAnalyzer analyzer,
+      String databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid) {
+
+    String operationType = analyzer.getOperationType().name();
+
+    // Pre-load the small sides of the joins — bounded by tables in this database.
+    Map<String, TableOperation> currentOps =
+        operationsRepo
+            .find(operationType, null, tableUuid.orElse(null), databaseName, tableName.orElse(null))
+            .stream()
+            .filter(e -> e.getTableUuid() != null)
             .collect(
                 Collectors.toMap(
-                    OperationAnalyzer::getOperationType,
-                    a ->
-                        operationsRepo
-                            .find(
-                                a.getOperationType().name(),
-                                null,
-                                tableUuid,
-                                databaseName,
-                                tableName)
-                            .stream()
-                            .filter(e -> e.getTableUuid() != null)
-                            .collect(
-                                Collectors.toMap(
-                                    TableOperationRow::getTableUuid,
-                                    TableOperation::from,
-                                    TableOperation::mostRecent))));
+                    TableOperationRow::getTableUuid,
+                    TableOperation::from,
+                    TableOperation::mostRecent));
 
-    // Latest history row per (table_uuid, operation_type), one query per analyzer. The repo query
-    // may return tied rows for the same key on identical completed_at; dedupe in memory.
-    Map<OperationType, Map<String, TableOperationHistoryRow>> latestHistoryByType =
-        activeAnalyzers.stream()
+    // Latest history row per (table_uuid, op_type) for this analyzer. The repo query may return
+    // tied rows on identical completed_at; dedupe in memory.
+    Map<String, TableOperationHistoryRow> latestHistory =
+        historyRepo.findLatestPerTable(operationType).stream()
+            .filter(r -> r.getTableUuid() != null)
             .collect(
                 Collectors.toMap(
-                    OperationAnalyzer::getOperationType,
-                    a ->
-                        historyRepo.findLatestPerTable(a.getOperationType().name()).stream()
-                            .filter(r -> r.getTableUuid() != null)
-                            .collect(
-                                Collectors.toMap(
-                                    TableOperationHistoryRow::getTableUuid,
-                                    r -> r,
-                                    AnalyzerRunner::moreRecentHistory))));
+                    TableOperationHistoryRow::getTableUuid,
+                    r -> r,
+                    AnalyzerRunner::moreRecentHistory));
 
     List<Table> tables =
-        statsRepo.find(databaseName, tableName, tableUuid).stream()
+        statsRepo.find(databaseName, tableName.orElse(null), tableUuid.orElse(null)).stream()
             .filter(row -> row.getTableUuid() != null)
             .map(Table::from)
             .collect(Collectors.toList());
-    log.info("Found {} tables in optimizer table_stats", tables.size());
 
     tables.forEach(
-        table ->
-            activeAnalyzers.forEach(
-                analyzer -> {
-                  if (!analyzer.isEnabled(table)) {
-                    return;
-                  }
+        table -> {
+          if (!analyzer.isEnabled(table)) {
+            return;
+          }
+          Optional<TableOperation> currentOp =
+              Optional.ofNullable(currentOps.get(table.getTableUuid()));
+          Optional<TableOperationHistoryRow> entry =
+              Optional.ofNullable(latestHistory.get(table.getTableUuid()));
 
-                  Optional<TableOperation> currentOp =
-                      Optional.ofNullable(
-                          opsByType.get(analyzer.getOperationType()).get(table.getTableUuid()));
-                  Optional<TableOperationHistoryRow> latestHistory =
-                      Optional.ofNullable(
-                          latestHistoryByType
-                              .get(analyzer.getOperationType())
-                              .get(table.getTableUuid()));
-
-                  if (analyzer.shouldSchedule(table, currentOp, latestHistory)) {
-                    TableOperation op = TableOperation.pending(table, analyzer.getOperationType());
-                    operationsRepo.save(op.toRow());
-                    log.info(
-                        "Created PENDING {} operation for table {}.{}",
-                        analyzer.getOperationType(),
-                        table.getDatabaseName(),
-                        table.getTableId());
-                  }
-                }));
-
-    log.info("Analysis complete");
+          if (analyzer.shouldSchedule(table, currentOp, entry)) {
+            TableOperation op = TableOperation.pending(table, analyzer.getOperationType());
+            operationsRepo.save(op.toRow());
+            log.info(
+                "Created PENDING {} operation for table {}.{}",
+                analyzer.getOperationType(),
+                table.getDatabaseName(),
+                table.getTableId());
+          }
+        });
   }
 
   private static TableOperationHistoryRow moreRecentHistory(
