@@ -21,7 +21,7 @@ import org.hibernate.annotations.TypeDef;
  * Append-only record of per-commit stats reported by the Tables Service.
  *
  * <p>Each Iceberg commit produces one row. The {@code stats} JSON contains both the snapshot
- * metrics (point-in-time) and the commit delta (files added/deleted in this commit). Consumers
+ * metrics (point-in-time) and the commit delta (files added/deleted in this commit). Consumers can
  * query this table to reconstruct change rates over arbitrary time windows.
  */
 @TypeDef(name = "json", typeClass = JsonStringType.class)
