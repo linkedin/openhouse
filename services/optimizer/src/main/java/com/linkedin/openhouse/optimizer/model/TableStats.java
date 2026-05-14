@@ -1,15 +1,17 @@
 package com.linkedin.openhouse.optimizer.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** Combined stats payload stored as a single JSON blob per table in {@code table_stats}. */
+/** Combined stats payload stored as a single JSON blob per table. */
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TableStats {
 
   /** Snapshot fields — overwritten on every upsert. */
@@ -23,6 +25,7 @@ public class TableStats {
   @Builder(toBuilder = true)
   @NoArgsConstructor
   @AllArgsConstructor
+  @JsonIgnoreProperties(ignoreUnknown = true)
   public static class SnapshotMetrics {
     private String clusterId;
     private String tableVersion;
@@ -32,14 +35,16 @@ public class TableStats {
     private Long numCurrentFiles;
   }
 
-  /** Per-commit incremental counters accumulated across all recorded commit events. */
+  /** Per-commit incremental counters; accumulated across all recorded commit events. */
   @Data
   @Builder(toBuilder = true)
   @NoArgsConstructor
   @AllArgsConstructor
+  @JsonIgnoreProperties(ignoreUnknown = true)
   public static class CommitDelta {
     private Long numFilesAdded;
     private Long numFilesDeleted;
+    private Long addedSizeBytes;
     private Long deletedSizeBytes;
   }
 }
