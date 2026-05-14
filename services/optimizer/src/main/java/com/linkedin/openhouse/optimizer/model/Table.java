@@ -22,12 +22,19 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class Table {
 
+  /** Stable table identity from the Tables Service. Survives renames; rotates on drop+recreate. */
   private String tableUuid;
+
+  /** Database the table lives in. */
   private String databaseName;
+
+  /** Iceberg table identifier (table name, not UUID). */
   private String tableId;
 
+  /** Current table-property map (e.g. maintenance opt-in flags). Never null. */
   @Builder.Default private Map<String, String> tableProperties = Collections.emptyMap();
 
+  /** Latest snapshot stats for this table. Delta is null when read from the current-state row. */
   private TableStats stats;
 
   /** When the current snapshot was last written. Stamped server-side on every upsert. */

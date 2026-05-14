@@ -19,8 +19,13 @@ public class TableOperationsHistoryDto {
   /** Stable table identity from the Tables Service. */
   private String tableUuid;
 
+  /** Denormalized database name for display. */
   private String databaseName;
+
+  /** Denormalized table name for display. */
   private String tableName;
+
+  /** The type of maintenance operation this history row records. */
   private OperationType operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
