@@ -4,21 +4,47 @@ import java.time.Instant;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
+import javax.persistence.Index;
 import javax.persistence.Table;
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** Lightweight JPA entity for reading {@code table_operations_history} rows. */
+/**
+ * Append-only record of a completed maintenance operation.
+ *
+ * <p>Written when the operation-complete endpoint is called. The {@code id} is the same UUID as the
+ * originating {@code table_operations.id}, tying each history entry back to the operation cycle
+ * that produced it. Multiple runs of the same operation on the same table produce multiple rows
+ * (each cycle gets a new UUID from the Analyzer).
+ *
+ * <p>{@code operationType}, {@code status}, and {@code result} are stored as plain {@code String}
+ * (the last as a JSON blob) so the entity layer stays decoupled from the wire-API enum and
+ * structured-result types. The wire layer is responsible for converting at the boundary via {@link
+ * com.linkedin.openhouse.optimizer.api.mapper.OptimizerMapper}.
+ */
 @Entity
-@Table(name = "table_operations_history")
+@Table(
+    name = "table_operations_history",
+    indexes = {
+      @Index(name = "idx_table_uuid_hist", columnList = "table_uuid"),
+      @Index(name = "idx_op_type_hist", columnList = "operation_type"),
+      @Index(name = "idx_completed_at", columnList = "completed_at"),
+      @Index(name = "idx_status_hist", columnList = "status"),
+      @Index(name = "idx_job_id", columnList = "job_id"),
+      @Index(name = "idx_toph_db_table", columnList = "database_name, table_name")
+    })
 @Getter
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
+@EqualsAndHashCode
+@Builder(toBuilder = true)
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class TableOperationsHistoryRow {
 
+  /** Same UUID as the originating {@code table_operations.id}. Set by the caller; not generated. */
   @Id
   @Column(name = "id", nullable = false, length = 36)
   private String id;
@@ -35,15 +61,19 @@ public class TableOperationsHistoryRow {
   @Column(name = "operation_type", nullable = false, length = 50)
   private String operationType;
 
+  /** When the operation completed, as recorded by the complete endpoint. */
   @Column(name = "completed_at", nullable = false)
   private Instant completedAt;
 
+  /** {@code SUCCESS} or {@code FAILED}. */
   @Column(name = "status", nullable = false, length = 20)
   private String status;
 
+  /** Spark job ID; indexed for job → result lookups. */
   @Column(name = "job_id", length = 255)
   private String jobId;
 
+  /** Job result JSON blob: error details on failure, both fields null on success. */
   @Column(name = "result", columnDefinition = "TEXT")
   private String result;
 }
