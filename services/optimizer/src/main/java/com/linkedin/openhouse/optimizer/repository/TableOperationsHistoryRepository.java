@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.optimizer.repository;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsHistoryRow;
+import com.linkedin.openhouse.optimizer.db.OperationType;
+import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -36,5 +37,6 @@ public interface TableOperationsHistoryRepository
           + "AND r.completedAt = ("
           + "  SELECT MAX(r2.completedAt) FROM TableOperationsHistoryRow r2 "
           + "  WHERE r2.tableUuid = r.tableUuid AND r2.operationType = r.operationType)")
-  List<TableOperationsHistoryRow> findLatestPerTable(@Param("operationType") String operationType);
+  List<TableOperationsHistoryRow> findLatestPerTable(
+      @Param("operationType") OperationType operationType);
 }

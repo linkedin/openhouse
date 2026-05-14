@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsHistoryRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -42,17 +42,16 @@ public class CadencePolicy {
    * @param latestHistory the most recent history entry for this (table, type), or empty
    */
   public boolean shouldSchedule(
-      Optional<TableOperation> currentOp, Optional<TableOperationsHistoryRow> latestHistory) {
+      Optional<TableOperation> currentOp, Optional<TableOperationsHistory> latestHistory) {
     if (currentOp.isPresent() && currentOp.get().getStatus() != OperationStatus.CANCELED) {
       return false;
     }
     return latestHistory.map(this::readyAfterHistoryEntry).orElse(true);
   }
 
-  private boolean readyAfterHistoryEntry(TableOperationsHistoryRow entry) {
-    HistoryStatus status = HistoryStatus.valueOf(entry.getStatus());
+  private boolean readyAfterHistoryEntry(TableOperationsHistory entry) {
     Duration interval =
-        status == HistoryStatus.FAILED ? failureRetryInterval : successRetryInterval;
+        entry.getStatus() == HistoryStatus.FAILED ? failureRetryInterval : successRetryInterval;
     return Duration.between(entry.getCompletedAt(), Instant.now()).compareTo(interval) > 0;
   }
 }
