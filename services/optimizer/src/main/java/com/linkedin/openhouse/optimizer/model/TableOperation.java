@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.model;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.UUID;
@@ -11,9 +10,11 @@ import lombok.NoArgsConstructor;
 
 /**
  * An operation the analyzer has decided to schedule for a table, and that the scheduler later picks
- * up and submits. Built either from an existing {@link TableOperationsRow} (when loading current
- * state) or from a {@link Table} (when creating a new PENDING operation). Converts back to a JPA
- * row via {@link #toRow()}.
+ * up and submits.
+ *
+ * <p>Pure internal-model type — no references to wire-API or DB types. Cross-layer construction
+ * happens via {@link com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper} (DB boundary) or
+ * {@link com.linkedin.openhouse.optimizer.model.mapper.ApiModelMapper} (API boundary).
  *
  * <p>{@link #fileCount} is a non-persisted enrichment populated by consumers that need it (e.g.,
  * the OFD scheduler reads it from {@code table_stats} for bin-packing). The DB column does not
@@ -55,20 +56,6 @@ public class TableOperation {
    */
   private Long fileCount;
 
-  /** Build a {@code TableOperation} from an existing JPA row. */
-  public static TableOperation from(TableOperationsRow row) {
-    return TableOperation.builder()
-        .id(row.getId())
-        .tableUuid(row.getTableUuid())
-        .databaseName(row.getDatabaseName())
-        .tableName(row.getTableName())
-        .operationType(OperationType.valueOf(row.getOperationType()))
-        .status(OperationStatus.valueOf(row.getStatus()))
-        .createdAt(row.getCreatedAt())
-        .scheduledAt(row.getScheduledAt())
-        .build();
-  }
-
   /** Create a new PENDING operation for the given table and operation type. */
   public static TableOperation pending(Table table, OperationType operationType) {
     return TableOperation.builder()
@@ -79,21 +66,6 @@ public class TableOperation {
         .operationType(operationType)
         .status(OperationStatus.PENDING)
         .createdAt(Instant.now())
-        .build();
-  }
-
-  /** Convert to a JPA entity for persistence. */
-  public TableOperationsRow toRow() {
-    return TableOperationsRow.builder()
-        .id(id)
-        .tableUuid(tableUuid)
-        .databaseName(databaseName)
-        .tableName(tableName)
-        .operationType(operationType.name())
-        .status(status.name())
-        .createdAt(createdAt)
-        .scheduledAt(scheduledAt)
-        .version(0L)
         .build();
   }
 
