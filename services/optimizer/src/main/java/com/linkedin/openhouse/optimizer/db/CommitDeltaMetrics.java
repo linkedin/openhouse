@@ -14,8 +14,15 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class CommitDeltaMetrics {
 
+  /** Number of data files this commit added to the table. */
   private Long numFilesAdded;
+
+  /** Number of data files this commit removed from the table. */
   private Long numFilesDeleted;
+
+  /** Total bytes added by this commit. */
   private Long addedSizeBytes;
+
+  /** Total bytes removed by this commit. */
   private Long deletedSizeBytes;
 }

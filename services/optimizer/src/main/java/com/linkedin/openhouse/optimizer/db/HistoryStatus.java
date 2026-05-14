@@ -6,6 +6,10 @@ package com.linkedin.openhouse.optimizer.db;
  * <p>Self-contained: no references to api/ or model/ types.
  */
 public enum HistoryStatus {
+
+  /** The Spark job for this operation completed successfully. */
   SUCCESS,
+
+  /** The Spark job for this operation failed. */
   FAILED
 }

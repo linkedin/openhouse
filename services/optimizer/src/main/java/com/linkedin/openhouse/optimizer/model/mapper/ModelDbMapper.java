@@ -62,7 +62,6 @@ public class ModelDbMapper {
         .status(toDbOperationStatus(op.getStatus()))
         .createdAt(op.getCreatedAt())
         .scheduledAt(op.getScheduledAt())
-        .version(0L)
         .build();
   }
 
@@ -208,7 +207,6 @@ public class ModelDbMapper {
       return null;
     }
     return TableStats.SnapshotMetrics.builder()
-        .clusterId(v.getClusterId())
         .tableVersion(v.getTableVersion())
         .tableLocation(v.getTableLocation())
         .tableSizeBytes(v.getTableSizeBytes())
@@ -221,7 +219,6 @@ public class ModelDbMapper {
       return null;
     }
     return SnapshotMetrics.builder()
-        .clusterId(v.getClusterId())
         .tableVersion(v.getTableVersion())
         .tableLocation(v.getTableLocation())
         .tableSizeBytes(v.getTableSizeBytes())

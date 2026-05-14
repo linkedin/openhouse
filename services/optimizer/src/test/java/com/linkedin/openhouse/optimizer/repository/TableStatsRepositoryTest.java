@@ -24,8 +24,7 @@ class TableStatsRepositoryTest {
   @Test
   void saveAndFindById() {
     String tableUuid = UUID.randomUUID().toString();
-    SnapshotMetrics snapshot =
-        SnapshotMetrics.builder().clusterId("cl1").tableSizeBytes(1024L).build();
+    SnapshotMetrics snapshot = SnapshotMetrics.builder().tableSizeBytes(1024L).build();
 
     repository.save(
         TableStatsRow.builder()
