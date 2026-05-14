@@ -19,7 +19,7 @@ import lombok.Setter;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationRow {
+public class TableOperationsRow {
 
   @Id
   @Column(name = "id", nullable = false, length = 36)
@@ -49,7 +49,13 @@ public class TableOperationRow {
   @Column(name = "job_id", length = 255)
   private String jobId;
 
-  /** Plain version column — not managed by JPA optimistic locking. */
+  /**
+   * Monotonically-increasing version for application-level optimistic concurrency control. The
+   * scheduler's CAS transitions (e.g. {@code markScheduling}, {@code markScheduled}) match this
+   * value in the WHERE clause and bump it by one on UPDATE, ensuring two scheduler instances can't
+   * both move the same row out of PENDING. Not managed by JPA optimistic locking — kept as a plain
+   * column so the WHERE-clause-based CAS pattern works portably across MySQL and H2.
+   */
   @Column(name = "version")
   private Long version;
 }
