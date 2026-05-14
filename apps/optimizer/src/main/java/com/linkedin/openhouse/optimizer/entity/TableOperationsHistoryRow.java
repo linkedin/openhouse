@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationHistoryRow {
+public class TableOperationsHistoryRow {
 
   @Id
   @Column(name = "id", nullable = false, length = 36)
