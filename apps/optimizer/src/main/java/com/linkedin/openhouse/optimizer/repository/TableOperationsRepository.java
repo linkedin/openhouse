@@ -70,4 +70,53 @@ public interface TableOperationsRepository extends JpaRepository<TableOperationR
           + "WHERE r.id = :id AND r.version = :version AND r.status = 'SCHEDULING'")
   int markScheduled(
       @Param("id") String id, @Param("version") long version, @Param("jobId") String jobId);
+
+  /**
+   * Batch CAS: PENDING → SCHEDULING for every {@code id} still in PENDING. Returns the number of
+   * rows transitioned. Rows already claimed by another instance are skipped silently; callers must
+   * re-query if they need the precise list.
+   */
+  @Modifying
+  @Query(
+      "UPDATE TableOperationRow r "
+          + "SET r.status = 'SCHEDULING', r.scheduledAt = :scheduledAt, r.version = r.version + 1 "
+          + "WHERE r.id IN :ids AND r.status = 'PENDING'")
+  int markSchedulingBatch(
+      @Param("ids") List<String> ids, @Param("scheduledAt") Instant scheduledAt);
+
+  /**
+   * Batch CAS: SCHEDULING → SCHEDULED with the given {@code jobId} for every {@code id} still in
+   * SCHEDULING. Returns the number of rows transitioned.
+   */
+  @Modifying
+  @Query(
+      "UPDATE TableOperationRow r "
+          + "SET r.status = 'SCHEDULED', r.jobId = :jobId, r.version = r.version + 1 "
+          + "WHERE r.id IN :ids AND r.status = 'SCHEDULING'")
+  int markScheduledBatch(@Param("ids") List<String> ids, @Param("jobId") String jobId);
+
+  /**
+   * Batch transition: SCHEDULING → PENDING for every {@code id} still in SCHEDULING. Used by the
+   * scheduler to release claimed rows when job submission fails so the next pass can retry. Returns
+   * the number of rows reverted.
+   */
+  @Modifying
+  @Query(
+      "UPDATE TableOperationRow r "
+          + "SET r.status = 'PENDING', r.scheduledAt = NULL, r.version = r.version + 1 "
+          + "WHERE r.id IN :ids AND r.status = 'SCHEDULING'")
+  int markPendingBatch(@Param("ids") List<String> ids);
+
+  /**
+   * Batch-delete duplicate PENDING rows for the given operation type, keeping only the IDs in
+   * {@code keepIds}. Used by the scheduler to deduplicate before claiming.
+   */
+  @Modifying
+  @Query(
+      "DELETE FROM TableOperationRow r "
+          + "WHERE r.operationType = :operationType "
+          + "AND r.status = 'PENDING' "
+          + "AND r.id NOT IN :keepIds")
+  int cancelDuplicatePendingBatch(
+      @Param("operationType") String operationType, @Param("keepIds") List<String> keepIds);
 }
