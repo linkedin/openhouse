@@ -11,7 +11,6 @@ import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -39,13 +38,11 @@ class AnalyzerRunnerTest {
   @Mock private TableOperationsHistoryRepository historyRepo;
   @Mock private OperationAnalyzer analyzer;
 
-  private final ModelDbMapper dbMapper = new ModelDbMapper();
   private AnalyzerRunner runner;
 
   @BeforeEach
   void setUp() {
-    runner =
-        new AnalyzerRunner(List.of(analyzer), statsRepo, operationsRepo, historyRepo, dbMapper);
+    runner = new AnalyzerRunner(List.of(analyzer), statsRepo, operationsRepo, historyRepo);
     when(analyzer.getOperationType()).thenReturn(OFD_TYPE);
     when(statsRepo.findDistinctDatabaseNames()).thenReturn(List.of(DB));
   }
@@ -55,7 +52,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
-    Table expectedTable = dbMapper.toTable(statsEntity);
+    Table expectedTable = Table.fromRow(statsEntity);
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
     when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
@@ -83,7 +80,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
-    Table expectedTable = dbMapper.toTable(statsEntity);
+    Table expectedTable = Table.fromRow(statsEntity);
 
     TableOperationsRow existingEntity =
         TableOperationsRow.builder()
@@ -99,7 +96,7 @@ class AnalyzerRunnerTest {
     when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperation existingOp = dbMapper.toOperation(existingEntity);
+    TableOperation existingOp = TableOperation.fromRow(existingEntity);
     when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty()))
         .thenReturn(false);
 
@@ -113,7 +110,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    Table expectedTable = dbMapper.toTable(statsEntity);
+    Table expectedTable = Table.fromRow(statsEntity);
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
     when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
@@ -130,7 +127,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    Table expectedTable = dbMapper.toTable(statsEntity);
+    Table expectedTable = Table.fromRow(statsEntity);
 
     TableOperationsRow scheduled =
         TableOperationsRow.builder()
@@ -146,7 +143,7 @@ class AnalyzerRunnerTest {
     when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperation scheduledOp = dbMapper.toOperation(scheduled);
+    TableOperation scheduledOp = TableOperation.fromRow(scheduled);
     when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty()))
         .thenReturn(false);
 

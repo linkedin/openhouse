@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.model;
 
+import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,7 +14,7 @@ import lombok.NoArgsConstructor;
  * components that need to reason about completed operations (e.g., scheduling-cadence analyzers).
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class TableOperationsHistory {
@@ -38,4 +39,33 @@ public class TableOperationsHistory {
 
   /** Terminal outcome: {@link HistoryStatus#SUCCESS} or {@link HistoryStatus#FAILED}. */
   private HistoryStatus status;
+
+  /** Convert to the corresponding DB row. */
+  public TableOperationsHistoryRow toRow() {
+    return TableOperationsHistoryRow.builder()
+        .id(id)
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .operationType(operationType == null ? null : operationType.toDb())
+        .completedAt(completedAt)
+        .status(status == null ? null : status.toDb())
+        .build();
+  }
+
+  /** Build a {@link TableOperationsHistory} from a DB row. */
+  public static TableOperationsHistory fromRow(TableOperationsHistoryRow row) {
+    if (row == null) {
+      return null;
+    }
+    return TableOperationsHistory.builder()
+        .id(row.getId())
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .operationType(OperationType.fromDb(row.getOperationType()))
+        .completedAt(row.getCompletedAt())
+        .status(HistoryStatus.fromDb(row.getStatus()))
+        .build();
+  }
 }

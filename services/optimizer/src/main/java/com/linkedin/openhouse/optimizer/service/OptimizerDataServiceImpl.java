@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.service;
 
-import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatus;
@@ -9,8 +8,8 @@ import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.linkedin.openhouse.optimizer.model.TableStatsHistory;
-import com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsHistoryRepository;
@@ -28,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Implementation of {@link OptimizerDataService}.
  *
- * <p>Operates purely on model/ and db/ types. The model↔db boundary is the {@link ModelDbMapper}.
- * No api/-package types appear in this class.
+ * <p>Operates purely on model/ and db/ types. Conversion happens via the {@code toRow()} / {@code
+ * fromRow(...)} methods on the model types themselves — no injected mapper. No api/-package types
+ * appear in this class.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,7 +39,6 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   private final TableOperationsHistoryRepository historyRepository;
   private final TableStatsRepository statsRepository;
   private final TableStatsHistoryRepository statsHistoryRepository;
-  private final ModelDbMapper dbMapper;
 
   // --- TableOperations ---
 
@@ -52,13 +51,13 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       Optional<String> tableUuid) {
     return operationsRepository
         .find(
-            operationType.map(dbMapper::toDbOperationType).orElse(null),
-            status.map(dbMapper::toDbOperationStatus).orElse(null),
+            operationType.map(OperationType::toDb).orElse(null),
+            status.map(OperationStatus::toDb).orElse(null),
             tableUuid.orElse(null),
             databaseName.orElse(null),
             tableName.orElse(null))
         .stream()
-        .map(dbMapper::toOperation)
+        .map(TableOperation::fromRow)
         .collect(Collectors.toList());
   }
 
@@ -69,24 +68,22 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
     return operationsRepository
         .findById(operationId)
         .map(
-            row -> {
-              TableOperationsHistoryRow historyRow =
-                  TableOperationsHistoryRow.builder()
-                      .id(row.getId())
-                      .tableUuid(row.getTableUuid())
-                      .databaseName(row.getDatabaseName())
-                      .tableName(row.getTableName())
-                      .operationType(row.getOperationType())
-                      .completedAt(Instant.now())
-                      .status(dbMapper.toDbHistoryStatus(status))
-                      .build();
-              return dbMapper.toHistory(historyRepository.save(historyRow));
-            });
+            row ->
+                TableOperationsHistory.builder()
+                    .id(row.getId())
+                    .tableUuid(row.getTableUuid())
+                    .databaseName(row.getDatabaseName())
+                    .tableName(row.getTableName())
+                    .operationType(OperationType.fromDb(row.getOperationType()))
+                    .completedAt(Instant.now())
+                    .status(status)
+                    .build())
+        .map(history -> TableOperationsHistory.fromRow(historyRepository.save(history.toRow())));
   }
 
   @Override
   public Optional<TableOperation> getTableOperation(String id) {
-    return operationsRepository.findById(id).map(dbMapper::toOperation);
+    return operationsRepository.findById(id).map(TableOperation::fromRow);
   }
 
   // --- TableStats ---
@@ -96,6 +93,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   public Table upsertTableStats(Table table) {
     Instant now = Instant.now();
     String tableUuid = table.getTableUuid();
+    TableStats stats = table.getStats();
 
     TableStatsRow row =
         statsRepository
@@ -106,19 +104,11 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                         .toBuilder()
                         .databaseName(table.getDatabaseName())
                         .tableName(table.getTableId())
-                        .snapshot(dbMapper.toDbSnapshot(table.getStats()))
+                        .snapshot(stats == null ? null : stats.toSnapshotRow())
                         .tableProperties(table.getTableProperties())
                         .updatedAt(now)
                         .build())
-            .orElse(
-                TableStatsRow.builder()
-                    .tableUuid(tableUuid)
-                    .databaseName(table.getDatabaseName())
-                    .tableName(table.getTableId())
-                    .snapshot(dbMapper.toDbSnapshot(table.getStats()))
-                    .tableProperties(table.getTableProperties())
-                    .updatedAt(now)
-                    .build());
+            .orElse(table.toBuilder().updatedAt(now).build().toRow());
     TableStatsRow saved = statsRepository.save(row);
 
     statsHistoryRepository.save(
@@ -127,17 +117,17 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             .tableUuid(tableUuid)
             .databaseName(table.getDatabaseName())
             .tableName(table.getTableId())
-            .snapshot(dbMapper.toDbSnapshot(table.getStats()))
-            .delta(dbMapper.toDbDelta(table.getStats()))
+            .snapshot(stats == null ? null : stats.toSnapshotRow())
+            .delta(stats == null ? null : stats.toDeltaRow())
             .recordedAt(now)
             .build());
 
-    return dbMapper.toTable(saved);
+    return Table.fromRow(saved);
   }
 
   @Override
   public Optional<Table> getTableStats(String tableUuid) {
-    return statsRepository.findById(tableUuid).map(dbMapper::toTable);
+    return statsRepository.findById(tableUuid).map(Table::fromRow);
   }
 
   @Override
@@ -145,7 +135,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid) {
     return statsRepository
         .find(databaseName.orElse(null), tableName.orElse(null), tableUuid.orElse(null)).stream()
-        .map(dbMapper::toTable)
+        .map(Table::fromRow)
         .collect(Collectors.toList());
   }
 
@@ -154,7 +144,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       String tableUuid, Optional<Instant> since, int limit) {
     return statsHistoryRepository.find(tableUuid, since.orElse(null), PageRequest.of(0, limit))
         .stream()
-        .map(dbMapper::toStatsHistory)
+        .map(TableStatsHistory::fromRow)
         .collect(Collectors.toList());
   }
 
@@ -163,25 +153,20 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   @Override
   @Transactional
   public TableOperationsHistory appendHistory(TableOperationsHistory history) {
-    TableOperationsHistoryRow row =
-        TableOperationsHistoryRow.builder()
-            .id(history.getId())
-            .tableUuid(history.getTableUuid())
-            .databaseName(history.getDatabaseName())
-            .tableName(history.getTableName())
-            .operationType(dbMapper.toDbOperationType(history.getOperationType()))
+    TableOperationsHistory toWrite =
+        history
+            .toBuilder()
             .completedAt(
                 history.getCompletedAt() != null ? history.getCompletedAt() : Instant.now())
-            .status(dbMapper.toDbHistoryStatus(history.getStatus()))
             .build();
-    return dbMapper.toHistory(historyRepository.save(row));
+    return TableOperationsHistory.fromRow(historyRepository.save(toWrite.toRow()));
   }
 
   @Override
   public List<TableOperationsHistory> getHistory(String tableUuid, int limit) {
     return historyRepository
         .findByTableUuidOrderByCompletedAtDesc(tableUuid, PageRequest.of(0, limit)).stream()
-        .map(dbMapper::toHistory)
+        .map(TableOperationsHistory::fromRow)
         .collect(Collectors.toList());
   }
 }

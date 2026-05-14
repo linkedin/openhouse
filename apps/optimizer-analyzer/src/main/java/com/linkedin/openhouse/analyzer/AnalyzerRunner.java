@@ -4,7 +4,6 @@ import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
-import com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -36,7 +35,6 @@ public class AnalyzerRunner {
   private final TableStatsRepository statsRepo;
   private final TableOperationsRepository operationsRepo;
   private final TableOperationsHistoryRepository historyRepo;
-  private final ModelDbMapper dbMapper;
 
   /**
    * Run the analysis loop for {@code operationType} across all databases, with no filters.
@@ -77,7 +75,7 @@ public class AnalyzerRunner {
       Optional<String> tableUuid) {
 
     com.linkedin.openhouse.optimizer.db.OperationType dbOperationType =
-        dbMapper.toDbOperationType(analyzer.getOperationType());
+        analyzer.getOperationType().toDb();
 
     // Pre-load the small sides of the joins — bounded by tables in this database.
     Map<String, TableOperation> currentOps =
@@ -86,7 +84,7 @@ public class AnalyzerRunner {
                 dbOperationType, null, tableUuid.orElse(null), databaseName, tableName.orElse(null))
             .stream()
             .filter(e -> e.getTableUuid() != null)
-            .map(dbMapper::toOperation)
+            .map(TableOperation::fromRow)
             .collect(
                 Collectors.toMap(
                     TableOperation::getTableUuid, op -> op, TableOperation::mostRecent));
@@ -94,7 +92,7 @@ public class AnalyzerRunner {
     Map<String, TableOperationsHistory> latestHistory =
         historyRepo.findLatestPerTable(dbOperationType).stream()
             .filter(r -> r.getTableUuid() != null)
-            .map(dbMapper::toHistory)
+            .map(TableOperationsHistory::fromRow)
             .collect(
                 Collectors.toMap(
                     TableOperationsHistory::getTableUuid,
@@ -104,7 +102,7 @@ public class AnalyzerRunner {
     List<Table> tables =
         statsRepo.find(databaseName, tableName.orElse(null), tableUuid.orElse(null)).stream()
             .filter(row -> row.getTableUuid() != null)
-            .map(dbMapper::toTable)
+            .map(Table::fromRow)
             .collect(Collectors.toList());
 
     /*
@@ -129,7 +127,7 @@ public class AnalyzerRunner {
               Optional.ofNullable(latestHistory.get(table.getTableUuid()));
           if (analyzer.shouldSchedule(table, currentOp, entry)) {
             TableOperation op = TableOperation.pending(table, analyzer.getOperationType());
-            operationsRepo.save(dbMapper.toRow(op));
+            operationsRepo.save(op.toRow());
             log.info(
                 "Created PENDING {} operation for table {}.{}",
                 analyzer.getOperationType(),
