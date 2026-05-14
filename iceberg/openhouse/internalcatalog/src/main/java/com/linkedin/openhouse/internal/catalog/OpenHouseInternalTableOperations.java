@@ -39,11 +39,19 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -85,10 +93,31 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   FileIOManager fileIOManager;
 
+  MetadataReplicationProperties metadataReplicationProperties;
+
   private static final Gson GSON = new Gson();
 
   private static final Cache<String, Integer> CACHE =
       CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
+
+  /**
+   * Shared daemon executor used to enforce a strict per-call timeout on the namenode {@code
+   * setReplication} RPC inside {@link #applyReplicationIfHDFS}. Daemon threads so this does not
+   * block JVM shutdown; single thread because the work is intermittent (one short RPC per commit)
+   * and serialization across concurrent commits is acceptable.
+   */
+  private static final ExecutorService REPLICATION_EXECUTOR =
+      Executors.newSingleThreadExecutor(
+          new ThreadFactory() {
+            private final AtomicInteger n = new AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable r) {
+              Thread t = new Thread(r, "oh-metadata-repl-bump-" + n.incrementAndGet());
+              t.setDaemon(true);
+              return t;
+            }
+          });
 
   @Override
   protected String tableName() {
@@ -359,6 +388,18 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             "updateMetadata to location {} succeeded, took {} ms",
             newMetadataLocation,
             System.currentTimeMillis() - metadataUpdateStartTime);
+        // Set replication after the synchronous write so the write path is not blocked on the
+        // higher replica count. Gated by config -- off by default; opt-in per deployment. Failures
+        // (including timeouts) are logged and do not fail the commit.
+        if (metadataReplicationProperties != null && metadataReplicationProperties.isEnabled()) {
+          applyReplicationIfHDFS(
+              newMetadataLocation,
+              (short) metadataReplicationProperties.getTarget(),
+              metadataReplicationProperties.getTimeoutMs());
+        } else {
+          metricsReporter.count(
+              InternalCatalogMetricsConstant.METADATA_REPLICATION_SET_DISABLED_CTR);
+        }
       } catch (Exception e) {
         writeSpan.recordException(e);
         writeSpan.setStatus(StatusCode.ERROR);
@@ -734,6 +775,85 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    */
   private String[] getCatalogMetricTags() {
     return new String[] {};
+  }
+
+  /**
+   * Apply an HDFS replication factor to a just-written file via {@code FileSystem.setReplication}.
+   * Called immediately after the synchronous metadata write returns inside {@link
+   * #doCommit(TableMetadata, TableMetadata)} when the bump is enabled.
+   *
+   * <p>The call is dispatched to a static daemon executor and bounded by a strict timeout. A
+   * timeout, IO failure, or any other exception is logged at WARN and swallowed -- the commit
+   * succeeds because the file is already durably written at the cluster HDFS default replication.
+   *
+   * <p>HDFS-only. Non-HDFS clients (local, blob storage) silently skip.
+   *
+   * @param location absolute path of the file whose replication should be changed
+   * @param replication target replication factor
+   * @param timeoutMs strict per-call timeout for the {@code setReplication} RPC, in milliseconds
+   */
+  private void applyReplicationIfHDFS(String location, short replication, long timeoutMs) {
+    Storage storage;
+    try {
+      storage = fileIOManager.getStorage(fileIO);
+    } catch (Exception e) {
+      log.warn(
+          "Skipping HDFS replication apply for {}: could not resolve storage from fileIO",
+          location,
+          e);
+      return;
+    }
+    if (storage == null || !(storage.getClient() instanceof HdfsStorageClient)) {
+      return;
+    }
+    final FileSystem fs = (FileSystem) storage.getClient().getNativeClient();
+    Future<Void> future = null;
+    try {
+      future =
+          REPLICATION_EXECUTOR.submit(
+              () -> {
+                fs.setReplication(new Path(location), replication);
+                return null;
+              });
+      final Future<Void> futureRef = future;
+      metricsReporter.executeWithStats(
+          () -> {
+            try {
+              futureRef.get(timeoutMs, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException te) {
+              // Wrap so executeWithStats records latency, caught below for warn+swallow.
+              throw new RuntimeException(te);
+            } catch (ExecutionException ee) {
+              throw new RuntimeException(ee.getCause() != null ? ee.getCause() : ee);
+            } catch (InterruptedException ie) {
+              Thread.currentThread().interrupt();
+              throw new RuntimeException(ie);
+            }
+          },
+          InternalCatalogMetricsConstant.METADATA_REPLICATION_SET_LATENCY,
+          getCatalogMetricTags());
+      log.debug("Set HDFS replication on {} to {}", location, replication);
+    } catch (Exception e) {
+      Throwable cause = e.getCause() != null ? e.getCause() : e;
+      if (cause instanceof TimeoutException || e.getCause() instanceof TimeoutException) {
+        metricsReporter.count(InternalCatalogMetricsConstant.METADATA_REPLICATION_SET_TIMEOUT_CTR);
+        if (future != null) {
+          future.cancel(true);
+        }
+        log.warn(
+            "HDFS setReplication on {} timed out after {} ms; file remains at the HDFS default "
+                + "replication. This is a degraded-durability event, not a commit failure.",
+            location,
+            timeoutMs);
+      } else {
+        log.warn(
+            "Failed to set HDFS replication on {} to {}; file remains at the HDFS default "
+                + "replication. This is a degraded-durability event, not a commit failure.",
+            location,
+            replication,
+            cause);
+      }
+    }
   }
 
   /**

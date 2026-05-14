@@ -30,6 +30,15 @@ public final class CatalogConstants {
 
   public static final String EVOLVED_SCHEMA_KEY = "evolved.table.schema";
 
+  /**
+   * Default HDFS replication factor used by {@link MetadataReplicationProperties} when no explicit
+   * value is configured. Held here so unit tests that construct {@link
+   * OpenHouseInternalTableOperations} without wiring the Spring properties bean still get a sane
+   * default. The bump itself is gated by {@link MetadataReplicationProperties#isEnabled()} and is
+   * off by default.
+   */
+  public static final int DEFAULT_METADATA_FILE_HDFS_REPLICATION = 30;
+
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
   static final String CLIENT_TABLE_SCHEMA = "client.table.schema";
