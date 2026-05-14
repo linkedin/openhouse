@@ -94,6 +94,11 @@ public class OpenHouseInternalTableOperationsTest {
 
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
   private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithMockMetrics;
+  /**
+   * Replication properties used by the tests. Defaults to enabled=true so the bump code path is
+   * exercised; individual tests can swap in a disabled instance to test the gate.
+   */
+  private MetadataReplicationProperties metadataReplicationProperties;
 
   @SneakyThrows
   private static String getTempLocation() {
@@ -108,6 +113,11 @@ public class OpenHouseInternalTableOperationsTest {
     HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
     MetricsReporter metricsReporter =
         new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList());
+    metadataReplicationProperties = new MetadataReplicationProperties();
+    metadataReplicationProperties.setEnabled(true);
+    metadataReplicationProperties.setTarget(
+        CatalogConstants.DEFAULT_METADATA_FILE_HDFS_REPLICATION);
+    metadataReplicationProperties.setTimeoutMs(5_000L);
     openHouseInternalTableOperations =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
@@ -115,7 +125,8 @@ public class OpenHouseInternalTableOperationsTest {
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             metricsReporter,
-            fileIOManager);
+            fileIOManager,
+            metadataReplicationProperties);
 
     // Create a separate instance with mock metrics reporter for testing metrics
     openHouseInternalTableOperationsWithMockMetrics =
@@ -125,7 +136,8 @@ public class OpenHouseInternalTableOperationsTest {
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             mockMetricsReporter,
-            fileIOManager);
+            fileIOManager,
+            metadataReplicationProperties);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
@@ -315,11 +327,11 @@ public class OpenHouseInternalTableOperationsTest {
 
     // Verify filesystem operations were performed.
     // fileIOManager.getStorage is now called twice on the replicated-initial-version path:
-    //   1) bumpMetadataReplicationIfHdfs() — skips because the client is local, not HDFS
-    //   2) updateMetadataFieldForTable()  — the pre-existing replication-aware update
+    //   1) applyReplicationIfHDFS() -- skips because the client is local, not HDFS
+    //   2) updateMetadataFieldForTable() -- the pre-existing replication-aware update
     verify(fileIOManager, times(2)).getStorage(any(FileIO.class));
     // mockLocalStorage.getClient() is now invoked four times:
-    //   1) bumpMetadataReplicationIfHdfs's instanceof HdfsStorageClient check (returns false)
+    //   1) applyReplicationIfHDFS's instanceof HdfsStorageClient check (returns false)
     //   2-4) updateMetadataFieldForTable: 2x instanceof checks + 1x assignment
     verify(mockLocalStorage, times(4)).getClient();
     verify(mockLocalStorageClient).getNativeClient();
@@ -393,12 +405,12 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Tests that the post-write HDFS replication bump invokes {@code fs.setReplication} with the
-   * just-written metadata.json path and {@link CatalogConstants#METADATA_FILE_HDFS_REPLICATION}
-   * when the storage client is {@link HdfsStorageClient}.
+   * Tests that the post-write HDFS replication apply invokes {@code fs.setReplication} with the
+   * just-written metadata.json path and the configured target when the storage client is {@link
+   * HdfsStorageClient} and the bump is enabled.
    */
   @Test
-  void testDoCommitBumpsMetadataReplicationOnHdfs() throws IOException {
+  void testDoCommitAppliesReplicationOnHdfs() throws IOException {
     HdfsStorage mockHdfsStorage = mock(HdfsStorage.class);
     HdfsStorageClient mockHdfsClient = mock(HdfsStorageClient.class);
     FileSystem mockHdfsFs = mock(FileSystem.class);
@@ -417,9 +429,11 @@ public class OpenHouseInternalTableOperationsTest {
 
     ArgumentCaptor<Path> pathCaptor = ArgumentCaptor.forClass(Path.class);
     ArgumentCaptor<Short> replicationCaptor = ArgumentCaptor.forClass(Short.class);
-    verify(mockHdfsFs).setReplication(pathCaptor.capture(), replicationCaptor.capture());
+    verify(mockHdfsFs, timeout(5_000))
+        .setReplication(pathCaptor.capture(), replicationCaptor.capture());
     Assertions.assertEquals(
-        CatalogConstants.METADATA_FILE_HDFS_REPLICATION, replicationCaptor.getValue().shortValue());
+        (short) CatalogConstants.DEFAULT_METADATA_FILE_HDFS_REPLICATION,
+        replicationCaptor.getValue().shortValue());
     // The setReplication path must point at the just-written metadata file (the table location
     // plus a versioned filename of the form NNNNN-<uuid>...). We do not assert the trailing
     // extension because TableMetadataParser is statically mocked here and returns null for the
@@ -437,11 +451,11 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Tests that the post-write HDFS replication bump is skipped when the storage client is NOT
+   * Tests that the post-write HDFS replication apply is skipped when the storage client is NOT
    * {@link HdfsStorageClient} (e.g. local storage). {@code setReplication} must not be invoked.
    */
   @Test
-  void testDoCommitDoesNotBumpReplicationOnLocalStorage() throws IOException {
+  void testDoCommitDoesNotApplyReplicationOnLocalStorage() throws IOException {
     // Reconfigure the storage mock to return a LocalStorageClient (not HDFS).
     LocalStorage mockLocalStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(any(FileIO.class))).thenReturn(mockLocalStorage);
@@ -464,12 +478,12 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Tests that a failure during the HDFS replication bump does not fail the commit.
-   * {@code setReplication} throwing {@link IOException} must be swallowed (logged at WARN) and
-   * the commit must complete normally.
+   * Tests that a failure during the HDFS replication apply does not fail the commit. {@code
+   * setReplication} throwing {@link IOException} must be swallowed (logged at WARN) and the commit
+   * must complete normally.
    */
   @Test
-  void testDoCommitSucceedsWhenReplicationBumpFails() throws IOException {
+  void testDoCommitSucceedsWhenReplicationApplyFails() throws IOException {
     HdfsStorage mockHdfsStorage = mock(HdfsStorage.class);
     HdfsStorageClient mockHdfsClient = mock(HdfsStorageClient.class);
     FileSystem mockHdfsFs = mock(FileSystem.class);
@@ -486,13 +500,125 @@ public class OpenHouseInternalTableOperationsTest {
 
     try (MockedStatic<TableMetadataParser> ignoreWriteMock =
         Mockito.mockStatic(TableMetadataParser.class)) {
-      // Must not throw -- replication bump failure does not fail the commit.
+      // Must not throw -- replication apply failure does not fail the commit.
       openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
     }
 
     // Commit completed successfully despite the setReplication failure.
     Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
-    verify(mockHdfsFs).setReplication(any(Path.class), anyShort());
+    verify(mockHdfsFs, timeout(5_000)).setReplication(any(Path.class), anyShort());
+  }
+
+  /**
+   * Tests that the replication apply is gated by {@link MetadataReplicationProperties#isEnabled()}.
+   * When disabled, {@code setReplication} must not be invoked even on an HDFS storage client.
+   */
+  @Test
+  void testDoCommitDoesNotApplyReplicationWhenDisabled() throws IOException {
+    HdfsStorage mockHdfsStorage = mock(HdfsStorage.class);
+    HdfsStorageClient mockHdfsClient = mock(HdfsStorageClient.class);
+    FileSystem mockHdfsFs = mock(FileSystem.class);
+    when(fileIOManager.getStorage(any(FileIO.class))).thenReturn(mockHdfsStorage);
+    when(mockHdfsStorage.getClient()).thenReturn((StorageClient) mockHdfsClient);
+    when(mockHdfsClient.getNativeClient()).thenReturn(mockHdfsFs);
+
+    // Build a fresh operations instance with the bump explicitly DISABLED.
+    MetadataReplicationProperties disabled = new MetadataReplicationProperties();
+    disabled.setEnabled(false);
+    HadoopFileIO testFileIO = new HadoopFileIO(new Configuration());
+    MetricsReporter metricsReporter =
+        new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList());
+    OpenHouseInternalTableOperations disabledOps =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            testFileIO,
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            metricsReporter,
+            fileIOManager,
+            disabled);
+
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      disabledOps.doCommit(BASE_TABLE_METADATA, metadata);
+    }
+
+    // Gate is off: setReplication must NOT be invoked, even though storage is HDFS.
+    verify(mockHdfsFs, never()).setReplication(any(Path.class), anyShort());
+    // fileIOManager.getStorage should also not be queried for the bump path (the gate
+    // short-circuits before resolving storage). On the replicated-table path it can still be
+    // queried, but BASE_TABLE_METADATA is not a replicated-table-create, so it should be zero.
+    verify(fileIOManager, never()).getStorage(testFileIO);
+    Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+  }
+
+  /**
+   * Tests that a timeout during the HDFS replication apply is treated as a degraded-durability
+   * event: the commit succeeds and the future is cancelled. Uses a 100ms configured timeout and a
+   * setReplication stub that blocks for several seconds to deterministically trip the timeout.
+   */
+  @Test
+  void testDoCommitSucceedsWhenReplicationApplyTimesOut() throws IOException {
+    HdfsStorage mockHdfsStorage = mock(HdfsStorage.class);
+    HdfsStorageClient mockHdfsClient = mock(HdfsStorageClient.class);
+    FileSystem mockHdfsFs = mock(FileSystem.class);
+    when(fileIOManager.getStorage(any(FileIO.class))).thenReturn(mockHdfsStorage);
+    when(mockHdfsStorage.getClient()).thenReturn((StorageClient) mockHdfsClient);
+    when(mockHdfsClient.getNativeClient()).thenReturn(mockHdfsFs);
+    // Block for longer than the configured timeout, then return -- but the caller should
+    // already have given up by then.
+    doAnswer(
+            invocation -> {
+              try {
+                Thread.sleep(3_000L);
+              } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+              }
+              return null;
+            })
+        .when(mockHdfsFs)
+        .setReplication(any(Path.class), anyShort());
+
+    // Build a fresh operations instance with a deliberately tiny timeout.
+    MetadataReplicationProperties tinyTimeout = new MetadataReplicationProperties();
+    tinyTimeout.setEnabled(true);
+    tinyTimeout.setTarget(CatalogConstants.DEFAULT_METADATA_FILE_HDFS_REPLICATION);
+    tinyTimeout.setTimeoutMs(100L);
+    HadoopFileIO testFileIO = new HadoopFileIO(new Configuration());
+    MetricsReporter metricsReporter =
+        new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList());
+    OpenHouseInternalTableOperations tinyTimeoutOps =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            testFileIO,
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            metricsReporter,
+            fileIOManager,
+            tinyTimeout);
+
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    long start = System.currentTimeMillis();
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      // Must not throw -- timeout is a degraded-durability event, not a commit failure.
+      tinyTimeoutOps.doCommit(BASE_TABLE_METADATA, metadata);
+    }
+    long elapsed = System.currentTimeMillis() - start;
+
+    // The commit must return quickly (well under the 3s sleep), proving the timeout fired.
+    Assertions.assertTrue(
+        elapsed < 2_000L,
+        "Expected commit to return well before setReplication's 3s sleep, but took "
+            + elapsed
+            + " ms");
+    // Commit still completed normally.
+    Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
   }
 
   /**
@@ -1199,7 +1325,8 @@ public class OpenHouseInternalTableOperationsTest {
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             realMetricsReporter,
-            fileIOManager);
+            fileIOManager,
+            metadataReplicationProperties);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);
@@ -1261,7 +1388,8 @@ public class OpenHouseInternalTableOperationsTest {
             mockHouseTableMapper,
             TEST_TABLE_IDENTIFIER,
             realMetricsReporter,
-            fileIOManager);
+            fileIOManager,
+            metadataReplicationProperties);
 
     // Setup test-specific mocks
     setupFunction.accept(operationsWithRealMetrics);

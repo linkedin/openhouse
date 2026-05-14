@@ -63,6 +63,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired MeterRegistry meterRegistry;
 
+  @Autowired MetadataReplicationProperties metadataReplicationProperties;
+
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     FileIO fileIO = resolveFileIO(tableIdentifier);
@@ -74,7 +76,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         houseTableMapper,
         tableIdentifier,
         metricsReporter,
-        fileIOManager);
+        fileIOManager,
+        metadataReplicationProperties);
   }
 
   @Override
