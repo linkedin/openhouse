@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.model;
 
+import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
@@ -13,11 +14,11 @@ import lombok.NoArgsConstructor;
  * by the analyzer (decides whether to produce a {@link TableOperation}) and the scheduler (reads
  * stats for bin-packing).
  *
- * <p>Pure internal-model type — no references to wire-API or DB types. Construct via {@link
- * com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper#toTable} at the DB boundary.
+ * <p>Conversion methods cross into the DB layer one-way; the inverse lives on the api side. db/
+ * types know nothing about model/ or api/.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class Table {
@@ -39,4 +40,36 @@ public class Table {
 
   /** When the current snapshot was last written. Stamped server-side on every upsert. */
   private Instant updatedAt;
+
+  /**
+   * Project to the current-state DB row. {@code table_stats} carries the snapshot only — per-commit
+   * deltas live on {@code table_stats_history} (see {@link TableStatsHistory#toRow()}).
+   */
+  public TableStatsRow toRow() {
+    return TableStatsRow.builder()
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableId)
+        .snapshot(stats == null ? null : stats.toSnapshotRow())
+        .tableProperties(tableProperties)
+        .updatedAt(updatedAt)
+        .build();
+  }
+
+  /** Build a {@link Table} from a current-state DB row. */
+  public static Table fromRow(TableStatsRow row) {
+    if (row == null) {
+      return null;
+    }
+    return Table.builder()
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableId(row.getTableName())
+        .tableProperties(
+            row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
+        // table_stats holds only the snapshot — deltas live on the history table.
+        .stats(TableStats.fromRows(row.getSnapshot(), null))
+        .updatedAt(row.getUpdatedAt())
+        .build();
+  }
 }

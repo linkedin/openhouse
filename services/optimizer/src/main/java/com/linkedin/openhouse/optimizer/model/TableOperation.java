@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.model;
 
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.UUID;
@@ -12,9 +13,8 @@ import lombok.NoArgsConstructor;
  * An operation the analyzer has decided to schedule for a table, and that the scheduler later picks
  * up and submits.
  *
- * <p>Pure internal-model type — no references to wire-API or DB types. Cross-layer construction
- * happens via {@link com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper} (DB boundary) or
- * {@link com.linkedin.openhouse.optimizer.model.mapper.ApiModelMapper} (API boundary).
+ * <p>Conversion methods cross into the DB layer one-way; the inverse lives on the api side. db/
+ * types know nothing about model/ or api/.
  *
  * <p>{@link #fileCount} is a non-persisted enrichment populated by consumers that need it (e.g.,
  * the OFD scheduler reads it from {@code table_stats} for bin-packing). The DB column does not
@@ -74,5 +74,36 @@ public class TableOperation {
     Comparator<TableOperation> byCreatedAt =
         Comparator.comparing(r -> r.getCreatedAt() != null ? r.getCreatedAt() : Instant.EPOCH);
     return byCreatedAt.compare(a, b) >= 0 ? a : b;
+  }
+
+  /** Convert to the corresponding DB row. */
+  public TableOperationsRow toRow() {
+    return TableOperationsRow.builder()
+        .id(id)
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .operationType(operationType == null ? null : operationType.toDb())
+        .status(status == null ? null : status.toDb())
+        .createdAt(createdAt)
+        .scheduledAt(scheduledAt)
+        .build();
+  }
+
+  /** Build a {@link TableOperation} from a DB row. */
+  public static TableOperation fromRow(TableOperationsRow row) {
+    if (row == null) {
+      return null;
+    }
+    return TableOperation.builder()
+        .id(row.getId())
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .operationType(OperationType.fromDb(row.getOperationType()))
+        .status(OperationStatus.fromDb(row.getStatus()))
+        .createdAt(row.getCreatedAt())
+        .scheduledAt(row.getScheduledAt())
+        .build();
   }
 }
