@@ -5,9 +5,11 @@ import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.model.mapper.ApiModelMapper;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class TableOperationsController {
 
   private final OptimizerDataService service;
+  private final ApiModelMapper apiMapper;
 
   /**
    * Report that an operation has completed. The body carries the {@code operationId} the caller is
@@ -37,8 +40,9 @@ public class TableOperationsController {
   public ResponseEntity<TableOperationsHistoryDto> completeOperation(
       @RequestBody CompleteOperationRequest request) {
     return service
-        .completeOperation(request)
-        .map(dto -> ResponseEntity.status(HttpStatus.CREATED).body(dto))
+        .completeOperation(
+            request.getOperationId(), apiMapper.toModelHistoryStatus(request.getStatus()))
+        .map(history -> ResponseEntity.status(HttpStatus.CREATED).body(apiMapper.toDto(history)))
         .orElse(ResponseEntity.notFound().build());
   }
 
@@ -47,6 +51,7 @@ public class TableOperationsController {
   public ResponseEntity<TableOperationsDto> getTableOperation(@PathVariable String id) {
     return service
         .getTableOperation(id)
+        .map(apiMapper::toDto)
         .map(ResponseEntity::ok)
         .orElse(ResponseEntity.notFound().build());
   }
@@ -62,12 +67,17 @@ public class TableOperationsController {
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
-    return ResponseEntity.ok(
-        service.listTableOperations(
-            Optional.ofNullable(operationType),
-            Optional.ofNullable(status),
-            Optional.ofNullable(databaseName),
-            Optional.ofNullable(tableName),
-            Optional.ofNullable(tableUuid)));
+    List<TableOperationsDto> result =
+        service
+            .listTableOperations(
+                Optional.ofNullable(operationType).map(apiMapper::toModelOperationType),
+                Optional.ofNullable(status).map(apiMapper::toModelOperationStatus),
+                Optional.ofNullable(databaseName),
+                Optional.ofNullable(tableName),
+                Optional.ofNullable(tableUuid))
+            .stream()
+            .map(apiMapper::toDto)
+            .collect(Collectors.toList());
+    return ResponseEntity.ok(result);
   }
 }
