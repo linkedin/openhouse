@@ -49,10 +49,8 @@ class AnalyzerRunnerTest {
 
   @Test
   void analyze_insertsNewRow_forEligibleTableWithNoExistingOp() {
-    TableStatsRow statsEntity = new TableStatsRow();
-    statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName(DB);
-    statsEntity.setTableName("tbl1");
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
     Table expectedTable =
         Table.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
@@ -79,20 +77,20 @@ class AnalyzerRunnerTest {
 
   @Test
   void analyze_noOp_whenCadencePolicyReturnsFalseForPending() {
-    TableStatsRow statsEntity = new TableStatsRow();
-    statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName(DB);
-    statsEntity.setTableName("tbl1");
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
     Table expectedTable =
         Table.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
 
-    TableOperationsRow existingEntity = new TableOperationsRow();
-    existingEntity.setId("existing-op-id");
-    existingEntity.setStatus("PENDING");
-    existingEntity.setTableUuid("uuid-1");
-    existingEntity.setOperationType(OFD);
-    existingEntity.setCreatedAt(Instant.now());
+    TableOperationsRow existingEntity =
+        TableOperationsRow.builder()
+            .id("existing-op-id")
+            .status("PENDING")
+            .tableUuid("uuid-1")
+            .operationType(OFD)
+            .createdAt(Instant.now())
+            .build();
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
     when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(List.of(existingEntity));
@@ -110,9 +108,8 @@ class AnalyzerRunnerTest {
 
   @Test
   void analyze_skipsTable_whenNotEnabled() {
-    TableStatsRow statsEntity = new TableStatsRow();
-    statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName(DB);
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
     Table expectedTable = Table.builder().tableUuid("uuid-1").databaseName(DB).build();
 
@@ -128,18 +125,19 @@ class AnalyzerRunnerTest {
 
   @Test
   void analyze_skipsTable_whenShouldScheduleReturnsFalse() {
-    TableStatsRow statsEntity = new TableStatsRow();
-    statsEntity.setTableUuid("uuid-1");
-    statsEntity.setDatabaseName(DB);
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
     Table expectedTable = Table.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    TableOperationsRow scheduled = new TableOperationsRow();
-    scheduled.setId("op-id");
-    scheduled.setStatus("SCHEDULED");
-    scheduled.setTableUuid("uuid-1");
-    scheduled.setOperationType(OFD);
-    scheduled.setCreatedAt(Instant.now());
+    TableOperationsRow scheduled =
+        TableOperationsRow.builder()
+            .id("op-id")
+            .status("SCHEDULED")
+            .tableUuid("uuid-1")
+            .operationType(OFD)
+            .createdAt(Instant.now())
+            .build();
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
     when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(List.of(scheduled));
@@ -157,9 +155,7 @@ class AnalyzerRunnerTest {
 
   @Test
   void analyze_skipsTable_whenTableUuidIsNull() {
-    TableStatsRow statsEntity = new TableStatsRow();
-    statsEntity.setTableUuid(null);
-    statsEntity.setDatabaseName(DB);
+    TableStatsRow statsEntity = TableStatsRow.builder().databaseName(DB).build();
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
     when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(Collections.emptyList());
