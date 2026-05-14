@@ -28,10 +28,4 @@ public class TableOperationsHistoryDto {
 
   /** {@code SUCCESS} or {@code FAILED}. */
   private HistoryStatus status;
-
-  /** Job ID from the Jobs Service. */
-  private String jobId;
-
-  /** Job result payload; both fields null on success. */
-  private JobResult result;
 }

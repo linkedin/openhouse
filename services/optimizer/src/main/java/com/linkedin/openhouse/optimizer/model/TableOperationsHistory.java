@@ -38,10 +38,4 @@ public class TableOperationsHistory {
 
   /** Terminal outcome: {@link HistoryStatus#SUCCESS} or {@link HistoryStatus#FAILED}. */
   private HistoryStatus status;
-
-  /** Spark job ID for the run that produced this record. */
-  private String jobId;
-
-  /** Job result payload; both inner fields {@code null} on success. */
-  private JobResult result;
 }
