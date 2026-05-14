@@ -2,12 +2,18 @@ package com.linkedin.openhouse.optimizer.model.mapper;
 
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.api.model.TableStatsDto;
+import com.linkedin.openhouse.optimizer.api.model.TableStatsHistoryDto;
+import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequest;
 import com.linkedin.openhouse.optimizer.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.OperationType;
+import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.TableStatsHistory;
+import java.util.Collections;
 import org.springframework.stereotype.Component;
 
 /**
@@ -86,6 +92,58 @@ public class ApiModelMapper {
         .operationType(toApiOperationType(history.getOperationType()))
         .completedAt(history.getCompletedAt())
         .status(toApiHistoryStatus(history.getStatus()))
+        .build();
+  }
+
+  // --- Table <-> TableStatsDto / UpsertTableStatsRequest ---
+
+  /**
+   * Build an internal-model {@link Table} from a wire upsert request. {@link Table#getUpdatedAt()}
+   * is intentionally left null — the service stamps it server-side at write time.
+   */
+  public Table toTable(String tableUuid, UpsertTableStatsRequest request) {
+    if (request == null) {
+      return null;
+    }
+    return Table.builder()
+        .tableUuid(tableUuid)
+        .databaseName(request.getDatabaseName())
+        .tableId(request.getTableName())
+        .tableProperties(
+            request.getTableProperties() != null
+                ? request.getTableProperties()
+                : Collections.emptyMap())
+        .stats(toModelStats(request.getStats()))
+        .build();
+  }
+
+  public TableStatsDto toDto(Table table) {
+    if (table == null) {
+      return null;
+    }
+    return TableStatsDto.builder()
+        .tableUuid(table.getTableUuid())
+        .databaseName(table.getDatabaseName())
+        .tableName(table.getTableId())
+        .stats(toApiStats(table.getStats()))
+        .tableProperties(table.getTableProperties())
+        .updatedAt(table.getUpdatedAt())
+        .build();
+  }
+
+  // --- TableStatsHistory <-> TableStatsHistoryDto ---
+
+  public TableStatsHistoryDto toDto(TableStatsHistory history) {
+    if (history == null) {
+      return null;
+    }
+    return TableStatsHistoryDto.builder()
+        .id(history.getId())
+        .tableUuid(history.getTableUuid())
+        .databaseName(history.getDatabaseName())
+        .tableName(history.getTableName())
+        .stats(toApiStats(history.getStats()))
+        .recordedAt(history.getRecordedAt())
         .build();
   }
 
