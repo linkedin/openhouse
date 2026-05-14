@@ -2,16 +2,16 @@ package com.linkedin.openhouse.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
-import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
+import com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -30,7 +30,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class AnalyzerRunnerTest {
 
   private static final OperationType OFD_TYPE = OperationType.ORPHAN_FILES_DELETION;
-  private static final String OFD = OFD_TYPE.name();
+  private static final com.linkedin.openhouse.optimizer.db.OperationType OFD_DB =
+      com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION;
   private static final String DB = "db1";
 
   @Mock private TableStatsRepository statsRepo;
@@ -38,11 +39,13 @@ class AnalyzerRunnerTest {
   @Mock private TableOperationsHistoryRepository historyRepo;
   @Mock private OperationAnalyzer analyzer;
 
+  private final ModelDbMapper dbMapper = new ModelDbMapper();
   private AnalyzerRunner runner;
 
   @BeforeEach
   void setUp() {
-    runner = new AnalyzerRunner(List.of(analyzer), statsRepo, operationsRepo, historyRepo);
+    runner =
+        new AnalyzerRunner(List.of(analyzer), statsRepo, operationsRepo, historyRepo, dbMapper);
     when(analyzer.getOperationType()).thenReturn(OFD_TYPE);
     when(statsRepo.findDistinctDatabaseNames()).thenReturn(List.of(DB));
   }
@@ -52,12 +55,11 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
-    Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
+    Table expectedTable = dbMapper.toTable(statsEntity);
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(Collections.emptyList());
-    when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
+    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
+    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
         .thenReturn(true);
@@ -70,8 +72,9 @@ class AnalyzerRunnerTest {
     assertThat(saved.getTableUuid()).isEqualTo("uuid-1");
     assertThat(saved.getDatabaseName()).isEqualTo(DB);
     assertThat(saved.getTableName()).isEqualTo("tbl1");
-    assertThat(saved.getOperationType()).isEqualTo(OFD);
-    assertThat(saved.getStatus()).isEqualTo("PENDING");
+    assertThat(saved.getOperationType()).isEqualTo(OFD_DB);
+    assertThat(saved.getStatus())
+        .isEqualTo(com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING);
     assertThat(saved.getId()).isNotNull();
   }
 
@@ -80,24 +83,23 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
-    Table expectedTable =
-        Table.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
+    Table expectedTable = dbMapper.toTable(statsEntity);
 
     TableOperationsRow existingEntity =
         TableOperationsRow.builder()
             .id("existing-op-id")
-            .status("PENDING")
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING)
             .tableUuid("uuid-1")
-            .operationType(OFD)
+            .operationType(OFD_DB)
             .createdAt(Instant.now())
             .build();
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(List.of(existingEntity));
-    when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
+    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(List.of(existingEntity));
+    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperation existingOp = TableOperation.from(existingEntity);
+    TableOperation existingOp = dbMapper.toOperation(existingEntity);
     when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty()))
         .thenReturn(false);
 
@@ -111,11 +113,11 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    Table expectedTable = Table.builder().tableUuid("uuid-1").databaseName(DB).build();
+    Table expectedTable = dbMapper.toTable(statsEntity);
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(Collections.emptyList());
-    when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
+    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
+    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(false);
 
     runner.analyze(OFD_TYPE);
@@ -128,23 +130,23 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    Table expectedTable = Table.builder().tableUuid("uuid-1").databaseName(DB).build();
+    Table expectedTable = dbMapper.toTable(statsEntity);
 
     TableOperationsRow scheduled =
         TableOperationsRow.builder()
             .id("op-id")
-            .status("SCHEDULED")
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
             .tableUuid("uuid-1")
-            .operationType(OFD)
+            .operationType(OFD_DB)
             .createdAt(Instant.now())
             .build();
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(List.of(scheduled));
-    when(historyRepo.findLatestPerTable(OFD)).thenReturn(Collections.emptyList());
+    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(List.of(scheduled));
+    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperation scheduledOp = TableOperation.from(scheduled);
+    TableOperation scheduledOp = dbMapper.toOperation(scheduled);
     when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty()))
         .thenReturn(false);
 
@@ -158,8 +160,8 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity = TableStatsRow.builder().databaseName(DB).build();
 
     when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD, null, null, DB, null)).thenReturn(Collections.emptyList());
-    when(historyRepo.findLatestPerTable(anyString())).thenReturn(Collections.emptyList());
+    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
+    when(historyRepo.findLatestPerTable(any())).thenReturn(Collections.emptyList());
 
     runner.analyze(OFD_TYPE);
 

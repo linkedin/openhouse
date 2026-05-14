@@ -2,10 +2,11 @@ package com.linkedin.openhouse.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsHistoryRow;
+import com.linkedin.openhouse.optimizer.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -67,7 +68,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus("SUCCESS", longAgo))))
+                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, longAgo))))
         .isTrue();
   }
 
@@ -78,7 +79,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus("SUCCESS", recent))))
+                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, recent))))
         .isFalse();
   }
 
@@ -89,7 +90,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus("FAILED", longAgo))))
+                Optional.of(historyWithStatus(HistoryStatus.FAILED, longAgo))))
         .isTrue();
   }
 
@@ -100,7 +101,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus("FAILED", recent))))
+                Optional.of(historyWithStatus(HistoryStatus.FAILED, recent))))
         .isFalse();
   }
 
@@ -133,7 +134,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.of(opWithStatus(OperationStatus.SCHEDULED)),
-                Optional.of(historyWithStatus("SUCCESS", historyAt))))
+                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, historyAt))))
         .isFalse();
   }
 
@@ -146,7 +147,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.of(opWithStatus(OperationStatus.CANCELED)),
-                Optional.of(historyWithStatus("SUCCESS", longAgo))))
+                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, longAgo))))
         .isTrue();
   }
 
@@ -157,7 +158,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.of(opWithStatus(OperationStatus.CANCELED)),
-                Optional.of(historyWithStatus("SUCCESS", recent))))
+                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, recent))))
         .isFalse();
   }
 
@@ -190,11 +191,11 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     return TableOperation.builder().status(status).build();
   }
 
-  private TableOperationsHistoryRow historyWithStatus(String status, Instant completedAt) {
-    return TableOperationsHistoryRow.builder()
+  private TableOperationsHistory historyWithStatus(HistoryStatus status, Instant completedAt) {
+    return TableOperationsHistory.builder()
         .id("hist-id")
         .tableUuid("test-uuid")
-        .operationType("ORPHAN_FILES_DELETION")
+        .operationType(com.linkedin.openhouse.optimizer.model.OperationType.ORPHAN_FILES_DELETION)
         .completedAt(completedAt)
         .status(status)
         .build();
