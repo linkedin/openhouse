@@ -1,7 +1,6 @@
-package com.linkedin.openhouse.analyzer.model;
+package com.linkedin.openhouse.optimizer.model;
 
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
-import com.linkedin.openhouse.optimizer.model.TableStats;
 import java.util.Collections;
 import java.util.Map;
 import lombok.AllArgsConstructor;
@@ -10,9 +9,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * An OpenHouse table enriched with stats and properties, built by combining data sources. This is
- * the input to the analysis pipeline: analyzers evaluate a {@code Table} and decide whether to
- * produce a {@link TableOperation}.
+ * An OpenHouse table enriched with stats and properties, built by combining data sources. Consumed
+ * by the analyzer (decides whether to produce a {@link TableOperation}) and the scheduler (reads
+ * stats for bin-packing).
  */
 @Data
 @Builder

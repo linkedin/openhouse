@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.analyzer.model;
+package com.linkedin.openhouse.optimizer.model;
 
 import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
 import java.time.Instant;
@@ -10,9 +10,14 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * An operation the analyzer has decided to schedule for a table. Built either from an existing
- * {@link TableOperationRow} (when loading current state) or from a {@link Table} (when creating a
- * new PENDING operation). Converts back to a JPA row via {@link #toRow()}.
+ * An operation the analyzer has decided to schedule for a table, and that the scheduler later picks
+ * up and submits. Built either from an existing {@link TableOperationRow} (when loading current
+ * state) or from a {@link Table} (when creating a new PENDING operation). Converts back to a JPA
+ * row via {@link #toRow()}.
+ *
+ * <p>{@link #fileCount} is a non-persisted enrichment populated by consumers that need it (e.g.,
+ * the OFD scheduler reads it from {@code table_stats} for bin-packing). The DB column does not
+ * carry it.
  */
 @Data
 @Builder
@@ -43,6 +48,12 @@ public class TableOperation {
 
   /** When the scheduler last submitted a job for this operation. */
   private Instant scheduledAt;
+
+  /**
+   * Number of current data files on the table at evaluation time. Non-persisted enrichment;
+   * populated by consumers that need it. Null when not enriched.
+   */
+  private Long fileCount;
 
   /** Build a {@code TableOperation} from an existing JPA row. */
   public static TableOperation from(TableOperationRow row) {

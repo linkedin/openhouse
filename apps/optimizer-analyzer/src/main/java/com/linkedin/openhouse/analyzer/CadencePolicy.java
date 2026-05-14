@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.analyzer.model.HistoryStatus;
-import com.linkedin.openhouse.analyzer.model.OperationStatus;
-import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
+import com.linkedin.openhouse.optimizer.model.HistoryStatus;
+import com.linkedin.openhouse.optimizer.model.OperationStatus;
+import com.linkedin.openhouse.optimizer.model.TableOperation;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;

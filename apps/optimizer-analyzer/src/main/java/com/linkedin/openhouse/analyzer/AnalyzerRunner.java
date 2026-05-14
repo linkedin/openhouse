@@ -1,10 +1,10 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.analyzer.model.OperationType;
-import com.linkedin.openhouse.analyzer.model.Table;
-import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
 import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
+import com.linkedin.openhouse.optimizer.model.OperationType;
+import com.linkedin.openhouse.optimizer.model.Table;
+import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.repository.TableOperationHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -104,6 +104,17 @@ public class AnalyzerRunner {
             .map(Table::from)
             .collect(Collectors.toList());
 
+    /*
+     * For each table in this database, decide whether to create a new PENDING operation.
+     *
+     * 1. Skip tables not opted in to this operation type. The opt-in check today reads a
+     *    table-property flag; in the future it will read a denormalized column.
+     * 2. Look up the table's current active operation (if any) and its most recent completed
+     *    history entry from the maps loaded above.
+     * 3. Delegate the schedule-or-not decision to the analyzer's shouldSchedule — strategy
+     *    encapsulates cadence, retry policy, and any future per-operation signals.
+     * 4. On true, persist a new PENDING operation. The scheduler picks it up on its next pass.
+     */
     tables.forEach(
         table -> {
           if (!analyzer.isEnabled(table)) {
@@ -113,7 +124,6 @@ public class AnalyzerRunner {
               Optional.ofNullable(currentOps.get(table.getTableUuid()));
           Optional<TableOperationHistoryRow> entry =
               Optional.ofNullable(latestHistory.get(table.getTableUuid()));
-
           if (analyzer.shouldSchedule(table, currentOp, entry)) {
             TableOperation op = TableOperation.pending(table, analyzer.getOperationType());
             operationsRepo.save(op.toRow());
