@@ -51,10 +51,11 @@ public class TableOperationsRow {
 
   /**
    * Monotonically-increasing version for application-level optimistic concurrency control. The
-   * scheduler's CAS transitions (e.g. {@code markScheduling}, {@code markScheduled}) match this
-   * value in the WHERE clause and bump it by one on UPDATE, ensuring two scheduler instances can't
-   * both move the same row out of PENDING. Not managed by JPA optimistic locking — kept as a plain
-   * column so the WHERE-clause-based CAS pattern works portably across MySQL and H2.
+   * scheduler's batch CAS transitions (e.g. {@code markSchedulingBatch}, {@code
+   * markScheduledBatch}) match this value in the WHERE clause and bump it by one on UPDATE,
+   * ensuring two scheduler instances can't both move the same row out of PENDING. Not managed by
+   * JPA optimistic locking — kept as a plain column so the WHERE-clause-based CAS pattern works
+   * portably across MySQL and H2.
    */
   @Column(name = "version")
   private Long version;

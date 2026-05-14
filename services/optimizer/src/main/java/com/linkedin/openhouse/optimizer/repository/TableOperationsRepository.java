@@ -30,48 +30,6 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
       @Param("tableName") String tableName);
 
   /**
-   * Delete duplicate PENDING rows for the same (tableUuid, operationType), keeping only the
-   * specified row. Used by the Scheduler to deduplicate before claiming.
-   */
-  @Modifying
-  @Query(
-      "DELETE FROM TableOperationsRow r "
-          + "WHERE r.tableUuid = :tableUuid "
-          + "AND r.operationType = :operationType "
-          + "AND r.status = 'PENDING' "
-          + "AND r.id <> :keepId")
-  int cancelDuplicatePending(
-      @Param("tableUuid") String tableUuid,
-      @Param("operationType") String operationType,
-      @Param("keepId") String keepId);
-
-  /**
-   * CAS transition: PENDING → SCHEDULING. Returns 1 if the row was claimed, 0 if already claimed by
-   * another instance or the version has changed.
-   */
-  @Modifying
-  @Query(
-      "UPDATE TableOperationsRow r "
-          + "SET r.status = 'SCHEDULING', r.scheduledAt = :scheduledAt, r.version = r.version + 1 "
-          + "WHERE r.id = :id AND r.version = :version AND r.status = 'PENDING'")
-  int markScheduling(
-      @Param("id") String id,
-      @Param("version") long version,
-      @Param("scheduledAt") Instant scheduledAt);
-
-  /**
-   * CAS transition: SCHEDULING → SCHEDULED with the external job ID. Returns 1 on success, 0 if the
-   * row is no longer in SCHEDULING state at the expected version.
-   */
-  @Modifying
-  @Query(
-      "UPDATE TableOperationsRow r "
-          + "SET r.status = 'SCHEDULED', r.jobId = :jobId, r.version = r.version + 1 "
-          + "WHERE r.id = :id AND r.version = :version AND r.status = 'SCHEDULING'")
-  int markScheduled(
-      @Param("id") String id, @Param("version") long version, @Param("jobId") String jobId);
-
-  /**
    * Batch CAS: PENDING → SCHEDULING for every {@code id} still in PENDING. Returns the number of
    * rows transitioned. Rows already claimed by another instance are skipped silently; callers must
    * re-query if they need the precise list.
