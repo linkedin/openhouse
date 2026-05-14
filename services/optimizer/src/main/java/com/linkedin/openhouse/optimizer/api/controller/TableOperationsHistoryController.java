@@ -1,12 +1,8 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
-import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
-import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,31 +34,5 @@ public class TableOperationsHistoryController {
   public ResponseEntity<List<TableOperationsHistoryDto>> getHistory(
       @PathVariable String tableUuid, @RequestParam(defaultValue = "100") int limit) {
     return ResponseEntity.ok(service.getHistory(tableUuid, limit));
-  }
-
-  /**
-   * List history rows matching the given filters, ordered newest first. All parameters are optional
-   * — omit all to return every row up to {@code limit}.
-   */
-  @GetMapping
-  public ResponseEntity<List<TableOperationsHistoryDto>> listHistory(
-      @RequestParam(required = false) String databaseName,
-      @RequestParam(required = false) String tableName,
-      @RequestParam(required = false) String tableUuid,
-      @RequestParam(required = false) OperationType operationType,
-      @RequestParam(required = false) HistoryStatus status,
-      @RequestParam(required = false) Instant since,
-      @RequestParam(required = false) Instant until,
-      @RequestParam(defaultValue = "100") int limit) {
-    return ResponseEntity.ok(
-        service.listHistory(
-            Optional.ofNullable(databaseName),
-            Optional.ofNullable(tableName),
-            Optional.ofNullable(tableUuid),
-            Optional.ofNullable(operationType),
-            Optional.ofNullable(status),
-            Optional.ofNullable(since),
-            Optional.ofNullable(until),
-            limit));
   }
 }

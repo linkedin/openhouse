@@ -2,7 +2,6 @@ package com.linkedin.openhouse.optimizer.service;
 
 import com.linkedin.openhouse.optimizer.api.mapper.OptimizerMapper;
 import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequest;
-import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
@@ -177,32 +176,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   @Override
   public List<TableOperationsHistoryDto> getHistory(String tableUuid, int limit) {
     return historyRepository
-        .find(null, null, tableUuid, null, null, null, null, PageRequest.of(0, limit)).stream()
-        .map(mapper::toDto)
-        .collect(Collectors.toList());
-  }
-
-  @Override
-  public List<TableOperationsHistoryDto> listHistory(
-      Optional<String> databaseName,
-      Optional<String> tableName,
-      Optional<String> tableUuid,
-      Optional<OperationType> operationType,
-      Optional<HistoryStatus> status,
-      Optional<Instant> since,
-      Optional<Instant> until,
-      int limit) {
-    return historyRepository
-        .find(
-            databaseName.orElse(null),
-            tableName.orElse(null),
-            tableUuid.orElse(null),
-            operationType.map(OperationType::name).orElse(null),
-            status.map(HistoryStatus::name).orElse(null),
-            since.orElse(null),
-            until.orElse(null),
-            PageRequest.of(0, limit))
-        .stream()
+        .findByTableUuidOrderByCompletedAtDesc(tableUuid, PageRequest.of(0, limit)).stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
   }
