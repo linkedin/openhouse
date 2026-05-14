@@ -8,6 +8,10 @@ package com.linkedin.openhouse.optimizer.model;
  * <p>Intentionally separate from the wire-API and DB representations.
  */
 public enum HistoryStatus {
+
+  /** The operation completed successfully. */
   SUCCESS,
+
+  /** The operation failed. */
   FAILED
 }
