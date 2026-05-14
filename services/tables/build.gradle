@@ -30,6 +30,92 @@ openApi {
   apiDocsUrl.set("http://localhost:8000/v3/api-docs")
 }
 
+def canonicalIcebergRestSpec = "${rootDir}/spec/iceberg-rest-catalog-open-api.yaml"
+def icebergRestSpecVersion = "apache-iceberg-1.10.0"
+def icebergRestSpecUrl = "https://raw.githubusercontent.com/apache/iceberg/refs/tags/${icebergRestSpecVersion}/open-api/rest-catalog-open-api.yaml"
+def openApiCliVersion = "7.12.0"
+def openApiCliDir = "${buildDir}/openapi-cli"
+def openApiCliJar = "${openApiCliDir}/openapi-generator-cli-${openApiCliVersion}.jar"
+def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server"
+
+/**
+ * The Iceberg library has its own hand-written classes (ConfigResponse, LoadTableResponse, etc.)
+ * that predate the REST OpenAPI spec. These library classes use builders, custom Jackson
+ * serializers, and kebab-case — they don't follow JavaBean conventions. The OpenAPI codegen
+ * would normally generate a separate set of standard POJO model classes for the same types.
+ *
+ * Rather than maintaining adapters between two representations of the same wire format, we tell
+ * the codegen to skip model generation (models=false) and reference the Iceberg library classes
+ * directly in the generated interfaces. This is the same approach used by Apache Polaris
+ * (see polaris/api/iceberg-service/build.gradle.kts).
+ *
+ * Every schema in the spec needs an explicit mapping, otherwise the generated code references
+ * a class that was never generated. Types added in Iceberg 1.10+ that don't exist in our 1.5.2
+ * fork are mapped to Object — the generated default-501 methods need something to compile against.
+ * These Object mappings can be removed when OpenHouse upgrades to Iceberg 1.7+.
+ */
+// importMappings controls the `import` statement in generated files.
+// typeMappings controls the inline type name in method signatures and @Schema annotations.
+// Both are needed due to an openapi-generator bug — setting one does not update the other.
+def icebergImportMappings = [
+    // Iceberg REST responses
+    "CatalogConfig=org.apache.iceberg.rest.responses.ConfigResponse",
+    "CommitTableResponse=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "CreateNamespaceResponse=org.apache.iceberg.rest.responses.CreateNamespaceResponse",
+    "ErrorModel=org.apache.iceberg.rest.responses.ErrorResponse",
+    "GetNamespaceResponse=org.apache.iceberg.rest.responses.GetNamespaceResponse",
+    "IcebergErrorResponse=org.apache.iceberg.rest.responses.ErrorResponse",
+    "ListNamespacesResponse=org.apache.iceberg.rest.responses.ListNamespacesResponse",
+    "ListTablesResponse=org.apache.iceberg.rest.responses.ListTablesResponse",
+    "LoadTableResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "LoadViewResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "OAuthError=org.apache.iceberg.rest.responses.ErrorResponse",
+    "OAuthErrorResponse=org.apache.iceberg.rest.responses.OAuthErrorResponse",
+    "OAuthTokenResponse=org.apache.iceberg.rest.responses.OAuthTokenResponse",
+    "UpdateNamespacePropertiesResponse=org.apache.iceberg.rest.responses.UpdateNamespacePropertiesResponse",
+    // Iceberg REST requests
+    "CreateNamespaceRequest=org.apache.iceberg.rest.requests.CreateNamespaceRequest",
+    "CreateTableRequest=org.apache.iceberg.rest.requests.CreateTableRequest",
+    "CreateViewRequest=org.apache.iceberg.rest.requests.CreateViewRequest",
+    "CommitTransactionRequest=org.apache.iceberg.rest.requests.CommitTransactionRequest",
+    "RegisterTableRequest=org.apache.iceberg.rest.requests.RegisterTableRequest",
+    "RenameTableRequest=org.apache.iceberg.rest.requests.RenameTableRequest",
+    "ReportMetricsRequest=org.apache.iceberg.rest.requests.ReportMetricsRequest",
+    "UpdateNamespacePropertiesRequest=org.apache.iceberg.rest.requests.UpdateNamespacePropertiesRequest",
+    // Types not in Iceberg 1.5.2 — mapped to Object so unimplemented default methods compile
+    "CommitTableRequest=java.lang.Object",
+    "CommitViewRequest=java.lang.Object",
+    "FetchPlanningResult=java.lang.Object",
+    "FetchScanTasksRequest=java.lang.Object",
+    "FetchScanTasksResult=java.lang.Object",
+    "LoadCredentialsResponse=java.lang.Object",
+    "PlanTableScanRequest=java.lang.Object",
+    "PlanTableScanResult=java.lang.Object",
+    // OAuth2 model type suppressed by models=false
+    "TokenType=java.lang.String",
+].join(",")
+
+def icebergTypeMappings = [
+    "CatalogConfig=org.apache.iceberg.rest.responses.ConfigResponse",
+    "CommitTableResponse=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "ErrorModel=org.apache.iceberg.rest.responses.ErrorResponse",
+    "IcebergErrorResponse=org.apache.iceberg.rest.responses.ErrorResponse",
+    "LoadTableResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "LoadViewResult=org.apache.iceberg.rest.responses.LoadTableResponse",
+    "OAuthError=org.apache.iceberg.rest.responses.ErrorResponse",
+    // Types not in Iceberg 1.5.2 — must also be in typeMappings for @Schema annotations
+    "CommitTableRequest=java.lang.Object",
+    "CommitViewRequest=java.lang.Object",
+    "FetchPlanningResult=java.lang.Object",
+    "FetchScanTasksRequest=java.lang.Object",
+    "FetchScanTasksResult=java.lang.Object",
+    "LoadCredentialsResponse=java.lang.Object",
+    "PlanTableScanRequest=java.lang.Object",
+    "PlanTableScanResult=java.lang.Object",
+    "TokenType=java.lang.String",
+].join(",")
+
+
 dependencies {
   implementation "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
   api project(':services:common')
@@ -41,10 +127,117 @@ dependencies {
   api 'org.springframework.security:spring-security-config:5.7.2'
   api 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
   implementation 'com.cronutils:cron-utils:9.2.0'
+  implementation 'org.openapitools:jackson-databind-nullable:0.2.1'
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
   testImplementation(testFixtures(project(':services:common')))
   testImplementation (project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
     exclude group: 'com.linkedin.iceberg'
   }
+}
+
+tasks.register('icebergRestDownloadCodegenCli', Exec) {
+  commandLine "sh", "${project(':client:common').projectDir}/jar_download.sh",
+      "-o", openApiCliDir,
+      "-v", openApiCliVersion
+  outputs.file(openApiCliJar)
+}
+
+tasks.register('icebergRestValidateSpec', Exec) {
+  dependsOn tasks.named('icebergRestDownloadCodegenCli')
+  commandLine "java", "-jar", openApiCliJar, "validate", "-i", canonicalIcebergRestSpec
+  inputs.file(canonicalIcebergRestSpec)
+  inputs.file(openApiCliJar)
+}
+
+tasks.register('icebergRestCodegen', Exec) {
+  dependsOn tasks.named('icebergRestValidateSpec')
+  doFirst {
+    delete generatedIcebergRestDir
+  }
+  commandLine "java", "-jar", openApiCliJar, "generate",
+      "-g", "spring",
+      "-i", canonicalIcebergRestSpec,
+      "-o", generatedIcebergRestDir,
+      "--api-package", "com.linkedin.openhouse.tables.generated.iceberg.api",
+      "--model-package", "com.linkedin.openhouse.tables.generated.iceberg.model",
+      "--import-mappings", icebergImportMappings,
+      "--type-mappings", icebergTypeMappings,
+      "--global-property", "apis,models=false,apiTests=false,apiDocs=false,modelTests=false,modelDocs=false,supportingFiles=",
+      "--additional-properties", "interfaceOnly=true,useTags=true,skipDefaultInterface=false,hideGenerationTimestamp=true,useSpringBoot3=false"
+  // Post-process generated code for Iceberg 1.5.2 compatibility.
+  //
+  // Problem: importMappings/typeMappings handle return types and @Schema annotations, but the
+  // openapi-generator does NOT apply typeMappings to @RequestBody parameter types when
+  // models=false. This leaves bare references to types that don't exist in Iceberg 1.5.2
+  // (they were added in 1.10+), causing compilation failures.
+  //
+  // Fix: regex-replace those bare type names with Object in generated .java files.
+  // The regex `\bTypeName\b(?=\s+\w)` matches "TypeName paramName" patterns (i.e., a type
+  // followed by whitespace and a parameter name) without touching import statements, comments,
+  // or string literals where the type name isn't used as a declaration.
+  //
+  // This workaround can be removed when OpenHouse upgrades to Iceberg 1.7+ where these types
+  // exist natively. Track via: https://github.com/linkedin/openhouse/issues/XXX
+  doLast {
+    def replacements = [
+        'CommitTableRequest': 'Object',
+        'CommitViewRequest': 'Object',
+        'FetchScanTasksRequest': 'Object',
+        'PlanTableScanRequest': 'Object',
+    ]
+    fileTree(generatedIcebergRestDir).matching { include '**/*.java' }.each { File f ->
+      def text = f.text
+      def original = text
+      replacements.each { from, to ->
+        text = text.replaceAll("\\b${from}\\b(?=\\s+\\w)", to)
+      }
+      if (text != original) {
+        f.text = text
+      }
+    }
+  }
+  inputs.file(canonicalIcebergRestSpec)
+  inputs.file(openApiCliJar)
+  outputs.dir(generatedIcebergRestDir)
+}
+
+tasks.named('compileJava') {
+  dependsOn tasks.named('icebergRestCodegen')
+  source "${generatedIcebergRestDir}/src/main/java"
+}
+
+tasks.register('icebergRestDownloadUpstreamSpec') {
+  description = 'Download upstream Iceberg REST spec for sync verification'
+  def upstreamFile = new File("${buildDir}/iceberg-rest-spec-upstream-${icebergRestSpecVersion}.yaml")
+  outputs.file(upstreamFile)
+  onlyIf { !upstreamFile.exists() }
+  doLast {
+    upstreamFile.parentFile.mkdirs()
+    new URL(icebergRestSpecUrl).withInputStream { is -> upstreamFile.bytes = is.bytes }
+  }
+}
+
+tasks.register('icebergRestVerifySpecSync') {
+  description = 'Verify vendored Iceberg REST spec matches upstream tag'
+  dependsOn tasks.named('icebergRestDownloadUpstreamSpec')
+  def upstreamFile = new File("${buildDir}/iceberg-rest-spec-upstream-${icebergRestSpecVersion}.yaml")
+  inputs.file(canonicalIcebergRestSpec)
+  inputs.file(upstreamFile)
+  outputs.file("${buildDir}/iceberg-rest-spec-sync-verified")
+  doLast {
+    def vendored = file(canonicalIcebergRestSpec).text
+    def upstream = upstreamFile.text
+    if (vendored != upstream) {
+      throw new GradleException(
+          "Vendored spec ${canonicalIcebergRestSpec} does not match upstream ${icebergRestSpecUrl}. " +
+          "Run: curl -o spec/iceberg-rest-catalog-open-api.yaml ${icebergRestSpecUrl}")
+    }
+    file("${buildDir}/iceberg-rest-spec-sync-verified").text = "OK"
+  }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('icebergRestValidateSpec')
+  dependsOn tasks.named('icebergRestVerifySpecSync')
 }
