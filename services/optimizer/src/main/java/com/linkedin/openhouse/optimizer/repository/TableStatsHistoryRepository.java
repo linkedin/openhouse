@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.repository;
 
-import com.linkedin.openhouse.optimizer.entity.TableStatsHistoryRow;
+import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.data.domain.Pageable;

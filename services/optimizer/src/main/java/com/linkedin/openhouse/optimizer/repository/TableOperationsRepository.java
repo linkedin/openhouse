@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.optimizer.repository;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.db.OperationStatus;
+import com.linkedin.openhouse.optimizer.db.OperationType;
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -21,8 +23,8 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
           + "AND (:databaseName IS NULL OR r.databaseName = :databaseName) "
           + "AND (:tableName IS NULL OR r.tableName = :tableName)")
   List<TableOperationsRow> find(
-      @Param("operationType") String operationType,
-      @Param("status") String status,
+      @Param("operationType") OperationType operationType,
+      @Param("status") OperationStatus status,
       @Param("tableUuid") String tableUuid,
       @Param("databaseName") String databaseName,
       @Param("tableName") String tableName);

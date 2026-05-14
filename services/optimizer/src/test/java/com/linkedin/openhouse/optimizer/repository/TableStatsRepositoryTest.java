@@ -2,8 +2,8 @@ package com.linkedin.openhouse.optimizer.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.db.TableStats;
+import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
