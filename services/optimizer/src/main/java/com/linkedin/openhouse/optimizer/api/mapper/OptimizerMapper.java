@@ -21,8 +21,9 @@ import org.mapstruct.Mapper;
  *
  * <p>Spring-instantiated at compile time. Inject via {@code @Autowired} or constructor injection.
  *
- * <p>Type-conversion helpers bridge the entity's raw String/JSON shape (the entities use Strings at
- * the JPA boundary for portability) and the wire DTO's typed enums and nested objects.
+ * <p>Type-conversion helpers bridge the entity's raw String/JSON shape (the entities keep enum and
+ * structured-result columns as Strings to stay decoupled from wire-API identity) and the wire DTO's
+ * typed enums and nested objects.
  */
 @Mapper(componentModel = "spring")
 public interface OptimizerMapper {
