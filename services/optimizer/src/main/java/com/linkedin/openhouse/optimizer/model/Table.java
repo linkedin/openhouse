@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.model;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
 import lombok.AllArgsConstructor;
@@ -28,4 +29,7 @@ public class Table {
   @Builder.Default private Map<String, String> tableProperties = Collections.emptyMap();
 
   private TableStats stats;
+
+  /** When the current snapshot was last written. Stamped server-side on every upsert. */
+  private Instant updatedAt;
 }
