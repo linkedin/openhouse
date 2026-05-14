@@ -19,12 +19,12 @@ import org.hibernate.annotations.TypeDef;
 /**
  * Append-only record of per-commit stats reported by the Tables Service.
  *
- * <p>Each Iceberg commit produces one row. The {@code stats} JSON contains both the snapshot
- * metrics (point-in-time) and the commit delta (files added/deleted in this commit). Consumers can
- * query this table to reconstruct change rates over arbitrary time windows.
+ * <p>Each Iceberg commit produces one row. Consumers can query this table to reconstruct change
+ * rates over arbitrary time windows.
  *
- * <p>Self-contained DB-layer type: the JSON payload type is {@link TableStats} from the same
- * package.
+ * <p>Self-contained DB-layer type. The stats payload is split across two JSON columns — {@link
+ * SnapshotMetrics} (point-in-time fields at commit time) and {@link CommitDeltaMetrics} (per-commit
+ * counters).
  */
 @TypeDef(name = "json", typeClass = JsonStringType.class)
 @Entity
@@ -55,8 +55,12 @@ public class TableStatsHistoryRow {
   private String tableName;
 
   @Type(type = "json")
-  @Column(name = "stats", columnDefinition = "TEXT")
-  private TableStats stats;
+  @Column(name = "snapshot", columnDefinition = "TEXT")
+  private SnapshotMetrics snapshot;
+
+  @Type(type = "json")
+  @Column(name = "delta", columnDefinition = "TEXT")
+  private CommitDeltaMetrics delta;
 
   @Column(name = "recorded_at", nullable = false)
   private Instant recordedAt;

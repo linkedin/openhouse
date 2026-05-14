@@ -2,7 +2,8 @@ package com.linkedin.openhouse.optimizer.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.db.TableStats;
+import com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics;
+import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -35,8 +36,8 @@ class TableStatsHistoryRepositoryTest {
 
     assertThat(rows).hasSize(3);
     // newest first
-    assertThat(rows.get(0).getStats().getDelta().getNumFilesAdded()).isEqualTo(3L);
-    assertThat(rows.get(2).getStats().getDelta().getNumFilesAdded()).isEqualTo(10L);
+    assertThat(rows.get(0).getDelta().getNumFilesAdded()).isEqualTo(3L);
+    assertThat(rows.get(2).getDelta().getNumFilesAdded()).isEqualTo(10L);
   }
 
   @Test
@@ -67,7 +68,7 @@ class TableStatsHistoryRepositoryTest {
 
     // only the 2 rows within the last 90 minutes
     assertThat(rows).hasSize(2);
-    assertThat(rows.get(0).getStats().getDelta().getNumFilesAdded()).isEqualTo(3L);
+    assertThat(rows.get(0).getDelta().getNumFilesAdded()).isEqualTo(3L);
   }
 
   @Test
@@ -131,18 +132,11 @@ class TableStatsHistoryRepositoryTest {
         .tableUuid(tableUuid)
         .databaseName(databaseName)
         .tableName(tableName)
-        .stats(
-            TableStats.builder()
-                .snapshot(
-                    TableStats.SnapshotMetrics.builder()
-                        .clusterId("cl1")
-                        .tableSizeBytes(1024L)
-                        .build())
-                .delta(
-                    TableStats.CommitDelta.builder()
-                        .numFilesAdded(numFilesAdded)
-                        .numFilesDeleted(numFilesDeleted)
-                        .build())
+        .snapshot(SnapshotMetrics.builder().clusterId("cl1").tableSizeBytes(1024L).build())
+        .delta(
+            CommitDeltaMetrics.builder()
+                .numFilesAdded(numFilesAdded)
+                .numFilesDeleted(numFilesDeleted)
                 .build())
         .recordedAt(recordedAt)
         .build();

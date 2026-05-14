@@ -2,7 +2,8 @@ package com.linkedin.openhouse.optimizer.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.db.TableStats;
+import com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics;
+import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import java.time.Instant;
 import java.util.Map;
@@ -24,19 +25,18 @@ class TableStatsRepositoryTest {
   @Test
   void saveAndFindById() {
     String tableUuid = UUID.randomUUID().toString();
-    TableStats stats =
-        TableStats.builder()
-            .snapshot(
-                TableStats.SnapshotMetrics.builder().clusterId("cl1").tableSizeBytes(1024L).build())
-            .delta(TableStats.CommitDelta.builder().numFilesAdded(3L).numFilesDeleted(1L).build())
-            .build();
+    SnapshotMetrics snapshot =
+        SnapshotMetrics.builder().clusterId("cl1").tableSizeBytes(1024L).build();
+    CommitDeltaMetrics delta =
+        CommitDeltaMetrics.builder().numFilesAdded(3L).numFilesDeleted(1L).build();
 
     repository.save(
         TableStatsRow.builder()
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .stats(stats)
+            .snapshot(snapshot)
+            .delta(delta)
             .tableProperties(Map.of("maintenance.optimizer.ofd.enabled", "true"))
             .updatedAt(Instant.now())
             .build());
@@ -44,7 +44,8 @@ class TableStatsRepositoryTest {
     Optional<TableStatsRow> found = repository.findById(tableUuid);
     assertThat(found).isPresent();
     assertThat(found.get().getDatabaseName()).isEqualTo("db1");
-    assertThat(found.get().getStats().getSnapshot().getTableSizeBytes()).isEqualTo(1024L);
+    assertThat(found.get().getSnapshot().getTableSizeBytes()).isEqualTo(1024L);
+    assertThat(found.get().getDelta().getNumFilesAdded()).isEqualTo(3L);
     assertThat(found.get().getTableProperties())
         .containsEntry("maintenance.optimizer.ofd.enabled", "true");
   }
@@ -58,10 +59,7 @@ class TableStatsRepositoryTest {
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
-                    .build())
+            .snapshot(SnapshotMetrics.builder().tableSizeBytes(100L).build())
             .updatedAt(Instant.now())
             .build());
 
@@ -70,15 +68,12 @@ class TableStatsRepositoryTest {
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
-                    .build())
+            .snapshot(SnapshotMetrics.builder().tableSizeBytes(200L).build())
             .updatedAt(Instant.now())
             .build());
 
     assertThat(repository.findAll()).hasSize(1);
-    assertThat(repository.findById(tableUuid).get().getStats().getSnapshot().getTableSizeBytes())
+    assertThat(repository.findById(tableUuid).get().getSnapshot().getTableSizeBytes())
         .isEqualTo(200L);
   }
 
@@ -89,10 +84,7 @@ class TableStatsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
-                    .build())
+            .snapshot(SnapshotMetrics.builder().tableSizeBytes(100L).build())
             .updatedAt(Instant.now())
             .build());
     repository.save(
@@ -100,10 +92,7 @@ class TableStatsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db2")
             .tableName("tbl2")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
-                    .build())
+            .snapshot(SnapshotMetrics.builder().tableSizeBytes(200L).build())
             .updatedAt(Instant.now())
             .build());
 
@@ -117,10 +106,7 @@ class TableStatsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
-                    .build())
+            .snapshot(SnapshotMetrics.builder().tableSizeBytes(100L).build())
             .updatedAt(Instant.now())
             .build());
     repository.save(
@@ -128,10 +114,7 @@ class TableStatsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db2")
             .tableName("tbl2")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
-                    .build())
+            .snapshot(SnapshotMetrics.builder().tableSizeBytes(200L).build())
             .updatedAt(Instant.now())
             .build());
 

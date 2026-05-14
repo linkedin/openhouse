@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.optimizer.model.mapper;
 
+import com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics;
+import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
@@ -21,8 +23,9 @@ import org.springframework.stereotype.Component;
  * boundary at which the internal model meets the database layer. Pure data types under {@code
  * model/} stay free of any DB-side imports.
  *
- * <p>Each layer carries its own per-layer enum + payload types. This mapper translates between
- * model/-side and db/-side counterparts by name.
+ * <p>Each layer carries its own per-layer enum + payload types. The DB layer flattens the wire-side
+ * {@code TableStats} envelope into two separate columns ({@code snapshot} and {@code delta}); this
+ * mapper joins / splits them at the boundary.
  */
 @Component
 public class ModelDbMapper {
@@ -106,30 +109,31 @@ public class ModelDbMapper {
         .tableId(row.getTableName())
         .tableProperties(
             row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
-        .stats(toModelStats(row.getStats()))
+        .stats(joinStats(row.getSnapshot(), row.getDelta()))
         .build();
   }
 
-  // --- TableStats payload ---
+  // --- TableStats payload <-> (snapshot, delta) ---
 
-  public TableStats toModelStats(com.linkedin.openhouse.optimizer.db.TableStats dbStats) {
-    if (dbStats == null) {
+  /** Join the two DB-side columns into a single internal-model {@link TableStats}. */
+  public TableStats joinStats(SnapshotMetrics dbSnapshot, CommitDeltaMetrics dbDelta) {
+    if (dbSnapshot == null && dbDelta == null) {
       return null;
     }
     return TableStats.builder()
-        .snapshot(toModelSnapshot(dbStats.getSnapshot()))
-        .delta(toModelDelta(dbStats.getDelta()))
+        .snapshot(toModelSnapshot(dbSnapshot))
+        .delta(toModelDelta(dbDelta))
         .build();
   }
 
-  public com.linkedin.openhouse.optimizer.db.TableStats toDbStats(TableStats modelStats) {
-    if (modelStats == null) {
-      return null;
-    }
-    return com.linkedin.openhouse.optimizer.db.TableStats.builder()
-        .snapshot(toDbSnapshot(modelStats.getSnapshot()))
-        .delta(toDbDelta(modelStats.getDelta()))
-        .build();
+  /** Project the internal-model {@link TableStats#getSnapshot()} side. */
+  public SnapshotMetrics toDbSnapshot(TableStats modelStats) {
+    return modelStats == null ? null : toDbSnapshot(modelStats.getSnapshot());
+  }
+
+  /** Project the internal-model {@link TableStats#getDelta()} side. */
+  public CommitDeltaMetrics toDbDelta(TableStats modelStats) {
+    return modelStats == null ? null : toDbDelta(modelStats.getDelta());
   }
 
   public TableStatsHistoryRow toStatsHistoryRow(
@@ -144,7 +148,8 @@ public class ModelDbMapper {
         .tableUuid(tableUuid)
         .databaseName(databaseName)
         .tableName(tableName)
-        .stats(toDbStats(stats))
+        .snapshot(toDbSnapshot(stats))
+        .delta(toDbDelta(stats))
         .recordedAt(recordedAt)
         .build();
   }
@@ -177,10 +182,9 @@ public class ModelDbMapper {
     return v == null ? null : com.linkedin.openhouse.optimizer.db.HistoryStatus.valueOf(v.name());
   }
 
-  // --- TableStats inner classes ---
+  // --- inner-payload field copies ---
 
-  private TableStats.SnapshotMetrics toModelSnapshot(
-      com.linkedin.openhouse.optimizer.db.TableStats.SnapshotMetrics v) {
+  private TableStats.SnapshotMetrics toModelSnapshot(SnapshotMetrics v) {
     if (v == null) {
       return null;
     }
@@ -193,12 +197,11 @@ public class ModelDbMapper {
         .build();
   }
 
-  private com.linkedin.openhouse.optimizer.db.TableStats.SnapshotMetrics toDbSnapshot(
-      TableStats.SnapshotMetrics v) {
+  private SnapshotMetrics toDbSnapshot(TableStats.SnapshotMetrics v) {
     if (v == null) {
       return null;
     }
-    return com.linkedin.openhouse.optimizer.db.TableStats.SnapshotMetrics.builder()
+    return SnapshotMetrics.builder()
         .clusterId(v.getClusterId())
         .tableVersion(v.getTableVersion())
         .tableLocation(v.getTableLocation())
@@ -207,8 +210,7 @@ public class ModelDbMapper {
         .build();
   }
 
-  private TableStats.CommitDelta toModelDelta(
-      com.linkedin.openhouse.optimizer.db.TableStats.CommitDelta v) {
+  private TableStats.CommitDelta toModelDelta(CommitDeltaMetrics v) {
     if (v == null) {
       return null;
     }
@@ -220,12 +222,11 @@ public class ModelDbMapper {
         .build();
   }
 
-  private com.linkedin.openhouse.optimizer.db.TableStats.CommitDelta toDbDelta(
-      TableStats.CommitDelta v) {
+  private CommitDeltaMetrics toDbDelta(TableStats.CommitDelta v) {
     if (v == null) {
       return null;
     }
-    return com.linkedin.openhouse.optimizer.db.TableStats.CommitDelta.builder()
+    return CommitDeltaMetrics.builder()
         .numFilesAdded(v.getNumFilesAdded())
         .numFilesDeleted(v.getNumFilesDeleted())
         .addedSizeBytes(v.getAddedSizeBytes())

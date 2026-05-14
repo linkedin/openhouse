@@ -22,8 +22,9 @@ import org.hibernate.annotations.TypeDef;
  * <p>Written by the Tables Service on every Iceberg commit. Read by the Analyzer directly via JPA
  * to enumerate tables and check scheduling eligibility.
  *
- * <p>Self-contained DB-layer type: the JSON payload type is {@link TableStats} from the same
- * package.
+ * <p>Self-contained DB-layer type. The stats payload is split across two JSON columns — {@link
+ * SnapshotMetrics} (point-in-time fields, overwritten each commit) and {@link CommitDeltaMetrics}
+ * (per-commit counters).
  */
 @TypeDef(name = "json", typeClass = JsonStringType.class)
 @Entity
@@ -46,8 +47,12 @@ public class TableStatsRow {
   private String tableName;
 
   @Type(type = "json")
-  @Column(name = "stats", columnDefinition = "TEXT")
-  private TableStats stats;
+  @Column(name = "snapshot", columnDefinition = "TEXT")
+  private SnapshotMetrics snapshot;
+
+  @Type(type = "json")
+  @Column(name = "delta", columnDefinition = "TEXT")
+  private CommitDeltaMetrics delta;
 
   @Type(type = "json")
   @Column(name = "table_properties", columnDefinition = "TEXT")
