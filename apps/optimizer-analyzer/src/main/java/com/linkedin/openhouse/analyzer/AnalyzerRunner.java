@@ -1,11 +1,11 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
-import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsHistoryRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.repository.TableOperationHistoryRepository;
+import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import java.time.Instant;
@@ -35,7 +35,7 @@ public class AnalyzerRunner {
   private final List<OperationAnalyzer> analyzers;
   private final TableStatsRepository statsRepo;
   private final TableOperationsRepository operationsRepo;
-  private final TableOperationHistoryRepository historyRepo;
+  private final TableOperationsHistoryRepository historyRepo;
 
   /**
    * Run the analysis loop for {@code operationType} across all databases, with no filters.
@@ -85,16 +85,16 @@ public class AnalyzerRunner {
             .filter(e -> e.getTableUuid() != null)
             .collect(
                 Collectors.toMap(
-                    TableOperationRow::getTableUuid,
+                    TableOperationsRow::getTableUuid,
                     TableOperation::from,
                     TableOperation::mostRecent));
 
-    Map<String, TableOperationHistoryRow> latestHistory =
+    Map<String, TableOperationsHistoryRow> latestHistory =
         historyRepo.findLatestPerTable(operationType).stream()
             .filter(r -> r.getTableUuid() != null)
             .collect(
                 Collectors.toMap(
-                    TableOperationHistoryRow::getTableUuid,
+                    TableOperationsHistoryRow::getTableUuid,
                     r -> r,
                     AnalyzerRunner::moreRecentHistory));
 
@@ -122,7 +122,7 @@ public class AnalyzerRunner {
           }
           Optional<TableOperation> currentOp =
               Optional.ofNullable(currentOps.get(table.getTableUuid()));
-          Optional<TableOperationHistoryRow> entry =
+          Optional<TableOperationsHistoryRow> entry =
               Optional.ofNullable(latestHistory.get(table.getTableUuid()));
           if (analyzer.shouldSchedule(table, currentOp, entry)) {
             TableOperation op = TableOperation.pending(table, analyzer.getOperationType());
@@ -136,9 +136,9 @@ public class AnalyzerRunner {
         });
   }
 
-  private static TableOperationHistoryRow moreRecentHistory(
-      TableOperationHistoryRow a, TableOperationHistoryRow b) {
-    Comparator<TableOperationHistoryRow> byCompletedAt =
+  private static TableOperationsHistoryRow moreRecentHistory(
+      TableOperationsHistoryRow a, TableOperationsHistoryRow b) {
+    Comparator<TableOperationsHistoryRow> byCompletedAt =
         Comparator.comparing(r -> r.getCompletedAt() != null ? r.getCompletedAt() : Instant.EPOCH);
     return byCompletedAt.compare(a, b) >= 0 ? a : b;
   }

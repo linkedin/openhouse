@@ -7,12 +7,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.repository.TableOperationHistoryRepository;
+import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import java.time.Instant;
@@ -35,7 +35,7 @@ class AnalyzerRunnerTest {
 
   @Mock private TableStatsRepository statsRepo;
   @Mock private TableOperationsRepository operationsRepo;
-  @Mock private TableOperationHistoryRepository historyRepo;
+  @Mock private TableOperationsHistoryRepository historyRepo;
   @Mock private OperationAnalyzer analyzer;
 
   private AnalyzerRunner runner;
@@ -66,9 +66,9 @@ class AnalyzerRunnerTest {
 
     runner.analyze(OFD_TYPE);
 
-    ArgumentCaptor<TableOperationRow> captor = ArgumentCaptor.forClass(TableOperationRow.class);
+    ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
     verify(operationsRepo).save(captor.capture());
-    TableOperationRow saved = captor.getValue();
+    TableOperationsRow saved = captor.getValue();
     assertThat(saved.getTableUuid()).isEqualTo("uuid-1");
     assertThat(saved.getDatabaseName()).isEqualTo(DB);
     assertThat(saved.getTableName()).isEqualTo("tbl1");
@@ -87,7 +87,7 @@ class AnalyzerRunnerTest {
     Table expectedTable =
         Table.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
 
-    TableOperationRow existingEntity = new TableOperationRow();
+    TableOperationsRow existingEntity = new TableOperationsRow();
     existingEntity.setId("existing-op-id");
     existingEntity.setStatus("PENDING");
     existingEntity.setTableUuid("uuid-1");
@@ -134,7 +134,7 @@ class AnalyzerRunnerTest {
 
     Table expectedTable = Table.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    TableOperationRow scheduled = new TableOperationRow();
+    TableOperationsRow scheduled = new TableOperationsRow();
     scheduled.setId("op-id");
     scheduled.setStatus("SCHEDULED");
     scheduled.setTableUuid("uuid-1");

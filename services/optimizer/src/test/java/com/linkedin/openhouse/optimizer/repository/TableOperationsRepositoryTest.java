@@ -32,8 +32,8 @@ class TableOperationsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.PENDING)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.PENDING.name())
             .createdAt(Instant.now())
             .build();
 
@@ -41,7 +41,7 @@ class TableOperationsRepositoryTest {
 
     Optional<TableOperationsRow> found = repository.findById(id);
     assertThat(found).isPresent();
-    assertThat(found.get().getStatus()).isEqualTo(OperationStatus.PENDING);
+    assertThat(found.get().getStatus()).isEqualTo(OperationStatus.PENDING.name());
   }
 
   @Test
@@ -52,8 +52,8 @@ class TableOperationsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.PENDING)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.PENDING.name())
             .createdAt(Instant.now())
             .build());
     repository.save(
@@ -62,8 +62,8 @@ class TableOperationsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl2")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.SCHEDULED)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.SCHEDULED.name())
             .createdAt(Instant.now())
             .build());
 
@@ -79,8 +79,8 @@ class TableOperationsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.PENDING)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.PENDING.name())
             .createdAt(Instant.now())
             .build());
     repository.save(
@@ -89,20 +89,20 @@ class TableOperationsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl2")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.SCHEDULED)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.SCHEDULED.name())
             .createdAt(Instant.now())
             .build());
 
     List<TableOperationsRow> pending =
-        repository.find(null, OperationStatus.PENDING, null, null, null);
+        repository.find(null, OperationStatus.PENDING.name(), null, null, null);
     assertThat(pending).hasSize(1);
-    assertThat(pending.get(0).getStatus()).isEqualTo(OperationStatus.PENDING);
+    assertThat(pending.get(0).getStatus()).isEqualTo(OperationStatus.PENDING.name());
 
     List<TableOperationsRow> scheduled =
-        repository.find(null, OperationStatus.SCHEDULED, null, null, null);
+        repository.find(null, OperationStatus.SCHEDULED.name(), null, null, null);
     assertThat(scheduled).hasSize(1);
-    assertThat(scheduled.get(0).getStatus()).isEqualTo(OperationStatus.SCHEDULED);
+    assertThat(scheduled.get(0).getStatus()).isEqualTo(OperationStatus.SCHEDULED.name());
   }
 
   @Test
@@ -113,8 +113,8 @@ class TableOperationsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.PENDING)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.PENDING.name())
             .createdAt(Instant.now())
             .build());
     repository.save(
@@ -123,13 +123,13 @@ class TableOperationsRepositoryTest {
             .tableUuid(UUID.randomUUID().toString())
             .databaseName("db2")
             .tableName("tbl2")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.PENDING)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.PENDING.name())
             .createdAt(Instant.now())
             .build());
 
-    assertThat(repository.find(null, null, "db1", null, null)).hasSize(1);
-    assertThat(repository.find(null, null, "db2", "tbl2", null)).hasSize(1);
-    assertThat(repository.find(null, null, "db1", "tbl2", null)).isEmpty();
+    assertThat(repository.find(null, null, null, "db1", null)).hasSize(1);
+    assertThat(repository.find(null, null, null, "db2", "tbl2")).hasSize(1);
+    assertThat(repository.find(null, null, null, "db1", "tbl2")).isEmpty();
   }
 }

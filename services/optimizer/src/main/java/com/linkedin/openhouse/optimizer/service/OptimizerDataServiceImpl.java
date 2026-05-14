@@ -2,7 +2,7 @@ package com.linkedin.openhouse.optimizer.service;
 
 import com.linkedin.openhouse.optimizer.api.mapper.OptimizerMapper;
 import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequest;
-import com.linkedin.openhouse.optimizer.api.model.OperationHistoryStatus;
+import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
@@ -49,11 +49,11 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       Optional<String> tableUuid) {
     return operationsRepository
         .find(
-            operationType.orElse(null),
-            status.orElse(null),
+            operationType.map(OperationType::name).orElse(null),
+            status.map(OperationStatus::name).orElse(null),
+            tableUuid.orElse(null),
             databaseName.orElse(null),
-            tableName.orElse(null),
-            tableUuid.orElse(null))
+            tableName.orElse(null))
         .stream()
         .map(mapper::toDto)
         .collect(Collectors.toList());
@@ -75,9 +75,9 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                       .tableName(row.getTableName())
                       .operationType(row.getOperationType())
                       .completedAt(Instant.now())
-                      .status(request.getStatus())
+                      .status(request.getStatus().name())
                       .jobId(row.getJobId())
-                      .result(request.getResult())
+                      .result(mapper.fromJobResult(request.getResult()))
                       .build();
               return mapper.toDto(historyRepository.save(historyRow));
             });
@@ -165,11 +165,11 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             .tableUuid(dto.getTableUuid())
             .databaseName(dto.getDatabaseName())
             .tableName(dto.getTableName())
-            .operationType(dto.getOperationType())
+            .operationType(dto.getOperationType() != null ? dto.getOperationType().name() : null)
             .completedAt(dto.getCompletedAt() != null ? dto.getCompletedAt() : Instant.now())
-            .status(dto.getStatus())
+            .status(dto.getStatus() != null ? dto.getStatus().name() : null)
             .jobId(dto.getJobId())
-            .result(dto.getResult())
+            .result(mapper.fromJobResult(dto.getResult()))
             .build();
     return mapper.toDto(historyRepository.save(row));
   }
@@ -188,7 +188,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       Optional<String> tableName,
       Optional<String> tableUuid,
       Optional<OperationType> operationType,
-      Optional<OperationHistoryStatus> status,
+      Optional<HistoryStatus> status,
       Optional<Instant> since,
       Optional<Instant> until,
       int limit) {
@@ -197,8 +197,8 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             databaseName.orElse(null),
             tableName.orElse(null),
             tableUuid.orElse(null),
-            operationType.orElse(null),
-            status.orElse(null),
+            operationType.map(OperationType::name).orElse(null),
+            status.map(HistoryStatus::name).orElse(null),
             since.orElse(null),
             until.orElse(null),
             PageRequest.of(0, limit))

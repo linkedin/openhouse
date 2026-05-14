@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.model;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.UUID;
@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * An operation the analyzer has decided to schedule for a table, and that the scheduler later picks
- * up and submits. Built either from an existing {@link TableOperationRow} (when loading current
+ * up and submits. Built either from an existing {@link TableOperationsRow} (when loading current
  * state) or from a {@link Table} (when creating a new PENDING operation). Converts back to a JPA
  * row via {@link #toRow()}.
  *
@@ -56,7 +56,7 @@ public class TableOperation {
   private Long fileCount;
 
   /** Build a {@code TableOperation} from an existing JPA row. */
-  public static TableOperation from(TableOperationRow row) {
+  public static TableOperation from(TableOperationsRow row) {
     return TableOperation.builder()
         .id(row.getId())
         .tableUuid(row.getTableUuid())
@@ -83,8 +83,8 @@ public class TableOperation {
   }
 
   /** Convert to a JPA entity for persistence. */
-  public TableOperationRow toRow() {
-    return TableOperationRow.builder()
+  public TableOperationsRow toRow() {
+    return TableOperationsRow.builder()
         .id(id)
         .tableUuid(tableUuid)
         .databaseName(databaseName)

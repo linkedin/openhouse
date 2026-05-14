@@ -2,7 +2,7 @@ package com.linkedin.openhouse.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsHistoryRow;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
@@ -190,8 +190,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     return TableOperation.builder().status(status).build();
   }
 
-  private TableOperationHistoryRow historyWithStatus(String status, Instant completedAt) {
-    return TableOperationHistoryRow.builder()
+  private TableOperationsHistoryRow historyWithStatus(String status, Instant completedAt) {
+    return TableOperationsHistoryRow.builder()
         .id("hist-id")
         .tableUuid("test-uuid")
         .operationType("ORPHAN_FILES_DELETION")

@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsHistoryRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
@@ -45,7 +45,7 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
   public boolean shouldSchedule(
       Table table,
       Optional<TableOperation> currentOp,
-      Optional<TableOperationHistoryRow> latestHistory) {
+      Optional<TableOperationsHistoryRow> latestHistory) {
     return cadencePolicy.shouldSchedule(currentOp, latestHistory);
   }
 }
