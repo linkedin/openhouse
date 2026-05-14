@@ -163,7 +163,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionCreatesSnapshotsOnNoOpDelete() throws Exception {
+  public void testRetentionSkipsNoOpDelete() throws Exception {
     final String tableName = "db_test.test_retention_sql";
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
@@ -174,7 +174,9 @@ public class OperationsTest extends OpenHouseSparkITest {
       ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now());
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
-      Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
+      // Pre-flight planFiles returns empty (all rows are from today, cutoff is 2 days ago),
+      // so spark.sql(DELETE) is skipped and no new snapshot is produced.
+      Assertions.assertEquals(snapshots.size(), snapshotsAfter.size());
     }
   }
 
@@ -306,6 +308,34 @@ public class OperationsTest extends OpenHouseSparkITest {
       }
       Assertions.assertEquals(
           table.location() + "/.backup", table.properties().get(AppConstants.BACKUP_DIR_KEY));
+    }
+  }
+
+  @Test
+  public void testRetentionNoOpDeleteSkipsBackupManifests() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      String tableName = "db.test_noop_skip_backup";
+      String columnName = "ts";
+      String granularity = "DAY";
+      int count = 1;
+      // Only insert current-day rows; cutoff (1 day ago) leaves nothing to delete.
+      ops.spark()
+          .sql(
+              String.format(
+                  "create table %s (data string, ts timestamp) partitioned by (Days(ts))",
+                  tableName));
+      ops.spark().sql(String.format("insert into %s values ('a', current_timestamp())", tableName));
+      ZonedDateTime now = ZonedDateTime.now();
+      List<Long> snapshotsBefore = getSnapshotIds(ops, tableName);
+      ops.runRetention(tableName, columnName, "", granularity, count, true, ".backup", now);
+      // No backup manifests should be written and BACKUP_DIR_KEY should not be set.
+      Table table = ops.getTable(tableName);
+      Path backupRoot = new Path(table.location(), ".backup");
+      Assertions.assertFalse(ops.fs().exists(backupRoot));
+      Assertions.assertNull(table.properties().get(AppConstants.BACKUP_DIR_KEY));
+      // No DELETE snapshot should be appended.
+      List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(snapshotsBefore.size(), snapshotsAfter.size());
     }
   }
 

@@ -312,6 +312,23 @@ public final class Operations implements AutoCloseable {
       boolean backupEnabled,
       String backupDir,
       ZonedDateTime now) {
+    // Pre-flight: plan files matching the retention filter. If none match, the DELETE is a
+    // no-op — skip spark.sql(DELETE) to avoid the full-table COW scan that Iceberg performs
+    // when the retention column doesn't align with the partition spec.
+    Table table = getTable(fqtn);
+    Expression filter =
+        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count, now);
+    boolean hasMatchingFiles;
+    try (CloseableIterable<FileScanTask> filesIterable =
+        table.newScan().filter(filter).planFiles()) {
+      hasMatchingFiles = filesIterable.iterator().hasNext();
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to plan files for retention pre-flight", e);
+    }
+    if (!hasMatchingFiles) {
+      log.info("Retention pre-flight: no files match filter for table {}, skipping DELETE", fqtn);
+      return;
+    }
     if (backupEnabled) {
       // Cache of manifests: partitionPath -> list of data file path
       Map<String, List<String>> manifestCache =
