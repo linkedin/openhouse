@@ -1,6 +1,5 @@
-package com.linkedin.openhouse.optimizer.entity;
+package com.linkedin.openhouse.optimizer.db;
 
-import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.vladmihalcea.hibernate.type.json.JsonStringType;
 import java.time.Instant;
 import java.util.Map;
@@ -22,6 +21,9 @@ import org.hibernate.annotations.TypeDef;
  *
  * <p>Written by the Tables Service on every Iceberg commit. Read by the Analyzer directly via JPA
  * to enumerate tables and check scheduling eligibility.
+ *
+ * <p>Self-contained DB-layer type. Holds only the point-in-time {@link SnapshotMetrics} —
+ * per-commit deltas live exclusively on {@link TableStatsHistoryRow} and are not aggregated here.
  */
 @TypeDef(name = "json", typeClass = JsonStringType.class)
 @Entity
@@ -44,8 +46,8 @@ public class TableStatsRow {
   private String tableName;
 
   @Type(type = "json")
-  @Column(name = "stats", columnDefinition = "TEXT")
-  private TableStats stats;
+  @Column(name = "snapshot", columnDefinition = "TEXT")
+  private SnapshotMetrics snapshot;
 
   @Type(type = "json")
   @Column(name = "table_properties", columnDefinition = "TEXT")
