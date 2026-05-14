@@ -3,7 +3,6 @@ package com.linkedin.openhouse.optimizer.model.mapper;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.model.HistoryStatus;
-import com.linkedin.openhouse.optimizer.model.JobResult;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
@@ -72,8 +71,6 @@ public class ApiModelMapper {
         .operationType(toModelOperationType(dto.getOperationType()))
         .completedAt(dto.getCompletedAt())
         .status(toModelHistoryStatus(dto.getStatus()))
-        .jobId(dto.getJobId())
-        .result(toModelJobResult(dto.getResult()))
         .build();
   }
 
@@ -89,8 +86,6 @@ public class ApiModelMapper {
         .operationType(toApiOperationType(history.getOperationType()))
         .completedAt(history.getCompletedAt())
         .status(toApiHistoryStatus(history.getStatus()))
-        .jobId(history.getJobId())
-        .result(toApiJobResult(history.getResult()))
         .build();
   }
 
@@ -152,28 +147,6 @@ public class ApiModelMapper {
     return modelValue == null
         ? null
         : com.linkedin.openhouse.optimizer.api.model.HistoryStatus.valueOf(modelValue.name());
-  }
-
-  // --- JobResult ---
-
-  public JobResult toModelJobResult(com.linkedin.openhouse.optimizer.api.model.JobResult apiValue) {
-    if (apiValue == null) {
-      return null;
-    }
-    return JobResult.builder()
-        .errorMessage(apiValue.getErrorMessage())
-        .errorType(apiValue.getErrorType())
-        .build();
-  }
-
-  public com.linkedin.openhouse.optimizer.api.model.JobResult toApiJobResult(JobResult modelValue) {
-    if (modelValue == null) {
-      return null;
-    }
-    return com.linkedin.openhouse.optimizer.api.model.JobResult.builder()
-        .errorMessage(modelValue.getErrorMessage())
-        .errorType(modelValue.getErrorType())
-        .build();
   }
 
   // --- TableStats inner classes ---
