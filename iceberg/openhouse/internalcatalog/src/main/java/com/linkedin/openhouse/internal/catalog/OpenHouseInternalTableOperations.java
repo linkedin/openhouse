@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -330,6 +331,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             "updateMetadata to location {} succeeded, took {} ms",
             newMetadataLocation,
             System.currentTimeMillis() - metadataUpdateStartTime);
+        // Set replication after the synchronous write so the write path is not blocked
+        // on the higher replica count. Failures are logged and do not fail the commit.
+        bumpMetadataReplicationIfHdfs(newMetadataLocation);
       } catch (Exception e) {
         log.error(
             "updateMetadata to location {} failed after {} ms",
@@ -692,6 +696,62 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    */
   private String[] getCatalogMetricTags() {
     return new String[] {};
+  }
+
+  /**
+   * Set HDFS replication on a just-written {@code metadata.json} file to {@link
+   * CatalogConstants#METADATA_FILE_HDFS_REPLICATION}. Called immediately after the synchronous
+   * metadata write returns inside {@link #doCommit(TableMetadata, TableMetadata)}.
+   *
+   * <p>The synchronous write produces the file at the cluster HDFS default replication. This
+   * call raises it to the target replication factor so the persisted file ends up at the
+   * expected count without making the synchronous write path wait on the longer datanode
+   * pipeline ack.
+   *
+   * <p>HDFS-only. Non-HDFS clients (local, blob storage) silently skip.
+   *
+   * <p>Failures are logged at WARN and swallowed; they do not fail the commit.
+   *
+   * @param newMetadataLocation absolute HDFS path of the newly-written metadata.json
+   */
+  private void bumpMetadataReplicationIfHdfs(String newMetadataLocation) {
+    Storage storage;
+    try {
+      storage = fileIOManager.getStorage(fileIO);
+    } catch (Exception e) {
+      log.warn(
+          "Skipping HDFS replication bump for {}: could not resolve storage from fileIO",
+          newMetadataLocation,
+          e);
+      return;
+    }
+    if (storage == null || !(storage.getClient() instanceof HdfsStorageClient)) {
+      return;
+    }
+    final FileSystem fs = (FileSystem) storage.getClient().getNativeClient();
+    final short targetReplication = CatalogConstants.METADATA_FILE_HDFS_REPLICATION;
+    try {
+      metricsReporter.executeWithStats(
+          () -> {
+            try {
+              fs.setReplication(new Path(newMetadataLocation), targetReplication);
+            } catch (IOException ioe) {
+              // Wrap so executeWithStats sees a RuntimeException; caught below for warn+swallow.
+              throw new RuntimeException(ioe);
+            }
+          },
+          InternalCatalogMetricsConstant.METADATA_REPLICATION_SET_LATENCY,
+          getCatalogMetricTags());
+      log.debug(
+          "Set HDFS replication on {} to {}", newMetadataLocation, targetReplication);
+    } catch (Exception e) {
+      log.warn(
+          "Failed to set HDFS replication on {} to {}; file remains at the HDFS default "
+              + "replication.",
+          newMetadataLocation,
+          targetReplication,
+          e);
+    }
   }
 
   /**

@@ -28,6 +28,17 @@ public final class CatalogConstants {
 
   public static final String EVOLVED_SCHEMA_KEY = "evolved.table.schema";
 
+  /**
+   * Target HDFS replication factor applied to newly-written {@code .metadata.json} files
+   * immediately after the synchronous write returns. Paired with a li-openhouse PR that
+   * lowers the cluster default {@code dfs.replication}.
+   *
+   * <p>TODO(mkuchenb): promote this to a Spring config property
+   * ({@code openhouse.metadata.hdfs.replication}) so deployments can tune it without a
+   * code change. Kept as a constant for now to minimize PR surface area.
+   */
+  public static final short METADATA_FILE_HDFS_REPLICATION = (short) 30;
+
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
   static final String CLIENT_TABLE_SCHEMA = "client.table.schema";
