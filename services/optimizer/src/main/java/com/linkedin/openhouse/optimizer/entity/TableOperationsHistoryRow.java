@@ -1,15 +1,8 @@
 package com.linkedin.openhouse.optimizer.entity;
 
-import com.linkedin.openhouse.optimizer.api.model.JobResult;
-import com.linkedin.openhouse.optimizer.api.model.OperationHistoryStatus;
-import com.linkedin.openhouse.optimizer.api.model.OperationType;
-import com.linkedin.openhouse.optimizer.config.JobResultConverter;
 import java.time.Instant;
 import javax.persistence.Column;
-import javax.persistence.Convert;
 import javax.persistence.Entity;
-import javax.persistence.EnumType;
-import javax.persistence.Enumerated;
 import javax.persistence.Id;
 import javax.persistence.Index;
 import javax.persistence.Table;
@@ -27,6 +20,11 @@ import lombok.NoArgsConstructor;
  * originating {@code table_operations.id}, tying each history entry back to the operation cycle
  * that produced it. Multiple runs of the same operation on the same table produce multiple rows
  * (each cycle gets a new UUID from the Analyzer).
+ *
+ * <p>{@code operationType}, {@code status}, and {@code result} are stored as plain {@code String}
+ * (the last as a JSON blob) so the entity layer stays decoupled from the wire-API enum and
+ * structured-result types. The wire layer is responsible for converting at the boundary via {@link
+ * com.linkedin.openhouse.optimizer.api.mapper.OptimizerMapper}.
  */
 @Entity
 @Table(
@@ -60,25 +58,22 @@ public class TableOperationsHistoryRow {
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
-  @Enumerated(EnumType.STRING)
   @Column(name = "operation_type", nullable = false, length = 50)
-  private OperationType operationType;
+  private String operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
   @Column(name = "completed_at", nullable = false)
   private Instant completedAt;
 
   /** {@code SUCCESS} or {@code FAILED}. */
-  @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
-  private OperationHistoryStatus status;
+  private String status;
 
   /** Spark job ID; indexed for job → result lookups. */
   @Column(name = "job_id", length = 255)
   private String jobId;
 
-  /** Job result: error details on failure, both fields null on success. */
-  @Convert(converter = JobResultConverter.class)
-  @Column(name = "result")
-  private JobResult result;
+  /** Job result JSON blob: error details on failure, both fields null on success. */
+  @Column(name = "result", columnDefinition = "TEXT")
+  private String result;
 }

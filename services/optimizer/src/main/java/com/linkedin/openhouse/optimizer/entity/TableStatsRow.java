@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.entity;
 
-import com.linkedin.openhouse.optimizer.api.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.vladmihalcea.hibernate.type.json.JsonStringType;
 import java.time.Instant;
 import java.util.Map;

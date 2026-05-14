@@ -1,12 +1,8 @@
 package com.linkedin.openhouse.optimizer.entity;
 
-import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
-import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import java.time.Instant;
 import javax.persistence.Column;
 import javax.persistence.Entity;
-import javax.persistence.EnumType;
-import javax.persistence.Enumerated;
 import javax.persistence.Id;
 import javax.persistence.Index;
 import javax.persistence.Table;
@@ -26,6 +22,11 @@ import lombok.NoArgsConstructor;
  * table_uuid} is the stable identity for the table (survives renames; rotates on drop+recreate).
  * The application enforces one active (PENDING or SCHEDULED) row per {@code (table_uuid,
  * operation_type)} at a time.
+ *
+ * <p>{@code operationType} and {@code status} are stored as {@code String} rather than JPA-bound
+ * enums so the entity layer stays decoupled from the wire-API enum identity. The wire layer is
+ * responsible for converting at the boundary via {@link
+ * com.linkedin.openhouse.optimizer.api.mapper.OptimizerMapper}.
  */
 @Entity
 @Table(
@@ -59,13 +60,11 @@ public class TableOperationsRow {
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
-  @Enumerated(EnumType.STRING)
   @Column(name = "operation_type", nullable = false, length = 50)
-  private OperationType operationType;
+  private String operationType;
 
-  @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
-  private OperationStatus status;
+  private String status;
 
   /** When the Analyzer first created this row. Set by the service on insert; never updated. */
   @Column(name = "created_at", nullable = false)

@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.optimizer.api.model;
+package com.linkedin.openhouse.optimizer.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;

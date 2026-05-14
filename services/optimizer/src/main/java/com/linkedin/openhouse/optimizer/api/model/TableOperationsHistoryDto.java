@@ -27,7 +27,7 @@ public class TableOperationsHistoryDto {
   private Instant completedAt;
 
   /** {@code SUCCESS} or {@code FAILED}. */
-  private OperationHistoryStatus status;
+  private HistoryStatus status;
 
   /** Job ID from the Jobs Service. */
   private String jobId;
