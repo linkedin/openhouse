@@ -215,7 +215,6 @@ public class ApiModelMapper {
       return null;
     }
     return TableStats.SnapshotMetrics.builder()
-        .clusterId(apiValue.getClusterId())
         .tableVersion(apiValue.getTableVersion())
         .tableLocation(apiValue.getTableLocation())
         .tableSizeBytes(apiValue.getTableSizeBytes())
@@ -229,7 +228,6 @@ public class ApiModelMapper {
       return null;
     }
     return com.linkedin.openhouse.optimizer.api.model.TableStats.SnapshotMetrics.builder()
-        .clusterId(modelValue.getClusterId())
         .tableVersion(modelValue.getTableVersion())
         .tableLocation(modelValue.getTableLocation())
         .tableSizeBytes(modelValue.getTableSizeBytes())

@@ -41,27 +41,34 @@ import org.hibernate.annotations.TypeDef;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class TableStatsHistoryRow {
 
+  /** UUID primary key — set by the caller, not generated server-side. */
   @Id
   @Column(name = "id", nullable = false, length = 36)
   private String id;
 
+  /** Stable Iceberg table UUID. */
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
+  /** Denormalized database name. */
   @Column(name = "database_name", nullable = false, length = 128)
   private String databaseName;
 
+  /** Denormalized table name. */
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
+  /** Snapshot fields at commit time. Stored as a JSON blob in the {@code snapshot} column. */
   @Type(type = "json")
   @Column(name = "snapshot", columnDefinition = "TEXT")
   private SnapshotMetrics snapshot;
 
+  /** Per-commit delta counters. Stored as a JSON blob in the {@code delta} column. */
   @Type(type = "json")
   @Column(name = "delta", columnDefinition = "TEXT")
   private CommitDeltaMetrics delta;
 
+  /** When this history row was recorded (commit time). */
   @Column(name = "recorded_at", nullable = false)
   private Instant recordedAt;
 }

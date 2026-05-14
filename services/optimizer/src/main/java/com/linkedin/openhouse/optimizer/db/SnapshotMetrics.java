@@ -14,9 +14,13 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class SnapshotMetrics {
 
-  private String clusterId;
+  /** Iceberg metadata version pointer for this snapshot. */
   private String tableVersion;
+
+  /** Filesystem path (or URI) of the table's storage root. */
   private String tableLocation;
+
+  /** Total on-disk size of the table at this snapshot, in bytes. */
   private Long tableSizeBytes;
 
   /** Total number of data files as of the latest snapshot — used for bin-packing. */
