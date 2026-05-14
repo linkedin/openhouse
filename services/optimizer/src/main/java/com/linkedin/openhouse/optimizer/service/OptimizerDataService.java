@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.optimizer.service;
 
 import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequest;
-import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
@@ -82,19 +81,4 @@ public interface OptimizerDataService {
    * @param limit maximum number of rows to return
    */
   List<TableOperationsHistoryDto> getHistory(String tableUuid, int limit);
-
-  /**
-   * List history rows matching the given filters, ordered newest first. Every parameter is optional
-   * — pass {@link Optional#empty()} to skip that filter. No filters returns all rows up to {@code
-   * limit}.
-   */
-  List<TableOperationsHistoryDto> listHistory(
-      Optional<String> databaseName,
-      Optional<String> tableName,
-      Optional<String> tableUuid,
-      Optional<OperationType> operationType,
-      Optional<HistoryStatus> status,
-      Optional<Instant> since,
-      Optional<Instant> until,
-      int limit);
 }
