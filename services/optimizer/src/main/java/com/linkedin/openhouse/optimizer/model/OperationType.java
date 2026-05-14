@@ -8,5 +8,15 @@ package com.linkedin.openhouse.optimizer.model;
 public enum OperationType {
 
   /** Removes orphaned data files no longer referenced by table metadata. */
-  ORPHAN_FILES_DELETION
+  ORPHAN_FILES_DELETION;
+
+  /** Convert to the DB-layer counterpart. */
+  public com.linkedin.openhouse.optimizer.db.OperationType toDb() {
+    return com.linkedin.openhouse.optimizer.db.OperationType.valueOf(name());
+  }
+
+  /** Build the internal-model enum from the DB-layer counterpart. */
+  public static OperationType fromDb(com.linkedin.openhouse.optimizer.db.OperationType v) {
+    return v == null ? null : OperationType.valueOf(v.name());
+  }
 }
