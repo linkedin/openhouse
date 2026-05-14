@@ -35,20 +35,25 @@ import org.hibernate.annotations.TypeDef;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class TableStatsRow {
 
+  /** Stable Iceberg table UUID. Primary key. */
   @Id
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
+  /** Denormalized database name. */
   @Column(name = "database_name", nullable = false, length = 128)
   private String databaseName;
 
+  /** Denormalized table name. */
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
+  /** Latest snapshot fields. Stored as a JSON blob in the {@code snapshot} column. */
   @Type(type = "json")
   @Column(name = "snapshot", columnDefinition = "TEXT")
   private SnapshotMetrics snapshot;
 
+  /** Current table-property map (e.g. maintenance opt-in flags). Stored as JSON. */
   @Type(type = "json")
   @Column(name = "table_properties", columnDefinition = "TEXT")
   private Map<String, String> tableProperties;

@@ -8,5 +8,7 @@ package com.linkedin.openhouse.optimizer.db;
  * {@code @Enumerated(EnumType.STRING)}.
  */
 public enum OperationType {
+
+  /** Removes orphaned data files no longer referenced by table metadata. */
   ORPHAN_FILES_DELETION
 }

@@ -132,7 +132,7 @@ class TableStatsHistoryRepositoryTest {
         .tableUuid(tableUuid)
         .databaseName(databaseName)
         .tableName(tableName)
-        .snapshot(SnapshotMetrics.builder().clusterId("cl1").tableSizeBytes(1024L).build())
+        .snapshot(SnapshotMetrics.builder().tableSizeBytes(1024L).build())
         .delta(
             CommitDeltaMetrics.builder()
                 .numFilesAdded(numFilesAdded)

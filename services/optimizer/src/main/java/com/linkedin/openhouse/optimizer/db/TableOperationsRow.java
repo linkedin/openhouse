@@ -44,44 +44,42 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class TableOperationsRow {
 
+  /** Client-generated UUID identifying this specific operation recommendation. */
   @Id
   @Column(name = "id", nullable = false, length = 36)
   private String id;
 
+  /** Stable table identity from the Tables Service. Survives renames; rotates on drop+recreate. */
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
+  /** Denormalized database name. */
   @Column(name = "database_name", nullable = false, length = 128)
   private String databaseName;
 
+  /** Denormalized table name. */
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
+  /** The type of maintenance operation this row recommends. */
   @Enumerated(EnumType.STRING)
   @Column(name = "operation_type", nullable = false, length = 50)
   private OperationType operationType;
 
+  /** Lifecycle state — drives the scheduler's CAS claim and the analyzer's eligibility check. */
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
   private OperationStatus status;
 
+  /** When the analyzer first created this row. Set on insert; never updated. */
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
+  /** When the scheduler last submitted a job for this row. {@code null} while {@code PENDING}. */
   @Column(name = "scheduled_at")
   private Instant scheduledAt;
 
   /** Spark job ID written by the scheduler at claim time. Internal-only; never exposed on wire. */
   @Column(name = "job_id", length = 255)
   private String jobId;
-
-  /**
-   * Monotonically-increasing version for application-level optimistic concurrency control. The
-   * scheduler's batch CAS transitions match this in the WHERE clause and bump it by one on UPDATE,
-   * ensuring two scheduler instances can't both move the same row out of PENDING. Not managed by
-   * JPA optimistic locking — kept as a plain column so the WHERE-clause-based CAS pattern works
-   * portably across MySQL and H2.
-   */
-  @Column(name = "version")
-  private Long version;
 }

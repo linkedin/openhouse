@@ -47,22 +47,28 @@ public class TableOperationsHistoryRow {
   @Column(name = "id", nullable = false, length = 36)
   private String id;
 
+  /** Stable table identity from the Tables Service. */
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
+  /** Denormalized database name. */
   @Column(name = "database_name", nullable = false, length = 128)
   private String databaseName;
 
+  /** Denormalized table name. */
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
+  /** The type of maintenance operation this history row records. */
   @Enumerated(EnumType.STRING)
   @Column(name = "operation_type", nullable = false, length = 50)
   private OperationType operationType;
 
+  /** When the operation completed, as recorded by the complete endpoint. */
   @Column(name = "completed_at", nullable = false)
   private Instant completedAt;
 
+  /** Terminal outcome: {@link HistoryStatus#SUCCESS} or {@link HistoryStatus#FAILED}. */
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
   private HistoryStatus status;

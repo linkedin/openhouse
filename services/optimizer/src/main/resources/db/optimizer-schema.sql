@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS table_operations (
   created_at     TIMESTAMP(6)  NOT NULL,
   scheduled_at   TIMESTAMP(6),
   job_id         VARCHAR(255),
-  version        BIGINT,
   -- TODO: per-operation metric columns will be added as operations are onboarded.
   PRIMARY KEY (id)
 );
