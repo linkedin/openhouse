@@ -9,11 +9,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
-import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
+import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -33,6 +34,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 class SchedulerRunnerTest {
 
   private static final OperationType OFD = OperationType.ORPHAN_FILES_DELETION;
+  private static final com.linkedin.openhouse.optimizer.db.OperationType OFD_DB =
+      com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION;
+  private static final com.linkedin.openhouse.optimizer.db.OperationStatus PENDING_DB =
+      com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING;
   private static final String OFD_STR = OFD.name();
 
   @Mock private TableOperationsRepository operationsRepo;
@@ -40,11 +45,14 @@ class SchedulerRunnerTest {
   @Mock private JobsServiceClient jobsClient;
   @Mock private BinPacker binPacker;
 
+  private final ModelDbMapper dbMapper = new ModelDbMapper();
   private SchedulerRunner runner;
 
   @BeforeEach
   void setUp() {
-    runner = new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of(OFD, binPacker));
+    runner =
+        new SchedulerRunner(
+            operationsRepo, statsRepo, jobsClient, Map.of(OFD, binPacker), dbMapper);
     ReflectionTestUtils.setField(
         runner, "resultsEndpoint", "http://localhost:8080/v1/table-operations");
   }
@@ -55,24 +63,23 @@ class SchedulerRunnerTest {
         .tableUuid(uuid)
         .databaseName(db)
         .tableName(table)
-        .operationType(OFD_STR)
-        .status("PENDING")
+        .operationType(OFD_DB)
+        .status(PENDING_DB)
         .version(0L)
         .createdAt(java.time.Instant.now())
         .build();
   }
 
   private TableStatsRow statsRow(String uuid, long numCurrentFiles) {
-    TableStats stats =
-        TableStats.builder()
-            .snapshot(TableStats.SnapshotMetrics.builder().numCurrentFiles(numCurrentFiles).build())
-            .build();
-    return TableStatsRow.builder().tableUuid(uuid).stats(stats).build();
+    return TableStatsRow.builder()
+        .tableUuid(uuid)
+        .snapshot(SnapshotMetrics.builder().numCurrentFiles(numCurrentFiles).build())
+        .build();
   }
 
   @Test
   void schedule_noPendingOps_noJobSubmitted() {
-    when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of());
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of());
 
     runner.schedule(OFD);
 
@@ -83,12 +90,12 @@ class SchedulerRunnerTest {
   @Test
   void schedule_unknownOperationType_noOp() {
     SchedulerRunner emptyRunner =
-        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of());
+        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of(), dbMapper);
     ReflectionTestUtils.setField(emptyRunner, "resultsEndpoint", "x");
 
     emptyRunner.schedule(OFD);
 
-    verify(operationsRepo, never()).find(anyString(), anyString(), any(), any(), any());
+    verify(operationsRepo, never()).find(any(), any(), any(), any(), any());
     verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
@@ -97,7 +104,7 @@ class SchedulerRunnerTest {
     String uuid = UUID.randomUUID().toString();
     TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
-    when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row));
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
     when(binPacker.pack(anyList()))
         .thenAnswer(inv -> List.of(inv.<List<TableOperation>>getArgument(0)));
@@ -126,7 +133,7 @@ class SchedulerRunnerTest {
     String uuid = UUID.randomUUID().toString();
     TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
-    when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row));
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
     when(binPacker.pack(anyList()))
         .thenAnswer(inv -> List.of(inv.<List<TableOperation>>getArgument(0)));
@@ -147,7 +154,7 @@ class SchedulerRunnerTest {
     String uuid = UUID.randomUUID().toString();
     TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
-    when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row));
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
     when(binPacker.pack(anyList()))
         .thenAnswer(inv -> List.of(inv.<List<TableOperation>>getArgument(0)));
@@ -166,7 +173,7 @@ class SchedulerRunnerTest {
     TableOperationsRow row1 = pendingRow(uuid, "db1", "tbl1");
     TableOperationsRow row2 = pendingRow(uuid, "db1", "tbl1");
 
-    when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row1, row2));
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row1, row2));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
     when(binPacker.pack(anyList()))
         .thenAnswer(inv -> List.of(inv.<List<TableOperation>>getArgument(0)));
@@ -177,6 +184,6 @@ class SchedulerRunnerTest {
 
     runner.schedule(OFD);
 
-    verify(operationsRepo).cancelDuplicatePendingBatch(eq(OFD_STR), anyList());
+    verify(operationsRepo).cancelDuplicatePendingBatch(eq(OFD_DB), anyList());
   }
 }

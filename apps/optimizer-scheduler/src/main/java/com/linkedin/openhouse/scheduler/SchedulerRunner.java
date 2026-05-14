@@ -1,9 +1,10 @@
 package com.linkedin.openhouse.scheduler;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
-import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
+import com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -34,6 +35,7 @@ public class SchedulerRunner {
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
   private final Map<OperationType, BinPacker> binPackers;
+  private final ModelDbMapper dbMapper;
 
   @Value("${scheduler.results-endpoint}")
   private String resultsEndpoint;
@@ -57,10 +59,12 @@ public class SchedulerRunner {
       return;
     }
 
+    com.linkedin.openhouse.optimizer.db.OperationType dbOperationType =
+        dbMapper.toDbOperationType(operationType);
     List<TableOperationsRow> pendingRows =
         operationsRepo.find(
-            operationType.name(),
-            "PENDING",
+            dbOperationType,
+            com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING,
             null,
             databaseName.orElse(null),
             tableName.orElse(null));
@@ -80,7 +84,7 @@ public class SchedulerRunner {
         pendingRows.stream()
             .map(
                 row -> {
-                  TableOperation op = TableOperation.from(row);
+                  TableOperation op = dbMapper.toOperation(row);
                   op.setFileCount(fileCountByUuid.getOrDefault(row.getTableUuid(), 0L));
                   return op;
                 })
@@ -96,7 +100,7 @@ public class SchedulerRunner {
   private void submitBin(OperationType operationType, List<TableOperation> bin) {
     // Deduplicate PENDING rows per tableUuid for this op type, keeping the IDs in this bin.
     List<String> keepIds = bin.stream().map(TableOperation::getId).collect(Collectors.toList());
-    operationsRepo.cancelDuplicatePendingBatch(operationType.name(), keepIds);
+    operationsRepo.cancelDuplicatePendingBatch(dbMapper.toDbOperationType(operationType), keepIds);
 
     // Claim the rows in one batched UPDATE: PENDING → SCHEDULING.
     int claimedCount = operationsRepo.markSchedulingBatch(keepIds, Instant.now());
@@ -132,10 +136,10 @@ public class SchedulerRunner {
   }
 
   private static long extractFileCount(TableStatsRow row) {
-    if (row.getStats() == null || row.getStats().getSnapshot() == null) {
+    if (row.getSnapshot() == null) {
       return 0L;
     }
-    Long count = row.getStats().getSnapshot().getNumCurrentFiles();
+    Long count = row.getSnapshot().getNumCurrentFiles();
     return count != null ? count : 0L;
   }
 }
