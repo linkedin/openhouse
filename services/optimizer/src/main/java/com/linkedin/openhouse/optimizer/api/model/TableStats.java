@@ -32,10 +32,19 @@ public class TableStats {
   @AllArgsConstructor
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class SnapshotMetrics {
+
+    /** Cluster the table lives on. */
     private String clusterId;
+
+    /** Iceberg metadata version pointer for this snapshot. */
     private String tableVersion;
+
+    /** Filesystem path (or URI) of the table's storage root. */
     private String tableLocation;
+
+    /** Total on-disk size of the table at this snapshot, in bytes. */
     private Long tableSizeBytes;
+
     /** Total number of data files as of the latest snapshot — used for bin-packing. */
     private Long numCurrentFiles;
   }
@@ -47,9 +56,17 @@ public class TableStats {
   @AllArgsConstructor
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class CommitDelta {
+
+    /** Number of data files this commit added to the table. */
     private Long numFilesAdded;
+
+    /** Number of data files this commit removed from the table. */
     private Long numFilesDeleted;
+
+    /** Total bytes added by this commit. */
     private Long addedSizeBytes;
+
+    /** Total bytes removed by this commit. */
     private Long deletedSizeBytes;
   }
 }

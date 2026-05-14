@@ -6,5 +6,7 @@ package com.linkedin.openhouse.optimizer.model;
  * supported operations without churning either boundary.
  */
 public enum OperationType {
+
+  /** Removes orphaned data files no longer referenced by table metadata. */
   ORPHAN_FILES_DELETION
 }
