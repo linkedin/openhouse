@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.scheduler;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
@@ -57,7 +57,7 @@ public class SchedulerRunner {
       return;
     }
 
-    List<TableOperationRow> pendingRows =
+    List<TableOperationsRow> pendingRows =
         operationsRepo.find(
             operationType.name(),
             "PENDING",
@@ -70,7 +70,7 @@ public class SchedulerRunner {
     }
 
     Set<String> uuids =
-        pendingRows.stream().map(TableOperationRow::getTableUuid).collect(Collectors.toSet());
+        pendingRows.stream().map(TableOperationsRow::getTableUuid).collect(Collectors.toSet());
     Map<String, Long> fileCountByUuid =
         statsRepo.findAllById(uuids).stream()
             .collect(

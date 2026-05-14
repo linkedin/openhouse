@@ -9,15 +9,17 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-/** Lightweight JPA entity for reading {@code table_operations_history} rows. */
+/** JPA entity mapping to the {@code table_operations} table in the optimizer DB. */
 @Entity
-@Table(name = "table_operations_history")
+@Table(name = "table_operations")
 @Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationHistoryRow {
+public class TableOperationsRow {
 
   @Id
   @Column(name = "id", nullable = false, length = 36)
@@ -35,9 +37,25 @@ public class TableOperationHistoryRow {
   @Column(name = "operation_type", nullable = false, length = 50)
   private String operationType;
 
-  @Column(name = "completed_at", nullable = false)
-  private Instant completedAt;
-
   @Column(name = "status", nullable = false, length = 20)
   private String status;
+
+  @Column(name = "created_at")
+  private Instant createdAt;
+
+  @Column(name = "scheduled_at")
+  private Instant scheduledAt;
+
+  @Column(name = "job_id", length = 255)
+  private String jobId;
+
+  /**
+   * Monotonically-increasing version for application-level optimistic concurrency control. The
+   * scheduler's CAS transitions (e.g. {@code markScheduling}, {@code markScheduled}) match this
+   * value in the WHERE clause and bump it by one on UPDATE, ensuring two scheduler instances can't
+   * both move the same row out of PENDING. Not managed by JPA optimistic locking — kept as a plain
+   * column so the WHERE-clause-based CAS pattern works portably across MySQL and H2.
+   */
+  @Column(name = "version")
+  private Long version;
 }

@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.entity;
 
-import com.linkedin.openhouse.optimizer.api.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.vladmihalcea.hibernate.type.json.JsonStringType;
 import java.time.Instant;
 import javax.persistence.Column;
@@ -21,7 +21,7 @@ import org.hibernate.annotations.TypeDef;
  * Append-only record of per-commit stats reported by the Tables Service.
  *
  * <p>Each Iceberg commit produces one row. The {@code stats} JSON contains both the snapshot
- * metrics (point-in-time) and the commit delta (files added/deleted in this commit). Consumers can
+ * metrics (point-in-time) and the commit delta (files added/deleted in this commit). Consumers
  * query this table to reconstruct change rates over arbitrary time windows.
  */
 @TypeDef(name = "json", typeClass = JsonStringType.class)

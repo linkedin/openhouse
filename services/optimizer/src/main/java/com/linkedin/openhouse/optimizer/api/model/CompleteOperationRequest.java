@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 public class CompleteOperationRequest {
 
   /** Outcome of the operation. */
-  private OperationHistoryStatus status;
+  private HistoryStatus status;
 
   /** Error details on failure; {@code null} on success. */
   private JobResult result;

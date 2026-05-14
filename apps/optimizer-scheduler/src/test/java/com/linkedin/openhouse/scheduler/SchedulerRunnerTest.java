@@ -9,7 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
+import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
@@ -49,8 +49,8 @@ class SchedulerRunnerTest {
         runner, "resultsEndpoint", "http://localhost:8080/v1/table-operations");
   }
 
-  private TableOperationRow pendingRow(String uuid, String db, String table) {
-    return TableOperationRow.builder()
+  private TableOperationsRow pendingRow(String uuid, String db, String table) {
+    return TableOperationsRow.builder()
         .id(UUID.randomUUID().toString())
         .tableUuid(uuid)
         .databaseName(db)
@@ -95,7 +95,7 @@ class SchedulerRunnerTest {
   @Test
   void schedule_singleBin_claimsAndMarksScheduled() {
     String uuid = UUID.randomUUID().toString();
-    TableOperationRow row = pendingRow(uuid, "db1", "tbl1");
+    TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
     when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
@@ -124,7 +124,7 @@ class SchedulerRunnerTest {
   @Test
   void schedule_jobLaunchFails_marksPendingForRetry() {
     String uuid = UUID.randomUUID().toString();
-    TableOperationRow row = pendingRow(uuid, "db1", "tbl1");
+    TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
     when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
@@ -145,7 +145,7 @@ class SchedulerRunnerTest {
   @Test
   void schedule_rowsAlreadyClaimed_skipsSubmit() {
     String uuid = UUID.randomUUID().toString();
-    TableOperationRow row = pendingRow(uuid, "db1", "tbl1");
+    TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
     when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
@@ -163,8 +163,8 @@ class SchedulerRunnerTest {
   @Test
   void schedule_cancelsDuplicatePendingBeforeClaim() {
     String uuid = UUID.randomUUID().toString();
-    TableOperationRow row1 = pendingRow(uuid, "db1", "tbl1");
-    TableOperationRow row2 = pendingRow(uuid, "db1", "tbl1");
+    TableOperationsRow row1 = pendingRow(uuid, "db1", "tbl1");
+    TableOperationsRow row2 = pendingRow(uuid, "db1", "tbl1");
 
     when(operationsRepo.find(OFD_STR, "PENDING", null, null, null)).thenReturn(List.of(row1, row2));
     when(statsRepo.findAllById(any())).thenReturn(List.of());

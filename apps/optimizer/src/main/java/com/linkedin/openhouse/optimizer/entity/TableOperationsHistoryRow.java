@@ -9,17 +9,15 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
-/** JPA entity mapping to the {@code table_operations} table in the optimizer DB. */
+/** Lightweight JPA entity for reading {@code table_operations_history} rows. */
 @Entity
-@Table(name = "table_operations")
+@Table(name = "table_operations_history")
 @Getter
-@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationRow {
+public class TableOperationsHistoryRow {
 
   @Id
   @Column(name = "id", nullable = false, length = 36)
@@ -37,19 +35,15 @@ public class TableOperationRow {
   @Column(name = "operation_type", nullable = false, length = 50)
   private String operationType;
 
+  @Column(name = "completed_at", nullable = false)
+  private Instant completedAt;
+
   @Column(name = "status", nullable = false, length = 20)
   private String status;
-
-  @Column(name = "created_at")
-  private Instant createdAt;
-
-  @Column(name = "scheduled_at")
-  private Instant scheduledAt;
 
   @Column(name = "job_id", length = 255)
   private String jobId;
 
-  /** Plain version column — not managed by JPA optimistic locking. */
-  @Column(name = "version")
-  private Long version;
+  @Column(name = "result", columnDefinition = "TEXT")
+  private String result;
 }
