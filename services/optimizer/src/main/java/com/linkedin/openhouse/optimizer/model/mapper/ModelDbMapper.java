@@ -13,6 +13,7 @@ import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.TableStatsHistory;
 import java.util.Collections;
 import org.springframework.stereotype.Component;
 
@@ -111,6 +112,23 @@ public class ModelDbMapper {
             row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
         // table_stats holds only the snapshot — deltas live on the history table.
         .stats(joinStats(row.getSnapshot(), null))
+        .updatedAt(row.getUpdatedAt())
+        .build();
+  }
+
+  // --- TableStatsHistoryRow -> TableStatsHistory ---
+
+  public TableStatsHistory toStatsHistory(TableStatsHistoryRow row) {
+    if (row == null) {
+      return null;
+    }
+    return TableStatsHistory.builder()
+        .id(row.getId())
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .stats(joinStats(row.getSnapshot(), row.getDelta()))
+        .recordedAt(row.getRecordedAt())
         .build();
   }
 
