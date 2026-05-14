@@ -40,7 +40,7 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
   @Query(
       "UPDATE TableOperationsRow r "
           + "SET r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULING,"
-          + " r.scheduledAt = :scheduledAt, r.version = r.version + 1 "
+          + " r.scheduledAt = :scheduledAt "
           + "WHERE r.id IN :ids "
           + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING")
   int markSchedulingBatch(
@@ -54,7 +54,7 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
   @Query(
       "UPDATE TableOperationsRow r "
           + "SET r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED,"
-          + " r.jobId = :jobId, r.version = r.version + 1 "
+          + " r.jobId = :jobId "
           + "WHERE r.id IN :ids "
           + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULING")
   int markScheduledBatch(@Param("ids") List<String> ids, @Param("jobId") String jobId);
@@ -68,7 +68,7 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
   @Query(
       "UPDATE TableOperationsRow r "
           + "SET r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING,"
-          + " r.scheduledAt = NULL, r.version = r.version + 1 "
+          + " r.scheduledAt = NULL "
           + "WHERE r.id IN :ids "
           + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULING")
   int markPendingBatch(@Param("ids") List<String> ids);

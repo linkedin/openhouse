@@ -33,9 +33,6 @@ public class TableStats {
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class SnapshotMetrics {
 
-    /** Cluster the table lives on. */
-    private String clusterId;
-
     /** Iceberg metadata version pointer for this snapshot. */
     private String tableVersion;
 
