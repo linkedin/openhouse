@@ -3,10 +3,12 @@ package com.linkedin.openhouse.optimizer.api.controller;
 import com.linkedin.openhouse.optimizer.api.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableStatsHistoryDto;
 import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequest;
+import com.linkedin.openhouse.optimizer.model.mapper.ApiModelMapper;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class TableStatsController {
 
   private final OptimizerDataService service;
+  private final ApiModelMapper apiMapper;
 
   /**
    * Create or overwrite the stats row for {@code tableUuid}. Called by the Tables Service on every
@@ -32,7 +35,8 @@ public class TableStatsController {
   @PutMapping("/{tableUuid}")
   public ResponseEntity<TableStatsDto> upsertTableStats(
       @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequest request) {
-    return ResponseEntity.ok(service.upsertTableStats(tableUuid, request));
+    return ResponseEntity.ok(
+        apiMapper.toDto(service.upsertTableStats(apiMapper.toTable(tableUuid, request))));
   }
 
   /** Fetch the stats row for {@code tableUuid}. Returns 404 if no stats have been written yet. */
@@ -40,6 +44,7 @@ public class TableStatsController {
   public ResponseEntity<TableStatsDto> getTableStats(@PathVariable String tableUuid) {
     return service
         .getTableStats(tableUuid)
+        .map(apiMapper::toDto)
         .map(ResponseEntity::ok)
         .orElse(ResponseEntity.notFound().build());
   }
@@ -53,11 +58,16 @@ public class TableStatsController {
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
-    return ResponseEntity.ok(
-        service.listTableStats(
-            Optional.ofNullable(databaseName),
-            Optional.ofNullable(tableName),
-            Optional.ofNullable(tableUuid)));
+    List<TableStatsDto> result =
+        service
+            .listTableStats(
+                Optional.ofNullable(databaseName),
+                Optional.ofNullable(tableName),
+                Optional.ofNullable(tableUuid))
+            .stream()
+            .map(apiMapper::toDto)
+            .collect(Collectors.toList());
+    return ResponseEntity.ok(result);
   }
 
   /**
@@ -69,6 +79,10 @@ public class TableStatsController {
       @PathVariable String tableUuid,
       @RequestParam(required = false) Instant since,
       @RequestParam(defaultValue = "100") int limit) {
-    return ResponseEntity.ok(service.getStatsHistory(tableUuid, Optional.ofNullable(since), limit));
+    List<TableStatsHistoryDto> result =
+        service.getStatsHistory(tableUuid, Optional.ofNullable(since), limit).stream()
+            .map(apiMapper::toDto)
+            .collect(Collectors.toList());
+    return ResponseEntity.ok(result);
   }
 }

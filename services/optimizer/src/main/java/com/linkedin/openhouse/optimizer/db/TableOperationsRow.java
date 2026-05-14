@@ -1,8 +1,10 @@
-package com.linkedin.openhouse.optimizer.entity;
+package com.linkedin.openhouse.optimizer.db;
 
 import java.time.Instant;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
 import javax.persistence.Id;
 import javax.persistence.Index;
 import javax.persistence.Table;
@@ -18,15 +20,12 @@ import lombok.NoArgsConstructor;
  *
  * <p>Each row is identified by a client-generated UUID ({@code id}). The Analyzer creates a new row
  * when it first recommends an operation for a table, or when re-recommending after a prior terminal
- * state (SUCCESS/FAILED). Old terminal rows accumulate — they serve as implicit history. {@code
- * table_uuid} is the stable identity for the table (survives renames; rotates on drop+recreate).
- * The application enforces one active (PENDING or SCHEDULED) row per {@code (table_uuid,
- * operation_type)} at a time.
+ * state. {@code table_uuid} is the stable identity for the table (survives renames; rotates on
+ * drop+recreate). The application enforces one active (PENDING / SCHEDULING / SCHEDULED) row per
+ * {@code (table_uuid, operation_type)} at a time.
  *
- * <p>{@code operationType} and {@code status} are stored as {@code String} rather than JPA-bound
- * enums so the entity layer stays decoupled from the wire-API enum identity. The wire layer is
- * responsible for converting at the boundary via {@link
- * com.linkedin.openhouse.optimizer.api.mapper.OptimizerMapper}.
+ * <p>Self-contained DB-layer type: enums are {@link OperationType} / {@link OperationStatus} from
+ * the same package, JPA-bound as strings.
  */
 @Entity
 @Table(
@@ -45,12 +44,10 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class TableOperationsRow {
 
-  /** Client-generated UUID identifying this specific operation recommendation. */
   @Id
   @Column(name = "id", nullable = false, length = 36)
   private String id;
 
-  /** Stable table identity from the Tables Service. Survives renames; rotates on drop+recreate. */
   @Column(name = "table_uuid", nullable = false, length = 36)
   private String tableUuid;
 
@@ -60,27 +57,30 @@ public class TableOperationsRow {
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
+  @Enumerated(EnumType.STRING)
   @Column(name = "operation_type", nullable = false, length = 50)
-  private String operationType;
+  private OperationType operationType;
 
+  @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
-  private String status;
+  private OperationStatus status;
 
-  /** When the Analyzer first created this row. Set by the service on insert; never updated. */
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
-  /** Set when the operation is claimed; {@code null} while {@code PENDING}. */
   @Column(name = "scheduled_at")
   private Instant scheduledAt;
 
-  /** Job ID returned by the Jobs Service after successful submission. */
+  /** Spark job ID written by the scheduler at claim time. Internal-only; never exposed on wire. */
   @Column(name = "job_id", length = 255)
   private String jobId;
 
   /**
-   * Manual optimistic lock for the Scheduler claim. Incremented by the raw {@code claimOperation}
-   * UPDATE query; must NOT use JPA {@code @Version} since the claim bypasses JPA entity management.
+   * Monotonically-increasing version for application-level optimistic concurrency control. The
+   * scheduler's batch CAS transitions match this in the WHERE clause and bump it by one on UPDATE,
+   * ensuring two scheduler instances can't both move the same row out of PENDING. Not managed by
+   * JPA optimistic locking — kept as a plain column so the WHERE-clause-based CAS pattern works
+   * portably across MySQL and H2.
    */
   @Column(name = "version")
   private Long version;

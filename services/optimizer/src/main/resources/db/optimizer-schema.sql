@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS table_stats (
   table_uuid       VARCHAR(36)   NOT NULL,
   database_name    VARCHAR(128)  NOT NULL,
   table_name       VARCHAR(128)  NOT NULL,
-  stats            TEXT,
+  snapshot         TEXT,
   table_properties TEXT,
   updated_at       TIMESTAMP(6)  NOT NULL,
   PRIMARY KEY (table_uuid)
@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS table_stats_history (
   table_uuid     VARCHAR(36)   NOT NULL,
   database_name  VARCHAR(128)  NOT NULL,
   table_name     VARCHAR(128)  NOT NULL,
-  stats          TEXT,
+  snapshot       TEXT,
+  delta          TEXT,
   recorded_at    TIMESTAMP(6)  NOT NULL,
   PRIMARY KEY (id),
   INDEX idx_tsh_table_uuid (table_uuid),
@@ -45,8 +46,6 @@ CREATE TABLE IF NOT EXISTS table_operations_history (
   operation_type VARCHAR(50)   NOT NULL,
   completed_at   TIMESTAMP(6)  NOT NULL,
   status         VARCHAR(20)   NOT NULL,
-  job_id                VARCHAR(255),
-  result                TEXT,
   PRIMARY KEY (id),
   INDEX idx_toph_db_table (database_name, table_name),
   -- Drives TableOperationHistoryRepository.findLatestPerTable: the correlated
