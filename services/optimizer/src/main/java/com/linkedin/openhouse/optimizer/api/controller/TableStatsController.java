@@ -3,7 +3,6 @@ package com.linkedin.openhouse.optimizer.api.controller;
 import com.linkedin.openhouse.optimizer.api.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableStatsHistoryDto;
 import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequest;
-import com.linkedin.openhouse.optimizer.model.mapper.ApiModelMapper;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.time.Instant;
 import java.util.List;
@@ -26,7 +25,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class TableStatsController {
 
   private final OptimizerDataService service;
-  private final ApiModelMapper apiMapper;
 
   /**
    * Create or overwrite the stats row for {@code tableUuid}. Called by the Tables Service on every
@@ -36,7 +34,7 @@ public class TableStatsController {
   public ResponseEntity<TableStatsDto> upsertTableStats(
       @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequest request) {
     return ResponseEntity.ok(
-        apiMapper.toDto(service.upsertTableStats(apiMapper.toTable(tableUuid, request))));
+        TableStatsDto.fromModel(service.upsertTableStats(request.toModel(tableUuid))));
   }
 
   /** Fetch the stats row for {@code tableUuid}. Returns 404 if no stats have been written yet. */
@@ -44,7 +42,7 @@ public class TableStatsController {
   public ResponseEntity<TableStatsDto> getTableStats(@PathVariable String tableUuid) {
     return service
         .getTableStats(tableUuid)
-        .map(apiMapper::toDto)
+        .map(TableStatsDto::fromModel)
         .map(ResponseEntity::ok)
         .orElse(ResponseEntity.notFound().build());
   }
@@ -65,7 +63,7 @@ public class TableStatsController {
                 Optional.ofNullable(tableName),
                 Optional.ofNullable(tableUuid))
             .stream()
-            .map(apiMapper::toDto)
+            .map(TableStatsDto::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);
   }
@@ -81,7 +79,7 @@ public class TableStatsController {
       @RequestParam(defaultValue = "100") int limit) {
     List<TableStatsHistoryDto> result =
         service.getStatsHistory(tableUuid, Optional.ofNullable(since), limit).stream()
-            .map(apiMapper::toDto)
+            .map(TableStatsHistoryDto::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);
   }
