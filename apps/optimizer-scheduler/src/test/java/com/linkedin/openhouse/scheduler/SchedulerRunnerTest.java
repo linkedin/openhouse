@@ -65,7 +65,6 @@ class SchedulerRunnerTest {
         .tableName(table)
         .operationType(OFD_DB)
         .status(PENDING_DB)
-        .version(0L)
         .createdAt(java.time.Instant.now())
         .build();
   }
