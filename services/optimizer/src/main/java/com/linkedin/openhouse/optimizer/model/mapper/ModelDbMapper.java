@@ -109,7 +109,8 @@ public class ModelDbMapper {
         .tableId(row.getTableName())
         .tableProperties(
             row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
-        .stats(joinStats(row.getSnapshot(), row.getDelta()))
+        // table_stats holds only the snapshot — deltas live on the history table.
+        .stats(joinStats(row.getSnapshot(), null))
         .build();
   }
 

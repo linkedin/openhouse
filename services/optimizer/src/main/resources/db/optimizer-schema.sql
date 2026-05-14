@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS table_stats (
   database_name    VARCHAR(128)  NOT NULL,
   table_name       VARCHAR(128)  NOT NULL,
   snapshot         TEXT,
-  delta            TEXT,
   table_properties TEXT,
   updated_at       TIMESTAMP(6)  NOT NULL,
   PRIMARY KEY (table_uuid)

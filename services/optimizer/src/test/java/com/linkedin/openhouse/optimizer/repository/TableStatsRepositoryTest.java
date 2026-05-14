@@ -2,7 +2,6 @@ package com.linkedin.openhouse.optimizer.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics;
 import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import java.time.Instant;
@@ -27,8 +26,6 @@ class TableStatsRepositoryTest {
     String tableUuid = UUID.randomUUID().toString();
     SnapshotMetrics snapshot =
         SnapshotMetrics.builder().clusterId("cl1").tableSizeBytes(1024L).build();
-    CommitDeltaMetrics delta =
-        CommitDeltaMetrics.builder().numFilesAdded(3L).numFilesDeleted(1L).build();
 
     repository.save(
         TableStatsRow.builder()
@@ -36,7 +33,6 @@ class TableStatsRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .snapshot(snapshot)
-            .delta(delta)
             .tableProperties(Map.of("maintenance.optimizer.ofd.enabled", "true"))
             .updatedAt(Instant.now())
             .build());
@@ -45,7 +41,6 @@ class TableStatsRepositoryTest {
     assertThat(found).isPresent();
     assertThat(found.get().getDatabaseName()).isEqualTo("db1");
     assertThat(found.get().getSnapshot().getTableSizeBytes()).isEqualTo(1024L);
-    assertThat(found.get().getDelta().getNumFilesAdded()).isEqualTo(3L);
     assertThat(found.get().getTableProperties())
         .containsEntry("maintenance.optimizer.ofd.enabled", "true");
   }
