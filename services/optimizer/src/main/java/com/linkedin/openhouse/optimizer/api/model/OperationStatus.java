@@ -17,5 +17,16 @@ public enum OperationStatus {
    * operation_type)}. Only the most-recent PENDING row is claimed; older duplicates are CANCELED
    * before the claim step.
    */
-  CANCELED
+  CANCELED;
+
+  /** Convert to the internal-model counterpart. */
+  public com.linkedin.openhouse.optimizer.model.OperationStatus toModel() {
+    return com.linkedin.openhouse.optimizer.model.OperationStatus.valueOf(name());
+  }
+
+  /** Build the api-layer enum from the internal-model counterpart. */
+  public static OperationStatus fromModel(
+      com.linkedin.openhouse.optimizer.model.OperationStatus v) {
+    return v == null ? null : OperationStatus.valueOf(v.name());
+  }
 }

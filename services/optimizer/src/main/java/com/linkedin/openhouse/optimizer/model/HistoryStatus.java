@@ -13,5 +13,15 @@ public enum HistoryStatus {
   SUCCESS,
 
   /** The operation failed. */
-  FAILED
+  FAILED;
+
+  /** Convert to the DB-layer counterpart. */
+  public com.linkedin.openhouse.optimizer.db.HistoryStatus toDb() {
+    return com.linkedin.openhouse.optimizer.db.HistoryStatus.valueOf(name());
+  }
+
+  /** Build the internal-model enum from the DB-layer counterpart. */
+  public static HistoryStatus fromDb(com.linkedin.openhouse.optimizer.db.HistoryStatus v) {
+    return v == null ? null : HistoryStatus.valueOf(v.name());
+  }
 }

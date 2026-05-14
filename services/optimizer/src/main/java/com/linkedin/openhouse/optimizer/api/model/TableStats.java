@@ -25,6 +25,25 @@ public class TableStats {
   /** Delta fields — accumulated across commit events. */
   private CommitDelta delta;
 
+  /** Convert to the internal-model counterpart. */
+  public com.linkedin.openhouse.optimizer.model.TableStats toModel() {
+    return com.linkedin.openhouse.optimizer.model.TableStats.builder()
+        .snapshot(snapshot == null ? null : snapshot.toModel())
+        .delta(delta == null ? null : delta.toModel())
+        .build();
+  }
+
+  /** Build the api-layer payload from the internal-model counterpart. */
+  public static TableStats fromModel(com.linkedin.openhouse.optimizer.model.TableStats m) {
+    if (m == null) {
+      return null;
+    }
+    return TableStats.builder()
+        .snapshot(SnapshotMetrics.fromModel(m.getSnapshot()))
+        .delta(CommitDelta.fromModel(m.getDelta()))
+        .build();
+  }
+
   /** Point-in-time metadata read from Iceberg at scan time. */
   @Data
   @Builder(toBuilder = true)
@@ -44,6 +63,30 @@ public class TableStats {
 
     /** Total number of data files as of the latest snapshot — used for bin-packing. */
     private Long numCurrentFiles;
+
+    /** Convert to the internal-model counterpart. */
+    public com.linkedin.openhouse.optimizer.model.TableStats.SnapshotMetrics toModel() {
+      return com.linkedin.openhouse.optimizer.model.TableStats.SnapshotMetrics.builder()
+          .tableVersion(tableVersion)
+          .tableLocation(tableLocation)
+          .tableSizeBytes(tableSizeBytes)
+          .numCurrentFiles(numCurrentFiles)
+          .build();
+    }
+
+    /** Build the api-layer inner object from the internal-model counterpart. */
+    public static SnapshotMetrics fromModel(
+        com.linkedin.openhouse.optimizer.model.TableStats.SnapshotMetrics m) {
+      if (m == null) {
+        return null;
+      }
+      return SnapshotMetrics.builder()
+          .tableVersion(m.getTableVersion())
+          .tableLocation(m.getTableLocation())
+          .tableSizeBytes(m.getTableSizeBytes())
+          .numCurrentFiles(m.getNumCurrentFiles())
+          .build();
+    }
   }
 
   /** Per-commit incremental counters; accumulated across all recorded commit events. */
@@ -65,5 +108,29 @@ public class TableStats {
 
     /** Total bytes removed by this commit. */
     private Long deletedSizeBytes;
+
+    /** Convert to the internal-model counterpart. */
+    public com.linkedin.openhouse.optimizer.model.TableStats.CommitDelta toModel() {
+      return com.linkedin.openhouse.optimizer.model.TableStats.CommitDelta.builder()
+          .numFilesAdded(numFilesAdded)
+          .numFilesDeleted(numFilesDeleted)
+          .addedSizeBytes(addedSizeBytes)
+          .deletedSizeBytes(deletedSizeBytes)
+          .build();
+    }
+
+    /** Build the api-layer inner object from the internal-model counterpart. */
+    public static CommitDelta fromModel(
+        com.linkedin.openhouse.optimizer.model.TableStats.CommitDelta m) {
+      if (m == null) {
+        return null;
+      }
+      return CommitDelta.builder()
+          .numFilesAdded(m.getNumFilesAdded())
+          .numFilesDeleted(m.getNumFilesDeleted())
+          .addedSizeBytes(m.getAddedSizeBytes())
+          .deletedSizeBytes(m.getDeletedSizeBytes())
+          .build();
+    }
   }
 }

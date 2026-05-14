@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.model;
 
+import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,8 +12,6 @@ import lombok.NoArgsConstructor;
  *
  * <p>One per Iceberg commit. {@link #stats} carries both the snapshot at commit time and the commit
  * delta — consumers can reconstruct change rates over arbitrary time windows.
- *
- * <p>Pure internal-model type — no references to wire-API or DB types.
  */
 @Data
 @Builder
@@ -37,4 +36,32 @@ public class TableStatsHistory {
 
   /** When this history row was recorded. */
   private Instant recordedAt;
+
+  /** Convert to the corresponding DB row. */
+  public TableStatsHistoryRow toRow() {
+    return TableStatsHistoryRow.builder()
+        .id(id)
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .snapshot(stats == null ? null : stats.toSnapshotRow())
+        .delta(stats == null ? null : stats.toDeltaRow())
+        .recordedAt(recordedAt)
+        .build();
+  }
+
+  /** Build a {@link TableStatsHistory} from a DB row. */
+  public static TableStatsHistory fromRow(TableStatsHistoryRow row) {
+    if (row == null) {
+      return null;
+    }
+    return TableStatsHistory.builder()
+        .id(row.getId())
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .stats(TableStats.fromRows(row.getSnapshot(), row.getDelta()))
+        .recordedAt(row.getRecordedAt())
+        .build();
+  }
 }
