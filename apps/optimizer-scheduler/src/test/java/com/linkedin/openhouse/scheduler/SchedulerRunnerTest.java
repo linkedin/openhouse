@@ -14,7 +14,6 @@ import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -45,14 +44,11 @@ class SchedulerRunnerTest {
   @Mock private JobsServiceClient jobsClient;
   @Mock private BinPacker binPacker;
 
-  private final ModelDbMapper dbMapper = new ModelDbMapper();
   private SchedulerRunner runner;
 
   @BeforeEach
   void setUp() {
-    runner =
-        new SchedulerRunner(
-            operationsRepo, statsRepo, jobsClient, Map.of(OFD, binPacker), dbMapper);
+    runner = new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of(OFD, binPacker));
     ReflectionTestUtils.setField(
         runner, "resultsEndpoint", "http://localhost:8080/v1/table-operations");
   }
@@ -89,7 +85,7 @@ class SchedulerRunnerTest {
   @Test
   void schedule_unknownOperationType_noOp() {
     SchedulerRunner emptyRunner =
-        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of(), dbMapper);
+        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of());
     ReflectionTestUtils.setField(emptyRunner, "resultsEndpoint", "x");
 
     emptyRunner.schedule(OFD);
