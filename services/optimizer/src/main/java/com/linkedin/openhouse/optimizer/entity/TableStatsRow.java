@@ -25,7 +25,7 @@ import org.hibernate.annotations.TypeDef;
 @Table(name = "table_stats")
 @Getter
 @Setter
-@Builder(toBuilder = true)
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class TableStatsRow {
