@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.analyzer.model.OperationType;
-import com.linkedin.openhouse.analyzer.model.Table;
-import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationHistoryRow;
+import com.linkedin.openhouse.optimizer.model.OperationType;
+import com.linkedin.openhouse.optimizer.model.Table;
+import com.linkedin.openhouse.optimizer.model.TableOperation;
 import java.time.Duration;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;

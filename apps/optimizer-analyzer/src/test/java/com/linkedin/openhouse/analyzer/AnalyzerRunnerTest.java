@@ -7,11 +7,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.analyzer.model.OperationType;
-import com.linkedin.openhouse.analyzer.model.Table;
-import com.linkedin.openhouse.analyzer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.entity.TableOperationRow;
 import com.linkedin.openhouse.optimizer.entity.TableStatsRow;
+import com.linkedin.openhouse.optimizer.model.OperationType;
+import com.linkedin.openhouse.optimizer.model.Table;
+import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.repository.TableOperationHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
