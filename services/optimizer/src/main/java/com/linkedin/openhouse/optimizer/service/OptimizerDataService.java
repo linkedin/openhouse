@@ -29,12 +29,11 @@ public interface OptimizerDataService {
       Optional<String> tableUuid);
 
   /**
-   * Complete an operation by writing a history entry. Looks up the operation row by {@code id},
-   * copies its table metadata into a new history row, and saves it. Returns the history DTO, or
-   * empty if the operation does not exist.
+   * Complete an operation by writing a history entry. Looks up the operation row by {@code
+   * request.operationId}, copies its table metadata into a new history row, and saves it. Returns
+   * the history DTO, or empty if the operation does not exist.
    */
-  Optional<TableOperationsHistoryDto> completeOperation(
-      String id, CompleteOperationRequest request);
+  Optional<TableOperationsHistoryDto> completeOperation(CompleteOperationRequest request);
 
   /**
    * Return the operation row for {@code id} regardless of status, or empty if it does not exist.

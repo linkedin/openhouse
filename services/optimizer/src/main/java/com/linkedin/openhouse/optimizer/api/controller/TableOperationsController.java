@@ -28,15 +28,16 @@ public class TableOperationsController {
   private final OptimizerDataService service;
 
   /**
-   * Report that an operation has completed. The backend looks up the operation row, writes a
-   * history entry with the operation's table metadata and the supplied result. Returns 201 Created
-   * with the history row, or 404 if the operation does not exist.
+   * Report that an operation has completed. The body carries the {@code operationId} the caller is
+   * completing along with its terminal status. The backend looks up the operation row, writes a
+   * history entry with the operation's table metadata, and returns 201 Created with the history
+   * row, or 404 if the operation does not exist.
    */
-  @PostMapping("/{id}/complete")
+  @PostMapping("/complete")
   public ResponseEntity<TableOperationsHistoryDto> completeOperation(
-      @PathVariable String id, @RequestBody CompleteOperationRequest request) {
+      @RequestBody CompleteOperationRequest request) {
     return service
-        .completeOperation(id, request)
+        .completeOperation(request)
         .map(dto -> ResponseEntity.status(HttpStatus.CREATED).body(dto))
         .orElse(ResponseEntity.notFound().build());
   }
