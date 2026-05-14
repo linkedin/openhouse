@@ -3,16 +3,16 @@ package com.linkedin.openhouse.optimizer.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequest;
+import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.JobResult;
-import com.linkedin.openhouse.optimizer.api.model.OperationHistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
-import com.linkedin.openhouse.optimizer.api.model.TableStats;
 import com.linkedin.openhouse.optimizer.api.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequest;
 import com.linkedin.openhouse.optimizer.entity.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.entity.TableStatsHistoryRow;
+import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -50,8 +50,8 @@ class OptimizerDataServiceImplTest {
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.SCHEDULED)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
+            .status(OperationStatus.SCHEDULED.name())
             .createdAt(Instant.now())
             .scheduledAt(Instant.now())
             .jobId("spark-job-123")
@@ -59,10 +59,10 @@ class OptimizerDataServiceImplTest {
 
     Optional<TableOperationsHistoryDto> result =
         service.completeOperation(
-            id, CompleteOperationRequest.builder().status(OperationHistoryStatus.SUCCESS).build());
+            id, CompleteOperationRequest.builder().status(HistoryStatus.SUCCESS).build());
 
     assertThat(result).isPresent();
-    assertThat(result.get().getStatus()).isEqualTo(OperationHistoryStatus.SUCCESS);
+    assertThat(result.get().getStatus()).isEqualTo(HistoryStatus.SUCCESS);
     assertThat(result.get().getTableUuid()).isEqualTo(tableUuid);
     assertThat(result.get().getJobId()).isEqualTo("spark-job-123");
     assertThat(result.get().getOperationType()).isEqualTo(OperationType.ORPHAN_FILES_DELETION);
@@ -76,7 +76,7 @@ class OptimizerDataServiceImplTest {
         service.completeOperation(
             UUID.randomUUID().toString(),
             CompleteOperationRequest.builder()
-                .status(OperationHistoryStatus.FAILED)
+                .status(HistoryStatus.FAILED)
                 .result(
                     JobResult.builder().errorMessage("boom").errorType("RuntimeException").build())
                 .build());

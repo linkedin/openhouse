@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.model.OperationHistoryStatus;
+import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
@@ -50,7 +50,7 @@ public class TableOperationsHistoryController {
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid,
       @RequestParam(required = false) OperationType operationType,
-      @RequestParam(required = false) OperationHistoryStatus status,
+      @RequestParam(required = false) HistoryStatus status,
       @RequestParam(required = false) Instant since,
       @RequestParam(required = false) Instant until,
       @RequestParam(defaultValue = "100") int limit) {

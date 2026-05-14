@@ -2,8 +2,7 @@ package com.linkedin.openhouse.optimizer.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.api.model.JobResult;
-import com.linkedin.openhouse.optimizer.api.model.OperationHistoryStatus;
+import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.entity.TableOperationsHistoryRow;
 import java.time.Instant;
@@ -35,9 +34,9 @@ class TableOperationsHistoryRepositoryTest {
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
             .completedAt(t1)
-            .status(OperationHistoryStatus.SUCCESS)
+            .status(HistoryStatus.SUCCESS.name())
             .jobId("job-001")
             .build());
 
@@ -47,11 +46,11 @@ class TableOperationsHistoryRepositoryTest {
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
             .completedAt(t2)
-            .status(OperationHistoryStatus.FAILED)
+            .status(HistoryStatus.FAILED.name())
             .jobId("job-002")
-            .result(JobResult.builder().errorMessage("out of memory").errorType("OOM").build())
+            .result("{\"errorMessage\":\"out of memory\",\"errorType\":\"OOM\"}")
             .build());
 
     List<TableOperationsHistoryRow> rows =
@@ -74,9 +73,9 @@ class TableOperationsHistoryRepositoryTest {
               .tableUuid(tableUuid)
               .databaseName("db1")
               .tableName("tbl2")
-              .operationType(OperationType.ORPHAN_FILES_DELETION)
+              .operationType(OperationType.ORPHAN_FILES_DELETION.name())
               .completedAt(now.plusSeconds(i))
-              .status(OperationHistoryStatus.SUCCESS)
+              .status(HistoryStatus.SUCCESS.name())
               .build());
     }
 
@@ -96,9 +95,9 @@ class TableOperationsHistoryRepositoryTest {
               .tableUuid(tableUuid)
               .databaseName("db1")
               .tableName("tbl3")
-              .operationType(OperationType.ORPHAN_FILES_DELETION)
+              .operationType(OperationType.ORPHAN_FILES_DELETION.name())
               .completedAt(now.plusSeconds(i))
-              .status(OperationHistoryStatus.SUCCESS)
+              .status(HistoryStatus.SUCCESS.name())
               .build());
     }
 
@@ -119,9 +118,9 @@ class TableOperationsHistoryRepositoryTest {
             .tableUuid(uuid1)
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
             .completedAt(now)
-            .status(OperationHistoryStatus.SUCCESS)
+            .status(HistoryStatus.SUCCESS.name())
             .build());
     repository.save(
         TableOperationsHistoryRow.builder()
@@ -129,16 +128,16 @@ class TableOperationsHistoryRepositoryTest {
             .tableUuid(uuid2)
             .databaseName("db2")
             .tableName("tbl2")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
             .completedAt(now.plusSeconds(1))
-            .status(OperationHistoryStatus.FAILED)
+            .status(HistoryStatus.FAILED.name())
             .build());
 
     List<TableOperationsHistoryRow> rows =
         repository.find(null, null, null, null, null, null, null, PageRequest.of(0, 100));
     assertThat(rows).hasSize(2);
     // Newest first
-    assertThat(rows.get(0).getStatus()).isEqualTo(OperationHistoryStatus.FAILED);
+    assertThat(rows.get(0).getStatus()).isEqualTo(HistoryStatus.FAILED.name());
   }
 
   @Test
@@ -153,9 +152,9 @@ class TableOperationsHistoryRepositoryTest {
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
             .completedAt(old)
-            .status(OperationHistoryStatus.SUCCESS)
+            .status(HistoryStatus.SUCCESS.name())
             .build());
     repository.save(
         TableOperationsHistoryRow.builder()
@@ -163,9 +162,9 @@ class TableOperationsHistoryRepositoryTest {
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .operationType(OperationType.ORPHAN_FILES_DELETION.name())
             .completedAt(recent)
-            .status(OperationHistoryStatus.FAILED)
+            .status(HistoryStatus.FAILED.name())
             .build());
 
     // Filter by status
@@ -175,7 +174,7 @@ class TableOperationsHistoryRepositoryTest {
             null,
             null,
             null,
-            OperationHistoryStatus.FAILED,
+            HistoryStatus.FAILED.name(),
             null,
             null,
             PageRequest.of(0, 100));

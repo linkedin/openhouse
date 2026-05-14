@@ -40,4 +40,10 @@ public class TableOperationsHistoryRow {
 
   @Column(name = "status", nullable = false, length = 20)
   private String status;
+
+  @Column(name = "job_id", length = 255)
+  private String jobId;
+
+  @Column(name = "result", columnDefinition = "TEXT")
+  private String result;
 }

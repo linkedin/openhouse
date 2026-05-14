@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.optimizer.service;
 
 import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequest;
-import com.linkedin.openhouse.optimizer.api.model.OperationHistoryStatus;
+import com.linkedin.openhouse.optimizer.api.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.model.OperationType;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
@@ -93,7 +93,7 @@ public interface OptimizerDataService {
       Optional<String> tableName,
       Optional<String> tableUuid,
       Optional<OperationType> operationType,
-      Optional<OperationHistoryStatus> status,
+      Optional<HistoryStatus> status,
       Optional<Instant> since,
       Optional<Instant> until,
       int limit);

@@ -18,16 +18,22 @@ public interface TableOperationsHistoryRepository
    */
   @Query(
       "SELECT r FROM TableOperationsHistoryRow r "
-          + "WHERE (:operationType IS NULL OR r.operationType = :operationType) "
+          + "WHERE (:databaseName IS NULL OR r.databaseName = :databaseName) "
+          + "AND (:tableName IS NULL OR r.tableName = :tableName) "
           + "AND (:tableUuid IS NULL OR r.tableUuid = :tableUuid) "
+          + "AND (:operationType IS NULL OR r.operationType = :operationType) "
           + "AND (:status IS NULL OR r.status = :status) "
           + "AND (:since IS NULL OR r.completedAt >= :since) "
+          + "AND (:until IS NULL OR r.completedAt < :until) "
           + "ORDER BY r.completedAt DESC")
   List<TableOperationsHistoryRow> find(
-      @Param("operationType") String operationType,
+      @Param("databaseName") String databaseName,
+      @Param("tableName") String tableName,
       @Param("tableUuid") String tableUuid,
+      @Param("operationType") String operationType,
       @Param("status") String status,
       @Param("since") Instant since,
+      @Param("until") Instant until,
       Pageable pageable);
 
   /**
