@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.model;
 
+import com.linkedin.openhouse.optimizer.model.TableOperation;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -39,4 +40,35 @@ public class TableOperationsDto {
 
   /** Job ID returned by the Jobs Service after successful submission. */
   private String jobId;
+
+  /** Convert to the internal-model counterpart. */
+  public TableOperation toModel() {
+    return TableOperation.builder()
+        .id(id)
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .operationType(operationType == null ? null : operationType.toModel())
+        .status(status == null ? null : status.toModel())
+        .createdAt(createdAt)
+        .scheduledAt(scheduledAt)
+        .build();
+  }
+
+  /** Build a wire DTO from the internal-model counterpart. */
+  public static TableOperationsDto fromModel(TableOperation op) {
+    if (op == null) {
+      return null;
+    }
+    return TableOperationsDto.builder()
+        .id(op.getId())
+        .tableUuid(op.getTableUuid())
+        .databaseName(op.getDatabaseName())
+        .tableName(op.getTableName())
+        .operationType(OperationType.fromModel(op.getOperationType()))
+        .status(OperationStatus.fromModel(op.getStatus()))
+        .createdAt(op.getCreatedAt())
+        .scheduledAt(op.getScheduledAt())
+        .build();
+  }
 }
