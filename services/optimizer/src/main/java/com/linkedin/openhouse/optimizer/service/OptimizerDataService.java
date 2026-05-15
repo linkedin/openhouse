@@ -3,9 +3,9 @@ package com.linkedin.openhouse.optimizer.service;
 import com.linkedin.openhouse.optimizer.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.linkedin.openhouse.optimizer.model.TableStatsHistory;
 import java.time.Instant;
 import java.util.List;
@@ -50,20 +50,20 @@ public interface OptimizerDataService {
   // --- TableStats ---
 
   /**
-   * Create or update the stats row for {@code table.getTableUuid()}. Fully idempotent: the same
+   * Create or update the stats row for {@code stats.getTableUuid()}. Fully idempotent: the same
    * call overwrites the previous snapshot with the latest commit values. The service stamps {@link
-   * Table#getUpdatedAt()} server-side and returns the resulting {@link Table}.
+   * TableStats#getUpdatedAt()} server-side and returns the resulting {@link TableStats}.
    */
-  Table upsertTableStats(Table table);
+  TableStats upsertTableStats(TableStats stats);
 
   /** Return the stats row for {@code tableUuid}, or empty if none exists. */
-  Optional<Table> getTableStats(String tableUuid);
+  Optional<TableStats> getTableStats(String tableUuid);
 
   /**
    * List stats rows matching the given filters. Every parameter is optional — pass {@link
    * Optional#empty()} to skip that filter. No filters returns all rows.
    */
-  List<Table> listTableStats(
+  List<TableStats> listTableStats(
       Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid);
 
   /**

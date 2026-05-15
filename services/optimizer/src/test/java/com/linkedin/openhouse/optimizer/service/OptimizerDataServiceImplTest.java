@@ -7,7 +7,6 @@ import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
@@ -78,23 +77,20 @@ class OptimizerDataServiceImplTest {
   @Test
   void upsertTableStats_createsNewRow() {
     String tableUuid = UUID.randomUUID().toString();
-    Table input =
-        Table.builder()
+    TableStats input =
+        TableStats.builder()
             .tableUuid(tableUuid)
             .databaseName("db1")
-            .tableId("tbl1")
+            .tableName("tbl1")
             .tableProperties(Map.of("maintenance.optimizer.ofd.enabled", "true"))
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(1024L).build())
-                    .build())
+            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(1024L).build())
             .build();
 
-    Table result = service.upsertTableStats(input);
+    TableStats result = service.upsertTableStats(input);
 
     assertThat(result.getTableUuid()).isEqualTo(tableUuid);
     assertThat(result.getDatabaseName()).isEqualTo("db1");
-    assertThat(result.getStats().getSnapshot().getTableSizeBytes()).isEqualTo(1024L);
+    assertThat(result.getSnapshot().getTableSizeBytes()).isEqualTo(1024L);
     assertThat(result.getTableProperties())
         .containsEntry("maintenance.optimizer.ofd.enabled", "true");
     assertThat(result.getUpdatedAt()).isNotNull();
@@ -104,41 +100,27 @@ class OptimizerDataServiceImplTest {
   @Test
   void upsertTableStats_updatesExistingRow_andAppendsHistory() {
     String tableUuid = UUID.randomUUID().toString();
-    Table first =
-        Table.builder()
+    TableStats first =
+        TableStats.builder()
             .tableUuid(tableUuid)
             .databaseName("db1")
-            .tableId("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
-                    .delta(
-                        TableStats.CommitDelta.builder()
-                            .numFilesAdded(5L)
-                            .numFilesDeleted(1L)
-                            .build())
-                    .build())
+            .tableName("tbl1")
+            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
+            .delta(TableStats.CommitDelta.builder().numFilesAdded(5L).numFilesDeleted(1L).build())
             .build();
-    Table second =
-        Table.builder()
+    TableStats second =
+        TableStats.builder()
             .tableUuid(tableUuid)
             .databaseName("db1")
-            .tableId("tbl1")
-            .stats(
-                TableStats.builder()
-                    .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
-                    .delta(
-                        TableStats.CommitDelta.builder()
-                            .numFilesAdded(3L)
-                            .numFilesDeleted(0L)
-                            .build())
-                    .build())
+            .tableName("tbl1")
+            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
+            .delta(TableStats.CommitDelta.builder().numFilesAdded(3L).numFilesDeleted(0L).build())
             .build();
 
     service.upsertTableStats(first);
-    Table result = service.upsertTableStats(second);
+    TableStats result = service.upsertTableStats(second);
 
-    assertThat(result.getStats().getSnapshot().getTableSizeBytes()).isEqualTo(200L);
+    assertThat(result.getSnapshot().getTableSizeBytes()).isEqualTo(200L);
     assertThat(statsRepository.findAll()).hasSize(1);
 
     List<TableStatsHistoryRow> history =
