@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
  * types know nothing about model/ or api/.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class Table {
