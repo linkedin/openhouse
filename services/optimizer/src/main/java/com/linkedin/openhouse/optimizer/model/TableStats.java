@@ -1,12 +1,24 @@
 package com.linkedin.openhouse.optimizer.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** Combined stats payload stored as a single JSON blob per table. */
+/**
+ * Self-describing per-table stats record. Carries the table's identity and metadata alongside the
+ * snapshot + delta payload so consumers don't need an outer wrapper to know which table the stats
+ * belong to.
+ *
+ * <p>Identity ({@link #tableUuid}, {@link #databaseName}, {@link #tableName}) and metadata ({@link
+ * #tableProperties}, {@link #updatedAt}) are populated when read from a current-state row. When
+ * this record is built from a per-commit history row, {@link #delta} is populated and {@link
+ * #tableProperties} / {@link #updatedAt} are typically {@code null}.
+ */
 @Data
 @Builder(toBuilder = true)
 @NoArgsConstructor
@@ -14,11 +26,58 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class TableStats {
 
+  /** Stable table identity from the Tables Service. Survives renames; rotates on drop+recreate. */
+  private String tableUuid;
+
+  /** Database the table lives in. */
+  private String databaseName;
+
+  /** Iceberg table name (the human-readable identifier, not the UUID). */
+  private String tableName;
+
+  /** Current table-property map (e.g. maintenance opt-in flags). Never null. */
+  @Builder.Default private Map<String, String> tableProperties = Collections.emptyMap();
+
   /** Snapshot fields — overwritten on every upsert. */
   private SnapshotMetrics snapshot;
 
-  /** Delta fields — accumulated across commit events. */
+  /** Delta fields — accumulated across commit events. Null when read from a current-state row. */
   private CommitDelta delta;
+
+  /** When the current snapshot was last written. Stamped server-side on every upsert. */
+  private Instant updatedAt;
+
+  /**
+   * Project to the current-state {@code table_stats} row. Snapshot only; deltas live on history.
+   */
+  public com.linkedin.openhouse.optimizer.db.TableStatsRow toRow() {
+    return com.linkedin.openhouse.optimizer.db.TableStatsRow.builder()
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .snapshot(snapshot == null ? null : snapshot.toDb())
+        .tableProperties(tableProperties != null ? tableProperties : Collections.emptyMap())
+        .updatedAt(updatedAt)
+        .build();
+  }
+
+  /**
+   * Build a {@link TableStats} from a current-state DB row. {@link #delta} is left {@code null}.
+   */
+  public static TableStats fromRow(com.linkedin.openhouse.optimizer.db.TableStatsRow row) {
+    if (row == null) {
+      return null;
+    }
+    return TableStats.builder()
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .tableProperties(
+            row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
+        .snapshot(SnapshotMetrics.fromDb(row.getSnapshot()))
+        .updatedAt(row.getUpdatedAt())
+        .build();
+  }
 
   /** Project to the DB-layer {@link com.linkedin.openhouse.optimizer.db.SnapshotMetrics} object. */
   public com.linkedin.openhouse.optimizer.db.SnapshotMetrics toSnapshotRow() {
