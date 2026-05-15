@@ -5,7 +5,6 @@ import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatus;
 import com.linkedin.openhouse.optimizer.model.OperationStatus;
 import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.Table;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.model.TableStats;
@@ -90,10 +89,9 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   @Transactional
-  public Table upsertTableStats(Table table) {
+  public TableStats upsertTableStats(TableStats stats) {
     Instant now = Instant.now();
-    String tableUuid = table.getTableUuid();
-    TableStats stats = table.getStats();
+    String tableUuid = stats.getTableUuid();
 
     TableStatsRow row =
         statsRepository
@@ -102,40 +100,40 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                 existing ->
                     existing
                         .toBuilder()
-                        .databaseName(table.getDatabaseName())
-                        .tableName(table.getTableId())
-                        .snapshot(stats == null ? null : stats.toSnapshotRow())
-                        .tableProperties(table.getTableProperties())
+                        .databaseName(stats.getDatabaseName())
+                        .tableName(stats.getTableName())
+                        .snapshot(stats.toSnapshotRow())
+                        .tableProperties(stats.getTableProperties())
                         .updatedAt(now)
                         .build())
-            .orElse(table.toBuilder().updatedAt(now).build().toRow());
+            .orElse(stats.toBuilder().updatedAt(now).build().toRow());
     TableStatsRow saved = statsRepository.save(row);
 
     statsHistoryRepository.save(
         TableStatsHistoryRow.builder()
             .id(UUID.randomUUID().toString())
             .tableUuid(tableUuid)
-            .databaseName(table.getDatabaseName())
-            .tableName(table.getTableId())
-            .snapshot(stats == null ? null : stats.toSnapshotRow())
-            .delta(stats == null ? null : stats.toDeltaRow())
+            .databaseName(stats.getDatabaseName())
+            .tableName(stats.getTableName())
+            .snapshot(stats.toSnapshotRow())
+            .delta(stats.toDeltaRow())
             .recordedAt(now)
             .build());
 
-    return Table.fromRow(saved);
+    return TableStats.fromRow(saved);
   }
 
   @Override
-  public Optional<Table> getTableStats(String tableUuid) {
-    return statsRepository.findById(tableUuid).map(Table::fromRow);
+  public Optional<TableStats> getTableStats(String tableUuid) {
+    return statsRepository.findById(tableUuid).map(TableStats::fromRow);
   }
 
   @Override
-  public List<Table> listTableStats(
+  public List<TableStats> listTableStats(
       Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid) {
     return statsRepository
         .find(databaseName.orElse(null), tableName.orElse(null), tableUuid.orElse(null)).stream()
-        .map(Table::fromRow)
+        .map(TableStats::fromRow)
         .collect(Collectors.toList());
   }
 
