@@ -9,7 +9,6 @@ down to the table scan, then extracts:
 
 from __future__ import annotations
 
-import datetime as _dt
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -208,26 +207,14 @@ def _convert_ast_to_filter(node: exp.Expression) -> Filter | None:
     return None
 
 
-def _is_literal_like(node: exp.Expression) -> bool:
-    """Whether `node` represents a value that can be converted to a Python literal.
-
-    Accepts both bare `exp.Literal` nodes and `exp.Cast` wrappers like
-    `CAST('2026-05-02 00:00:00' AS TIMESTAMP)` that `filters._literal_to_sql()`
-    emits for datetime/date/time values.
-    """
-    if isinstance(node, exp.Literal):
-        return True
-    return isinstance(node, exp.Cast) and isinstance(node.this, exp.Literal)
-
-
 def _convert_comparison(node: exp.EQ | exp.NEQ | exp.GT | exp.GTE | exp.LT | exp.LTE) -> Filter | None:
     """Convert a comparison AST node (column op literal) to a Filter."""
     left, right = node.this, node.expression
     col_node = lit_node = None
     flipped = False
-    if isinstance(left, exp.Column) and _is_literal_like(right):
+    if isinstance(left, exp.Column) and isinstance(right, exp.Literal):
         col_node, lit_node = left, right
-    elif isinstance(right, exp.Column) and _is_literal_like(left):
+    elif isinstance(right, exp.Column) and isinstance(left, exp.Literal):
         col_node, lit_node = right, left
         flipped = True
     if col_node is None or lit_node is None:
@@ -250,66 +237,10 @@ def _convert_comparison(node: exp.EQ | exp.NEQ | exp.GT | exp.GTE | exp.LT | exp
     return None  # pragma: no cover
 
 
-def _literal_to_python(node: exp.Literal | exp.Cast) -> object:
-    """Convert a sqlglot Literal (or Cast(Literal, T)) AST node to a Python value.
-
-    Cast(Literal(string), TIMESTAMP/DATE/TIME) is emitted by
-    `filters._literal_to_sql()` for datetime/date/time inputs (see PR #569).
-    This is the inverse so partition pruning still happens.
-    """
-    if isinstance(node, exp.Cast) and isinstance(node.this, exp.Literal):
-        inner = node.this
-        if not inner.is_string:
-            # Cast over non-string literals — defer to the bare-literal branch.
-            return _literal_to_python(inner)
-        s = inner.this
-        to = node.to.this if hasattr(node.to, "this") else node.to
-        # `to` is typically an exp.DataType.Type enum value (e.g. DataType.Type.TIMESTAMP).
-        to_name = getattr(to, "name", str(to)).upper()
-        if "TIMESTAMP" in to_name or to_name == "DATETIME":
-            return _parse_timestamp(s)
-        if to_name == "DATE":
-            return _dt.date.fromisoformat(s)
-        if "TIME" in to_name:
-            # Try fromisoformat first, then strip a trailing 'Z' / fractional seconds if needed.
-            try:
-                return _dt.time.fromisoformat(s)
-            except ValueError:
-                return s
-        # Unknown cast target — fall back to the string value.
-        return s
-    if isinstance(node, exp.Literal):
-        if node.is_string:
-            return node.this
-        if node.is_int:
-            return int(node.this)
-        return float(node.this)
-    return None  # pragma: no cover
-
-
-def _parse_timestamp(s: str) -> _dt.datetime:
-    """Parse a TIMESTAMP literal string from the SQL emitted by _literal_to_sql.
-
-    Format produced by openhouse.dataloader.filters._literal_to_sql is
-    ``value.strftime("%Y-%m-%d %H:%M:%S.%f%z")``, e.g.
-    ``"2026-05-02 00:00:00.000000+0000"``. `datetime.fromisoformat` accepts
-    the ISO ``T`` separator but is lenient with a space separator on Python 3.11+,
-    so try both forms.
-    """
-    # `fromisoformat` accepts space separator and '+HHMM' / '+HH:MM' on 3.11+
-    try:
-        return _dt.datetime.fromisoformat(s)
-    except ValueError:
-        pass
-    # Fallback: try common explicit formats.
-    for fmt in (
-        "%Y-%m-%d %H:%M:%S.%f%z",
-        "%Y-%m-%d %H:%M:%S%z",
-        "%Y-%m-%d %H:%M:%S.%f",
-        "%Y-%m-%d %H:%M:%S",
-    ):
-        try:
-            return _dt.datetime.strptime(s, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"Cannot parse TIMESTAMP literal: {s!r}")
+def _literal_to_python(node: exp.Literal) -> object:
+    """Convert a sqlglot Literal AST node to a Python value."""
+    if node.is_string:
+        return node.this
+    if node.is_int:
+        return int(node.this)
+    return float(node.this)

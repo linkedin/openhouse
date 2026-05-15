@@ -169,26 +169,24 @@ def test_comparison_types():
         assert plan.row_filter == expected_filter, f"row_filter mismatch for: {where_clause}"
 
 
-def test_cast_timestamp_pushed_as_datetime():
-    """`CAST('YYYY-MM-DD HH:MM:SS' AS TIMESTAMP)` (the form emitted by
-    `filters._literal_to_sql()` for datetime values, see PR #569) round-trips
-    back through `_convert_comparison` as a `datetime` Python value, restoring
-    Iceberg partition pruning on day(timestamp_col) partitions.
+def test_datetime_string_literals_pushed_as_strings():
+    """`filters._literal_to_sql()` emits plain string literals for datetime/date/time
+    (see PR #569 + follow-up). The scan optimizer treats them as ordinary string
+    literals; PyIceberg promotes them to typed literals during expression binding
+    against the table schema, restoring partition pruning.
     """
-    import datetime as _dt
-
     cases = [
         (
-            "\"x\" >= CAST('2026-05-02 00:00:00.000000+0000' AS TIMESTAMP)",
-            GreaterThanOrEqual("x", _dt.datetime(2026, 5, 2, 0, 0, 0, tzinfo=_dt.timezone.utc)),
+            "\"x\" >= '2026-05-02T00:00:00+00:00'",
+            GreaterThanOrEqual("x", "2026-05-02T00:00:00+00:00"),
         ),
         (
-            "\"x\" < CAST('2026-05-04 00:00:00' AS TIMESTAMP)",
-            LessThan("x", _dt.datetime(2026, 5, 4, 0, 0, 0)),
+            "\"x\" < '2026-05-04T00:00:00'",
+            LessThan("x", "2026-05-04T00:00:00"),
         ),
         (
-            "\"x\" = CAST('2026-05-02' AS DATE)",
-            EqualTo("x", _dt.date(2026, 5, 2)),
+            "\"x\" = '2026-05-02'",
+            EqualTo("x", "2026-05-02"),
         ),
     ]
     for where_clause, expected_filter in cases:
