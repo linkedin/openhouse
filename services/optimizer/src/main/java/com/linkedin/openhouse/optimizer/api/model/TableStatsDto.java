@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.api.model;
 
-import com.linkedin.openhouse.optimizer.model.Table;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
@@ -35,29 +34,35 @@ public class TableStatsDto {
   private Instant updatedAt;
 
   /** Convert to the internal-model counterpart. */
-  public Table toModel() {
-    return Table.builder()
+  public com.linkedin.openhouse.optimizer.model.TableStats toModel() {
+    com.linkedin.openhouse.optimizer.model.TableStats payload =
+        stats == null ? new com.linkedin.openhouse.optimizer.model.TableStats() : stats.toModel();
+    return payload
+        .toBuilder()
         .tableUuid(tableUuid)
         .databaseName(databaseName)
-        .tableId(tableName)
+        .tableName(tableName)
         .tableProperties(tableProperties != null ? tableProperties : Collections.emptyMap())
-        .stats(stats == null ? null : stats.toModel())
         .updatedAt(updatedAt)
         .build();
   }
 
   /** Build a wire DTO from the internal-model counterpart. */
-  public static TableStatsDto fromModel(Table t) {
-    if (t == null) {
+  public static TableStatsDto fromModel(com.linkedin.openhouse.optimizer.model.TableStats m) {
+    if (m == null) {
       return null;
     }
     return TableStatsDto.builder()
-        .tableUuid(t.getTableUuid())
-        .databaseName(t.getDatabaseName())
-        .tableName(t.getTableId())
-        .stats(TableStats.fromModel(t.getStats()))
-        .tableProperties(t.getTableProperties())
-        .updatedAt(t.getUpdatedAt())
+        .tableUuid(m.getTableUuid())
+        .databaseName(m.getDatabaseName())
+        .tableName(m.getTableName())
+        .stats(
+            TableStats.builder()
+                .snapshot(TableStats.SnapshotMetrics.fromModel(m.getSnapshot()))
+                .delta(TableStats.CommitDelta.fromModel(m.getDelta()))
+                .build())
+        .tableProperties(m.getTableProperties())
+        .updatedAt(m.getUpdatedAt())
         .build();
   }
 }

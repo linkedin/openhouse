@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.api.model;
 
-import com.linkedin.openhouse.optimizer.model.Table;
 import java.util.Collections;
 import java.util.Map;
 import lombok.AllArgsConstructor;
@@ -33,17 +32,19 @@ public class UpsertTableStatsRequest {
   private Map<String, String> tableProperties;
 
   /**
-   * Build the internal-model {@link Table} described by this request. {@code tableUuid} comes from
-   * the URL path, not the body. {@link Table#getUpdatedAt()} is left {@code null}; the service
-   * stamps it server-side at write time.
+   * Build the internal-model {@link com.linkedin.openhouse.optimizer.model.TableStats} described by
+   * this request. {@code tableUuid} comes from the URL path, not the body. {@code updatedAt} is
+   * left {@code null}; the service stamps it server-side at write time.
    */
-  public Table toModel(String tableUuid) {
-    return Table.builder()
+  public com.linkedin.openhouse.optimizer.model.TableStats toModel(String tableUuid) {
+    com.linkedin.openhouse.optimizer.model.TableStats payload =
+        stats == null ? new com.linkedin.openhouse.optimizer.model.TableStats() : stats.toModel();
+    return payload
+        .toBuilder()
         .tableUuid(tableUuid)
         .databaseName(databaseName)
-        .tableId(tableName)
+        .tableName(tableName)
         .tableProperties(tableProperties != null ? tableProperties : Collections.emptyMap())
-        .stats(stats == null ? null : stats.toModel())
         .build();
   }
 }
