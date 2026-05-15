@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
  * components that need to reason about completed operations (e.g., scheduling-cadence analyzers).
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class TableOperationsHistory {

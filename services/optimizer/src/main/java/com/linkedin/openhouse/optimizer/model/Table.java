@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
  * com.linkedin.openhouse.optimizer.model.mapper.ModelDbMapper#toTable} at the DB boundary.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class Table {
