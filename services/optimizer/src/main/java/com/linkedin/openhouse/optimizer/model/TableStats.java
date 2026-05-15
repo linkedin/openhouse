@@ -47,6 +47,38 @@ public class TableStats {
   /** When the current snapshot was last written. Stamped server-side on every upsert. */
   private Instant updatedAt;
 
+  /**
+   * Project to the current-state {@code table_stats} row. Snapshot only; deltas live on history.
+   */
+  public com.linkedin.openhouse.optimizer.db.TableStatsRow toRow() {
+    return com.linkedin.openhouse.optimizer.db.TableStatsRow.builder()
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .snapshot(snapshot == null ? null : snapshot.toDb())
+        .tableProperties(tableProperties != null ? tableProperties : Collections.emptyMap())
+        .updatedAt(updatedAt)
+        .build();
+  }
+
+  /**
+   * Build a {@link TableStats} from a current-state DB row. {@link #delta} is left {@code null}.
+   */
+  public static TableStats fromRow(com.linkedin.openhouse.optimizer.db.TableStatsRow row) {
+    if (row == null) {
+      return null;
+    }
+    return TableStats.builder()
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .tableProperties(
+            row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
+        .snapshot(SnapshotMetrics.fromDb(row.getSnapshot()))
+        .updatedAt(row.getUpdatedAt())
+        .build();
+  }
+
   /** Project to the DB-layer {@link com.linkedin.openhouse.optimizer.db.SnapshotMetrics} object. */
   public com.linkedin.openhouse.optimizer.db.SnapshotMetrics toSnapshotRow() {
     return snapshot == null ? null : snapshot.toDb();
