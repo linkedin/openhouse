@@ -32,6 +32,7 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
@@ -128,17 +129,47 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     return houseTableRepository.findAllByDatabaseId(namespace.toString(), pageable);
   }
 
+  /**
+   * Direct HTS lookup that returns the {@link HouseTable} row without parsing metadata.json. Use
+   * this when only HTS-resident columns (e.g. tableUUID, tableLocation) are needed — for example,
+   * to authorize a drop without loading the full Iceberg table, which is important when the
+   * underlying metadata is corrupted and {@link #loadTable} would throw.
+   */
+  public Optional<HouseTable> findHouseTable(TableIdentifier identifier) {
+    HouseTablePrimaryKey primaryKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(identifier.namespace().toString())
+            .tableId(identifier.name())
+            .build();
+    try {
+      return houseTableRepository.findById(primaryKey);
+    } catch (HouseTableNotFoundException e) {
+      return Optional.empty();
+    }
+  }
+
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
-    String tableLocation = loadTable(identifier).location();
+    // Look up the HouseTable row directly instead of calling loadTable(), so drop works even when
+    // the table's metadata.json is corrupted and cannot be parsed by TableMetadataParser.
+    HouseTable houseTable =
+        findHouseTable(identifier)
+            .orElseThrow(() -> new NoSuchTableException("Table does not exist: %s", identifier));
+
+    HouseTablePrimaryKey primaryKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(identifier.namespace().toString())
+            .tableId(identifier.name())
+            .build();
+    // OpenHouse writes metadata.json directly in the table base directory (not under /metadata/
+    // as standard Iceberg does), so the parent of the metadata.json path is the base location
+    // that Table.location() would return. Same derivation as OpenHouseInternalRepositoryImpl#save
+    // (replace flow).
+    String metadataLocation = houseTable.getTableLocation();
+    String tableLocation = metadataLocation.substring(0, metadataLocation.lastIndexOf("/"));
     FileIO fileIO = resolveFileIO(identifier);
     log.debug("Dropping table {}, purge:{}", tableLocation, purge);
     try {
-      HouseTablePrimaryKey primaryKey =
-          HouseTablePrimaryKey.builder()
-              .databaseId(identifier.namespace().toString())
-              .tableId(identifier.name())
-              .build();
       houseTableRepository.deleteById(primaryKey, purge);
     } catch (HouseTableRepositoryException houseTableRepositoryException) {
       throw new RuntimeException(
@@ -146,7 +177,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
           houseTableRepositoryException);
     }
     if (purge) {
-      // Delete data and metadata files from storage.
       if (fileIO instanceof SupportsPrefixOperations) {
         log.debug("Deleting files for table {}", tableLocation);
         ((SupportsPrefixOperations) fileIO).deletePrefix(tableLocation);

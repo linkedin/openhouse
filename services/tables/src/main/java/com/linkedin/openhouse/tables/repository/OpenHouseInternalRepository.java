@@ -5,6 +5,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
@@ -17,6 +18,15 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface OpenHouseInternalRepository
     extends PagingAndSortingRepository<TableDto, TableDtoPrimaryKey> {
+
+  /**
+   * Returns a stub {@link TableDto} populated only with the fields needed for existence + auth
+   * checks (identifiers, tableUUID, tableLocation). Unlike {@link #findById}, this does not parse
+   * the table's metadata.json, so it succeeds even when the metadata is corrupted. Intended for
+   * paths (e.g. drop) that don't need full table state.
+   */
+  Optional<TableDto> findStubById(TableDtoPrimaryKey tableDtoPrimaryKey);
+
   List<TableDtoPrimaryKey> findAllIds();
 
   Page<TableDtoPrimaryKey> findAllIds(Pageable pageable);
