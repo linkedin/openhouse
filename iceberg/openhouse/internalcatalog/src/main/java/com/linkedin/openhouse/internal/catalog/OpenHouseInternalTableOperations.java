@@ -90,6 +90,13 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   private static final Cache<String, Integer> CACHE =
       CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
 
+  /**
+   * Overrides Iceberg's {@code BaseMetastoreTableOperations.META_DATA_REFRESH_RETRIES} (20). The
+   * underlying {@code refreshFromMetadataLocation} retries with exponential backoff capped at 5s,
+   * so 20 retries can stretch a single failing refresh to ~90 seconds.
+   */
+  private static final int METADATA_REFRESH_RETRIES = 3;
+
   @Override
   protected String tableName() {
     return this.tableIdentifier.toString();
@@ -133,7 +140,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   protected void refreshMetadata(final String metadataLoc) {
     long startTime = System.currentTimeMillis();
     boolean needToReload = !Objects.equal(currentMetadataLocation(), metadataLoc);
-    Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc);
+    Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc, METADATA_REFRESH_RETRIES);
     try {
       if (needToReload) {
         metricsReporter.executeWithStats(
@@ -405,7 +412,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
          * "forced refresh" in {@link OpenHouseInternalTableOperations#commit(TableMetadata,
          * TableMetadata)}
          */
-        refreshFromMetadataLocation(newMetadataLocation);
+        refreshFromMetadataLocation(newMetadataLocation, METADATA_REFRESH_RETRIES);
       }
       if (isReplicatedTableCreate(properties)) {
         updateMetadataFieldForTable(metadata, newMetadataLocation);
