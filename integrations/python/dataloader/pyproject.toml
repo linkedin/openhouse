@@ -16,7 +16,7 @@ dependencies = [
     "requests>=2.31.0",
     "sqlglot>=29.0.0",
     "tenacity>=8.0.0",
-    "opentelemetry-api>=1.41.1",
+    "opentelemetry-api>=1.38.0",
 ]
 
 [[tool.uv.index]]
@@ -34,7 +34,7 @@ dev = [
     "twine>=6.0.0",
     "mypy>=1.14.0",
     "types-requests>=2.31.0",
-    "opentelemetry-sdk>=1.41.1",
+    "opentelemetry-sdk>=1.38.0",
 ]
 
 [tool.hatch.version]
