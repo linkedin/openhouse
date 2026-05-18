@@ -80,7 +80,12 @@ public class SchedulerRunner {
         statsRepo.findAllById(uuids).stream()
             .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStats::fromRow));
 
-    List<Bin> bins = packer.pack(pending, statsByUuid);
+    List<SchedulingCandidate> candidates =
+        pending.stream()
+            .map(op -> new SchedulingCandidate(op, statsByUuid.get(op.getTableUuid())))
+            .collect(Collectors.toList());
+
+    List<Bin> bins = packer.pack(candidates);
     log.info(
         "Packed {} PENDING {} operations into {} bins", pending.size(), operationType, bins.size());
 

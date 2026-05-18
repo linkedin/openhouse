@@ -3,7 +3,6 @@ package com.linkedin.openhouse.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -14,7 +13,6 @@ import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -80,7 +78,7 @@ class SchedulerRunnerTest {
     runner.schedule(OFD);
 
     verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
-    verify(binPacker, never()).pack(anyList(), anyMap());
+    verify(binPacker, never()).pack(anyList());
   }
 
   @Test
@@ -102,8 +100,15 @@ class SchedulerRunnerTest {
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
-    when(binPacker.pack(anyList(), anyMap()))
-        .thenAnswer(inv -> List.of(new Bin(OFD, inv.<List<TableOperation>>getArgument(0))));
+    when(binPacker.pack(anyList()))
+        .thenAnswer(
+            inv ->
+                List.of(
+                    new Bin(
+                        OFD,
+                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
+                            .map(SchedulingCandidate::getOperation)
+                            .collect(java.util.stream.Collectors.toList()))));
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
     when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(1);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
@@ -131,8 +136,15 @@ class SchedulerRunnerTest {
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
-    when(binPacker.pack(anyList(), anyMap()))
-        .thenAnswer(inv -> List.of(new Bin(OFD, inv.<List<TableOperation>>getArgument(0))));
+    when(binPacker.pack(anyList()))
+        .thenAnswer(
+            inv ->
+                List.of(
+                    new Bin(
+                        OFD,
+                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
+                            .map(SchedulingCandidate::getOperation)
+                            .collect(java.util.stream.Collectors.toList()))));
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.empty());
@@ -152,8 +164,15 @@ class SchedulerRunnerTest {
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
-    when(binPacker.pack(anyList(), anyMap()))
-        .thenAnswer(inv -> List.of(new Bin(OFD, inv.<List<TableOperation>>getArgument(0))));
+    when(binPacker.pack(anyList()))
+        .thenAnswer(
+            inv ->
+                List.of(
+                    new Bin(
+                        OFD,
+                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
+                            .map(SchedulingCandidate::getOperation)
+                            .collect(java.util.stream.Collectors.toList()))));
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(0);
 
     runner.schedule(OFD);
@@ -171,8 +190,15 @@ class SchedulerRunnerTest {
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row1, row2));
     when(statsRepo.findAllById(any())).thenReturn(List.of());
-    when(binPacker.pack(anyList(), anyMap()))
-        .thenAnswer(inv -> List.of(new Bin(OFD, inv.<List<TableOperation>>getArgument(0))));
+    when(binPacker.pack(anyList()))
+        .thenAnswer(
+            inv ->
+                List.of(
+                    new Bin(
+                        OFD,
+                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
+                            .map(SchedulingCandidate::getOperation)
+                            .collect(java.util.stream.Collectors.toList()))));
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(2);
     when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(2);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
