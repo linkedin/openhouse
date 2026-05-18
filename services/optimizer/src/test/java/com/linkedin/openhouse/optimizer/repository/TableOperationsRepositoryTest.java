@@ -106,6 +106,64 @@ class TableOperationsRepositoryTest {
   }
 
   @Test
+  void findClaimedIds_returnsOnlyClaimedSubset() {
+    String idA = UUID.randomUUID().toString();
+    String idB = UUID.randomUUID().toString();
+    String idC = UUID.randomUUID().toString();
+    repository.save(pending(idA));
+    repository.save(pending(idB));
+    // idC is already SCHEDULING with a different scheduledAt — must NOT appear.
+    repository.save(
+        TableOperationsRow.builder()
+            .id(idC)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl_c")
+            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .status(OperationStatus.SCHEDULING)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now().minusSeconds(60))
+            .build());
+
+    Instant now = Instant.now();
+    repository.markSchedulingBatch(List.of(idA, idB, idC), now);
+
+    List<String> claimed = repository.findClaimedIds(List.of(idA, idB, idC), now);
+    assertThat(claimed).containsExactlyInAnyOrder(idA, idB);
+  }
+
+  @Test
+  void findClaimedIds_emptyWhenNothingClaimed() {
+    String id = UUID.randomUUID().toString();
+    repository.save(
+        TableOperationsRow.builder()
+            .id(id)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl_x")
+            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .status(OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .build());
+
+    List<String> claimed = repository.findClaimedIds(List.of(id), Instant.now());
+    assertThat(claimed).isEmpty();
+  }
+
+  private TableOperationsRow pending(String id) {
+    return TableOperationsRow.builder()
+        .id(id)
+        .tableUuid(UUID.randomUUID().toString())
+        .databaseName("db1")
+        .tableName("tbl_" + id)
+        .operationType(OperationType.ORPHAN_FILES_DELETION)
+        .status(OperationStatus.PENDING)
+        .createdAt(Instant.now())
+        .build();
+  }
+
+  @Test
   void find_byDatabaseAndTable() {
     repository.save(
         TableOperationsRow.builder()
