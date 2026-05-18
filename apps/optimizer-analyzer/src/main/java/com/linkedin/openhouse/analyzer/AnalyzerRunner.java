@@ -25,6 +25,10 @@ import org.springframework.stereotype.Component;
  * into maps once per database before the table loop. This is correct at small scale (≤~100k
  * tables); past that the per-db query shape and projection need further tuning. Scale-up work is
  * tracked in <a href="https://linkedin.atlassian.net/browse/BDP-102182">BDP-102182</a>.
+ *
+ * <p>// TODO(scale-test): benchmark the per-db working set at up to 10k tables and measure JVM heap
+ * residency for the three intermediate maps; per-db iteration bounds memory by tables-per-db rather
+ * than tables-total, but the upper bound still needs empirical validation.
  */
 @Slf4j
 @Component
@@ -78,6 +82,10 @@ public class AnalyzerRunner {
         analyzer.getOperationType().toDb();
 
     // Pre-load the small sides of the joins — bounded by tables in this database.
+    // TODO(query-builder): the JPQL optional-filter shape used by these find(...) calls gets
+    // unwieldy as the filter count grows. Migrate to Criteria API or jOOQ once the scaffolding
+    // stabilizes — applies to operationsRepo.find, historyRepo.findLatestPerTable, and
+    // statsRepo.find below.
     Map<String, TableOperation> currentOps =
         operationsRepo
             .find(
