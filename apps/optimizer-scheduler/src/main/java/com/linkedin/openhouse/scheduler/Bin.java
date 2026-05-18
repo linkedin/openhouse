@@ -4,8 +4,11 @@ import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +35,17 @@ public class Bin {
     return operations.stream()
         .map(op -> op.getDatabaseName() + "." + op.getTableName())
         .collect(Collectors.toList());
+  }
+
+  /**
+   * Return a new {@link Bin} containing only the operations whose IDs are in {@code keepIds}. Used
+   * by the scheduler to narrow the bin to the rows it actually claimed before launching the job.
+   */
+  public Bin subset(Collection<String> keepIds) {
+    Set<String> keep = new HashSet<>(keepIds);
+    List<TableOperation> filtered =
+        operations.stream().filter(op -> keep.contains(op.getId())).collect(Collectors.toList());
+    return new Bin(operationType, filtered);
   }
 
   /**

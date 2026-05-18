@@ -129,23 +129,35 @@ public class SchedulerRunner {
     // Deduplicate PENDING rows per tableUuid for this op type, keeping the IDs in this bin.
     operationsRepo.cancelDuplicatePendingBatch(bin.getOperationType().toDb(), ids);
 
-    // Claim the rows in one batched UPDATE: PENDING → SCHEDULING.
-    int claimedCount = operationsRepo.markSchedulingBatch(ids, Instant.now());
-    if (claimedCount == 0) {
+    // Claim the rows in one batched UPDATE: PENDING → SCHEDULING. The UPDATE's row count is just
+    // an aggregate — to know *which* rows we own, re-query for SCHEDULING rows tagged with our
+    // scheduledAt watermark. Anything not in that subset belongs to another instance or was
+    // canceled, and must not be submitted or marked SCHEDULED.
+    Instant claimedAt = Instant.now();
+    operationsRepo.markSchedulingBatch(ids, claimedAt);
+    List<String> claimedIds = operationsRepo.findClaimedIds(ids, claimedAt);
+    if (claimedIds.isEmpty()) {
       log.info("All rows in bin already claimed by another scheduler instance; skipping");
       return;
     }
+    if (claimedIds.size() < ids.size()) {
+      log.info(
+          "Partial claim: {} of {} ops in bin claimed; launching job for claimed subset only",
+          claimedIds.size(),
+          ids.size());
+    }
 
-    Optional<String> jobId = bin.schedule(jobsClient, resultsEndpoint);
+    Bin claimedBin = bin.subset(claimedIds);
+    Optional<String> jobId = claimedBin.schedule(jobsClient, resultsEndpoint);
     if (jobId.isPresent()) {
-      int updated = operationsRepo.markScheduledBatch(ids, jobId.get());
+      int updated = operationsRepo.markScheduledBatch(claimedIds, jobId.get());
       log.info(
           "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
           jobId.get(),
-          bin.getOperations().size(),
+          claimedBin.getOperations().size(),
           updated);
     } else {
-      int reverted = operationsRepo.markPendingBatch(ids);
+      int reverted = operationsRepo.markPendingBatch(claimedIds);
       log.warn(
           "Job submission failed; reverted {} claimed rows back to PENDING for retry on the next"
               + " pass",

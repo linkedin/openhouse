@@ -118,6 +118,7 @@ class SchedulerRunnerTest {
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
     stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
+    when(operationsRepo.findClaimedIds(anyList(), any())).thenReturn(List.of(row.getId()));
     when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(1);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job-123"));
@@ -146,6 +147,7 @@ class SchedulerRunnerTest {
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
     stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
+    when(operationsRepo.findClaimedIds(anyList(), any())).thenReturn(List.of(row.getId()));
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.empty());
     when(operationsRepo.markPendingBatch(anyList())).thenReturn(1);
@@ -166,6 +168,7 @@ class SchedulerRunnerTest {
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
     stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(0);
+    when(operationsRepo.findClaimedIds(anyList(), any())).thenReturn(List.of());
 
     runner.schedule(OFD);
 
@@ -184,6 +187,8 @@ class SchedulerRunnerTest {
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
     stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(2);
+    when(operationsRepo.findClaimedIds(anyList(), any()))
+        .thenReturn(List.of(row1.getId(), row2.getId()));
     when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(2);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job-789"));
@@ -191,6 +196,45 @@ class SchedulerRunnerTest {
     runner.schedule(OFD);
 
     verify(operationsRepo).cancelDuplicatePendingBatch(eq(OFD_DB), anyList());
+  }
+
+  @Test
+  void schedule_partialClaim_launchesAndMarksOnlyClaimedSubset() {
+    String uuidA = UUID.randomUUID().toString();
+    String uuidB = UUID.randomUUID().toString();
+    TableOperationsRow rowA = pendingRow(uuidA, "db1", "tblA");
+    TableOperationsRow rowB = pendingRow(uuidB, "db1", "tblB");
+
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(rowA, rowB));
+    when(statsRepo.findAllById(any()))
+        .thenReturn(List.of(statsRow(uuidA, 100L), statsRow(uuidB, 100L)));
+    stubOneBinForAllCandidates();
+    // We submitted ids [A, B] to mark; only A was actually claimed (B owned by another instance).
+    when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
+    when(operationsRepo.findClaimedIds(anyList(), any())).thenReturn(List.of(rowA.getId()));
+    when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(1);
+    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.of("job-partial"));
+
+    runner.schedule(OFD);
+
+    // Job is launched for the claimed subset only.
+    ArgumentCaptor<List<String>> launchedTableNames = ArgumentCaptor.forClass(List.class);
+    ArgumentCaptor<List<String>> launchedOpIds = ArgumentCaptor.forClass(List.class);
+    verify(jobsClient)
+        .launch(
+            anyString(),
+            anyString(),
+            launchedTableNames.capture(),
+            launchedOpIds.capture(),
+            anyString());
+    assertThat(launchedTableNames.getValue()).containsExactly("db1.tblA");
+    assertThat(launchedOpIds.getValue()).containsExactly(rowA.getId());
+
+    // markScheduledBatch is called only with the claimed id, not the unclaimed one.
+    verify(operationsRepo).markScheduledBatch(eq(List.of(rowA.getId())), eq("job-partial"));
+    verify(operationsRepo, never()).markScheduledBatch(eq(List.of(rowB.getId())), anyString());
+    verify(operationsRepo, never()).markPendingBatch(anyList());
   }
 
   @Test
@@ -205,6 +249,7 @@ class SchedulerRunnerTest {
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(withStats, 50L)));
     stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
+    when(operationsRepo.findClaimedIds(anyList(), any())).thenReturn(List.of(withStatsRow.getId()));
     when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(1);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job-skip"));
