@@ -33,8 +33,9 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
 
   /**
    * Batch CAS: PENDING → SCHEDULING for every {@code id} still in PENDING. Returns the number of
-   * rows transitioned. Rows already claimed by another instance are skipped silently; callers must
-   * re-query if they need the precise list.
+   * rows transitioned. Rows already claimed by another instance are skipped silently; pair this
+   * call with {@link #findClaimedIds(List, Instant)} (using the same {@code scheduledAt}) to get
+   * the precise list of rows this caller now owns.
    */
   @Modifying
   @Query(
@@ -44,6 +45,20 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
           + "WHERE r.id IN :ids "
           + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING")
   int markSchedulingBatch(
+      @Param("ids") List<String> ids, @Param("scheduledAt") Instant scheduledAt);
+
+  /**
+   * Return the subset of {@code ids} that are currently {@code SCHEDULING} with the given {@code
+   * scheduledAt} watermark. Used after {@link #markSchedulingBatch(List, Instant)} to determine
+   * which rows this caller actually claimed (vs. rows another instance owns or rows that no longer
+   * exist).
+   */
+  @Query(
+      "SELECT r.id FROM TableOperationsRow r "
+          + "WHERE r.id IN :ids "
+          + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULING "
+          + "AND r.scheduledAt = :scheduledAt")
+  List<String> findClaimedIds(
       @Param("ids") List<String> ids, @Param("scheduledAt") Instant scheduledAt);
 
   /**
