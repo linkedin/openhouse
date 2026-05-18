@@ -15,10 +15,6 @@ import lombok.NoArgsConstructor;
  *
  * <p>Conversion methods cross into the DB layer one-way; the inverse lives on the api side. db/
  * types know nothing about model/ or api/.
- *
- * <p>{@link #fileCount} is a non-persisted enrichment populated by consumers that need it (e.g.,
- * the OFD scheduler reads it from {@code table_stats} for bin-packing). The DB column does not
- * carry it.
  */
 @Data
 @Builder
@@ -49,12 +45,6 @@ public class TableOperation {
 
   /** When the scheduler last submitted a job for this operation. */
   private Instant scheduledAt;
-
-  /**
-   * Number of current data files on the table at evaluation time. Non-persisted enrichment;
-   * populated by consumers that need it. Null when not enriched.
-   */
-  private Long fileCount;
 
   /** Create a new PENDING operation for the given table and operation type. */
   public static TableOperation pending(Table table, OperationType operationType) {
