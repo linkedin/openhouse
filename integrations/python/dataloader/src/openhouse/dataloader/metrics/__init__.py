@@ -12,4 +12,6 @@ Call sites should obtain a ``Meter`` via the OTEL API directly::
     meter = get_meter(METER_NAME)
 """
 
-METER_NAME = "openhouse.dataloader"
+METER_NAME = "OpenHouse.DataLoader"
+
+__all__ = ["METER_NAME"]
