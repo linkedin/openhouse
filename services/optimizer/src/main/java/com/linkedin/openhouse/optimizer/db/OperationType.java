@@ -10,5 +10,8 @@ package com.linkedin.openhouse.optimizer.db;
 public enum OperationType {
 
   /** Removes orphaned data files no longer referenced by table metadata. */
-  ORPHAN_FILES_DELETION
+  ORPHAN_FILES_DELETION,
+
+  /** Expires old Iceberg snapshots past the table's retention policy. */
+  SNAPSHOT_EXPIRATION
 }

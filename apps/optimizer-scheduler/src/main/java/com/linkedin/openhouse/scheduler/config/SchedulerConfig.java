@@ -3,6 +3,7 @@ package com.linkedin.openhouse.scheduler.config;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.scheduler.BinPacker;
 import com.linkedin.openhouse.scheduler.FileCountBinPacker;
+import com.linkedin.openhouse.scheduler.SingletonBinPacker;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,6 +42,8 @@ public class SchedulerConfig {
   public Map<OperationType, BinPacker> binPackers() {
     return Map.of(
         OperationType.ORPHAN_FILES_DELETION,
-        new FileCountBinPacker(OperationType.ORPHAN_FILES_DELETION, ofdMaxFilesPerBin));
+        new FileCountBinPacker(OperationType.ORPHAN_FILES_DELETION, ofdMaxFilesPerBin),
+        OperationType.SNAPSHOT_EXPIRATION,
+        new SingletonBinPacker(OperationType.SNAPSHOT_EXPIRATION));
   }
 }
