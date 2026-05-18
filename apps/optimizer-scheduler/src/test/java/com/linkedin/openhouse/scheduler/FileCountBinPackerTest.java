@@ -36,10 +36,6 @@ class FileCountBinPackerTest {
     return new SchedulingCandidate(op(uuid), stats(fileCount));
   }
 
-  private static SchedulingCandidate candidateWithoutStats(String uuid) {
-    return new SchedulingCandidate(op(uuid), null);
-  }
-
   @Test
   void emptyInput_returnsEmptyBins() {
     assertThat(packer.pack(List.of())).isEmpty();
@@ -78,13 +74,6 @@ class FileCountBinPackerTest {
     List<Bin> bins = packer.pack(List.of(big));
     assertThat(bins).hasSize(1);
     assertThat(bins.get(0).getOperations()).containsExactly(big.getOperation());
-  }
-
-  @Test
-  void nullStats_treatedAsZero() {
-    List<Bin> bins = packer.pack(List.of(candidateWithoutStats("x"), candidateWithoutStats("y")));
-    assertThat(bins).hasSize(1);
-    assertThat(bins.get(0).getOperations()).hasSize(2);
   }
 
   @Test

@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -20,13 +21,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class SchedulerRunnerTest {
@@ -37,6 +38,7 @@ class SchedulerRunnerTest {
   private static final com.linkedin.openhouse.optimizer.db.OperationStatus PENDING_DB =
       com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING;
   private static final String OFD_STR = OFD.name();
+  private static final String RESULTS_ENDPOINT = "http://localhost:8080/v1/table-operations";
 
   @Mock private TableOperationsRepository operationsRepo;
   @Mock private TableStatsRepository statsRepo;
@@ -47,9 +49,9 @@ class SchedulerRunnerTest {
 
   @BeforeEach
   void setUp() {
-    runner = new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of(OFD, binPacker));
-    ReflectionTestUtils.setField(
-        runner, "resultsEndpoint", "http://localhost:8080/v1/table-operations");
+    runner =
+        new SchedulerRunner(
+            operationsRepo, statsRepo, jobsClient, Map.of(OFD, binPacker), RESULTS_ENDPOINT);
   }
 
   private TableOperationsRow pendingRow(String uuid, String db, String table) {
@@ -71,6 +73,19 @@ class SchedulerRunnerTest {
         .build();
   }
 
+  /** Stubs the bin packer to return one bin containing every candidate. */
+  private void stubOneBinForAllCandidates() {
+    when(binPacker.pack(anyList()))
+        .thenAnswer(
+            inv ->
+                List.of(
+                    new Bin(
+                        OFD,
+                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
+                            .map(SchedulingCandidate::getOperation)
+                            .collect(Collectors.toList()))));
+  }
+
   @Test
   void schedule_noPendingOps_noJobSubmitted() {
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of());
@@ -82,12 +97,13 @@ class SchedulerRunnerTest {
   }
 
   @Test
-  void schedule_unknownOperationType_noOp() {
+  void schedule_unknownOperationType_throws() {
     SchedulerRunner emptyRunner =
-        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of());
-    ReflectionTestUtils.setField(emptyRunner, "resultsEndpoint", "x");
+        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, Map.of(), RESULTS_ENDPOINT);
 
-    emptyRunner.schedule(OFD);
+    assertThatThrownBy(() -> emptyRunner.schedule(OFD))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("No BinPacker registered");
 
     verify(operationsRepo, never()).find(any(), any(), any(), any(), any());
     verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
@@ -100,15 +116,7 @@ class SchedulerRunnerTest {
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
-    when(binPacker.pack(anyList()))
-        .thenAnswer(
-            inv ->
-                List.of(
-                    new Bin(
-                        OFD,
-                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
-                            .map(SchedulingCandidate::getOperation)
-                            .collect(java.util.stream.Collectors.toList()))));
+    stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
     when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(1);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
@@ -135,16 +143,8 @@ class SchedulerRunnerTest {
     TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
-    when(statsRepo.findAllById(any())).thenReturn(List.of());
-    when(binPacker.pack(anyList()))
-        .thenAnswer(
-            inv ->
-                List.of(
-                    new Bin(
-                        OFD,
-                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
-                            .map(SchedulingCandidate::getOperation)
-                            .collect(java.util.stream.Collectors.toList()))));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
+    stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.empty());
@@ -163,16 +163,8 @@ class SchedulerRunnerTest {
     TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
-    when(statsRepo.findAllById(any())).thenReturn(List.of());
-    when(binPacker.pack(anyList()))
-        .thenAnswer(
-            inv ->
-                List.of(
-                    new Bin(
-                        OFD,
-                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
-                            .map(SchedulingCandidate::getOperation)
-                            .collect(java.util.stream.Collectors.toList()))));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
+    stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(0);
 
     runner.schedule(OFD);
@@ -189,16 +181,8 @@ class SchedulerRunnerTest {
     TableOperationsRow row2 = pendingRow(uuid, "db1", "tbl1");
 
     when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row1, row2));
-    when(statsRepo.findAllById(any())).thenReturn(List.of());
-    when(binPacker.pack(anyList()))
-        .thenAnswer(
-            inv ->
-                List.of(
-                    new Bin(
-                        OFD,
-                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
-                            .map(SchedulingCandidate::getOperation)
-                            .collect(java.util.stream.Collectors.toList()))));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
+    stubOneBinForAllCandidates();
     when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(2);
     when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(2);
     when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
@@ -207,5 +191,42 @@ class SchedulerRunnerTest {
     runner.schedule(OFD);
 
     verify(operationsRepo).cancelDuplicatePendingBatch(eq(OFD_DB), anyList());
+  }
+
+  @Test
+  void schedule_opsWithoutStats_skipped() {
+    String withStats = UUID.randomUUID().toString();
+    String missing = UUID.randomUUID().toString();
+    TableOperationsRow withStatsRow = pendingRow(withStats, "db1", "tblA");
+    TableOperationsRow missingRow = pendingRow(missing, "db1", "tblB");
+
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null))
+        .thenReturn(List.of(withStatsRow, missingRow));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(withStats, 50L)));
+    stubOneBinForAllCandidates();
+    when(operationsRepo.markSchedulingBatch(anyList(), any())).thenReturn(1);
+    when(operationsRepo.markScheduledBatch(anyList(), anyString())).thenReturn(1);
+    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.of("job-skip"));
+
+    runner.schedule(OFD);
+
+    // Only the op with a stats row makes it into the claim batch.
+    ArgumentCaptor<List<String>> ids = ArgumentCaptor.forClass(List.class);
+    verify(operationsRepo).markSchedulingBatch(ids.capture(), any());
+    assertThat(ids.getValue()).containsExactly(withStatsRow.getId());
+  }
+
+  @Test
+  void schedule_allOpsWithoutStats_noJobSubmitted() {
+    TableOperationsRow row = pendingRow(UUID.randomUUID().toString(), "db1", "tbl1");
+
+    when(operationsRepo.find(OFD_DB, PENDING_DB, null, null, null)).thenReturn(List.of(row));
+    when(statsRepo.findAllById(any())).thenReturn(List.of());
+
+    runner.schedule(OFD);
+
+    verify(binPacker, never()).pack(anyList());
+    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
   }
 }
