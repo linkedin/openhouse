@@ -1,9 +1,11 @@
 package com.linkedin.openhouse.scheduler;
 
+import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationType;
 import com.linkedin.openhouse.optimizer.model.TableOperation;
+import com.linkedin.openhouse.optimizer.model.TableStats;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -20,8 +22,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * For one operation type per call, reads PENDING rows, enriches them with file count, dispatches to
- * the registered {@link BinPacker}, and submits one Spark job per bin. The {@link
+ * For one operation type per call, reads PENDING rows, looks up per-table stats, dispatches to the
+ * registered {@link BinPacker}, and submits one Spark job per returned {@link Bin}. The {@link
  * com.linkedin.openhouse.scheduler.SchedulerApplication}'s CommandLineRunner loops over the
  * registered packers and invokes {@code schedule(opType)} for each.
  */
@@ -57,11 +59,10 @@ public class SchedulerRunner {
       return;
     }
 
-    com.linkedin.openhouse.optimizer.db.OperationType dbOperationType = operationType.toDb();
     List<TableOperationsRow> pendingRows =
         operationsRepo.find(
-            dbOperationType,
-            com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING,
+            operationType.toDb(),
+            OperationStatus.PENDING,
             null,
             databaseName.orElse(null),
             tableName.orElse(null));
@@ -70,73 +71,49 @@ public class SchedulerRunner {
       return;
     }
 
-    Set<String> uuids =
-        pendingRows.stream().map(TableOperationsRow::getTableUuid).collect(Collectors.toSet());
-    Map<String, Long> fileCountByUuid =
-        statsRepo.findAllById(uuids).stream()
-            .collect(
-                Collectors.toMap(TableStatsRow::getTableUuid, SchedulerRunner::extractFileCount));
-
     List<TableOperation> pending =
-        pendingRows.stream()
-            .map(
-                row -> {
-                  TableOperation op = TableOperation.fromRow(row);
-                  op.setFileCount(fileCountByUuid.getOrDefault(row.getTableUuid(), 0L));
-                  return op;
-                })
-            .collect(Collectors.toList());
+        pendingRows.stream().map(TableOperation::fromRow).collect(Collectors.toList());
 
-    List<List<TableOperation>> bins = packer.pack(pending);
+    Set<String> uuids =
+        pending.stream().map(TableOperation::getTableUuid).collect(Collectors.toSet());
+    Map<String, TableStats> statsByUuid =
+        statsRepo.findAllById(uuids).stream()
+            .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStats::fromRow));
+
+    List<Bin> bins = packer.pack(pending, statsByUuid);
     log.info(
         "Packed {} PENDING {} operations into {} bins", pending.size(), operationType, bins.size());
 
-    bins.forEach(bin -> submitBin(operationType, bin));
+    bins.forEach(this::submitBin);
   }
 
-  private void submitBin(OperationType operationType, List<TableOperation> bin) {
+  private void submitBin(Bin bin) {
+    List<String> ids = bin.getOperationIds();
+
     // Deduplicate PENDING rows per tableUuid for this op type, keeping the IDs in this bin.
-    List<String> keepIds = bin.stream().map(TableOperation::getId).collect(Collectors.toList());
-    operationsRepo.cancelDuplicatePendingBatch(operationType.toDb(), keepIds);
+    operationsRepo.cancelDuplicatePendingBatch(bin.getOperationType().toDb(), ids);
 
     // Claim the rows in one batched UPDATE: PENDING → SCHEDULING.
-    int claimedCount = operationsRepo.markSchedulingBatch(keepIds, Instant.now());
+    int claimedCount = operationsRepo.markSchedulingBatch(ids, Instant.now());
     if (claimedCount == 0) {
       log.info("All rows in bin already claimed by another scheduler instance; skipping");
       return;
     }
 
-    // Submit the job for the rows we just claimed.
-    List<String> tableNames =
-        bin.stream()
-            .map(op -> op.getDatabaseName() + "." + op.getTableName())
-            .collect(Collectors.toList());
-    String jobName =
-        "batched-" + operationType.name().toLowerCase() + "-" + Instant.now().toEpochMilli();
-    Optional<String> jobId =
-        jobsClient.launch(jobName, operationType.name(), tableNames, keepIds, resultsEndpoint);
-
+    Optional<String> jobId = bin.schedule(jobsClient, resultsEndpoint);
     if (jobId.isPresent()) {
-      int updated = operationsRepo.markScheduledBatch(keepIds, jobId.get());
+      int updated = operationsRepo.markScheduledBatch(ids, jobId.get());
       log.info(
           "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
           jobId.get(),
-          tableNames.size(),
+          bin.getOperations().size(),
           updated);
     } else {
-      int reverted = operationsRepo.markPendingBatch(keepIds);
+      int reverted = operationsRepo.markPendingBatch(ids);
       log.warn(
           "Job submission failed; reverted {} claimed rows back to PENDING for retry on the next"
               + " pass",
           reverted);
     }
-  }
-
-  private static long extractFileCount(TableStatsRow row) {
-    if (row.getSnapshot() == null) {
-      return 0L;
-    }
-    Long count = row.getSnapshot().getNumCurrentFiles();
-    return count != null ? count : 0L;
   }
 }

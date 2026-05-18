@@ -39,6 +39,8 @@ public class SchedulerConfig {
    */
   @Bean
   public Map<OperationType, BinPacker> binPackers() {
-    return Map.of(OperationType.ORPHAN_FILES_DELETION, new FileCountBinPacker(ofdMaxFilesPerBin));
+    return Map.of(
+        OperationType.ORPHAN_FILES_DELETION,
+        new FileCountBinPacker(OperationType.ORPHAN_FILES_DELETION, ofdMaxFilesPerBin));
   }
 }
