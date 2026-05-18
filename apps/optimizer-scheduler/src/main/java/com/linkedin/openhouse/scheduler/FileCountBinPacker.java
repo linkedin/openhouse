@@ -5,10 +5,11 @@ import com.linkedin.openhouse.optimizer.model.TableOperation;
 import com.linkedin.openhouse.optimizer.model.TableStats;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -33,10 +34,9 @@ public class FileCountBinPacker implements BinPacker {
     }
 
     // Project once: each candidate's packing cost is just a long, keyed by operation id.
-    Map<String, Long> costByOperationId = new HashMap<>();
-    for (SchedulingCandidate c : pending) {
-      costByOperationId.put(c.getOperation().getId(), cost(c.getStats()));
-    }
+    Map<String, Long> costByOperationId =
+        pending.stream()
+            .collect(Collectors.toMap(c -> c.getOperation().getId(), c -> cost(c.getStats())));
 
     List<TableOperation> sorted =
         pending.stream()
@@ -46,32 +46,34 @@ public class FileCountBinPacker implements BinPacker {
                     .reversed())
             .collect(Collectors.toList());
 
+    // First-fit-descending is inherently stateful — each placement depends on running totals
+    // for the bins assembled so far. Two parallel lists carry that state; sorted.forEach mutates
+    // them via the helper.
     List<List<TableOperation>> binContents = new ArrayList<>();
     List<Long> binTotals = new ArrayList<>();
-
-    for (TableOperation op : sorted) {
-      long cost = costByOperationId.get(op.getId());
-      int placed = -1;
-      for (int i = 0; i < binContents.size(); i++) {
-        if (binTotals.get(i) + cost <= maxFilesPerBin || binTotals.get(i) == 0) {
-          placed = i;
-          break;
-        }
-      }
-      if (placed >= 0) {
-        binContents.get(placed).add(op);
-        binTotals.set(placed, binTotals.get(placed) + cost);
-      } else {
-        List<TableOperation> newBin = new ArrayList<>();
-        newBin.add(op);
-        binContents.add(newBin);
-        binTotals.add(cost);
-      }
-    }
+    sorted.forEach(op -> placeInBin(op, costByOperationId.get(op.getId()), binContents, binTotals));
 
     return binContents.stream()
         .map(ops -> new Bin(operationType, ops))
         .collect(Collectors.toList());
+  }
+
+  private void placeInBin(
+      TableOperation op, long cost, List<List<TableOperation>> bins, List<Long> totals) {
+    OptionalInt placed =
+        IntStream.range(0, bins.size())
+            .filter(i -> totals.get(i) + cost <= maxFilesPerBin || totals.get(i) == 0)
+            .findFirst();
+    if (placed.isPresent()) {
+      int idx = placed.getAsInt();
+      bins.get(idx).add(op);
+      totals.set(idx, totals.get(idx) + cost);
+    } else {
+      List<TableOperation> newBin = new ArrayList<>();
+      newBin.add(op);
+      bins.add(newBin);
+      totals.add(cost);
+    }
   }
 
   private static long cost(TableStats stats) {
