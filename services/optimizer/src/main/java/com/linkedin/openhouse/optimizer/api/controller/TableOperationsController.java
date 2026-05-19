@@ -1,8 +1,8 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequest;
-import com.linkedin.openhouse.optimizer.api.model.OperationStatus;
-import com.linkedin.openhouse.optimizer.api.model.OperationType;
+import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequestDto;
+import com.linkedin.openhouse.optimizer.api.model.OperationStatusDto;
+import com.linkedin.openhouse.optimizer.api.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
@@ -36,7 +36,7 @@ public class TableOperationsController {
    */
   @PostMapping("/complete")
   public ResponseEntity<TableOperationsHistoryDto> completeOperation(
-      @RequestBody CompleteOperationRequest request) {
+      @RequestBody CompleteOperationRequestDto request) {
     return service
         .completeOperation(
             request.getOperationId(),
@@ -64,16 +64,16 @@ public class TableOperationsController {
    */
   @GetMapping
   public ResponseEntity<List<TableOperationsDto>> listTableOperations(
-      @RequestParam(required = false) OperationType operationType,
-      @RequestParam(required = false) OperationStatus status,
+      @RequestParam(required = false) OperationTypeDto operationType,
+      @RequestParam(required = false) OperationStatusDto status,
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
     List<TableOperationsDto> result =
         service
             .listTableOperations(
-                Optional.ofNullable(operationType).map(OperationType::toModel),
-                Optional.ofNullable(status).map(OperationStatus::toModel),
+                Optional.ofNullable(operationType).map(OperationTypeDto::toModel),
+                Optional.ofNullable(status).map(OperationStatusDto::toModel),
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
                 Optional.ofNullable(tableUuid))

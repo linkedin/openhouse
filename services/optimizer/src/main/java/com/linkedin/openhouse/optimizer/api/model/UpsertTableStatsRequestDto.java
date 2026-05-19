@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class UpsertTableStatsRequest {
+public class UpsertTableStatsRequestDto {
 
   /** Denormalized database name for display. */
   private String databaseName;
@@ -26,7 +26,7 @@ public class UpsertTableStatsRequest {
   private String tableName;
 
   /** Combined snapshot + delta stats payload from this commit. */
-  private TableStats stats;
+  private TableStatsPayloadDto stats;
 
   /** Current table properties snapshot (e.g. maintenance opt-in flags). */
   private Map<String, String> tableProperties;

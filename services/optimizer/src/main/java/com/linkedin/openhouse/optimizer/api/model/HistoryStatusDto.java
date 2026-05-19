@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.optimizer.api.model;
 
 /** Terminal states for a completed Spark maintenance job. */
-public enum HistoryStatus {
+public enum HistoryStatusDto {
 
   /** The Spark job for this operation completed successfully. */
   SUCCESS,
@@ -15,7 +15,7 @@ public enum HistoryStatus {
   }
 
   /** Build the api-layer enum from the internal-model counterpart. */
-  public static HistoryStatus fromModel(com.linkedin.openhouse.optimizer.model.HistoryStatus v) {
-    return v == null ? null : HistoryStatus.valueOf(v.name());
+  public static HistoryStatusDto fromModel(com.linkedin.openhouse.optimizer.model.HistoryStatus v) {
+    return v == null ? null : HistoryStatusDto.valueOf(v.name());
   }
 }
