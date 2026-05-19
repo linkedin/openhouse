@@ -335,7 +335,7 @@ public final class Operations implements AutoCloseable {
     try (CloseableIterable<FileScanTask> filesIterable = scan.planFiles()) {
       List<FileScanTask> filesList = Lists.newArrayList(filesIterable);
       filesList.stream()
-          .filter(task -> task.residual() != Expressions.alwaysTrue())
+          .filter(task -> !Expressions.alwaysTrue().isEquivalentTo(task.residual()))
           .findFirst()
           .ifPresent(
               task -> {
