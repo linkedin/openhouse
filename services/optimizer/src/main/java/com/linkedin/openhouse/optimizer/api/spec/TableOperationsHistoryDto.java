@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.optimizer.api.model;
+package com.linkedin.openhouse.optimizer.api.spec;
 
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
 import java.time.Instant;

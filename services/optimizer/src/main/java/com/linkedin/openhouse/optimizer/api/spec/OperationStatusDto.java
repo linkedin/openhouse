@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.optimizer.api.model;
+package com.linkedin.openhouse.optimizer.api.spec;
 
 /** Lifecycle states for a table operation recommendation. */
 public enum OperationStatusDto {
