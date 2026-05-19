@@ -27,10 +27,10 @@ public class TableOperationsDto {
   private String tableName;
 
   /** The type of maintenance operation (e.g. ORPHAN_FILES_DELETION). */
-  private OperationType operationType;
+  private OperationTypeDto operationType;
 
   /** {@code PENDING} or {@code SCHEDULED}. Defaults to {@code PENDING} on creation. */
-  private OperationStatus status;
+  private OperationStatusDto status;
 
   /** Server-set when the row is first created by the Analyzer. */
   private Instant createdAt;
@@ -65,8 +65,8 @@ public class TableOperationsDto {
         .tableUuid(op.getTableUuid())
         .databaseName(op.getDatabaseName())
         .tableName(op.getTableName())
-        .operationType(OperationType.fromModel(op.getOperationType()))
-        .status(OperationStatus.fromModel(op.getStatus()))
+        .operationType(OperationTypeDto.fromModel(op.getOperationType()))
+        .status(OperationStatusDto.fromModel(op.getStatus()))
         .createdAt(op.getCreatedAt())
         .scheduledAt(op.getScheduledAt())
         .build();
