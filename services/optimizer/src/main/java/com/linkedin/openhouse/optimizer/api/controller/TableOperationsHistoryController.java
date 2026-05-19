@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.stream.Collectors;
