@@ -25,13 +25,13 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CompleteOperationRequest {
+public class CompleteOperationRequestDto {
 
   /** Operation row's UUID — the primary lookup key. */
   private String operationId;
 
   /** Terminal outcome for this single operation. */
-  private HistoryStatus status;
+  private HistoryStatusDto status;
 
   /** Debug echo: stable table identity the caller believed it was completing. */
   private String tableUuid;
@@ -43,5 +43,5 @@ public class CompleteOperationRequest {
   private String tableName;
 
   /** Debug echo: operation type. */
-  private OperationType operationType;
+  private OperationTypeDto operationType;
 }

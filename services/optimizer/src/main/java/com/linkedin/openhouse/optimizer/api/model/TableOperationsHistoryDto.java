@@ -27,13 +27,13 @@ public class TableOperationsHistoryDto {
   private String tableName;
 
   /** The type of maintenance operation this history row records. */
-  private OperationType operationType;
+  private OperationTypeDto operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
   private Instant completedAt;
 
   /** {@code SUCCESS} or {@code FAILED}. */
-  private HistoryStatus status;
+  private HistoryStatusDto status;
 
   /** Convert to the internal-model counterpart. */
   public TableOperationsHistory toModel() {
@@ -58,9 +58,9 @@ public class TableOperationsHistoryDto {
         .tableUuid(h.getTableUuid())
         .databaseName(h.getDatabaseName())
         .tableName(h.getTableName())
-        .operationType(OperationType.fromModel(h.getOperationType()))
+        .operationType(OperationTypeDto.fromModel(h.getOperationType()))
         .completedAt(h.getCompletedAt())
-        .status(HistoryStatus.fromModel(h.getStatus()))
+        .status(HistoryStatusDto.fromModel(h.getStatus()))
         .build();
   }
 }
