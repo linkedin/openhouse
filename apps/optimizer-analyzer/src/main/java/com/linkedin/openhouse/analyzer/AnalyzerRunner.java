@@ -59,13 +59,14 @@ public class AnalyzerRunner {
       Optional<String> databaseName,
       Optional<String> tableName,
       Optional<String> tableUuid) {
-    Optional<OperationAnalyzer> analyzerOpt =
-        analyzers.stream().filter(a -> a.getOperationType() == operationType).findFirst();
-    if (analyzerOpt.isEmpty()) {
-      log.warn("No analyzer registered for operation type {}; skipping", operationType);
-      return;
-    }
-    OperationAnalyzer analyzer = analyzerOpt.get();
+    OperationAnalyzer analyzer =
+        analyzers.stream()
+            .filter(a -> a.getOperationType() == operationType)
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "No analyzer registered for operation type " + operationType));
     List<String> dbs = databaseName.map(List::of).orElseGet(statsRepo::findDistinctDatabaseNames);
     log.info("Analyzing {} across {} database(s)", operationType, dbs.size());
     dbs.forEach(db -> analyzeDatabase(analyzer, db, tableName, tableUuid));
