@@ -2,7 +2,7 @@ package com.linkedin.openhouse.optimizer.api.controller;
 
 import com.linkedin.openhouse.optimizer.api.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.api.model.TableStatsHistoryDto;
-import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequest;
+import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequestDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.time.Instant;
 import java.util.List;
@@ -32,7 +32,7 @@ public class TableStatsController {
    */
   @PutMapping("/{tableUuid}")
   public ResponseEntity<TableStatsDto> upsertTableStats(
-      @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequest request) {
+      @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequestDto request) {
     return ResponseEntity.ok(
         TableStatsDto.fromModel(service.upsertTableStats(request.toModel(tableUuid))));
   }
