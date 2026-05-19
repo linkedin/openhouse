@@ -1,8 +1,8 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.model.TableStatsDto;
-import com.linkedin.openhouse.optimizer.api.model.TableStatsHistoryDto;
-import com.linkedin.openhouse.optimizer.api.model.UpsertTableStatsRequestDto;
+import com.linkedin.openhouse.optimizer.api.spec.TableStatsDto;
+import com.linkedin.openhouse.optimizer.api.spec.TableStatsHistoryDto;
+import com.linkedin.openhouse.optimizer.api.spec.UpsertTableStatsRequestDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.time.Instant;
 import java.util.List;
