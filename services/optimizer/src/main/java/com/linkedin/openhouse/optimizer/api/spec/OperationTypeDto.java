@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.optimizer.api.model;
+package com.linkedin.openhouse.optimizer.api.spec;
 
 /** Maintenance operation types supported by the continuous optimizer. */
 public enum OperationTypeDto {

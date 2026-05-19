@@ -1,10 +1,10 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.model.CompleteOperationRequestDto;
-import com.linkedin.openhouse.optimizer.api.model.OperationStatusDto;
-import com.linkedin.openhouse.optimizer.api.model.OperationTypeDto;
-import com.linkedin.openhouse.optimizer.api.model.TableOperationsDto;
-import com.linkedin.openhouse.optimizer.api.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.api.spec.CompleteOperationRequestDto;
+import com.linkedin.openhouse.optimizer.api.spec.OperationStatusDto;
+import com.linkedin.openhouse.optimizer.api.spec.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.api.spec.TableOperationsDto;
+import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.Optional;
