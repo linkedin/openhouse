@@ -25,7 +25,7 @@ public class TableStatsDto {
   private String tableName;
 
   /** Combined snapshot + delta stats payload, stored as JSON. */
-  private TableStats stats;
+  private TableStatsPayloadDto stats;
 
   /** Current table properties snapshot (e.g. maintenance opt-in flags). */
   private Map<String, String> tableProperties;
@@ -57,9 +57,9 @@ public class TableStatsDto {
         .databaseName(m.getDatabaseName())
         .tableName(m.getTableName())
         .stats(
-            TableStats.builder()
-                .snapshot(TableStats.SnapshotMetrics.fromModel(m.getSnapshot()))
-                .delta(TableStats.CommitDelta.fromModel(m.getDelta()))
+            TableStatsPayloadDto.builder()
+                .snapshot(TableStatsPayloadDto.SnapshotMetricsDto.fromModel(m.getSnapshot()))
+                .delta(TableStatsPayloadDto.CommitDeltaDto.fromModel(m.getDelta()))
                 .build())
         .tableProperties(m.getTableProperties())
         .updatedAt(m.getUpdatedAt())
