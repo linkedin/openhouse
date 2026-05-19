@@ -27,7 +27,7 @@ public class TableStatsHistoryDto {
   private String tableName;
 
   /** Snapshot + delta stats from this commit event. */
-  private TableStats stats;
+  private TableStatsPayloadDto stats;
 
   /** When this history row was recorded. */
   private Instant recordedAt;
@@ -54,7 +54,7 @@ public class TableStatsHistoryDto {
         .tableUuid(h.getTableUuid())
         .databaseName(h.getDatabaseName())
         .tableName(h.getTableName())
-        .stats(TableStats.fromModel(h.getStats()))
+        .stats(TableStatsPayloadDto.fromModel(h.getStats()))
         .recordedAt(h.getRecordedAt())
         .build();
   }

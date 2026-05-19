@@ -17,13 +17,13 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class TableStats {
+public class TableStatsPayloadDto {
 
   /** Snapshot fields — overwritten on every upsert. */
-  private SnapshotMetrics snapshot;
+  private SnapshotMetricsDto snapshot;
 
   /** Delta fields — accumulated across commit events. */
-  private CommitDelta delta;
+  private CommitDeltaDto delta;
 
   /** Convert to the internal-model counterpart. */
   public com.linkedin.openhouse.optimizer.model.TableStats toModel() {
@@ -34,13 +34,14 @@ public class TableStats {
   }
 
   /** Build the api-layer payload from the internal-model counterpart. */
-  public static TableStats fromModel(com.linkedin.openhouse.optimizer.model.TableStats m) {
+  public static TableStatsPayloadDto fromModel(
+      com.linkedin.openhouse.optimizer.model.TableStats m) {
     if (m == null) {
       return null;
     }
-    return TableStats.builder()
-        .snapshot(SnapshotMetrics.fromModel(m.getSnapshot()))
-        .delta(CommitDelta.fromModel(m.getDelta()))
+    return TableStatsPayloadDto.builder()
+        .snapshot(SnapshotMetricsDto.fromModel(m.getSnapshot()))
+        .delta(CommitDeltaDto.fromModel(m.getDelta()))
         .build();
   }
 
@@ -50,7 +51,7 @@ public class TableStats {
   @NoArgsConstructor
   @AllArgsConstructor
   @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class SnapshotMetrics {
+  public static class SnapshotMetricsDto {
 
     /** Iceberg metadata version pointer for this snapshot. */
     private String tableVersion;
@@ -75,12 +76,12 @@ public class TableStats {
     }
 
     /** Build the api-layer inner object from the internal-model counterpart. */
-    public static SnapshotMetrics fromModel(
+    public static SnapshotMetricsDto fromModel(
         com.linkedin.openhouse.optimizer.model.TableStats.SnapshotMetrics m) {
       if (m == null) {
         return null;
       }
-      return SnapshotMetrics.builder()
+      return SnapshotMetricsDto.builder()
           .tableVersion(m.getTableVersion())
           .tableLocation(m.getTableLocation())
           .tableSizeBytes(m.getTableSizeBytes())
@@ -95,7 +96,7 @@ public class TableStats {
   @NoArgsConstructor
   @AllArgsConstructor
   @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class CommitDelta {
+  public static class CommitDeltaDto {
 
     /** Number of data files this commit added to the table. */
     private Long numFilesAdded;
@@ -120,12 +121,12 @@ public class TableStats {
     }
 
     /** Build the api-layer inner object from the internal-model counterpart. */
-    public static CommitDelta fromModel(
+    public static CommitDeltaDto fromModel(
         com.linkedin.openhouse.optimizer.model.TableStats.CommitDelta m) {
       if (m == null) {
         return null;
       }
-      return CommitDelta.builder()
+      return CommitDeltaDto.builder()
           .numFilesAdded(m.getNumFilesAdded())
           .numFilesDeleted(m.getNumFilesDeleted())
           .addedSizeBytes(m.getAddedSizeBytes())
