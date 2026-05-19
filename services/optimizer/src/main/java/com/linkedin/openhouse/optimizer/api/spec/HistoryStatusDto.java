@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.optimizer.api.model;
+package com.linkedin.openhouse.optimizer.api.spec;
 
 /** Terminal states for a completed Spark maintenance job. */
 public enum HistoryStatusDto {
