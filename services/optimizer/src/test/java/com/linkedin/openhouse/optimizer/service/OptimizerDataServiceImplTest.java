@@ -4,11 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
-import com.linkedin.openhouse.optimizer.model.HistoryStatus;
-import com.linkedin.openhouse.optimizer.model.OperationStatus;
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -53,21 +53,21 @@ class OptimizerDataServiceImplTest {
             .jobId("spark-job-123")
             .build());
 
-    Optional<TableOperationsHistory> result =
-        service.completeOperation(operationId, HistoryStatus.SUCCESS);
+    Optional<TableOperationsHistoryDto> result =
+        service.completeOperation(operationId, HistoryStatusDto.SUCCESS);
 
     assertThat(result).isPresent();
-    assertThat(result.get().getStatus()).isEqualTo(HistoryStatus.SUCCESS);
+    assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.SUCCESS);
     assertThat(result.get().getTableUuid()).isEqualTo(tableUuid);
-    assertThat(result.get().getOperationType()).isEqualTo(OperationType.ORPHAN_FILES_DELETION);
+    assertThat(result.get().getOperationType()).isEqualTo(OperationTypeDto.ORPHAN_FILES_DELETION);
     assertThat(result.get().getDatabaseName()).isEqualTo("db1");
     assertThat(result.get().getCompletedAt()).isNotNull();
   }
 
   @Test
   void completeOperation_notFound_returnsEmpty() {
-    Optional<TableOperationsHistory> result =
-        service.completeOperation(UUID.randomUUID().toString(), HistoryStatus.FAILED);
+    Optional<TableOperationsHistoryDto> result =
+        service.completeOperation(UUID.randomUUID().toString(), HistoryStatusDto.FAILED);
 
     assertThat(result).isEmpty();
   }
@@ -77,16 +77,16 @@ class OptimizerDataServiceImplTest {
   @Test
   void upsertTableStats_createsNewRow() {
     String tableUuid = UUID.randomUUID().toString();
-    TableStats input =
-        TableStats.builder()
+    TableStatsDto input =
+        TableStatsDto.builder()
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
             .tableProperties(Map.of("maintenance.optimizer.ofd.enabled", "true"))
-            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(1024L).build())
+            .snapshot(TableStatsDto.SnapshotMetrics.builder().tableSizeBytes(1024L).build())
             .build();
 
-    TableStats result = service.upsertTableStats(input);
+    TableStatsDto result = service.upsertTableStats(input);
 
     assertThat(result.getTableUuid()).isEqualTo(tableUuid);
     assertThat(result.getDatabaseName()).isEqualTo("db1");
@@ -100,25 +100,27 @@ class OptimizerDataServiceImplTest {
   @Test
   void upsertTableStats_updatesExistingRow_andAppendsHistory() {
     String tableUuid = UUID.randomUUID().toString();
-    TableStats first =
-        TableStats.builder()
+    TableStatsDto first =
+        TableStatsDto.builder()
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(100L).build())
-            .delta(TableStats.CommitDelta.builder().numFilesAdded(5L).numFilesDeleted(1L).build())
+            .snapshot(TableStatsDto.SnapshotMetrics.builder().tableSizeBytes(100L).build())
+            .delta(
+                TableStatsDto.CommitDelta.builder().numFilesAdded(5L).numFilesDeleted(1L).build())
             .build();
-    TableStats second =
-        TableStats.builder()
+    TableStatsDto second =
+        TableStatsDto.builder()
             .tableUuid(tableUuid)
             .databaseName("db1")
             .tableName("tbl1")
-            .snapshot(TableStats.SnapshotMetrics.builder().tableSizeBytes(200L).build())
-            .delta(TableStats.CommitDelta.builder().numFilesAdded(3L).numFilesDeleted(0L).build())
+            .snapshot(TableStatsDto.SnapshotMetrics.builder().tableSizeBytes(200L).build())
+            .delta(
+                TableStatsDto.CommitDelta.builder().numFilesAdded(3L).numFilesDeleted(0L).build())
             .build();
 
     service.upsertTableStats(first);
-    TableStats result = service.upsertTableStats(second);
+    TableStatsDto result = service.upsertTableStats(second);
 
     assertThat(result.getSnapshot().getTableSizeBytes()).isEqualTo(200L);
     assertThat(statsRepository.findAll()).hasSize(1);
@@ -159,8 +161,8 @@ class OptimizerDataServiceImplTest {
 
     assertThat(
             service.listTableOperations(
-                Optional.of(OperationType.ORPHAN_FILES_DELETION),
-                Optional.of(OperationStatus.PENDING),
+                Optional.of(OperationTypeDto.ORPHAN_FILES_DELETION),
+                Optional.of(OperationStatusDto.PENDING),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()))

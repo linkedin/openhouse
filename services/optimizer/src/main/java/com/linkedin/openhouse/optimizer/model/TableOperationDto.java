@@ -20,7 +20,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperation {
+public class TableOperationDto {
 
   /** Unique operation ID (UUID). */
   private String id;
@@ -35,10 +35,10 @@ public class TableOperation {
   private String tableName;
 
   /** Operation type. */
-  private OperationType operationType;
+  private OperationTypeDto operationType;
 
   /** Current lifecycle status. */
-  private OperationStatus status;
+  private OperationStatusDto status;
 
   /** When this operation record was created. */
   private Instant createdAt;
@@ -47,21 +47,21 @@ public class TableOperation {
   private Instant scheduledAt;
 
   /** Create a new PENDING operation for the given table and operation type. */
-  public static TableOperation pending(Table table, OperationType operationType) {
-    return TableOperation.builder()
+  public static TableOperationDto pending(TableDto table, OperationTypeDto operationType) {
+    return TableOperationDto.builder()
         .id(UUID.randomUUID().toString())
         .tableUuid(table.getTableUuid())
         .databaseName(table.getDatabaseName())
         .tableName(table.getTableId())
         .operationType(operationType)
-        .status(OperationStatus.PENDING)
+        .status(OperationStatusDto.PENDING)
         .createdAt(Instant.now())
         .build();
   }
 
   /** Return the more recently created of two operations. */
-  public static TableOperation mostRecent(TableOperation a, TableOperation b) {
-    Comparator<TableOperation> byCreatedAt =
+  public static TableOperationDto mostRecent(TableOperationDto a, TableOperationDto b) {
+    Comparator<TableOperationDto> byCreatedAt =
         Comparator.comparing(r -> r.getCreatedAt() != null ? r.getCreatedAt() : Instant.EPOCH);
     return byCreatedAt.compare(a, b) >= 0 ? a : b;
   }
@@ -80,18 +80,18 @@ public class TableOperation {
         .build();
   }
 
-  /** Build a {@link TableOperation} from a DB row. */
-  public static TableOperation fromRow(TableOperationsRow row) {
+  /** Build a {@link TableOperationDto} from a DB row. */
+  public static TableOperationDto fromRow(TableOperationsRow row) {
     if (row == null) {
       return null;
     }
-    return TableOperation.builder()
+    return TableOperationDto.builder()
         .id(row.getId())
         .tableUuid(row.getTableUuid())
         .databaseName(row.getDatabaseName())
         .tableName(row.getTableName())
-        .operationType(OperationType.fromDb(row.getOperationType()))
-        .status(OperationStatus.fromDb(row.getStatus()))
+        .operationType(OperationTypeDto.fromDb(row.getOperationType()))
+        .status(OperationStatusDto.fromDb(row.getStatus()))
         .createdAt(row.getCreatedAt())
         .scheduledAt(row.getScheduledAt())
         .build();

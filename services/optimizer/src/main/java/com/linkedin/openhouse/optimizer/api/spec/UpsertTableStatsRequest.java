@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class UpsertTableStatsRequestDto {
+public class UpsertTableStatsRequest {
 
   /** Denormalized database name for display. */
   private String databaseName;
@@ -26,19 +26,21 @@ public class UpsertTableStatsRequestDto {
   private String tableName;
 
   /** Combined snapshot + delta stats payload from this commit. */
-  private TableStatsPayloadDto stats;
+  private TableStatsPayload stats;
 
   /** Current table properties snapshot (e.g. maintenance opt-in flags). */
   private Map<String, String> tableProperties;
 
   /**
-   * Build the internal-model {@link com.linkedin.openhouse.optimizer.model.TableStats} described by
-   * this request. {@code tableUuid} comes from the URL path, not the body. {@code updatedAt} is
+   * Build the internal-model {@link com.linkedin.openhouse.optimizer.model.TableStatsDto} described
+   * by this request. {@code tableUuid} comes from the URL path, not the body. {@code updatedAt} is
    * left {@code null}; the service stamps it server-side at write time.
    */
-  public com.linkedin.openhouse.optimizer.model.TableStats toModel(String tableUuid) {
-    com.linkedin.openhouse.optimizer.model.TableStats payload =
-        stats == null ? new com.linkedin.openhouse.optimizer.model.TableStats() : stats.toModel();
+  public com.linkedin.openhouse.optimizer.model.TableStatsDto toModel(String tableUuid) {
+    com.linkedin.openhouse.optimizer.model.TableStatsDto payload =
+        stats == null
+            ? new com.linkedin.openhouse.optimizer.model.TableStatsDto()
+            : stats.toModel();
     return payload
         .toBuilder()
         .tableUuid(tableUuid)

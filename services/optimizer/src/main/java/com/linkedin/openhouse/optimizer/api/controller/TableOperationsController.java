@@ -1,10 +1,10 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.spec.CompleteOperationRequestDto;
-import com.linkedin.openhouse.optimizer.api.spec.OperationStatusDto;
-import com.linkedin.openhouse.optimizer.api.spec.OperationTypeDto;
-import com.linkedin.openhouse.optimizer.api.spec.TableOperationsDto;
-import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.api.spec.CompleteOperationRequest;
+import com.linkedin.openhouse.optimizer.api.spec.OperationStatus;
+import com.linkedin.openhouse.optimizer.api.spec.OperationType;
+import com.linkedin.openhouse.optimizer.api.spec.TableOperations;
+import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.Optional;
@@ -35,8 +35,8 @@ public class TableOperationsController {
    * row, or 404 if the operation does not exist.
    */
   @PostMapping("/complete")
-  public ResponseEntity<TableOperationsHistoryDto> completeOperation(
-      @RequestBody CompleteOperationRequestDto request) {
+  public ResponseEntity<TableOperationsHistory> completeOperation(
+      @RequestBody CompleteOperationRequest request) {
     return service
         .completeOperation(
             request.getOperationId(),
@@ -44,16 +44,16 @@ public class TableOperationsController {
         .map(
             history ->
                 ResponseEntity.status(HttpStatus.CREATED)
-                    .body(TableOperationsHistoryDto.fromModel(history)))
+                    .body(TableOperationsHistory.fromModel(history)))
         .orElse(ResponseEntity.notFound().build());
   }
 
   /** Fetch a single operation row by its ID, regardless of status. Returns 404 if not found. */
   @GetMapping("/{id}")
-  public ResponseEntity<TableOperationsDto> getTableOperation(@PathVariable String id) {
+  public ResponseEntity<TableOperations> getTableOperation(@PathVariable String id) {
     return service
         .getTableOperation(id)
-        .map(TableOperationsDto::fromModel)
+        .map(TableOperations::fromModel)
         .map(ResponseEntity::ok)
         .orElse(ResponseEntity.notFound().build());
   }
@@ -63,22 +63,22 @@ public class TableOperationsController {
    * every row.
    */
   @GetMapping
-  public ResponseEntity<List<TableOperationsDto>> listTableOperations(
-      @RequestParam(required = false) OperationTypeDto operationType,
-      @RequestParam(required = false) OperationStatusDto status,
+  public ResponseEntity<List<TableOperations>> listTableOperations(
+      @RequestParam(required = false) OperationType operationType,
+      @RequestParam(required = false) OperationStatus status,
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
-    List<TableOperationsDto> result =
+    List<TableOperations> result =
         service
             .listTableOperations(
-                Optional.ofNullable(operationType).map(OperationTypeDto::toModel),
-                Optional.ofNullable(status).map(OperationStatusDto::toModel),
+                Optional.ofNullable(operationType).map(OperationType::toModel),
+                Optional.ofNullable(status).map(OperationStatus::toModel),
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
                 Optional.ofNullable(tableUuid))
             .stream()
-            .map(TableOperationsDto::fromModel)
+            .map(TableOperations::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);
   }

@@ -7,7 +7,7 @@ package com.linkedin.openhouse.optimizer.model;
  *
  * <p>Intentionally separate from the wire-API and DB representations.
  */
-public enum HistoryStatus {
+public enum HistoryStatusDto {
 
   /** The operation completed successfully. */
   SUCCESS,
@@ -21,7 +21,7 @@ public enum HistoryStatus {
   }
 
   /** Build the internal-model enum from the DB-layer counterpart. */
-  public static HistoryStatus fromDb(com.linkedin.openhouse.optimizer.db.HistoryStatus v) {
-    return v == null ? null : HistoryStatus.valueOf(v.name());
+  public static HistoryStatusDto fromDb(com.linkedin.openhouse.optimizer.db.HistoryStatus v) {
+    return v == null ? null : HistoryStatusDto.valueOf(v.name());
   }
 }

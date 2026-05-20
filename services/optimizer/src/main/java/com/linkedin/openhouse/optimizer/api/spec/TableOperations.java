@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.spec;
 
-import com.linkedin.openhouse.optimizer.model.TableOperation;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationsDto {
+public class TableOperations {
 
   /** Client-generated UUID identifying this specific operation recommendation. */
   private String id;
@@ -27,10 +27,10 @@ public class TableOperationsDto {
   private String tableName;
 
   /** The type of maintenance operation (e.g. ORPHAN_FILES_DELETION). */
-  private OperationTypeDto operationType;
+  private OperationType operationType;
 
   /** {@code PENDING} or {@code SCHEDULED}. Defaults to {@code PENDING} on creation. */
-  private OperationStatusDto status;
+  private OperationStatus status;
 
   /** Server-set when the row is first created by the Analyzer. */
   private Instant createdAt;
@@ -42,8 +42,8 @@ public class TableOperationsDto {
   private String jobId;
 
   /** Convert to the internal-model counterpart. */
-  public TableOperation toModel() {
-    return TableOperation.builder()
+  public TableOperationDto toModel() {
+    return TableOperationDto.builder()
         .id(id)
         .tableUuid(tableUuid)
         .databaseName(databaseName)
@@ -56,17 +56,17 @@ public class TableOperationsDto {
   }
 
   /** Build a wire DTO from the internal-model counterpart. */
-  public static TableOperationsDto fromModel(TableOperation op) {
+  public static TableOperations fromModel(TableOperationDto op) {
     if (op == null) {
       return null;
     }
-    return TableOperationsDto.builder()
+    return TableOperations.builder()
         .id(op.getId())
         .tableUuid(op.getTableUuid())
         .databaseName(op.getDatabaseName())
         .tableName(op.getTableName())
-        .operationType(OperationTypeDto.fromModel(op.getOperationType()))
-        .status(OperationStatusDto.fromModel(op.getStatus()))
+        .operationType(OperationType.fromModel(op.getOperationType()))
+        .status(OperationStatus.fromModel(op.getStatus()))
         .createdAt(op.getCreatedAt())
         .scheduledAt(op.getScheduledAt())
         .build();
