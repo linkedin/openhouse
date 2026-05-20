@@ -470,6 +470,21 @@ public class TablesClient {
         tableProps.get(StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY));
   }
 
+  /**
+   * Read the persisted data layout strategies for a table from its table properties.
+   *
+   * <p>Returns an empty list if the table is missing or has no {@code write.data-layout.strategies}
+   * property. Used by the scheduler to skip launching compaction jobs that the strategy generator
+   * has already shown will produce no useful work.
+   */
+  public List<DataLayoutStrategy> getDataLayoutStrategies(TableMetadata tableMetadata) {
+    GetTableResponseBody response = getTable(tableMetadata);
+    if (response == null) {
+      return Collections.emptyList();
+    }
+    return getDataLayoutStrategies(response);
+  }
+
   protected @NonNull String getTableCreator(GetTableResponseBody responseBody) {
     return Objects.requireNonNull(responseBody.getTableCreator());
   }
