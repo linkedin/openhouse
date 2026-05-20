@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.scheduler;
 
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import lombok.NonNull;
 import lombok.Value;
 
@@ -14,6 +14,6 @@ import lombok.Value;
  */
 @Value
 public class SchedulingCandidate {
-  @NonNull TableOperation operation;
-  @NonNull TableStats stats;
+  @NonNull TableOperationDto operation;
+  @NonNull TableStatsDto stats;
 }

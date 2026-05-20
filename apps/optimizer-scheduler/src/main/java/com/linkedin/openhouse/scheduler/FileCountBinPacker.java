@@ -1,8 +1,8 @@
 package com.linkedin.openhouse.scheduler;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -14,7 +14,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * Greedy first-fit-descending bin-packer keyed on per-table file count, projected from each
- * candidate's {@link TableStats}.
+ * candidate's {@link TableStatsDto}.
  *
  * <p>Candidates are sorted by descending file count, then assigned to the first bin whose running
  * total stays at or below {@code maxFilesPerBin}. An operation larger than the limit gets its own
@@ -23,7 +23,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class FileCountBinPacker implements BinPacker {
 
-  private final OperationType operationType;
+  private final OperationTypeDto operationType;
   private final long maxFilesPerBin;
 
   @Override
@@ -37,17 +37,18 @@ public class FileCountBinPacker implements BinPacker {
         pending.stream()
             .collect(Collectors.toMap(c -> c.getOperation().getId(), c -> cost(c.getStats())));
 
-    List<TableOperation> sorted =
+    List<TableOperationDto> sorted =
         pending.stream()
             .map(SchedulingCandidate::getOperation)
             .sorted(
-                Comparator.comparingLong((TableOperation op) -> costByOperationId.get(op.getId()))
+                Comparator.comparingLong(
+                        (TableOperationDto op) -> costByOperationId.get(op.getId()))
                     .reversed())
             .collect(Collectors.toList());
 
     // First-fit-descending is inherently stateful — each placement depends on the running totals
     // for bins assembled so far.
-    List<List<TableOperation>> binContents = new ArrayList<>();
+    List<List<TableOperationDto>> binContents = new ArrayList<>();
     List<Long> binTotals = new ArrayList<>();
     sorted.forEach(
         op -> {
@@ -61,7 +62,7 @@ public class FileCountBinPacker implements BinPacker {
             binContents.get(idx).add(op);
             binTotals.set(idx, binTotals.get(idx) + c);
           } else {
-            List<TableOperation> newBin = new ArrayList<>();
+            List<TableOperationDto> newBin = new ArrayList<>();
             newBin.add(op);
             binContents.add(newBin);
             binTotals.add(c);
@@ -73,7 +74,7 @@ public class FileCountBinPacker implements BinPacker {
         .collect(Collectors.toList());
   }
 
-  private static long cost(TableStats stats) {
+  private static long cost(TableStatsDto stats) {
     if (stats == null || stats.getSnapshot() == null) {
       return 0L;
     }

@@ -24,10 +24,10 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CompleteOperationRequestDto {
+public class CompleteOperationRequest {
 
   /** Terminal outcome for this single operation. */
-  private HistoryStatusDto status;
+  private HistoryStatus status;
 
   /** OFD-specific: number of orphan files deleted. Null on failure or non-OFD operation. */
   private Long orphanFilesDeleted;
@@ -51,5 +51,5 @@ public class CompleteOperationRequestDto {
   private String tableName;
 
   /** Debug echo: operation type. */
-  private OperationTypeDto operationType;
+  private OperationType operationType;
 }

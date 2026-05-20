@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.Table;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.util.Optional;
 
 /**
@@ -19,13 +19,13 @@ import java.util.Optional;
 public interface OperationAnalyzer {
 
   /** The operation type this analyzer handles. */
-  OperationType getOperationType();
+  OperationTypeDto getOperationType();
 
   /**
    * Returns {@code true} if this operation is opted-in for the given table. Tables that return
    * {@code false} are skipped entirely — no upsert is issued.
    */
-  boolean isEnabled(Table table);
+  boolean isEnabled(TableDto table);
 
   /**
    * Returns {@code true} if a new or refreshed operation record should be upserted.
@@ -35,7 +35,7 @@ public interface OperationAnalyzer {
    * @param latestHistory the most recent history entry for this (table, type), or empty
    */
   boolean shouldSchedule(
-      Table table,
-      Optional<TableOperation> currentOp,
-      Optional<TableOperationsHistory> latestHistory);
+      TableDto table,
+      Optional<TableOperationDto> currentOp,
+      Optional<TableOperationsHistoryDto> latestHistory);
 }

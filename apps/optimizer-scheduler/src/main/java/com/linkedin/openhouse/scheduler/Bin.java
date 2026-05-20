@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.scheduler;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.Collection;
@@ -22,12 +22,12 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class Bin {
 
-  @Getter private final OperationType operationType;
-  @Getter private final List<TableOperation> operations;
+  @Getter private final OperationTypeDto operationType;
+  @Getter private final List<TableOperationDto> operations;
 
   /** Operation UUIDs in this bin, parallel to {@link #getTableNames()}. */
   public List<String> getOperationIds() {
-    return operations.stream().map(TableOperation::getId).collect(Collectors.toList());
+    return operations.stream().map(TableOperationDto::getId).collect(Collectors.toList());
   }
 
   /** Fully-qualified {@code database.table} identifiers for the operations in this bin. */
@@ -43,7 +43,7 @@ public class Bin {
    */
   public Bin subset(Collection<String> keepIds) {
     Set<String> keep = new HashSet<>(keepIds);
-    List<TableOperation> filtered =
+    List<TableOperationDto> filtered =
         operations.stream().filter(op -> keep.contains(op.getId())).collect(Collectors.toList());
     return new Bin(operationType, filtered);
   }

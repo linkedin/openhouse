@@ -1,17 +1,17 @@
 package com.linkedin.openhouse.optimizer.api.spec;
 
 /** Maintenance operation types supported by the continuous optimizer. */
-public enum OperationTypeDto {
+public enum OperationType {
   /** Removes orphaned data files no longer referenced by table metadata. */
   ORPHAN_FILES_DELETION;
 
   /** Convert to the internal-model counterpart. */
-  public com.linkedin.openhouse.optimizer.model.OperationType toModel() {
-    return com.linkedin.openhouse.optimizer.model.OperationType.valueOf(name());
+  public com.linkedin.openhouse.optimizer.model.OperationTypeDto toModel() {
+    return com.linkedin.openhouse.optimizer.model.OperationTypeDto.valueOf(name());
   }
 
   /** Build the api-layer enum from the internal-model counterpart. */
-  public static OperationTypeDto fromModel(com.linkedin.openhouse.optimizer.model.OperationType v) {
-    return v == null ? null : OperationTypeDto.valueOf(v.name());
+  public static OperationType fromModel(com.linkedin.openhouse.optimizer.model.OperationTypeDto v) {
+    return v == null ? null : OperationType.valueOf(v.name());
   }
 }

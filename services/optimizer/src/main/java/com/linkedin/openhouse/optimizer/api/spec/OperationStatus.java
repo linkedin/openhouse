@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.optimizer.api.spec;
 
 /** Lifecycle states for a table operation recommendation. */
-public enum OperationStatusDto {
+public enum OperationStatus {
 
   /** Recommended by the Analyzer but not yet claimed by the Scheduler. */
   PENDING,
@@ -20,13 +20,13 @@ public enum OperationStatusDto {
   CANCELED;
 
   /** Convert to the internal-model counterpart. */
-  public com.linkedin.openhouse.optimizer.model.OperationStatus toModel() {
-    return com.linkedin.openhouse.optimizer.model.OperationStatus.valueOf(name());
+  public com.linkedin.openhouse.optimizer.model.OperationStatusDto toModel() {
+    return com.linkedin.openhouse.optimizer.model.OperationStatusDto.valueOf(name());
   }
 
   /** Build the api-layer enum from the internal-model counterpart. */
-  public static OperationStatusDto fromModel(
-      com.linkedin.openhouse.optimizer.model.OperationStatus v) {
-    return v == null ? null : OperationStatusDto.valueOf(v.name());
+  public static OperationStatus fromModel(
+      com.linkedin.openhouse.optimizer.model.OperationStatusDto v) {
+    return v == null ? null : OperationStatus.valueOf(v.name());
   }
 }

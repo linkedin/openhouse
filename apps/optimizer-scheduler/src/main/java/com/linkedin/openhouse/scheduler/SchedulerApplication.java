@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.scheduler;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import java.util.Map;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
@@ -24,7 +24,8 @@ public class SchedulerApplication {
    * scoped to one operation type.
    */
   @Bean
-  public CommandLineRunner run(SchedulerRunner runner, Map<OperationType, BinPacker> binPackers) {
+  public CommandLineRunner run(
+      SchedulerRunner runner, Map<OperationTypeDto, BinPacker> binPackers) {
     return args -> binPackers.keySet().forEach(runner::schedule);
   }
 }

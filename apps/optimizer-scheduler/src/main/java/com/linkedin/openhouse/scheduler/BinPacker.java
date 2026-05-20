@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.scheduler;
 
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import java.util.List;
 
 /**
@@ -9,7 +9,7 @@ import java.util.List;
  * binding to an operation type is the responsibility of the scheduler configuration, not the
  * strategy class.
  *
- * <p>{@link TableStats} is the cost source at the interface boundary, carried alongside each
+ * <p>{@link TableStatsDto} is the cost source at the interface boundary, carried alongside each
  * operation in a {@link SchedulingCandidate}. Implementations project the stats down to the minimal
  * data needed to make their packing decision (e.g. file count for OFD) and do not retain the full
  * stats payload in the returned bins.

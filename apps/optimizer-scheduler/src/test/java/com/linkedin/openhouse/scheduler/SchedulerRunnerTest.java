@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
-import com.linkedin.openhouse.optimizer.model.OperationType;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -32,7 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class SchedulerRunnerTest {
 
-  private static final OperationType OFD = OperationType.ORPHAN_FILES_DELETION;
+  private static final OperationTypeDto OFD = OperationTypeDto.ORPHAN_FILES_DELETION;
   private static final com.linkedin.openhouse.optimizer.db.OperationType OFD_DB =
       com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION;
   private static final com.linkedin.openhouse.optimizer.db.OperationStatus PENDING_DB =

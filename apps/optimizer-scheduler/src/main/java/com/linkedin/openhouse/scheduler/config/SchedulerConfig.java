@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.scheduler.config;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.scheduler.BinPacker;
 import com.linkedin.openhouse.scheduler.FileCountBinPacker;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -33,14 +33,14 @@ public class SchedulerConfig {
   }
 
   /**
-   * Map of {@link OperationType} to the {@link BinPacker} strategy that handles it. Adding a new
+   * Map of {@link OperationTypeDto} to the {@link BinPacker} strategy that handles it. Adding a new
    * operation type means adding an entry here and configuring its packer; the strategy class itself
    * stays generic.
    */
   @Bean
-  public Map<OperationType, BinPacker> binPackers() {
+  public Map<OperationTypeDto, BinPacker> binPackers() {
     return Map.of(
-        OperationType.ORPHAN_FILES_DELETION,
-        new FileCountBinPacker(OperationType.ORPHAN_FILES_DELETION, ofdMaxFilesPerBin));
+        OperationTypeDto.ORPHAN_FILES_DELETION,
+        new FileCountBinPacker(OperationTypeDto.ORPHAN_FILES_DELETION, ofdMaxFilesPerBin));
   }
 }

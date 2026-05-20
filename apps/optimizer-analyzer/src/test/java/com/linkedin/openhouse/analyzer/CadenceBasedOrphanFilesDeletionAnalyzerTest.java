@@ -2,11 +2,11 @@ package com.linkedin.openhouse.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.model.HistoryStatus;
-import com.linkedin.openhouse.optimizer.model.OperationStatus;
-import com.linkedin.openhouse.optimizer.model.Table;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
+import com.linkedin.openhouse.optimizer.model.TableDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -48,7 +48,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void isEnabled_returnsFalse_whenTablePropertiesEmpty() {
-    Table table = Table.builder().tableUuid("uuid").build();
+    TableDto table = TableDto.builder().tableUuid("uuid").build();
     assertThat(analyzer.isEnabled(table)).isFalse();
   }
 
@@ -68,7 +68,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, longAgo))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo))))
         .isTrue();
   }
 
@@ -79,7 +79,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, recent))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent))))
         .isFalse();
   }
 
@@ -90,7 +90,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatus.FAILED, longAgo))))
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, longAgo))))
         .isTrue();
   }
 
@@ -101,7 +101,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatus.FAILED, recent))))
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, recent))))
         .isFalse();
   }
 
@@ -112,7 +112,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.PENDING)),
+                Optional.of(opWithStatus(OperationStatusDto.PENDING)),
                 Optional.empty()))
         .isFalse();
   }
@@ -122,7 +122,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULING)),
+                Optional.of(opWithStatus(OperationStatusDto.SCHEDULING)),
                 Optional.empty()))
         .isFalse();
   }
@@ -133,8 +133,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.SCHEDULED)),
-                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, historyAt))))
+                Optional.of(opWithStatus(OperationStatusDto.SCHEDULED)),
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, historyAt))))
         .isFalse();
   }
 
@@ -146,8 +146,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.CANCELED)),
-                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, longAgo))))
+                Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo))))
         .isTrue();
   }
 
@@ -157,8 +157,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.CANCELED)),
-                Optional.of(historyWithStatus(HistoryStatus.SUCCESS, recent))))
+                Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent))))
         .isFalse();
   }
 
@@ -167,19 +167,19 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty("true"),
-                Optional.of(opWithStatus(OperationStatus.CANCELED)),
+                Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
                 Optional.empty()))
         .isTrue();
   }
 
   // --- helpers ---
 
-  private Table tableWithProperty(String value) {
+  private TableDto tableWithProperty(String value) {
     Map<String, String> props =
         value == null
             ? Collections.emptyMap()
             : Map.of(CadenceBasedOrphanFilesDeletionAnalyzer.OFD_ENABLED_PROPERTY, value);
-    return Table.builder()
+    return TableDto.builder()
         .tableUuid("test-uuid")
         .databaseName("db1")
         .tableId("tbl1")
@@ -187,15 +187,17 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
         .build();
   }
 
-  private TableOperation opWithStatus(OperationStatus status) {
-    return TableOperation.builder().status(status).build();
+  private TableOperationDto opWithStatus(OperationStatusDto status) {
+    return TableOperationDto.builder().status(status).build();
   }
 
-  private TableOperationsHistory historyWithStatus(HistoryStatus status, Instant completedAt) {
-    return TableOperationsHistory.builder()
+  private TableOperationsHistoryDto historyWithStatus(
+      HistoryStatusDto status, Instant completedAt) {
+    return TableOperationsHistoryDto.builder()
         .id("hist-id")
         .tableUuid("test-uuid")
-        .operationType(com.linkedin.openhouse.optimizer.model.OperationType.ORPHAN_FILES_DELETION)
+        .operationType(
+            com.linkedin.openhouse.optimizer.model.OperationTypeDto.ORPHAN_FILES_DELETION)
         .completedAt(completedAt)
         .status(status)
         .build();

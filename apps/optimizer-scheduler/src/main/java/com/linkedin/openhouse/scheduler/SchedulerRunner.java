@@ -3,9 +3,9 @@ package com.linkedin.openhouse.scheduler;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
@@ -32,14 +32,14 @@ public class SchedulerRunner {
   private final TableOperationsRepository operationsRepo;
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
-  private final Map<OperationType, BinPacker> binPackers;
+  private final Map<OperationTypeDto, BinPacker> binPackers;
   private final String resultsEndpoint;
 
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
-      Map<OperationType, BinPacker> binPackers,
+      Map<OperationTypeDto, BinPacker> binPackers,
       @Value("${scheduler.results-endpoint}") String resultsEndpoint) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
@@ -50,7 +50,7 @@ public class SchedulerRunner {
 
   /** Schedule all PENDING operations of the given type across all databases. */
   @Transactional
-  public void schedule(OperationType operationType) {
+  public void schedule(OperationTypeDto operationType) {
     schedule(operationType, Optional.empty(), Optional.empty());
   }
 
@@ -60,7 +60,7 @@ public class SchedulerRunner {
    */
   @Transactional
   public void schedule(
-      OperationType operationType, Optional<String> databaseName, Optional<String> tableName) {
+      OperationTypeDto operationType, Optional<String> databaseName, Optional<String> tableName) {
 
     BinPacker packer = binPackers.get(operationType);
     if (packer == null) {
@@ -80,22 +80,22 @@ public class SchedulerRunner {
       return;
     }
 
-    List<TableOperation> pending =
-        pendingRows.stream().map(TableOperation::fromRow).collect(Collectors.toList());
+    List<TableOperationDto> pending =
+        pendingRows.stream().map(TableOperationDto::fromRow).collect(Collectors.toList());
 
     // Tradeoff: we fetch fresh table_stats per scheduling cycle (one batched query) rather than
-    // denormalizing the relevant fields onto TableOperation. The denormalized alternative would
-    // remove the per-cycle lookup but widen the TableOperation row and serve staler data; the
+    // denormalizing the relevant fields onto TableOperationDto. The denormalized alternative would
+    // remove the per-cycle lookup but widen the TableOperationDto row and serve staler data; the
     // current shape favors smaller operations + freshness over fewer queries.
     Set<String> uuids =
-        pending.stream().map(TableOperation::getTableUuid).collect(Collectors.toSet());
-    Map<String, TableStats> statsByUuid =
+        pending.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
+    Map<String, TableStatsDto> statsByUuid =
         statsRepo.findAllById(uuids).stream()
-            .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStats::fromRow));
+            .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
 
     // Filter at the boundary so SchedulingCandidate.stats is guaranteed non-null. A table without
     // a stats row gets skipped this cycle and reconsidered after stats land.
-    List<TableOperation> withStats =
+    List<TableOperationDto> withStats =
         pending.stream()
             .filter(op -> statsByUuid.containsKey(op.getTableUuid()))
             .collect(Collectors.toList());

@@ -7,7 +7,7 @@ package com.linkedin.openhouse.optimizer.model;
  *
  * <p>Intentionally separate from the wire-API and DB representations.
  */
-public enum OperationStatus {
+public enum OperationStatusDto {
 
   /** Analyzer has written the row; not yet claimed by the scheduler. */
   PENDING,
@@ -27,7 +27,7 @@ public enum OperationStatus {
   }
 
   /** Build the internal-model enum from the DB-layer counterpart. */
-  public static OperationStatus fromDb(com.linkedin.openhouse.optimizer.db.OperationStatus v) {
-    return v == null ? null : OperationStatus.valueOf(v.name());
+  public static OperationStatusDto fromDb(com.linkedin.openhouse.optimizer.db.OperationStatus v) {
+    return v == null ? null : OperationStatusDto.valueOf(v.name());
   }
 }

@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationsHistory {
+public class TableOperationsHistoryDto {
 
   /** Same UUID as the originating live-operations row. */
   private String id;
@@ -32,13 +32,13 @@ public class TableOperationsHistory {
   private String tableName;
 
   /** Operation type for this completed run. */
-  private OperationType operationType;
+  private OperationTypeDto operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
   private Instant completedAt;
 
-  /** Terminal outcome: {@link HistoryStatus#SUCCESS} or {@link HistoryStatus#FAILED}. */
-  private HistoryStatus status;
+  /** Terminal outcome: {@link HistoryStatusDto#SUCCESS} or {@link HistoryStatusDto#FAILED}. */
+  private HistoryStatusDto status;
 
   /** OFD-specific: number of orphan files deleted; null if not an OFD operation or on failure. */
   private Long orphanFilesDeleted;
@@ -69,19 +69,19 @@ public class TableOperationsHistory {
         .build();
   }
 
-  /** Build a {@link TableOperationsHistory} from a DB row. */
-  public static TableOperationsHistory fromRow(TableOperationsHistoryRow row) {
+  /** Build a {@link TableOperationsHistoryDto} from a DB row. */
+  public static TableOperationsHistoryDto fromRow(TableOperationsHistoryRow row) {
     if (row == null) {
       return null;
     }
-    return TableOperationsHistory.builder()
+    return TableOperationsHistoryDto.builder()
         .id(row.getId())
         .tableUuid(row.getTableUuid())
         .databaseName(row.getDatabaseName())
         .tableName(row.getTableName())
-        .operationType(OperationType.fromDb(row.getOperationType()))
+        .operationType(OperationTypeDto.fromDb(row.getOperationType()))
         .completedAt(row.getCompletedAt())
-        .status(HistoryStatus.fromDb(row.getStatus()))
+        .status(HistoryStatusDto.fromDb(row.getStatus()))
         .orphanFilesDeleted(row.getOrphanFilesDeleted())
         .orphanBytesDeleted(row.getOrphanBytesDeleted())
         .errorMessage(row.getErrorMessage())
