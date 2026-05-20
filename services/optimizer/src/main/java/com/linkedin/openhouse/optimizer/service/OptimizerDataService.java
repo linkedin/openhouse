@@ -1,12 +1,12 @@
 package com.linkedin.openhouse.optimizer.service;
 
-import com.linkedin.openhouse.optimizer.model.HistoryStatus;
-import com.linkedin.openhouse.optimizer.model.OperationStatus;
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
-import com.linkedin.openhouse.optimizer.model.TableStats;
-import com.linkedin.openhouse.optimizer.model.TableStatsHistory;
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsHistoryDto;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -26,9 +26,9 @@ public interface OptimizerDataService {
    * List operations matching the given filters. Every parameter is optional — pass {@link
    * Optional#empty()} to skip that filter. No filters returns all rows.
    */
-  List<TableOperation> listTableOperations(
-      Optional<OperationType> operationType,
-      Optional<OperationStatus> status,
+  List<TableOperationDto> listTableOperations(
+      Optional<OperationTypeDto> operationType,
+      Optional<OperationStatusDto> status,
       Optional<String> databaseName,
       Optional<String> tableName,
       Optional<String> tableUuid);
@@ -39,31 +39,32 @@ public interface OptimizerDataService {
    * {@code status}, and saves it. Returns the history record, or empty if the operation does not
    * exist.
    */
-  Optional<TableOperationsHistory> completeOperation(String operationId, HistoryStatus status);
+  Optional<TableOperationsHistoryDto> completeOperation(
+      String operationId, HistoryStatusDto status);
 
   /**
    * Return the operation row for {@code id} regardless of status, or empty if it does not exist.
    * Used to poll a specific operation (e.g. waiting for SUCCESS after a Spark job completes).
    */
-  Optional<TableOperation> getTableOperation(String id);
+  Optional<TableOperationDto> getTableOperation(String id);
 
-  // --- TableStats ---
+  // --- TableStatsDto ---
 
   /**
    * Create or update the stats row for {@code stats.getTableUuid()}. Fully idempotent: the same
    * call overwrites the previous snapshot with the latest commit values. The service stamps {@link
-   * TableStats#getUpdatedAt()} server-side and returns the resulting {@link TableStats}.
+   * TableStatsDto#getUpdatedAt()} server-side and returns the resulting {@link TableStatsDto}.
    */
-  TableStats upsertTableStats(TableStats stats);
+  TableStatsDto upsertTableStats(TableStatsDto stats);
 
   /** Return the stats row for {@code tableUuid}, or empty if none exists. */
-  Optional<TableStats> getTableStats(String tableUuid);
+  Optional<TableStatsDto> getTableStats(String tableUuid);
 
   /**
    * List stats rows matching the given filters. Every parameter is optional — pass {@link
    * Optional#empty()} to skip that filter. No filters returns all rows.
    */
-  List<TableStats> listTableStats(
+  List<TableStatsDto> listTableStats(
       Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid);
 
   /**
@@ -73,12 +74,12 @@ public interface OptimizerDataService {
    * @param since if present, only return rows recorded at or after this instant
    * @param limit maximum number of rows to return
    */
-  List<TableStatsHistory> getStatsHistory(String tableUuid, Optional<Instant> since, int limit);
+  List<TableStatsHistoryDto> getStatsHistory(String tableUuid, Optional<Instant> since, int limit);
 
-  // --- TableOperationsHistory ---
+  // --- TableOperationsHistoryDto ---
 
   /** Append a completed-job result record. */
-  TableOperationsHistory appendHistory(TableOperationsHistory history);
+  TableOperationsHistoryDto appendHistory(TableOperationsHistoryDto history);
 
   /**
    * Return the most recent history rows for a table UUID, newest first.
@@ -86,5 +87,5 @@ public interface OptimizerDataService {
    * @param tableUuid the stable table UUID
    * @param limit maximum number of rows to return
    */
-  List<TableOperationsHistory> getHistory(String tableUuid, int limit);
+  List<TableOperationsHistoryDto> getHistory(String tableUuid, int limit);
 }

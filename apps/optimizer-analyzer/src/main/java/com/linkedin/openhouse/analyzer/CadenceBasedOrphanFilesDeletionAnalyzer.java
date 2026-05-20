@@ -1,16 +1,16 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.Table;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** Analyzer for the {@link OperationType#ORPHAN_FILES_DELETION} operation type. */
+/** Analyzer for the {@link OperationTypeDto#ORPHAN_FILES_DELETION} operation type. */
 @Component
 public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyzer {
 
@@ -32,20 +32,20 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
   }
 
   @Override
-  public OperationType getOperationType() {
-    return OperationType.ORPHAN_FILES_DELETION;
+  public OperationTypeDto getOperationType() {
+    return OperationTypeDto.ORPHAN_FILES_DELETION;
   }
 
   @Override
-  public boolean isEnabled(Table table) {
+  public boolean isEnabled(TableDto table) {
     return "true".equals(table.getTableProperties().get(OFD_ENABLED_PROPERTY));
   }
 
   @Override
   public boolean shouldSchedule(
-      Table table,
-      Optional<TableOperation> currentOp,
-      Optional<TableOperationsHistory> latestHistory) {
+      TableDto table,
+      Optional<TableOperationDto> currentOp,
+      Optional<TableOperationsHistoryDto> latestHistory) {
     return cadencePolicy.shouldSchedule(currentOp, latestHistory);
   }
 }
