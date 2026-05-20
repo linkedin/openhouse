@@ -81,6 +81,53 @@ services:
       - OTEL_LOGS_EXPORTER=none
       - OTEL_TRACES_SAMPLER=always_on
 
+  openhouse-optimizer:
+    container_name: local.openhouse-optimizer
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-optimizer
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - mysql
+    environment:
+      - OPTIMIZER_DB_URL=jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false
+      - OPTIMIZER_DB_USER=oh_user
+      - OPTIMIZER_DB_PASSWORD=oh_password
+
+  openhouse-optimizer-analyzer:
+    container_name: local.openhouse-optimizer-analyzer
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-optimizer-analyzer
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - openhouse-optimizer
+    environment:
+      - OPTIMIZER_DB_URL=jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false
+      - OPTIMIZER_DB_USER=oh_user
+      - OPTIMIZER_DB_PASSWORD=oh_password
+      - ANALYZER_INTERVAL_SECONDS=30
+
+  openhouse-optimizer-scheduler:
+    container_name: local.openhouse-optimizer-scheduler
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-optimizer-scheduler
+    volumes:
+      - ./:/var/config/
+    depends_on:
+      - openhouse-optimizer
+      - openhouse-jobs
+    environment:
+      - OPTIMIZER_DB_URL=jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false
+      - OPTIMIZER_DB_USER=oh_user
+      - OPTIMIZER_DB_PASSWORD=oh_password
+      - JOBS_BASE_URI=http://openhouse-jobs:8080
+      - SCHEDULER_RESULTS_ENDPOINT=http://openhouse-optimizer:8080/v1/optimizer/operations
+      - SCHEDULER_INTERVAL_SECONDS=30
+
   jaeger:
     container_name: local.jaeger
     image: jaegertracing/all-in-one:1.54
