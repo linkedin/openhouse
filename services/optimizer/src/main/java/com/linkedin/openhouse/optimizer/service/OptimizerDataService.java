@@ -34,7 +34,7 @@ public interface OptimizerDataService {
       Optional<String> tableUuid);
 
   /**
-   * Complete an operation by writing a history entry. Looks up the operation row by {@code
+   * Update an operation by writing a history entry. Looks up the operation row by {@code
    * operationId}, copies its table metadata into a new history row with the supplied terminal
    * {@code status} and optional per-operation metrics / error details, and saves it. Returns the
    * history record, or empty if the operation does not exist.
@@ -43,7 +43,7 @@ public interface OptimizerDataService {
    * orphanFilesDeleted} / {@code orphanBytesDeleted}; failures populate {@code errorMessage} /
    * {@code errorType}. Non-OFD operations leave all four null.
    */
-  Optional<TableOperationsHistoryDto> completeOperation(
+  Optional<TableOperationsHistoryDto> updateOperation(
       String operationId,
       HistoryStatusDto status,
       Long orphanFilesDeleted,

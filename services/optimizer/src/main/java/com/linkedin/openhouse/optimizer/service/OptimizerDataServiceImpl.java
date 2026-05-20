@@ -62,7 +62,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   @Transactional
-  public Optional<TableOperationsHistoryDto> completeOperation(
+  public Optional<TableOperationsHistoryDto> updateOperation(
       String operationId,
       HistoryStatusDto status,
       Long orphanFilesDeleted,

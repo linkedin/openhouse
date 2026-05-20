@@ -43,7 +43,7 @@ import org.apache.iceberg.Table;
  * concurrently without competing for executors.
  *
  * <p>When {@code --resultsEndpoint} is supplied, each table's outcome is POSTed to the optimizer
- * service's complete-operation endpoint as it completes, letting the service track per-table status
+ * service's update-operation endpoint as it completes, letting the service track per-table status
  * independently of the overall job.
  */
 @Slf4j
@@ -201,7 +201,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       if (client != null) {
         String opId = tableToOperationId.get(result.getTableName());
         if (opId != null) {
-          completeOperation(client, opId, result);
+          updateOperation(client, opId, result);
         }
       }
     }
@@ -214,7 +214,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     }
   }
 
-  private void completeOperation(OkHttpClient client, String id, OrphanDeletionResult result)
+  private void updateOperation(OkHttpClient client, String id, OrphanDeletionResult result)
       throws Exception {
     OperationResult opResult =
         result.isSuccess()
@@ -224,11 +224,11 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     String json = OBJECT_MAPPER.writeValueAsString(opResult);
     RequestBody body = RequestBody.create(json, MediaType.parse("application/json; charset=utf-8"));
     Request request =
-        new Request.Builder().url(resultsEndpoint + "/" + id + "/complete").post(body).build();
+        new Request.Builder().url(resultsEndpoint + "/" + id + "/update").post(body).build();
     try (Response response = client.newCall(request).execute()) {
       int code = response.code();
       if (code < 200 || code >= 300) {
-        throw new RuntimeException("POST operation/" + id + "/complete returned HTTP " + code);
+        throw new RuntimeException("POST operation/" + id + "/update returned HTTP " + code);
       }
     }
   }
@@ -269,7 +269,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     }
   }
 
-  /** POST payload sent to the optimizer service's complete-operation endpoint. */
+  /** POST payload sent to the optimizer service's update-operation endpoint. */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   static class OperationResult {
     public final String status;

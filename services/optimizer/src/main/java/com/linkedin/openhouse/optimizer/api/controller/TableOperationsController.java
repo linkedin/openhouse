@@ -1,10 +1,10 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.spec.CompleteOperationRequest;
 import com.linkedin.openhouse.optimizer.api.spec.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.spec.OperationType;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperations;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.api.spec.UpdateOperationRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.Optional;
@@ -29,16 +29,16 @@ public class TableOperationsController {
   private final OptimizerDataService service;
 
   /**
-   * Report that an operation has completed. {@code id} is the operation's UUID; the body carries
-   * the terminal status and any per-operation metrics or error details. The backend looks up the
+   * Report an update to an operation. {@code id} is the operation's UUID; the body carries the
+   * terminal status and any per-operation metrics or error details. The backend looks up the
    * operation row, writes a history entry with the operation's table metadata plus the supplied
    * metrics, and returns 201 Created with the history row, or 404 if the operation does not exist.
    */
-  @PostMapping("/{id}/complete")
-  public ResponseEntity<TableOperationsHistory> completeOperation(
-      @PathVariable String id, @RequestBody CompleteOperationRequest request) {
+  @PostMapping("/{id}/update")
+  public ResponseEntity<TableOperationsHistory> updateOperation(
+      @PathVariable String id, @RequestBody UpdateOperationRequest request) {
     return service
-        .completeOperation(
+        .updateOperation(
             id,
             request.getStatus() == null ? null : request.getStatus().toModel(),
             request.getOrphanFilesDeleted(),

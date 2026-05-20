@@ -34,10 +34,10 @@ class OptimizerDataServiceImplTest {
   @Autowired TableStatsRepository statsRepository;
   @Autowired TableStatsHistoryRepository statsHistoryRepository;
 
-  // --- completeOperation ---
+  // --- updateOperation ---
 
   @Test
-  void completeOperation_writesHistoryFromOperationRow() {
+  void updateOperation_writesHistoryFromOperationRow() {
     String operationId = UUID.randomUUID().toString();
     String tableUuid = UUID.randomUUID().toString();
     operationsRepository.save(
@@ -54,7 +54,7 @@ class OptimizerDataServiceImplTest {
             .build());
 
     Optional<TableOperationsHistoryDto> result =
-        service.completeOperation(operationId, HistoryStatusDto.SUCCESS, 42L, 1024L, null, null);
+        service.updateOperation(operationId, HistoryStatusDto.SUCCESS, 42L, 1024L, null, null);
 
     assertThat(result).isPresent();
     assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.SUCCESS);
@@ -69,7 +69,7 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
-  void completeOperation_failurePersistsErrorFields() {
+  void updateOperation_failurePersistsErrorFields() {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
@@ -85,7 +85,7 @@ class OptimizerDataServiceImplTest {
             .build());
 
     Optional<TableOperationsHistoryDto> result =
-        service.completeOperation(
+        service.updateOperation(
             operationId, HistoryStatusDto.FAILED, null, null, "boom", "RuntimeException");
 
     assertThat(result).isPresent();
@@ -97,9 +97,9 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
-  void completeOperation_notFound_returnsEmpty() {
+  void updateOperation_notFound_returnsEmpty() {
     Optional<TableOperationsHistoryDto> result =
-        service.completeOperation(
+        service.updateOperation(
             UUID.randomUUID().toString(), HistoryStatusDto.FAILED, null, null, null, null);
 
     assertThat(result).isEmpty();
