@@ -46,6 +46,9 @@ public class TableOperation {
   /** When the scheduler last submitted a job for this operation. */
   private Instant scheduledAt;
 
+  /** Job ID returned by the Jobs Service after the scheduler submitted; null until SCHEDULED. */
+  private String jobId;
+
   /** Create a new PENDING operation for the given table and operation type. */
   public static TableOperation pending(Table table, OperationType operationType) {
     return TableOperation.builder()
@@ -77,6 +80,7 @@ public class TableOperation {
         .status(status == null ? null : status.toDb())
         .createdAt(createdAt)
         .scheduledAt(scheduledAt)
+        .jobId(jobId)
         .build();
   }
 
@@ -94,6 +98,7 @@ public class TableOperation {
         .status(OperationStatus.fromDb(row.getStatus()))
         .createdAt(row.getCreatedAt())
         .scheduledAt(row.getScheduledAt())
+        .jobId(row.getJobId())
         .build();
   }
 }

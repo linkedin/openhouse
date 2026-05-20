@@ -52,6 +52,7 @@ public class TableOperationsDto {
         .status(status == null ? null : status.toModel())
         .createdAt(createdAt)
         .scheduledAt(scheduledAt)
+        .jobId(jobId)
         .build();
   }
 
@@ -69,6 +70,7 @@ public class TableOperationsDto {
         .status(OperationStatusDto.fromModel(op.getStatus()))
         .createdAt(op.getCreatedAt())
         .scheduledAt(op.getScheduledAt())
+        .jobId(op.getJobId())
         .build();
   }
 }

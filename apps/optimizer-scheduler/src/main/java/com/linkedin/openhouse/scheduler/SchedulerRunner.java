@@ -49,6 +49,7 @@ public class SchedulerRunner {
   }
 
   /** Schedule all PENDING operations of the given type across all databases. */
+  @Transactional
   public void schedule(OperationType operationType) {
     schedule(operationType, Optional.empty(), Optional.empty());
   }

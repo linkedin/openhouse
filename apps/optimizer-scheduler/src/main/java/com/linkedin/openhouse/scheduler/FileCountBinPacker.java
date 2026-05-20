@@ -74,6 +74,9 @@ public class FileCountBinPacker implements BinPacker {
   }
 
   private static long cost(TableStats stats) {
+    if (stats == null || stats.getSnapshot() == null) {
+      return 0L;
+    }
     Long n = stats.getSnapshot().getNumCurrentFiles();
     return n != null ? n : 0L;
   }
