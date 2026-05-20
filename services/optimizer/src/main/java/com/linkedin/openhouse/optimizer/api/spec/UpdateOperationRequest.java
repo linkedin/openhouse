@@ -6,26 +6,26 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Request body for {@code POST /v1/table-operations/complete}.
+ * Request body for {@code POST /v1/table-operations/update}.
  *
- * <p>Reports the outcome of a single completed operation. The service looks up the operation row by
+ * <p>Reports the outcome of a single operation update. The service looks up the operation row by
  * {@link #operationId} and writes a history entry for it.
  *
  * <p>A single Spark job typically processes N tables and yields N independent (status) outcomes —
- * one per operation. Callers issue one complete request per operation; the service does not
- * bulk-complete by job.
+ * one per operation. Callers issue one update request per operation; the service does not
+ * bulk-update by job.
  *
  * <p>The remaining fields ({@link #tableUuid}, {@link #databaseName}, {@link #tableName}, {@link
  * #operationType}) are debug-only echo information. The server does not key off them; they are
- * preserved on log lines and traces so an operator looking at a failing complete call can see which
- * (db, table, operation) the caller believed it was completing without joining back to the
- * operation row.
+ * preserved on log lines and traces so an operator looking at a failing update call can see which
+ * (db, table, operation) the caller believed it was updating without joining back to the operation
+ * row.
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CompleteOperationRequest {
+public class UpdateOperationRequest {
 
   /** Operation row's UUID — the primary lookup key. */
   private String operationId;
