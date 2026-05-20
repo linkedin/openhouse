@@ -100,7 +100,7 @@ Build row filters using `col()` with comparison operators (`==`, `!=`, `>`, `>=`
 
 - Uses `ruff` for linting and formatting, `mypy` for type checking
 - Line length: 120
-- Python 3.12+
+- Python 3.10+
 - Use modern type hints (`list`, `dict`, `X | None` instead of `List`, `Dict`, `Optional`)
 - Use `pass` for abstract methods decorated with `@abstractmethod`
 - Use `raise NotImplementedError` for unsupported operations in concrete classes
@@ -112,6 +112,10 @@ Build row filters using `col()` with comparison operators (`==`, `!=`, `>`, `>=`
 - `__version__` in `__init__.py` reads from package metadata at runtime
 - CI sets `SETUPTOOLS_SCM_PRETEND_VERSION` to inject the monorepo semVer tag at build time
 - For local builds, use `SETUPTOOLS_SCM_PRETEND_VERSION=x.y.z make build` to override
+
+## Pull Requests
+
+When creating a PR, always use the repo's PR template at `.github/pull_request_template.md`. Fill in details for each section but keep all unchecked boxes — do not remove them.
 
 ## Architecture Notes
 

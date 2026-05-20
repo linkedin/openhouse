@@ -31,6 +31,8 @@ import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.UUID;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
@@ -630,6 +632,58 @@ public class TablesServiceTest {
         () ->
             tablesService.deleteTable(
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testSearchTablesWithFieldsRequiresGetTableMetadata() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+
+    // No fields requested — identifier-only search must succeed regardless of GET_TABLE_METADATA.
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(),
+                Mockito.any(DatabaseDto.class),
+                Mockito.eq(Privileges.GET_TABLE_METADATA)))
+        .thenReturn(false);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(), 0, 10, null, Collections.emptyList(), TEST_USER));
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.searchTables(tableDtoCopy.getDatabaseId(), 0, 10, null, null, TEST_USER));
+
+    // Fields requested but GET_TABLE_METADATA denied — must throw.
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(),
+                0,
+                10,
+                null,
+                Arrays.asList("tableLocation"),
+                TEST_USER));
+
+    // Allow GET_TABLE_METADATA — field-projection search now succeeds.
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(),
+                Mockito.any(DatabaseDto.class),
+                Mockito.eq(Privileges.GET_TABLE_METADATA)))
+        .thenReturn(true);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(),
+                0,
+                10,
+                null,
+                Arrays.asList("tableLocation"),
+                TEST_USER));
+
+    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }
 
   /** assert lock is created as policy object on createLock call */

@@ -1,6 +1,6 @@
 # Minimal runtime image with Java 8 + Hadoop 2.8 for HDFS access.
 # Dependencies are pre-installed into build/itest-site-packages on the host and copied in.
-FROM python:3.12-slim-bookworm
+FROM python:3.10-slim-bookworm
 
 # Copy JRE 8 and Hadoop 2.8 client from the hadoop base image.
 # JRE is needed by PyArrow's libhdfs JNI bridge to read HDFS data.

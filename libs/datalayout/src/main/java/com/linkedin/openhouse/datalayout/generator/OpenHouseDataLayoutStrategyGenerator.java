@@ -63,12 +63,18 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
    */
   @Override
   public List<DataLayoutStrategy> generateTableLevelStrategies() {
-    // Retrieve file sizes of all data files.
-    Dataset<FileStat> fileStats = tableFileStats.get();
-    long partitionCount = tablePartitionStats.get().count();
-    Optional<DataLayoutStrategy> strategy =
-        buildDataLayoutStrategy(fileStats, partitionCount, null, null);
-    return strategy.map(Collections::singletonList).orElse(Collections.emptyList());
+    // Cache the Dataset so the underlying Iceberg manifest scan executes once; the downstream
+    // count/collectAsList/toLocalIterator actions inside buildDataLayoutStrategy reuse the cached
+    // partitions instead of re-scanning system.files for each terminal action.
+    Dataset<FileStat> fileStats = tableFileStats.get().cache();
+    try {
+      long partitionCount = tablePartitionStats.get().count();
+      Optional<DataLayoutStrategy> strategy =
+          buildDataLayoutStrategy(fileStats, partitionCount, null, null);
+      return strategy.map(Collections::singletonList).orElse(Collections.emptyList());
+    } finally {
+      fileStats.unpersist();
+    }
   }
 
   /**
@@ -78,25 +84,30 @@ public class OpenHouseDataLayoutStrategyGenerator implements DataLayoutStrategyG
   @Override
   public List<DataLayoutStrategy> generatePartitionLevelStrategies() {
     List<DataLayoutStrategy> strategies = new ArrayList<>();
-    List<PartitionStat> partitionStatsList = tablePartitionStats.get().collectAsList();
-    String partitionColumns = String.join(", ", tablePartitionStats.getPartitionColumns());
-    // For each partition, generate a compaction strategy
-    partitionStatsList.forEach(
-        partitionStat -> {
-          String partitionValues = String.join(", ", partitionStat.getValues());
-          Dataset<FileStat> fileStats =
-              tableFileStats
-                  .get()
-                  .filter(
-                      (FilterFunction<FileStat>)
-                          fileStat ->
-                              String.join(", ", fileStat.getPartitionValues())
-                                  .equals(partitionValues));
-          Optional<DataLayoutStrategy> strategy =
-              buildDataLayoutStrategy(fileStats, 1L, partitionValues, partitionColumns);
-          strategy.ifPresent(strategies::add);
-        });
-    return strategies;
+    // Cache the unfiltered Dataset once; each per-partition filter operates on the cached rows,
+    // so the Iceberg manifest scan does not re-execute for every partition.
+    Dataset<FileStat> cachedFileStats = tableFileStats.get().cache();
+    try {
+      List<PartitionStat> partitionStatsList = tablePartitionStats.get().collectAsList();
+      String partitionColumns = String.join(", ", tablePartitionStats.getPartitionColumns());
+      // For each partition, generate a compaction strategy
+      partitionStatsList.forEach(
+          partitionStat -> {
+            String partitionValues = String.join(", ", partitionStat.getValues());
+            Dataset<FileStat> fileStats =
+                cachedFileStats.filter(
+                    (FilterFunction<FileStat>)
+                        fileStat ->
+                            String.join(", ", fileStat.getPartitionValues())
+                                .equals(partitionValues));
+            Optional<DataLayoutStrategy> strategy =
+                buildDataLayoutStrategy(fileStats, 1L, partitionValues, partitionColumns);
+            strategy.ifPresent(strategies::add);
+          });
+      return strategies;
+    } finally {
+      cachedFileStats.unpersist();
+    }
   }
 
   /**

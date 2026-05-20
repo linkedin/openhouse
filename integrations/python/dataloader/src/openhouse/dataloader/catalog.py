@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import Any, Self
+from typing import Any
 
 import requests
 from pyiceberg.catalog import Catalog
@@ -8,6 +10,7 @@ from pyiceberg.io import load_file_io
 from pyiceberg.serializers import FromInputFile
 from pyiceberg.table import Table
 from pyiceberg.typedef import Identifier
+from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 

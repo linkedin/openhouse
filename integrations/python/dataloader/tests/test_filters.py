@@ -1,3 +1,8 @@
+import math
+from datetime import UTC, date, datetime, time, timedelta, timezone
+from decimal import Decimal
+from uuid import UUID
+
 import pytest
 from pyiceberg import expressions as ice
 
@@ -97,6 +102,18 @@ class TestComparisonOperators:
         f = col("score") > 3.14
         assert isinstance(f, GreaterThan)
         assert f.value == 3.14
+
+    def test_comparison_with_datetime(self):
+        dt = datetime(2026, 4, 27, tzinfo=UTC)
+        f = col("datepartition") >= dt
+        assert isinstance(f, GreaterThanOrEqual)
+        assert f.value == dt
+
+    def test_comparison_with_date(self):
+        d = date(2026, 4, 27)
+        f = col("datepartition") >= d
+        assert isinstance(f, GreaterThanOrEqual)
+        assert f.value == d
 
 
 class TestNullAndNanChecks:
@@ -333,6 +350,265 @@ class TestNamespacedImport:
         assert isinstance(f, And)
         assert isinstance(f.left, GreaterThan)
         assert isinstance(f.right, EqualTo)
+
+
+class TestDataFusionLiteralConversion:
+    def test_datetime_greater_than_or_equal(self):
+        dt = datetime(2026, 4, 27, tzinfo=UTC)
+        result = _to_datafusion_sql(col("datepartition") >= dt)
+        assert result == "\"datepartition\" >= CAST('2026-04-27 00:00:00.000000+0000' AS TIMESTAMP)"
+
+    def test_datetime_equal(self):
+        dt = datetime(2026, 4, 27, 12, 30, 45, tzinfo=UTC)
+        result = _to_datafusion_sql(col("ts") == dt)
+        assert result == "\"ts\" = CAST('2026-04-27 12:30:45.000000+0000' AS TIMESTAMP)"
+
+    def test_datetime_with_microseconds(self):
+        dt = datetime(2026, 4, 27, 12, 30, 45, 123456, tzinfo=UTC)
+        result = _to_datafusion_sql(col("ts") == dt)
+        assert result == "\"ts\" = CAST('2026-04-27 12:30:45.123456+0000' AS TIMESTAMP)"
+
+    def test_datetime_non_utc_timezone_preserved(self):
+        dt = datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone(timedelta(hours=5)))
+        result = _to_datafusion_sql(col("ts") >= dt)
+        assert result == "\"ts\" >= CAST('2026-04-27 12:00:00.000000+0500' AS TIMESTAMP)"
+
+    def test_datetime_naive_no_offset(self):
+        dt = datetime(2026, 4, 27, 12, 0, 0)
+        result = _to_datafusion_sql(col("ts") >= dt)
+        assert result == "\"ts\" >= CAST('2026-04-27 12:00:00.000000' AS TIMESTAMP)"
+
+    def test_date_greater_than_or_equal(self):
+        d = date(2026, 4, 27)
+        result = _to_datafusion_sql(col("datepartition") >= d)
+        assert result == "\"datepartition\" >= CAST('2026-04-27' AS DATE)"
+
+    def test_datetime_between(self):
+        dt1 = datetime(2026, 4, 27, tzinfo=UTC)
+        dt2 = datetime(2026, 5, 1, tzinfo=UTC)
+        result = _to_datafusion_sql(col("ts").between(dt1, dt2))
+        assert result == (
+            "\"ts\" BETWEEN CAST('2026-04-27 00:00:00.000000+0000' AS TIMESTAMP)"
+            " AND CAST('2026-05-01 00:00:00.000000+0000' AS TIMESTAMP)"
+        )
+
+    def test_datetime_in_compound_filter(self):
+        dt = datetime(2026, 4, 27, tzinfo=UTC)
+        f = (col("datepartition") >= dt) & (col("status") == "active")
+        result = _to_datafusion_sql(f)
+        assert "CAST('2026-04-27 00:00:00.000000+0000' AS TIMESTAMP)" in result
+        assert "\"status\" = 'active'" in result
+
+    def test_time_equal(self):
+        t = time(14, 30, 0)
+        result = _to_datafusion_sql(col("event_time") == t)
+        assert result == "\"event_time\" = CAST('14:30:00.000000' AS TIME)"
+
+    def test_time_with_microseconds(self):
+        t = time(14, 30, 0, 500000)
+        result = _to_datafusion_sql(col("event_time") == t)
+        assert result == "\"event_time\" = CAST('14:30:00.500000' AS TIME)"
+
+    def test_time_with_timezone_rejected(self):
+        t = time(14, 30, 0, tzinfo=timezone(timedelta(hours=5)))
+        with pytest.raises(TypeError, match="does not support timezones for time"):
+            _to_datafusion_sql(col("event_time") == t)
+
+    def test_decimal_greater_than(self):
+        d = Decimal("99.95")
+        result = _to_datafusion_sql(col("price") > d)
+        assert result == '"price" > 99.95'
+
+    def test_decimal_between(self):
+        result = _to_datafusion_sql(col("price").between(Decimal("10.00"), Decimal("50.00")))
+        assert result == '"price" BETWEEN 10.00 AND 50.00'
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (float("nan"), "CAST('nan' AS DOUBLE)"),
+            (float("inf"), "CAST('inf' AS DOUBLE)"),
+            (float("-inf"), "CAST('-inf' AS DOUBLE)"),
+        ],
+    )
+    def test_non_finite_float(self, value, expected):
+        result = _to_datafusion_sql(col("x") == value)
+        assert result == f'"x" = {expected}'
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (Decimal("NaN"), "CAST('NaN' AS DOUBLE)"),
+            (Decimal("Inf"), "CAST('Infinity' AS DOUBLE)"),
+            (Decimal("-Inf"), "CAST('-Infinity' AS DOUBLE)"),
+        ],
+    )
+    def test_non_finite_decimal(self, value, expected):
+        result = _to_datafusion_sql(col("x") == value)
+        assert result == f'"x" = {expected}'
+
+    def test_uuid_equal(self):
+        u = UUID("12345678-1234-5678-1234-567812345678")
+        result = _to_datafusion_sql(col("id") == u)
+        assert result == "\"id\" = '12345678-1234-5678-1234-567812345678'"
+
+
+class TestDataFusionFilterExecution:
+    """Execute generated filter SQL against a real DataFusion SessionContext."""
+
+    @pytest.fixture()
+    def ctx(self):
+        import datafusion
+        import pyarrow as pa
+
+        ctx = datafusion.SessionContext()
+        batch = pa.record_batch(
+            {
+                "ts": pa.array(
+                    [
+                        datetime(2026, 4, 25, tzinfo=UTC),
+                        datetime(2026, 4, 27, tzinfo=UTC),
+                        datetime(2026, 4, 29, tzinfo=UTC),
+                    ],
+                    type=pa.timestamp("us", tz="UTC"),
+                ),
+                "dt": pa.array([date(2026, 4, 25), date(2026, 4, 27), date(2026, 4, 29)]),
+                "t": pa.array([time(10, 0, 0), time(14, 30, 0), time(20, 0, 0)], type=pa.time64("ns")),
+                "price": pa.array([Decimal("9.99"), Decimal("49.99"), Decimal("99.99")], type=pa.decimal128(10, 2)),
+                "id": pa.array(
+                    [
+                        "12345678-1234-5678-1234-567812345678",
+                        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                    ]
+                ),
+            }
+        )
+        ctx.register_record_batches("t", [[batch]])
+        return ctx
+
+    def _query(self, ctx, where: str):
+        batches = ctx.sql(f'SELECT * FROM "t" WHERE {where}').collect()
+        import pyarrow as pa
+
+        return pa.Table.from_batches(batches)
+
+    def test_datetime_filter(self, ctx):
+        where = _to_datafusion_sql(col("ts") >= datetime(2026, 4, 27, tzinfo=UTC))
+        table = self._query(ctx, where)
+        assert table.num_rows == 2
+        ts_values = [v.as_py() for v in table.column("ts")]
+        assert ts_values == [datetime(2026, 4, 27, tzinfo=UTC), datetime(2026, 4, 29, tzinfo=UTC)]
+
+    def test_datetime_less_than(self, ctx):
+        where = _to_datafusion_sql(col("ts") < datetime(2026, 4, 27, tzinfo=UTC))
+        table = self._query(ctx, where)
+        assert table.num_rows == 1
+        assert table.column("ts")[0].as_py() == datetime(2026, 4, 25, tzinfo=UTC)
+
+    def test_datetime_non_utc_timezone(self, ctx):
+        # 2026-04-27 05:00:00+05:00 == 2026-04-27 00:00:00 UTC, same as row 2
+        dt = datetime(2026, 4, 27, 5, 0, 0, tzinfo=timezone(timedelta(hours=5)))
+        where = _to_datafusion_sql(col("ts") >= dt)
+        table = self._query(ctx, where)
+        assert table.num_rows == 2
+        ts_values = [v.as_py() for v in table.column("ts")]
+        assert ts_values == [datetime(2026, 4, 27, tzinfo=UTC), datetime(2026, 4, 29, tzinfo=UTC)]
+
+    def test_date_filter(self, ctx):
+        where = _to_datafusion_sql(col("dt") >= date(2026, 4, 27))
+        table = self._query(ctx, where)
+        assert table.num_rows == 2
+        dt_values = [v.as_py() for v in table.column("dt")]
+        assert dt_values == [date(2026, 4, 27), date(2026, 4, 29)]
+
+    def test_time_filter(self, ctx):
+        where = _to_datafusion_sql(col("t") == time(14, 30, 0))
+        table = self._query(ctx, where)
+        assert table.num_rows == 1
+        assert table.column("t")[0].as_py() == time(14, 30, 0)
+
+    def test_decimal_filter(self, ctx):
+        where = _to_datafusion_sql(col("price") > Decimal("10.00"))
+        table = self._query(ctx, where)
+        assert table.num_rows == 2
+        price_values = [v.as_py() for v in table.column("price")]
+        assert price_values == [Decimal("49.99"), Decimal("99.99")]
+
+    @pytest.mark.parametrize(
+        ("value", "expected_count", "check"),
+        [
+            (float("nan"), 1, lambda v: math.isnan(v)),
+            (float("inf"), 1, lambda v: v == float("inf")),
+            (float("-inf"), 1, lambda v: v == float("-inf")),
+            (Decimal("NaN"), 1, lambda v: math.isnan(v)),
+            (Decimal("Inf"), 1, lambda v: v == float("inf")),
+            (Decimal("-Inf"), 1, lambda v: v == float("-inf")),
+        ],
+    )
+    def test_non_finite_filter(self, value, expected_count, check):
+        import datafusion
+        import pyarrow as pa
+
+        ctx = datafusion.SessionContext()
+        batch = pa.record_batch({"x": pa.array([1.0, float("nan"), float("inf"), float("-inf"), 5.0])})
+        ctx.register_record_batches("t", [[batch]])
+
+        where = _to_datafusion_sql(col("x") == value)
+        batches = ctx.sql(f'SELECT * FROM "t" WHERE {where}').collect()
+        table = pa.Table.from_batches(batches)
+        assert table.num_rows == expected_count
+        assert check(table.column("x")[0].as_py())
+
+    def test_high_precision_decimal_filter(self, ctx):
+        where = _to_datafusion_sql(col("price") > Decimal("49.9899999999999999"))
+        table = self._query(ctx, where)
+        assert table.num_rows == 1
+        assert table.column("price")[0].as_py() == Decimal("99.99")
+
+    def test_uuid_filter(self, ctx):
+        where = _to_datafusion_sql(col("id") == UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+        table = self._query(ctx, where)
+        assert table.num_rows == 1
+        assert table.column("id")[0].as_py() == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    def test_datetime_between_filter(self, ctx):
+        where = _to_datafusion_sql(
+            col("ts").between(datetime(2026, 4, 26, tzinfo=UTC), datetime(2026, 4, 28, tzinfo=UTC))
+        )
+        table = self._query(ctx, where)
+        assert table.num_rows == 1
+        assert table.column("ts")[0].as_py() == datetime(2026, 4, 27, tzinfo=UTC)
+
+    def test_compound_filter(self, ctx):
+        f = (col("ts") >= datetime(2026, 4, 27, tzinfo=UTC)) & (col("price") > Decimal("50.00"))
+        where = _to_datafusion_sql(f)
+        table = self._query(ctx, where)
+        assert table.num_rows == 1
+        assert table.column("ts")[0].as_py() == datetime(2026, 4, 29, tzinfo=UTC)
+        assert table.column("price")[0].as_py() == Decimal("99.99")
+
+    def test_datetime_microseconds(self, ctx):
+        import pyarrow as pa
+
+        ctx2 = __import__("datafusion").SessionContext()
+        batch = pa.record_batch(
+            {
+                "ts": pa.array(
+                    [datetime(2026, 4, 27, 12, 0, 0, 500000, tzinfo=UTC)],
+                    type=pa.timestamp("us", tz="UTC"),
+                ),
+            }
+        )
+        ctx2.register_record_batches("t2", [[batch]])
+        where = _to_datafusion_sql(col("ts") == datetime(2026, 4, 27, 12, 0, 0, 500000, tzinfo=UTC))
+        table = ctx2.sql(f'SELECT * FROM "t2" WHERE {where}').collect()
+        assert len(table[0]) == 1
+        assert table[0].column("ts")[0].as_py() == datetime(2026, 4, 27, 12, 0, 0, 500000, tzinfo=UTC)
+
+        where_no_match = _to_datafusion_sql(col("ts") == datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC))
+        table2 = ctx2.sql(f'SELECT * FROM "t2" WHERE {where_no_match}').collect()
+        assert sum(len(b) for b in table2) == 0
 
 
 class TestPyIcebergUnsupportedType:

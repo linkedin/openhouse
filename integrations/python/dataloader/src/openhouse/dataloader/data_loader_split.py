@@ -8,7 +8,9 @@ from functools import cached_property
 from itertools import chain
 from types import MappingProxyType
 
+from datafusion import SessionConfig
 from datafusion.context import SessionContext
+from opentelemetry.metrics import get_meter
 from pyarrow import RecordBatch
 from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
@@ -17,10 +19,69 @@ from openhouse.dataloader._jvm import apply_libhdfs_opts
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.filters import _quote_identifier
+from openhouse.dataloader.metrics import METER_NAME
 from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 logger = logging.getLogger(__name__)
+
+_meter = get_meter(METER_NAME)
+
+_split_duration = _meter.create_histogram(
+    name="OpenHouse.DataLoader.SplitTime",
+    unit="s",
+    description="Time spent iterating a split.",
+)
+_split_files = _meter.create_histogram(
+    name="OpenHouse.DataLoader.SplitFiles",
+    unit="1",
+    description="Number of files in a split.",
+)
+_split_rows = _meter.create_histogram(
+    name="OpenHouse.DataLoader.SplitRows",
+    unit="1",
+    description="Rows yielded by a split.",
+)
+_split_bytes = _meter.create_histogram(
+    name="OpenHouse.DataLoader.SplitBytes",
+    unit="By",
+    description="Bytes yielded by a split.",
+)
+_split_batches = _meter.create_histogram(
+    name="OpenHouse.DataLoader.SplitBatches",
+    unit="1",
+    description="Record batches yielded by a split.",
+)
+_split_errors = _meter.create_counter(
+    name="OpenHouse.DataLoader.SplitErrors",
+    unit="1",
+    description="Errors raised while iterating a split.",
+)
+_batch_duration = _meter.create_histogram(
+    name="OpenHouse.DataLoader.BatchTime",
+    unit="s",
+    description="Time spent reading a record batch.",
+)
+_batch_rows = _meter.create_histogram(
+    name="OpenHouse.DataLoader.BatchRows",
+    unit="1",
+    description="Rows in a record batch.",
+)
+_batch_bytes = _meter.create_histogram(
+    name="OpenHouse.DataLoader.BatchBytes",
+    unit="By",
+    description="Bytes in a record batch.",
+)
+_batch_errors = _meter.create_counter(
+    name="OpenHouse.DataLoader.BatchErrors",
+    unit="1",
+    description="Errors raised while reading a record batch.",
+)
+_transform_duration = _meter.create_histogram(
+    name="OpenHouse.DataLoader.TransformTime",
+    unit="s",
+    description="Time spent applying the transform to a record batch.",
+)
 
 
 def to_sql_identifier(table_id: TableIdentifier) -> str:
@@ -31,13 +92,17 @@ def to_sql_identifier(table_id: TableIdentifier) -> str:
 def _create_transform_session(
     table_id: TableIdentifier,
     udf_registry: UDFRegistry,
+    batch_size: int | None = None,
 ) -> SessionContext:
     """Create a DataFusion SessionContext for running split-level transforms.
 
     Returns a ready-to-query SessionContext where UDFs are registered and the
     target schema exists.
     """
-    session = SessionContext()
+    config = SessionConfig()
+    if batch_size is not None:
+        config = config.set("datafusion.execution.batch_size", str(batch_size))
+    session = SessionContext(config)
     udf_registry.register_udfs(session)
 
     session.sql(f"CREATE SCHEMA IF NOT EXISTS {_quote_identifier(table_id.database)}").collect()
@@ -52,12 +117,21 @@ def _bind_batch_table(session: SessionContext, table_id: TableIdentifier, batch:
 
 
 class _TimedBatchIter:
-    """Wraps a RecordBatch iterator to log the wall-clock time of each ``next()`` call."""
+    """Wraps a RecordBatch iterator to log and emit metrics for each ``next()`` call."""
 
-    def __init__(self, inner: Iterator[RecordBatch], split_id: str) -> None:
+    def __init__(
+        self,
+        inner: Iterator[RecordBatch],
+        split_id: str,
+        attributes: Mapping[str, str],
+    ) -> None:
         self._inner = inner
         self._split_id = split_id
+        self._attributes = attributes
         self._idx = 0
+        self.total_rows = 0
+        self.total_bytes = 0
+        self.batch_count = 0
 
     def __iter__(self) -> _TimedBatchIter:
         return self
@@ -69,11 +143,20 @@ class _TimedBatchIter:
         except StopIteration:
             raise
         except Exception:
-            logger.warning(
-                "record_batch %s [%d] failed after %.3fs", self._split_id, self._idx, time.monotonic() - start
-            )
+            elapsed = time.monotonic() - start
+            logger.warning("record_batch %s [%d] failed after %.3fs", self._split_id, self._idx, elapsed)
+            _batch_errors.add(1, self._attributes)
             raise
-        logger.info("record_batch %s [%d] in %.3fs", self._split_id, self._idx, time.monotonic() - start)
+        elapsed = time.monotonic() - start
+        logger.info("record_batch %s [%d] in %.3fs", self._split_id, self._idx, elapsed)
+        rows = batch.num_rows
+        nbytes = batch.nbytes
+        _batch_duration.record(elapsed, self._attributes)
+        _batch_rows.record(rows, self._attributes)
+        _batch_bytes.record(nbytes, self._attributes)
+        self.total_rows += rows
+        self.total_bytes += nbytes
+        self.batch_count += 1
         self._idx += 1
         return batch
 
@@ -83,11 +166,16 @@ def _timed_transform(
     split_id: str,
     session: SessionContext,
     apply_fn: Callable[[SessionContext, RecordBatch], Iterator[RecordBatch]],
+    attributes: Mapping[str, str],
 ) -> Iterator[RecordBatch]:
-    """Apply a transform to each batch, logging the wall-clock time of each."""
+    """Apply a transform to each batch, logging and recording the wall-clock time of each."""
     for idx, batch in enumerate(batches):
-        with log_duration(logger, "transform_batch %s [%d]", split_id, idx):
-            transformed = list(apply_fn(session, batch))
+        transform_start = time.monotonic()
+        try:
+            with log_duration(logger, "transform_batch %s [%d]", split_id, idx):
+                transformed = list(apply_fn(session, batch))
+        finally:
+            _transform_duration.record(time.monotonic() - transform_start, attributes)
         yield from transformed
 
 
@@ -135,34 +223,48 @@ class DataLoaderSplit:
         ctx = self._scan_context
         if ctx.worker_jvm_args is not None:
             apply_libhdfs_opts(ctx.worker_jvm_args)
-        arrow_scan = ArrowScan(
-            table_metadata=ctx.table_metadata,
-            io=ctx.io,
-            projected_schema=ctx.projected_schema,
-            row_filter=ctx.row_filter,
-        )
-
-        split_id = self.id[:12]
-
-        with log_duration(logger, "setup_scan %s", split_id):
-            batches = arrow_scan.to_record_batches(
-                self._file_scan_tasks,
-                order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
+        attributes = ctx.metric_attributes
+        split_start = time.monotonic()
+        timed: _TimedBatchIter | None = None
+        try:
+            arrow_scan = ArrowScan(
+                table_metadata=ctx.table_metadata,
+                io=ctx.io,
+                projected_schema=ctx.projected_schema,
+                row_filter=ctx.row_filter,
             )
 
-        timed = _TimedBatchIter(iter(batches), split_id)
+            split_id = self.id[:12]
 
-        if self._transform_sql is None:
-            yield from timed
-        else:
-            # Materialize the first batch before creating the transform session
-            # so that the HDFS JVM starts (and picks up worker_jvm_args) before
-            # any UDF registration code can trigger JNI.
-            first = next(timed, None)
-            if first is None:
-                return
-            session = _create_transform_session(self._scan_context.table_id, self._udf_registry)
-            yield from _timed_transform(chain([first], timed), split_id, session, self._apply_transform)
+            with log_duration(logger, "setup_scan %s", split_id):
+                batches = arrow_scan.to_record_batches(
+                    self._file_scan_tasks,
+                    order=ArrivalOrder(concurrent_streams=len(self._file_scan_tasks), batch_size=self._batch_size),
+                )
+
+            timed = _TimedBatchIter(iter(batches), split_id, attributes)
+
+            if self._transform_sql is None:
+                yield from timed
+            else:
+                # Materialize the first batch before creating the transform session
+                # so that the HDFS JVM starts (and picks up worker_jvm_args) before
+                # any UDF registration code can trigger JNI.
+                first = next(timed, None)
+                if first is None:
+                    return
+                session = _create_transform_session(self._scan_context.table_id, self._udf_registry, self._batch_size)
+                yield from _timed_transform(chain([first], timed), split_id, session, self._apply_transform, attributes)
+        except BaseException:
+            _split_errors.add(1, attributes)
+            raise
+        finally:
+            _split_duration.record(time.monotonic() - split_start, attributes)
+            _split_files.record(len(self._file_scan_tasks), attributes)
+            if timed is not None:
+                _split_rows.record(timed.total_rows, attributes)
+                _split_bytes.record(timed.total_bytes, attributes)
+                _split_batches.record(timed.batch_count, attributes)
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
