@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 @Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationsHistory {
+public class TableOperationsHistoryDto {
 
   /** Same UUID as the originating live-operations row. */
   private String id;
@@ -31,11 +31,11 @@ public class TableOperationsHistory {
   private String tableName;
 
   /** Operation type for this completed run. */
-  private OperationType operationType;
+  private OperationTypeDto operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
   private Instant completedAt;
 
-  /** Terminal outcome: {@link HistoryStatus#SUCCESS} or {@link HistoryStatus#FAILED}. */
-  private HistoryStatus status;
+  /** Terminal outcome: {@link HistoryStatusDto#SUCCESS} or {@link HistoryStatusDto#FAILED}. */
+  private HistoryStatusDto status;
 }

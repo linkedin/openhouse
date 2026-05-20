@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableStatsHistory {
+public class TableStatsHistoryDto {
 
   /** UUID primary key — set by the caller, not generated server-side. */
   private String id;
@@ -33,7 +33,7 @@ public class TableStatsHistory {
   private String tableName;
 
   /** Snapshot + delta for this commit event. */
-  private TableStats stats;
+  private TableStatsDto stats;
 
   /** When this history row was recorded. */
   private Instant recordedAt;

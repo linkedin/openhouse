@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class TableStatsPayloadDto {
+public class TableStatsPayload {
 
   /** Snapshot fields — overwritten on every upsert. */
   private SnapshotMetricsDto snapshot;
@@ -26,20 +26,20 @@ public class TableStatsPayloadDto {
   private CommitDeltaDto delta;
 
   /** Convert to the internal-model counterpart. */
-  public com.linkedin.openhouse.optimizer.model.TableStats toModel() {
-    return com.linkedin.openhouse.optimizer.model.TableStats.builder()
+  public com.linkedin.openhouse.optimizer.model.TableStatsDto toModel() {
+    return com.linkedin.openhouse.optimizer.model.TableStatsDto.builder()
         .snapshot(snapshot == null ? null : snapshot.toModel())
         .delta(delta == null ? null : delta.toModel())
         .build();
   }
 
   /** Build the api-layer payload from the internal-model counterpart. */
-  public static TableStatsPayloadDto fromModel(
-      com.linkedin.openhouse.optimizer.model.TableStats m) {
+  public static TableStatsPayload fromModel(
+      com.linkedin.openhouse.optimizer.model.TableStatsDto m) {
     if (m == null) {
       return null;
     }
-    return TableStatsPayloadDto.builder()
+    return TableStatsPayload.builder()
         .snapshot(SnapshotMetricsDto.fromModel(m.getSnapshot()))
         .delta(CommitDeltaDto.fromModel(m.getDelta()))
         .build();
@@ -66,8 +66,8 @@ public class TableStatsPayloadDto {
     private Long numCurrentFiles;
 
     /** Convert to the internal-model counterpart. */
-    public com.linkedin.openhouse.optimizer.model.TableStats.SnapshotMetrics toModel() {
-      return com.linkedin.openhouse.optimizer.model.TableStats.SnapshotMetrics.builder()
+    public com.linkedin.openhouse.optimizer.model.TableStatsDto.SnapshotMetrics toModel() {
+      return com.linkedin.openhouse.optimizer.model.TableStatsDto.SnapshotMetrics.builder()
           .tableVersion(tableVersion)
           .tableLocation(tableLocation)
           .tableSizeBytes(tableSizeBytes)
@@ -77,7 +77,7 @@ public class TableStatsPayloadDto {
 
     /** Build the api-layer inner object from the internal-model counterpart. */
     public static SnapshotMetricsDto fromModel(
-        com.linkedin.openhouse.optimizer.model.TableStats.SnapshotMetrics m) {
+        com.linkedin.openhouse.optimizer.model.TableStatsDto.SnapshotMetrics m) {
       if (m == null) {
         return null;
       }
@@ -111,8 +111,8 @@ public class TableStatsPayloadDto {
     private Long deletedSizeBytes;
 
     /** Convert to the internal-model counterpart. */
-    public com.linkedin.openhouse.optimizer.model.TableStats.CommitDelta toModel() {
-      return com.linkedin.openhouse.optimizer.model.TableStats.CommitDelta.builder()
+    public com.linkedin.openhouse.optimizer.model.TableStatsDto.CommitDelta toModel() {
+      return com.linkedin.openhouse.optimizer.model.TableStatsDto.CommitDelta.builder()
           .numFilesAdded(numFilesAdded)
           .numFilesDeleted(numFilesDeleted)
           .addedSizeBytes(addedSizeBytes)
@@ -122,7 +122,7 @@ public class TableStatsPayloadDto {
 
     /** Build the api-layer inner object from the internal-model counterpart. */
     public static CommitDeltaDto fromModel(
-        com.linkedin.openhouse.optimizer.model.TableStats.CommitDelta m) {
+        com.linkedin.openhouse.optimizer.model.TableStatsDto.CommitDelta m) {
       if (m == null) {
         return null;
       }

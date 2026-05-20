@@ -7,7 +7,7 @@ package com.linkedin.openhouse.optimizer.model;
  *
  * <p>Intentionally separate from the wire-API and DB representations.
  */
-public enum HistoryStatus {
+public enum HistoryStatusDto {
 
   /** The operation completed successfully. */
   SUCCESS,

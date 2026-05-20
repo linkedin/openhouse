@@ -7,7 +7,7 @@ package com.linkedin.openhouse.optimizer.model;
  *
  * <p>Intentionally separate from the wire-API and DB representations.
  */
-public enum OperationStatus {
+public enum OperationStatusDto {
 
   /** Analyzer has written the row; not yet claimed by the scheduler. */
   PENDING,

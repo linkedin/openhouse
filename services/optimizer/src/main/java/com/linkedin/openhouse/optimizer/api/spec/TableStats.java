@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableStatsDto {
+public class TableStats {
 
   /** Stable Iceberg table UUID. Primary key of the stats row. */
   private String tableUuid;
@@ -25,7 +25,7 @@ public class TableStatsDto {
   private String tableName;
 
   /** Combined snapshot + delta stats payload, stored as JSON. */
-  private TableStatsPayloadDto stats;
+  private TableStatsPayload stats;
 
   /** Current table properties snapshot (e.g. maintenance opt-in flags). */
   private Map<String, String> tableProperties;
@@ -34,9 +34,11 @@ public class TableStatsDto {
   private Instant updatedAt;
 
   /** Convert to the internal-model counterpart. */
-  public com.linkedin.openhouse.optimizer.model.TableStats toModel() {
-    com.linkedin.openhouse.optimizer.model.TableStats payload =
-        stats == null ? new com.linkedin.openhouse.optimizer.model.TableStats() : stats.toModel();
+  public com.linkedin.openhouse.optimizer.model.TableStatsDto toModel() {
+    com.linkedin.openhouse.optimizer.model.TableStatsDto payload =
+        stats == null
+            ? new com.linkedin.openhouse.optimizer.model.TableStatsDto()
+            : stats.toModel();
     return payload
         .toBuilder()
         .tableUuid(tableUuid)
@@ -48,18 +50,18 @@ public class TableStatsDto {
   }
 
   /** Build a wire DTO from the internal-model counterpart. */
-  public static TableStatsDto fromModel(com.linkedin.openhouse.optimizer.model.TableStats m) {
+  public static TableStats fromModel(com.linkedin.openhouse.optimizer.model.TableStatsDto m) {
     if (m == null) {
       return null;
     }
-    return TableStatsDto.builder()
+    return TableStats.builder()
         .tableUuid(m.getTableUuid())
         .databaseName(m.getDatabaseName())
         .tableName(m.getTableName())
         .stats(
-            TableStatsPayloadDto.builder()
-                .snapshot(TableStatsPayloadDto.SnapshotMetricsDto.fromModel(m.getSnapshot()))
-                .delta(TableStatsPayloadDto.CommitDeltaDto.fromModel(m.getDelta()))
+            TableStatsPayload.builder()
+                .snapshot(TableStatsPayload.SnapshotMetricsDto.fromModel(m.getSnapshot()))
+                .delta(TableStatsPayload.CommitDeltaDto.fromModel(m.getDelta()))
                 .build())
         .tableProperties(m.getTableProperties())
         .updatedAt(m.getUpdatedAt())

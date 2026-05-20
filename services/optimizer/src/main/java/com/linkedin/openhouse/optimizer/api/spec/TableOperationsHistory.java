@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.spec;
 
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableOperationsHistoryDto {
+public class TableOperationsHistory {
 
   /** Same UUID as the originating {@code table_operations.id}; supplied by the caller. */
   private String id;
@@ -27,17 +27,17 @@ public class TableOperationsHistoryDto {
   private String tableName;
 
   /** The type of maintenance operation this history row records. */
-  private OperationTypeDto operationType;
+  private OperationType operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
   private Instant completedAt;
 
   /** {@code SUCCESS} or {@code FAILED}. */
-  private HistoryStatusDto status;
+  private HistoryStatus status;
 
   /** Convert to the internal-model counterpart. */
-  public TableOperationsHistory toModel() {
-    return TableOperationsHistory.builder()
+  public TableOperationsHistoryDto toModel() {
+    return TableOperationsHistoryDto.builder()
         .id(id)
         .tableUuid(tableUuid)
         .databaseName(databaseName)
@@ -49,18 +49,18 @@ public class TableOperationsHistoryDto {
   }
 
   /** Build a wire DTO from the internal-model counterpart. */
-  public static TableOperationsHistoryDto fromModel(TableOperationsHistory h) {
+  public static TableOperationsHistory fromModel(TableOperationsHistoryDto h) {
     if (h == null) {
       return null;
     }
-    return TableOperationsHistoryDto.builder()
+    return TableOperationsHistory.builder()
         .id(h.getId())
         .tableUuid(h.getTableUuid())
         .databaseName(h.getDatabaseName())
         .tableName(h.getTableName())
-        .operationType(OperationTypeDto.fromModel(h.getOperationType()))
+        .operationType(OperationType.fromModel(h.getOperationType()))
         .completedAt(h.getCompletedAt())
-        .status(HistoryStatusDto.fromModel(h.getStatus()))
+        .status(HistoryStatus.fromModel(h.getStatus()))
         .build();
   }
 }

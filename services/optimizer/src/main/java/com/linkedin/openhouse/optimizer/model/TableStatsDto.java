@@ -24,7 +24,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class TableStats {
+public class TableStatsDto {
 
   /** Stable table identity from the Tables Service. Survives renames; rotates on drop+recreate. */
   private String tableUuid;
