@@ -6,6 +6,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.config.OptimizerTableStatsClient;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
@@ -31,6 +32,10 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
   @Autowired TableUUIDGenerator tableUUIDGenerator;
 
   @Autowired AuthorizationUtils authorizationUtils;
+
+  /** Optional — wired only when {@code cluster.optimizer.base-uri} is set. */
+  @Autowired(required = false)
+  OptimizerTableStatsClient optimizerTableStatsClient;
 
   @Override
   public Pair<TableDto, Boolean> putIcebergSnapshots(
@@ -83,7 +88,11 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
     try {
-      return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
+      TableDto saved = openHouseInternalRepository.save(tableDtoToSave);
+      if (optimizerTableStatsClient != null) {
+        optimizerTableStatsClient.upsertTableStats(saved);
+      }
+      return Pair.of(saved, !tableDto.isPresent());
     } catch (BadRequestException e) {
       throw new RequestValidationFailureException(e.getMessage(), e);
     } catch (CommitFailedException ce) {

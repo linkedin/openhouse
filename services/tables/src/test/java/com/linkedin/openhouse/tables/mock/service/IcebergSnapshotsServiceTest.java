@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.config.OptimizerTableStatsClient;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapperImpl;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -44,6 +45,8 @@ public class IcebergSnapshotsServiceTest {
   @Autowired private TablesMapper tablesMapper;
 
   @MockBean private TableUUIDGenerator tableUUIDGenerator;
+
+  @MockBean private OptimizerTableStatsClient optimizerTableStatsClient;
 
   private OpenHouseInternalRepository mockRepository;
 
@@ -88,6 +91,8 @@ public class IcebergSnapshotsServiceTest {
     Assertions.assertTrue(result.getSecond(), "Table must be created");
 
     verifyCalls(key, TEST_TABLE_CREATOR, requestBody.getCreateUpdateTableRequestBody());
+    Mockito.verify(optimizerTableStatsClient, Mockito.times(1))
+        .upsertTableStats(Mockito.eq(tableDto));
   }
 
   @Test
