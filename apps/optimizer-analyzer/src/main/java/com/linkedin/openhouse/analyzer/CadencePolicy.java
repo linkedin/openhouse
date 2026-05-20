@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.optimizer.model.HistoryStatus;
-import com.linkedin.openhouse.optimizer.model.OperationStatus;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -42,16 +42,16 @@ public class CadencePolicy {
    * @param latestHistory the most recent history entry for this (table, type), or empty
    */
   public boolean shouldSchedule(
-      Optional<TableOperation> currentOp, Optional<TableOperationsHistory> latestHistory) {
-    if (currentOp.isPresent() && currentOp.get().getStatus() != OperationStatus.CANCELED) {
+      Optional<TableOperationDto> currentOp, Optional<TableOperationsHistoryDto> latestHistory) {
+    if (currentOp.isPresent() && currentOp.get().getStatus() != OperationStatusDto.CANCELED) {
       return false;
     }
     return latestHistory.map(this::readyAfterHistoryEntry).orElse(true);
   }
 
-  private boolean readyAfterHistoryEntry(TableOperationsHistory entry) {
+  private boolean readyAfterHistoryEntry(TableOperationsHistoryDto entry) {
     Duration interval =
-        entry.getStatus() == HistoryStatus.FAILED ? failureRetryInterval : successRetryInterval;
+        entry.getStatus() == HistoryStatusDto.FAILED ? failureRetryInterval : successRetryInterval;
     return Duration.between(entry.getCompletedAt(), Instant.now()).compareTo(interval) > 0;
   }
 }

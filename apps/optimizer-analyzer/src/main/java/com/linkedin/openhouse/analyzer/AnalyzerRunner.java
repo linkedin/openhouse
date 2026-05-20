@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.analyzer;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.Table;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -42,10 +42,10 @@ public class AnalyzerRunner {
 
   /**
    * Run the analysis loop for {@code operationType} across all databases, with no filters.
-   * Equivalent to {@link #analyze(OperationType, Optional, Optional, Optional)} with all-empty
+   * Equivalent to {@link #analyze(OperationTypeDto, Optional, Optional, Optional)} with all-empty
    * filters.
    */
-  public void analyze(OperationType operationType) {
+  public void analyze(OperationTypeDto operationType) {
     analyze(operationType, Optional.empty(), Optional.empty(), Optional.empty());
   }
 
@@ -55,7 +55,7 @@ public class AnalyzerRunner {
    * tables-per-db, not tables-total.
    */
   public void analyze(
-      OperationType operationType,
+      OperationTypeDto operationType,
       Optional<String> databaseName,
       Optional<String> tableName,
       Optional<String> tableUuid) {
@@ -87,31 +87,31 @@ public class AnalyzerRunner {
     // unwieldy as the filter count grows. Migrate to Criteria API or jOOQ once the scaffolding
     // stabilizes — applies to operationsRepo.find, historyRepo.findLatestPerTable, and
     // statsRepo.find below.
-    Map<String, TableOperation> currentOps =
+    Map<String, TableOperationDto> currentOps =
         operationsRepo
             .find(
                 dbOperationType, null, tableUuid.orElse(null), databaseName, tableName.orElse(null))
             .stream()
             .filter(e -> e.getTableUuid() != null)
-            .map(TableOperation::fromRow)
+            .map(TableOperationDto::fromRow)
             .collect(
                 Collectors.toMap(
-                    TableOperation::getTableUuid, op -> op, TableOperation::mostRecent));
+                    TableOperationDto::getTableUuid, op -> op, TableOperationDto::mostRecent));
 
-    Map<String, TableOperationsHistory> latestHistory =
+    Map<String, TableOperationsHistoryDto> latestHistory =
         historyRepo.findLatestPerTable(dbOperationType).stream()
             .filter(r -> r.getTableUuid() != null)
-            .map(TableOperationsHistory::fromRow)
+            .map(TableOperationsHistoryDto::fromRow)
             .collect(
                 Collectors.toMap(
-                    TableOperationsHistory::getTableUuid,
+                    TableOperationsHistoryDto::getTableUuid,
                     h -> h,
                     AnalyzerRunner::moreRecentHistory));
 
-    List<Table> tables =
+    List<TableDto> tables =
         statsRepo.find(databaseName, tableName.orElse(null), tableUuid.orElse(null)).stream()
             .filter(row -> row.getTableUuid() != null)
-            .map(Table::fromRow)
+            .map(TableDto::fromRow)
             .collect(Collectors.toList());
 
     /*
@@ -130,12 +130,12 @@ public class AnalyzerRunner {
           if (!analyzer.isEnabled(table)) {
             return;
           }
-          Optional<TableOperation> currentOp =
+          Optional<TableOperationDto> currentOp =
               Optional.ofNullable(currentOps.get(table.getTableUuid()));
-          Optional<TableOperationsHistory> entry =
+          Optional<TableOperationsHistoryDto> entry =
               Optional.ofNullable(latestHistory.get(table.getTableUuid()));
           if (analyzer.shouldSchedule(table, currentOp, entry)) {
-            TableOperation op = TableOperation.pending(table, analyzer.getOperationType());
+            TableOperationDto op = TableOperationDto.pending(table, analyzer.getOperationType());
             operationsRepo.save(op.toRow());
             log.info(
                 "Created PENDING {} operation for table {}.{}",
@@ -146,9 +146,9 @@ public class AnalyzerRunner {
         });
   }
 
-  private static TableOperationsHistory moreRecentHistory(
-      TableOperationsHistory a, TableOperationsHistory b) {
-    Comparator<TableOperationsHistory> byCompletedAt =
+  private static TableOperationsHistoryDto moreRecentHistory(
+      TableOperationsHistoryDto a, TableOperationsHistoryDto b) {
+    Comparator<TableOperationsHistoryDto> byCompletedAt =
         Comparator.comparing(r -> r.getCompletedAt() != null ? r.getCompletedAt() : Instant.EPOCH);
     return byCompletedAt.compare(a, b) >= 0 ? a : b;
   }
