@@ -38,7 +38,7 @@ class SchedulerRunnerTest {
   private static final com.linkedin.openhouse.optimizer.db.OperationStatus PENDING_DB =
       com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING;
   private static final String OFD_STR = OFD.name();
-  private static final String RESULTS_ENDPOINT = "http://localhost:8080/v1/table-operations";
+  private static final String RESULTS_ENDPOINT = "http://localhost:8080/v1/optimizer/operations";
 
   @Mock private TableOperationsRepository operationsRepo;
   @Mock private TableStatsRepository statsRepo;
