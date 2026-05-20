@@ -2,9 +2,9 @@ package com.linkedin.openhouse.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.model.OperationType;
-import com.linkedin.openhouse.optimizer.model.TableOperation;
-import com.linkedin.openhouse.optimizer.model.TableStats;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -14,21 +14,21 @@ class FileCountBinPackerTest {
 
   private static final long MAX = 1_000_000L;
   private final FileCountBinPacker packer =
-      new FileCountBinPacker(OperationType.ORPHAN_FILES_DELETION, MAX);
+      new FileCountBinPacker(OperationTypeDto.ORPHAN_FILES_DELETION, MAX);
 
-  private static TableOperation op(String uuid) {
-    return TableOperation.builder()
+  private static TableOperationDto op(String uuid) {
+    return TableOperationDto.builder()
         .id(UUID.randomUUID().toString())
         .tableUuid(uuid)
         .databaseName("db")
         .tableName("tbl_" + uuid)
-        .operationType(OperationType.ORPHAN_FILES_DELETION)
+        .operationType(OperationTypeDto.ORPHAN_FILES_DELETION)
         .build();
   }
 
-  private static TableStats stats(Long fileCount) {
-    return TableStats.builder()
-        .snapshot(TableStats.SnapshotMetrics.builder().numCurrentFiles(fileCount).build())
+  private static TableStatsDto stats(Long fileCount) {
+    return TableStatsDto.builder()
+        .snapshot(TableStatsDto.SnapshotMetrics.builder().numCurrentFiles(fileCount).build())
         .build();
   }
 
@@ -91,7 +91,7 @@ class FileCountBinPackerTest {
     assertThat(bins).hasSize(1);
     List<String> ordered =
         bins.get(0).getOperations().stream()
-            .map(TableOperation::getTableUuid)
+            .map(TableOperationDto::getTableUuid)
             .collect(Collectors.toList());
     assertThat(ordered).containsExactly("large", "small");
   }
@@ -99,6 +99,6 @@ class FileCountBinPackerTest {
   @Test
   void binCarriesOperationType() {
     List<Bin> bins = packer.pack(List.of(candidate("u", 1L)));
-    assertThat(bins.get(0).getOperationType()).isEqualTo(OperationType.ORPHAN_FILES_DELETION);
+    assertThat(bins.get(0).getOperationType()).isEqualTo(OperationTypeDto.ORPHAN_FILES_DELETION);
   }
 }
