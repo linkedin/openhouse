@@ -1,8 +1,8 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.spec.TableStatsDto;
-import com.linkedin.openhouse.optimizer.api.spec.TableStatsHistoryDto;
-import com.linkedin.openhouse.optimizer.api.spec.UpsertTableStatsRequestDto;
+import com.linkedin.openhouse.optimizer.api.spec.TableStats;
+import com.linkedin.openhouse.optimizer.api.spec.TableStatsHistory;
+import com.linkedin.openhouse.optimizer.api.spec.UpsertTableStatsRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.time.Instant;
 import java.util.List;
@@ -31,18 +31,18 @@ public class TableStatsController {
    * Iceberg commit. Idempotent.
    */
   @PutMapping("/{tableUuid}")
-  public ResponseEntity<TableStatsDto> upsertTableStats(
-      @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequestDto request) {
+  public ResponseEntity<TableStats> upsertTableStats(
+      @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequest request) {
     return ResponseEntity.ok(
-        TableStatsDto.fromModel(service.upsertTableStats(request.toModel(tableUuid))));
+        TableStats.fromModel(service.upsertTableStats(request.toModel(tableUuid))));
   }
 
   /** Fetch the stats row for {@code tableUuid}. Returns 404 if no stats have been written yet. */
   @GetMapping("/{tableUuid}")
-  public ResponseEntity<TableStatsDto> getTableStats(@PathVariable String tableUuid) {
+  public ResponseEntity<TableStats> getTableStats(@PathVariable String tableUuid) {
     return service
         .getTableStats(tableUuid)
-        .map(TableStatsDto::fromModel)
+        .map(TableStats::fromModel)
         .map(ResponseEntity::ok)
         .orElse(ResponseEntity.notFound().build());
   }
@@ -52,18 +52,18 @@ public class TableStatsController {
    * every row.
    */
   @GetMapping
-  public ResponseEntity<List<TableStatsDto>> listTableStats(
+  public ResponseEntity<List<TableStats>> listTableStats(
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
       @RequestParam(required = false) String tableUuid) {
-    List<TableStatsDto> result =
+    List<TableStats> result =
         service
             .listTableStats(
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
                 Optional.ofNullable(tableUuid))
             .stream()
-            .map(TableStatsDto::fromModel)
+            .map(TableStats::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);
   }
@@ -73,13 +73,13 @@ public class TableStatsController {
    * {@code since} (inclusive) and cap at {@code limit} rows.
    */
   @GetMapping("/{tableUuid}/history")
-  public ResponseEntity<List<TableStatsHistoryDto>> getStatsHistory(
+  public ResponseEntity<List<TableStatsHistory>> getStatsHistory(
       @PathVariable String tableUuid,
       @RequestParam(required = false) Instant since,
       @RequestParam(defaultValue = "100") int limit) {
-    List<TableStatsHistoryDto> result =
+    List<TableStatsHistory> result =
         service.getStatsHistory(tableUuid, Optional.ofNullable(since), limit).stream()
-            .map(TableStatsHistoryDto::fromModel)
+            .map(TableStatsHistory::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);
   }

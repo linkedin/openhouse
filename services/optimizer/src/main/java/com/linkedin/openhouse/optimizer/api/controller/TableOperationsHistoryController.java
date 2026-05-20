@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -25,19 +25,19 @@ public class TableOperationsHistoryController {
 
   /** Append a completed-job result. Called by the SparkJob after each run (success or failure). */
   @PostMapping
-  public ResponseEntity<TableOperationsHistoryDto> appendHistory(
-      @RequestBody TableOperationsHistoryDto dto) {
+  public ResponseEntity<TableOperationsHistory> appendHistory(
+      @RequestBody TableOperationsHistory dto) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(TableOperationsHistoryDto.fromModel(service.appendHistory(dto.toModel())));
+        .body(TableOperationsHistory.fromModel(service.appendHistory(dto.toModel())));
   }
 
   /** Return the most recent history for a table, newest first, up to {@code limit} rows. */
   @GetMapping("/{tableUuid}")
-  public ResponseEntity<List<TableOperationsHistoryDto>> getHistory(
+  public ResponseEntity<List<TableOperationsHistory>> getHistory(
       @PathVariable String tableUuid, @RequestParam(defaultValue = "100") int limit) {
-    List<TableOperationsHistoryDto> result =
+    List<TableOperationsHistory> result =
         service.getHistory(tableUuid, limit).stream()
-            .map(TableOperationsHistoryDto::fromModel)
+            .map(TableOperationsHistory::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);
   }
