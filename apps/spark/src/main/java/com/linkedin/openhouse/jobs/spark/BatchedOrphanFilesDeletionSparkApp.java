@@ -273,36 +273,30 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   static class OperationResult {
     public final String status;
-    public final ResultPayload result;
     public final Integer orphanFilesDeleted;
     public final Long orphanBytesDeleted;
-
-    private OperationResult(
-        String status, ResultPayload result, Integer orphanFilesDeleted, Long orphanBytesDeleted) {
-      this.status = status;
-      this.result = result;
-      this.orphanFilesDeleted = orphanFilesDeleted;
-      this.orphanBytesDeleted = orphanBytesDeleted;
-    }
-
-    static OperationResult success(int orphanFilesDeleted, long orphanBytesDeleted) {
-      return new OperationResult("SUCCESS", null, orphanFilesDeleted, orphanBytesDeleted);
-    }
-
-    static OperationResult failure(String errorMessage, String errorType) {
-      return new OperationResult("FAILED", new ResultPayload(errorMessage, errorType), null, null);
-    }
-  }
-
-  /** Error details nested inside {@link OperationResult}. */
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  static class ResultPayload {
     public final String errorMessage;
     public final String errorType;
 
-    ResultPayload(String errorMessage, String errorType) {
+    private OperationResult(
+        String status,
+        Integer orphanFilesDeleted,
+        Long orphanBytesDeleted,
+        String errorMessage,
+        String errorType) {
+      this.status = status;
+      this.orphanFilesDeleted = orphanFilesDeleted;
+      this.orphanBytesDeleted = orphanBytesDeleted;
       this.errorMessage = errorMessage;
       this.errorType = errorType;
+    }
+
+    static OperationResult success(int orphanFilesDeleted, long orphanBytesDeleted) {
+      return new OperationResult("SUCCESS", orphanFilesDeleted, orphanBytesDeleted, null, null);
+    }
+
+    static OperationResult failure(String errorMessage, String errorType) {
+      return new OperationResult("FAILED", null, null, errorMessage, errorType);
     }
   }
 

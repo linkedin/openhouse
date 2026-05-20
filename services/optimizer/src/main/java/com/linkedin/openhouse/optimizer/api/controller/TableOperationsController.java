@@ -29,18 +29,22 @@ public class TableOperationsController {
   private final OptimizerDataService service;
 
   /**
-   * Report that an operation has completed. The body carries the {@code operationId} the caller is
-   * completing along with its terminal status. The backend looks up the operation row, writes a
-   * history entry with the operation's table metadata, and returns 201 Created with the history
-   * row, or 404 if the operation does not exist.
+   * Report that an operation has completed. {@code id} is the operation's UUID; the body carries
+   * the terminal status and any per-operation metrics or error details. The backend looks up the
+   * operation row, writes a history entry with the operation's table metadata plus the supplied
+   * metrics, and returns 201 Created with the history row, or 404 if the operation does not exist.
    */
-  @PostMapping("/complete")
+  @PostMapping("/{id}/complete")
   public ResponseEntity<TableOperationsHistoryDto> completeOperation(
-      @RequestBody CompleteOperationRequestDto request) {
+      @PathVariable String id, @RequestBody CompleteOperationRequestDto request) {
     return service
         .completeOperation(
-            request.getOperationId(),
-            request.getStatus() == null ? null : request.getStatus().toModel())
+            id,
+            request.getStatus() == null ? null : request.getStatus().toModel(),
+            request.getOrphanFilesDeleted(),
+            request.getOrphanBytesDeleted(),
+            request.getErrorMessage(),
+            request.getErrorType())
         .map(
             history ->
                 ResponseEntity.status(HttpStatus.CREATED)

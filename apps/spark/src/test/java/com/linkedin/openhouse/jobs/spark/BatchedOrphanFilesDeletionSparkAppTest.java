@@ -239,14 +239,21 @@ public class BatchedOrphanFilesDeletionSparkAppTest extends OpenHouseSparkITest 
       Assertions.assertEquals(1, successCount);
       Assertions.assertEquals(1, failureCount);
 
+      // SUCCESS payload carries orphan-file/byte metrics; no error fields.
       String successBody =
           receivedBodies.stream().filter(b -> b.contains("\"SUCCESS\"")).findFirst().get();
-      Assertions.assertFalse(successBody.contains("\"result\""));
+      Assertions.assertTrue(successBody.contains("\"orphanFilesDeleted\""));
+      Assertions.assertTrue(successBody.contains("\"orphanBytesDeleted\""));
+      Assertions.assertFalse(successBody.contains("\"errorMessage\""));
+      Assertions.assertFalse(successBody.contains("\"errorType\""));
 
+      // FAILED payload carries error fields; no orphan metrics.
       String failureBody =
           receivedBodies.stream().filter(b -> b.contains("\"FAILED\"")).findFirst().get();
       Assertions.assertTrue(failureBody.contains("\"errorMessage\""));
       Assertions.assertTrue(failureBody.contains("\"errorType\""));
+      Assertions.assertFalse(failureBody.contains("\"orphanFilesDeleted\""));
+      Assertions.assertFalse(failureBody.contains("\"orphanBytesDeleted\""));
     } finally {
       httpServer.stop(0);
     }

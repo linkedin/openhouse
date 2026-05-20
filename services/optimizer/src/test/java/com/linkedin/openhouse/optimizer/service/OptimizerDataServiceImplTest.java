@@ -54,7 +54,7 @@ class OptimizerDataServiceImplTest {
             .build());
 
     Optional<TableOperationsHistory> result =
-        service.completeOperation(operationId, HistoryStatus.SUCCESS);
+        service.completeOperation(operationId, HistoryStatus.SUCCESS, 42L, 1024L, null, null);
 
     assertThat(result).isPresent();
     assertThat(result.get().getStatus()).isEqualTo(HistoryStatus.SUCCESS);
@@ -62,12 +62,45 @@ class OptimizerDataServiceImplTest {
     assertThat(result.get().getOperationType()).isEqualTo(OperationType.ORPHAN_FILES_DELETION);
     assertThat(result.get().getDatabaseName()).isEqualTo("db1");
     assertThat(result.get().getCompletedAt()).isNotNull();
+    assertThat(result.get().getOrphanFilesDeleted()).isEqualTo(42L);
+    assertThat(result.get().getOrphanBytesDeleted()).isEqualTo(1024L);
+    assertThat(result.get().getErrorMessage()).isNull();
+    assertThat(result.get().getErrorType()).isNull();
+  }
+
+  @Test
+  void completeOperation_failurePersistsErrorFields() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .jobId("spark-job-456")
+            .build());
+
+    Optional<TableOperationsHistory> result =
+        service.completeOperation(
+            operationId, HistoryStatus.FAILED, null, null, "boom", "RuntimeException");
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getStatus()).isEqualTo(HistoryStatus.FAILED);
+    assertThat(result.get().getOrphanFilesDeleted()).isNull();
+    assertThat(result.get().getOrphanBytesDeleted()).isNull();
+    assertThat(result.get().getErrorMessage()).isEqualTo("boom");
+    assertThat(result.get().getErrorType()).isEqualTo("RuntimeException");
   }
 
   @Test
   void completeOperation_notFound_returnsEmpty() {
     Optional<TableOperationsHistory> result =
-        service.completeOperation(UUID.randomUUID().toString(), HistoryStatus.FAILED);
+        service.completeOperation(
+            UUID.randomUUID().toString(), HistoryStatus.FAILED, null, null, null, null);
 
     assertThat(result).isEmpty();
   }

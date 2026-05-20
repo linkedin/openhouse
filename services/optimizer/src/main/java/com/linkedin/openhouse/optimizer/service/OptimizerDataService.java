@@ -36,10 +36,20 @@ public interface OptimizerDataService {
   /**
    * Complete an operation by writing a history entry. Looks up the operation row by {@code
    * operationId}, copies its table metadata into a new history row with the supplied terminal
-   * {@code status}, and saves it. Returns the history record, or empty if the operation does not
-   * exist.
+   * {@code status} and optional per-operation metrics / error details, and saves it. Returns the
+   * history record, or empty if the operation does not exist.
+   *
+   * <p>The four trailing parameters are all nullable. Successful OFD operations populate {@code
+   * orphanFilesDeleted} / {@code orphanBytesDeleted}; failures populate {@code errorMessage} /
+   * {@code errorType}. Non-OFD operations leave all four null.
    */
-  Optional<TableOperationsHistory> completeOperation(String operationId, HistoryStatus status);
+  Optional<TableOperationsHistory> completeOperation(
+      String operationId,
+      HistoryStatus status,
+      Long orphanFilesDeleted,
+      Long orphanBytesDeleted,
+      String errorMessage,
+      String errorType);
 
   /**
    * Return the operation row for {@code id} regardless of status, or empty if it does not exist.

@@ -63,7 +63,12 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   @Override
   @Transactional
   public Optional<TableOperationsHistory> completeOperation(
-      String operationId, HistoryStatus status) {
+      String operationId,
+      HistoryStatus status,
+      Long orphanFilesDeleted,
+      Long orphanBytesDeleted,
+      String errorMessage,
+      String errorType) {
     return operationsRepository
         .findById(operationId)
         .map(
@@ -76,6 +81,10 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                     .operationType(OperationType.fromDb(row.getOperationType()))
                     .completedAt(Instant.now())
                     .status(status)
+                    .orphanFilesDeleted(orphanFilesDeleted)
+                    .orphanBytesDeleted(orphanBytesDeleted)
+                    .errorMessage(errorMessage)
+                    .errorType(errorType)
                     .build())
         .map(history -> TableOperationsHistory.fromRow(historyRepository.save(history.toRow())));
   }

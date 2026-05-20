@@ -72,4 +72,20 @@ public class TableOperationsHistoryRow {
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
   private HistoryStatus status;
+
+  /** OFD-specific: number of orphan files deleted; null if not an OFD operation or on failure. */
+  @Column(name = "orphan_files_deleted")
+  private Long orphanFilesDeleted;
+
+  /** OFD-specific: bytes reclaimed by orphan file deletion; null if not OFD or on failure. */
+  @Column(name = "orphan_bytes_deleted")
+  private Long orphanBytesDeleted;
+
+  /** On failure, the message from the Spark-side exception. Null on success. */
+  @Column(name = "error_message", length = 1024)
+  private String errorMessage;
+
+  /** On failure, the simple name of the Spark-side exception class. Null on success. */
+  @Column(name = "error_type", length = 256)
+  private String errorType;
 }
