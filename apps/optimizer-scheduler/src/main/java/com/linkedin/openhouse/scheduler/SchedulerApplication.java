@@ -11,7 +11,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 /** Entry point for the Optimizer Scheduler application. */
 @SpringBootApplication
-@EntityScan(basePackages = "com.linkedin.openhouse.optimizer.entity")
+@EntityScan(basePackages = "com.linkedin.openhouse.optimizer.db")
 @EnableJpaRepositories(basePackages = "com.linkedin.openhouse.optimizer.repository")
 public class SchedulerApplication {
 
