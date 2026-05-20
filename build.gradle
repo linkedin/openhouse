@@ -177,6 +177,7 @@ tasks.register('CopyGitHooksTask', Copy) {
 //   tables-service.Dockerfile      -> :services:tables:bootJar
 //   housetables-service.Dockerfile -> :services:housetables:bootJar
 //   jobs-service.Dockerfile        -> :services:jobs:bootJar
+//   optimizer-service.Dockerfile   -> :services:optimizer:bootJar
 //   jobs-scheduler.Dockerfile      -> :apps:openhouse-spark-apps_2.12:shadowJar (uber JAR)
 //   spark-base-hadoop2.8.dockerfile ->
 //       :integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar (uber JAR)
@@ -196,6 +197,7 @@ tasks.register('dockerPrereqs') {
   dependsOn ':services:tables:bootJar'
   dependsOn ':services:housetables:bootJar'
   dependsOn ':services:jobs:bootJar'
+  dependsOn ':services:optimizer:bootJar'
 
   // Spark runtime uber JARs (shadowJar)
   dependsOn ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar'
@@ -219,6 +221,7 @@ tasks.register('dockerPrereqs') {
     println '  build/tables/libs/tables.jar'
     println '  build/housetables/libs/housetables.jar'
     println '  build/jobs/libs/jobs.jar'
+    println '  build/optimizer/libs/optimizer.jar'
     println '  build/openhouse-spark-runtime_2.12/libs/openhouse-spark-runtime_2.12-uber.jar'
     println '  build/openhouse-spark-3.5-runtime_2.12/libs/openhouse-spark-3.5-runtime_2.12-uber.jar'
     println '  build/openhouse-spark-apps_2.12/libs/openhouse-spark-apps_2.12-uber.jar'
