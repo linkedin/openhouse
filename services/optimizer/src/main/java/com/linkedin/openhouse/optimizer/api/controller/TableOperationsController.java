@@ -1,10 +1,10 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
-import com.linkedin.openhouse.optimizer.api.spec.CompleteOperationRequest;
 import com.linkedin.openhouse.optimizer.api.spec.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.spec.OperationType;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperations;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
+import com.linkedin.openhouse.optimizer.api.spec.UpdateOperationRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.Optional;
@@ -29,16 +29,16 @@ public class TableOperationsController {
   private final OptimizerDataService service;
 
   /**
-   * Report that an operation has completed. The body carries the {@code operationId} the caller is
-   * completing along with its terminal status. The backend looks up the operation row, writes a
+   * Report an update to an operation. The body carries the {@code operationId} the caller is
+   * updating along with its terminal status. The backend looks up the operation row, writes a
    * history entry with the operation's table metadata, and returns 201 Created with the history
    * row, or 404 if the operation does not exist.
    */
-  @PostMapping("/complete")
-  public ResponseEntity<TableOperationsHistory> completeOperation(
-      @RequestBody CompleteOperationRequest request) {
+  @PostMapping("/update")
+  public ResponseEntity<TableOperationsHistory> updateOperation(
+      @RequestBody UpdateOperationRequest request) {
     return service
-        .completeOperation(
+        .updateOperation(
             request.getOperationId(),
             request.getStatus() == null ? null : request.getStatus().toModel())
         .map(
