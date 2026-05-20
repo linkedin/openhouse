@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableStatsHistory {
+public class TableStatsHistoryDto {
 
   /** UUID primary key — set by the caller, not generated server-side. */
   private String id;
@@ -32,7 +32,7 @@ public class TableStatsHistory {
   private String tableName;
 
   /** Snapshot + delta for this commit event. */
-  private TableStats stats;
+  private TableStatsDto stats;
 
   /** When this history row was recorded. */
   private Instant recordedAt;
@@ -50,17 +50,17 @@ public class TableStatsHistory {
         .build();
   }
 
-  /** Build a {@link TableStatsHistory} from a DB row. */
-  public static TableStatsHistory fromRow(TableStatsHistoryRow row) {
+  /** Build a {@link TableStatsHistoryDto} from a DB row. */
+  public static TableStatsHistoryDto fromRow(TableStatsHistoryRow row) {
     if (row == null) {
       return null;
     }
-    return TableStatsHistory.builder()
+    return TableStatsHistoryDto.builder()
         .id(row.getId())
         .tableUuid(row.getTableUuid())
         .databaseName(row.getDatabaseName())
         .tableName(row.getTableName())
-        .stats(TableStats.fromRows(row.getSnapshot(), row.getDelta()))
+        .stats(TableStatsDto.fromRows(row.getSnapshot(), row.getDelta()))
         .recordedAt(row.getRecordedAt())
         .build();
   }

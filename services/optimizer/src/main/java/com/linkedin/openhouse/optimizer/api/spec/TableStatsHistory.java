@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.spec;
 
-import com.linkedin.openhouse.optimizer.model.TableStatsHistory;
+import com.linkedin.openhouse.optimizer.model.TableStatsHistoryDto;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TableStatsHistoryDto {
+public class TableStatsHistory {
 
   /** UUID primary key set by the caller. */
   private String id;
@@ -27,14 +27,14 @@ public class TableStatsHistoryDto {
   private String tableName;
 
   /** Snapshot + delta stats from this commit event. */
-  private TableStatsPayloadDto stats;
+  private TableStatsPayload stats;
 
   /** When this history row was recorded. */
   private Instant recordedAt;
 
   /** Convert to the internal-model counterpart. */
-  public TableStatsHistory toModel() {
-    return TableStatsHistory.builder()
+  public TableStatsHistoryDto toModel() {
+    return TableStatsHistoryDto.builder()
         .id(id)
         .tableUuid(tableUuid)
         .databaseName(databaseName)
@@ -45,16 +45,16 @@ public class TableStatsHistoryDto {
   }
 
   /** Build a wire DTO from the internal-model counterpart. */
-  public static TableStatsHistoryDto fromModel(TableStatsHistory h) {
+  public static TableStatsHistory fromModel(TableStatsHistoryDto h) {
     if (h == null) {
       return null;
     }
-    return TableStatsHistoryDto.builder()
+    return TableStatsHistory.builder()
         .id(h.getId())
         .tableUuid(h.getTableUuid())
         .databaseName(h.getDatabaseName())
         .tableName(h.getTableName())
-        .stats(TableStatsPayloadDto.fromModel(h.getStats()))
+        .stats(TableStatsPayload.fromModel(h.getStats()))
         .recordedAt(h.getRecordedAt())
         .build();
   }

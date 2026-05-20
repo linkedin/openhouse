@@ -24,7 +24,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class TableStats {
+public class TableStatsDto {
 
   /** Stable table identity from the Tables Service. Survives renames; rotates on drop+recreate. */
   private String tableUuid;
@@ -62,13 +62,13 @@ public class TableStats {
   }
 
   /**
-   * Build a {@link TableStats} from a current-state DB row. {@link #delta} is left {@code null}.
+   * Build a {@link TableStatsDto} from a current-state DB row. {@link #delta} is left {@code null}.
    */
-  public static TableStats fromRow(com.linkedin.openhouse.optimizer.db.TableStatsRow row) {
+  public static TableStatsDto fromRow(com.linkedin.openhouse.optimizer.db.TableStatsRow row) {
     if (row == null) {
       return null;
     }
-    return TableStats.builder()
+    return TableStatsDto.builder()
         .tableUuid(row.getTableUuid())
         .databaseName(row.getDatabaseName())
         .tableName(row.getTableName())
@@ -91,14 +91,14 @@ public class TableStats {
     return delta == null ? null : delta.toDb();
   }
 
-  /** Join the two DB-side columns back into a single internal-model {@link TableStats}. */
-  public static TableStats fromRows(
+  /** Join the two DB-side columns back into a single internal-model {@link TableStatsDto}. */
+  public static TableStatsDto fromRows(
       com.linkedin.openhouse.optimizer.db.SnapshotMetrics dbSnapshot,
       com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics dbDelta) {
     if (dbSnapshot == null && dbDelta == null) {
       return null;
     }
-    return TableStats.builder()
+    return TableStatsDto.builder()
         .snapshot(SnapshotMetrics.fromDb(dbSnapshot))
         .delta(CommitDelta.fromDb(dbDelta))
         .build();
