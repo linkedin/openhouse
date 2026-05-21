@@ -470,6 +470,39 @@ def test_split_batch_size_preserves_data(tmp_path):
     assert sorted(result.column("id").to_pylist()) == list(range(25))
 
 
+def test_split_batch_size_honored_with_transform(tmp_path):
+    """When batch_size exceeds DataFusion's default, transforms must not fragment batches.
+
+    Without propagating the user's batch_size to the SessionConfig, DataFusion
+    splits output at its default boundary.
+    """
+    from datafusion import Config
+
+    df_default = int(Config().get("datafusion.execution.batch_size"))
+    num_rows = df_default + 1000
+    table = pa.table(
+        {
+            "id": pa.array(list(range(num_rows)), type=pa.int64()),
+            "name": pa.array([f"n{i}" for i in range(num_rows)], type=pa.string()),
+        }
+    )
+    identity_sql = f"SELECT id, name FROM {to_sql_identifier(_TABLE_ID)}"
+
+    split = _create_test_split(
+        tmp_path,
+        table,
+        FileFormat.PARQUET,
+        _TRANSFORM_SCHEMA,
+        transform_sql=identity_sql,
+        table_id=_TABLE_ID,
+        batch_size=num_rows,
+    )
+    batches = list(split)
+
+    assert len(batches) == 1
+    assert batches[0].num_rows == num_rows
+
+
 # --- multi-file split tests ---
 
 

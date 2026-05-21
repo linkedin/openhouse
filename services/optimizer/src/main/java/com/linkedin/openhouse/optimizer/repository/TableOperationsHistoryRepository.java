@@ -13,11 +13,14 @@ public interface TableOperationsHistoryRepository
     extends JpaRepository<TableOperationsHistoryRow, String> {
 
   /**
-   * Return history rows for a single {@code tableUuid}, newest first. Used by the service-layer
-   * {@code getHistory} endpoint.
+   * Return history rows for a single {@code tableUuid}, newest first. {@code pageable} is required;
+   * callers pick the row cap (default limit lives in {@code optimizer.repo.default-limit}).
    */
-  List<TableOperationsHistoryRow> findByTableUuidOrderByCompletedAtDesc(
-      String tableUuid, Pageable pageable);
+  @Query(
+      "SELECT r FROM TableOperationsHistoryRow r "
+          + "WHERE r.tableUuid = :tableUuid "
+          + "ORDER BY r.completedAt DESC")
+  List<TableOperationsHistoryRow> find(@Param("tableUuid") String tableUuid, Pageable pageable);
 
   /**
    * Return the most-recent history row per {@code (table_uuid, operation_type)}, filtered to a
@@ -37,6 +40,6 @@ public interface TableOperationsHistoryRepository
           + "AND r.completedAt = ("
           + "  SELECT MAX(r2.completedAt) FROM TableOperationsHistoryRow r2 "
           + "  WHERE r2.tableUuid = r.tableUuid AND r2.operationType = r.operationType)")
-  List<TableOperationsHistoryRow> findLatestPerTable(
-      @Param("operationType") OperationType operationType);
+  List<TableOperationsHistoryRow> findLatest(
+      @Param("operationType") OperationType operationType, Pageable pageable);
 }

@@ -126,7 +126,7 @@ class OptimizerDataServiceImplTest {
     assertThat(statsRepository.findAll()).hasSize(1);
 
     List<TableStatsHistoryRow> history =
-        statsHistoryRepository.find(tableUuid, null, PageRequest.of(0, 100));
+        statsHistoryRepository.find(tableUuid, Optional.empty(), PageRequest.of(0, 100));
     assertThat(history).hasSize(2);
     assertThat(history.get(0).getDelta().getNumFilesAdded()).isEqualTo(3L);
     assertThat(history.get(1).getDelta().getNumFilesAdded()).isEqualTo(5L);
