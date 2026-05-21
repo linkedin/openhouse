@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.annotation.Secured;
@@ -118,10 +119,19 @@ public class TablesController {
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @RequestParam(required = false, defaultValue = "0") int page,
       @RequestParam(required = false, defaultValue = "50") int size,
-      @RequestParam(required = false) String sortBy) {
+      @RequestParam(required = false) String sortBy,
+      @Parameter(
+              description =
+                  "Optional list of GetTableResponseBody field names to populate beyond the "
+                      + "identifiers (databaseId, tableId). Requires GET_TABLE_METADATA on the "
+                      + "database when set. Supported values: \"tableLocation\". Accepts "
+                      + "comma-separated (?fields=a,b) or repeated (?fields=a&fields=b) values.")
+          @RequestParam(name = "fields", required = false)
+          List<String> fields) {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllTablesResponseBody> apiResponse =
-        tablesApiHandler.searchTables(databaseId, page, size, sortBy);
+        tablesApiHandler.searchTables(
+            databaseId, page, size, sortBy, fields, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

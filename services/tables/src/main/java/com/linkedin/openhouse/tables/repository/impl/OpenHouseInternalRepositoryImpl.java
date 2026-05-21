@@ -35,9 +35,11 @@ import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -525,6 +527,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Schema tableSchema,
       TableDto tableDto,
       UpdateProperties updateProperties) {
+    // Normalize top-level column names in writeSchema to use the casing already present in
+    // tableSchema (matched by Iceberg field ID). This enables case-insensitive writes: a writer
+    // that submits "id" for a table column named "ID" will have its schema normalized to "ID"
+    // before any comparison or storage, so the table's existing casing is never changed.
+    // Tables where two columns share a case-folded name are excluded (ambiguous target column).
+    if (!SchemaValidationUtil.hasDuplicateCaseInsensitiveColumnNames(tableSchema)) {
+      writeSchema =
+          BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
+    }
     if (!writeSchema.sameSchema(tableSchema)) {
       try {
         schemaValidator.validateWriteSchema(tableSchema, writeSchema, tableDto.getTableUri());
@@ -702,6 +713,22 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return ((OpenHouseInternalCatalog) catalog)
         .listTables(Namespace.of(databaseId), pageable)
         .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier));
+  }
+
+  @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_PAGINATED_TIME)
+  @Override
+  public Page<TableDto> searchTables(String databaseId, Pageable pageable, List<String> fields) {
+    if (CollectionUtils.isEmpty(fields)) {
+      return searchTables(databaseId, pageable);
+    }
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "Does not support paginated search for getting all tables in a database");
+    }
+    Set<String> fieldSet = new HashSet<>(fields);
+    return ((OpenHouseInternalCatalog) catalog)
+        .listHouseTables(Namespace.of(databaseId), pageable)
+        .map(houseTable -> mapper.toTableDto(houseTable, fieldSet));
   }
 
   @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)

@@ -25,6 +25,13 @@ public interface OpenHouseInternalRepository
 
   Page<TableDto> searchTables(String databaseId, Pageable pageable);
 
+  /**
+   * Paginated search that populates a caller-selected subset of fields on each returned {@link
+   * TableDto}. Passing a null or empty {@code fields} list returns identifier-only results (same as
+   * the two-arg overload).
+   */
+  Page<TableDto> searchTables(String databaseId, Pageable pageable, List<String> fields);
+
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 
   Page<SoftDeletedTableDto> searchSoftDeletedTables(

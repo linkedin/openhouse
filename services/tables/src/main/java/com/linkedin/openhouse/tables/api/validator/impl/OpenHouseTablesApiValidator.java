@@ -43,6 +43,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
+  /**
+   * Fields selectable via the v2 search {@code ?fields=} query param. Each entry must match a field
+   * name on {@link com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody}.
+   */
+  private static final Set<String> SUPPORTED_SEARCH_FIELDS =
+      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("tableLocation")));
+
   @Autowired private Validator validator;
 
   @Autowired private RetentionPolicySpecValidator retentionPolicySpecValidator;
@@ -73,10 +80,23 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   @Override
-  public void validateSearchTables(String databaseId, int page, int size, String sortBy) {
+  public void validateSearchTables(
+      String databaseId, int page, int size, String sortBy, List<String> fields) {
     List<String> validationFailures = new ArrayList<>();
     validateDatabaseId(databaseId, validationFailures);
     ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+    if (fields != null && !fields.isEmpty()) {
+      List<String> unsupported =
+          fields.stream()
+              .filter(f -> !SUPPORTED_SEARCH_FIELDS.contains(f))
+              .collect(Collectors.toList());
+      if (!unsupported.isEmpty()) {
+        validationFailures.add(
+            String.format(
+                "fields : unsupported field(s) %s. Supported fields: %s",
+                unsupported, SUPPORTED_SEARCH_FIELDS));
+      }
+    }
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
