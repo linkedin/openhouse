@@ -93,22 +93,14 @@ public class OpenHouseInternalRepositoryImplTest {
   @Test
   void testComputePropsForTableCreation_tableLocation() {
     TableDto tableDto = createTableDto(new HashMap<>());
-    tableDto =
-        tableDto
-            .toBuilder()
-            .tableLocation("file:///data/openhouse/db/table/456.metadata.json")
-            .tableVersion("file:///data/openhouse/db/table/123.metadata.json")
-            .build();
+    tableDto = tableDto.toBuilder().tableLocation("file:///data/openhouse/db/table").build();
 
     Map<String, String> actualProps =
         openHouseInternalRepository.computePropsForTableCreation(tableDto);
 
     Assertions.assertEquals(
-        "/data/openhouse/db/table/456.metadata.json",
+        "/data/openhouse/db/table",
         actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("tableLocation")));
-    Assertions.assertEquals(
-        "/data/openhouse/db/table/123.metadata.json",
-        actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("tableVersion")));
   }
 
   private TableDto createTableDto(Map<String, String> properties) {

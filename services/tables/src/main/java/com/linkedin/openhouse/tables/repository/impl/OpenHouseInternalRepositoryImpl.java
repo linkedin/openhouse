@@ -159,9 +159,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
-      String tableVersion = tableProps.get(getCanonicalFieldName("tableVersion"));
-      String tableLocation =
-          tableVersion.substring(0, tableVersion.lastIndexOf("/")); // only the root folder
+      String metadataLocation = tableProps.get(getCanonicalFieldName("tableLocation"));
+      String tableLocation = metadataLocation.substring(0, metadataLocation.lastIndexOf("/"));
       table =
           replaceTable(
               tableIdentifier, writeSchema, partitionSpec, tableLocation, tableProps, sortOrder);
@@ -433,7 +432,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String htsFieldName : HTS_FIELD_NAMES) {
       if (dtoMap.get(htsFieldName) != null) {
-        if (htsFieldName.equals("tableLocation") || htsFieldName.equals("tableVersion")) {
+        if (htsFieldName.equals("tableLocation")) {
           propertiesMap.put(
               getCanonicalFieldName(htsFieldName), getSchemeLessPath(dtoMap.get(htsFieldName)));
         } else {
