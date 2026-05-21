@@ -59,8 +59,8 @@ public class TableOperationsController {
   }
 
   /**
-   * List operations matching the given filters. All parameters are optional — omit all to return
-   * every row.
+   * List operations matching the given filters, capped at {@code limit} rows. Every filter is
+   * optional; {@code limit} is required so callers always state how much they want back.
    */
   @GetMapping
   public ResponseEntity<List<TableOperations>> listTableOperations(
@@ -68,7 +68,8 @@ public class TableOperationsController {
       @RequestParam(required = false) OperationStatus status,
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
-      @RequestParam(required = false) String tableUuid) {
+      @RequestParam(required = false) String tableUuid,
+      @RequestParam int limit) {
     List<TableOperations> result =
         service
             .listTableOperations(
@@ -76,7 +77,8 @@ public class TableOperationsController {
                 Optional.ofNullable(status).map(OperationStatus::toModel),
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
-                Optional.ofNullable(tableUuid))
+                Optional.ofNullable(tableUuid),
+                limit)
             .stream()
             .map(TableOperations::fromModel)
             .collect(Collectors.toList());

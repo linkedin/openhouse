@@ -48,20 +48,22 @@ public class TableStatsController {
   }
 
   /**
-   * List stats rows matching the given filters. All parameters are optional — omit all to return
-   * every row.
+   * List stats rows matching the given filters, capped at {@code limit} rows. Every filter is
+   * optional; {@code limit} is required so callers always state how much they want back.
    */
   @GetMapping
   public ResponseEntity<List<TableStats>> listTableStats(
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
-      @RequestParam(required = false) String tableUuid) {
+      @RequestParam(required = false) String tableUuid,
+      @RequestParam int limit) {
     List<TableStats> result =
         service
             .listTableStats(
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
-                Optional.ofNullable(tableUuid))
+                Optional.ofNullable(tableUuid),
+                limit)
             .stream()
             .map(TableStats::fromModel)
             .collect(Collectors.toList());
@@ -69,14 +71,14 @@ public class TableStatsController {
   }
 
   /**
-   * Return per-commit stats history for {@code tableUuid}, newest first. Optionally filter by
-   * {@code since} (inclusive) and cap at {@code limit} rows.
+   * Return per-commit stats history for {@code tableUuid}, newest first, capped at {@code limit}
+   * rows. Optional {@code since} filter (inclusive). {@code limit} is required.
    */
   @GetMapping("/{tableUuid}/history")
   public ResponseEntity<List<TableStatsHistory>> getStatsHistory(
       @PathVariable String tableUuid,
       @RequestParam(required = false) Instant since,
-      @RequestParam(defaultValue = "100") int limit) {
+      @RequestParam int limit) {
     List<TableStatsHistory> result =
         service.getStatsHistory(tableUuid, Optional.ofNullable(since), limit).stream()
             .map(TableStatsHistory::fromModel)

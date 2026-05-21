@@ -23,15 +23,16 @@ public interface OptimizerDataService {
   // --- TableOperations ---
 
   /**
-   * List operations matching the given filters. Every parameter is optional — pass {@link
-   * Optional#empty()} to skip that filter. No filters returns all rows.
+   * List operations matching the given filters, capped at {@code limit} rows. Every filter
+   * parameter is optional — pass {@link Optional#empty()} to skip that filter.
    */
   List<TableOperationDto> listTableOperations(
       Optional<OperationTypeDto> operationType,
       Optional<OperationStatusDto> status,
       Optional<String> databaseName,
       Optional<String> tableName,
-      Optional<String> tableUuid);
+      Optional<String> tableUuid,
+      int limit);
 
   /**
    * Update an operation by writing a history entry. Looks up the operation row by {@code
@@ -60,11 +61,14 @@ public interface OptimizerDataService {
   Optional<TableStatsDto> getTableStats(String tableUuid);
 
   /**
-   * List stats rows matching the given filters. Every parameter is optional — pass {@link
-   * Optional#empty()} to skip that filter. No filters returns all rows.
+   * List stats rows matching the given filters, capped at {@code limit} rows. Every filter
+   * parameter is optional — pass {@link Optional#empty()} to skip that filter.
    */
   List<TableStatsDto> listTableStats(
-      Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid);
+      Optional<String> databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid,
+      int limit);
 
   /**
    * Return per-commit stats history for {@code tableUuid}, newest first.
