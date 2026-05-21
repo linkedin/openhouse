@@ -159,7 +159,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
       String tableLocation =
-          tableDto.getTableVersion().substring(0, tableDto.getTableVersion().lastIndexOf("/"));
+          getSchemeLessPath(
+              tableDto.getTableVersion().substring(0, tableDto.getTableVersion().lastIndexOf("/")));
       table =
           replaceTable(
               tableIdentifier, writeSchema, partitionSpec, tableLocation, tableProps, sortOrder);
