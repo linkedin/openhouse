@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
+import com.linkedin.openhouse.optimizer.api.spec.ApiListLimitProperties;
 import com.linkedin.openhouse.optimizer.api.spec.TableStats;
 import com.linkedin.openhouse.optimizer.api.spec.TableStatsHistory;
 import com.linkedin.openhouse.optimizer.api.spec.UpsertTableStatsRequest;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class TableStatsController {
 
   private final OptimizerDataService service;
+  private final ApiListLimitProperties limits;
 
   /**
    * Create or overwrite the stats row for {@code tableUuid}. Called by the Tables Service on every
@@ -48,20 +50,24 @@ public class TableStatsController {
   }
 
   /**
-   * List stats rows matching the given filters. All parameters are optional — omit all to return
-   * every row.
+   * List stats rows matching the given filters. Every filter is optional. {@code limit} defaults to
+   * {@code optimizer.api.list.default-limit} (10) and is rejected with 400 outside {@code [1,
+   * optimizer.api.list.max-limit]} (1000).
    */
   @GetMapping
   public ResponseEntity<List<TableStats>> listTableStats(
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
-      @RequestParam(required = false) String tableUuid) {
+      @RequestParam(required = false) String tableUuid,
+      @RequestParam(required = false) Integer limit) {
+    int effectiveLimit = limits.validateAndResolve(limit);
     List<TableStats> result =
         service
             .listTableStats(
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
-                Optional.ofNullable(tableUuid))
+                Optional.ofNullable(tableUuid),
+                effectiveLimit)
             .stream()
             .map(TableStats::fromModel)
             .collect(Collectors.toList());
@@ -69,16 +75,18 @@ public class TableStatsController {
   }
 
   /**
-   * Return per-commit stats history for {@code tableUuid}, newest first. Optionally filter by
-   * {@code since} (inclusive) and cap at {@code limit} rows.
+   * Return per-commit stats history for {@code tableUuid}, newest first. Optional {@code since}
+   * filter (inclusive). {@code limit} defaults to {@code optimizer.api.list.default-limit} (10) and
+   * is rejected with 400 outside {@code [1, optimizer.api.list.max-limit]} (1000).
    */
   @GetMapping("/{tableUuid}/history")
   public ResponseEntity<List<TableStatsHistory>> getStatsHistory(
       @PathVariable String tableUuid,
       @RequestParam(required = false) Instant since,
-      @RequestParam(defaultValue = "100") int limit) {
+      @RequestParam(required = false) Integer limit) {
+    int effectiveLimit = limits.validateAndResolve(limit);
     List<TableStatsHistory> result =
-        service.getStatsHistory(tableUuid, Optional.ofNullable(since), limit).stream()
+        service.getStatsHistory(tableUuid, Optional.ofNullable(since), effectiveLimit).stream()
             .map(TableStatsHistory::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);

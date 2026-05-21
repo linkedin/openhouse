@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
+import com.linkedin.openhouse.optimizer.api.spec.ApiListLimitProperties;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class TableOperationsHistoryController {
 
   private final OptimizerDataService service;
+  private final ApiListLimitProperties limits;
 
   /** Append a completed-job result. Called by the SparkJob after each run (success or failure). */
   @PostMapping
@@ -31,12 +33,17 @@ public class TableOperationsHistoryController {
         .body(TableOperationsHistory.fromModel(service.appendHistory(dto.toModel())));
   }
 
-  /** Return the most recent history for a table, newest first, up to {@code limit} rows. */
+  /**
+   * Return the most recent history for a table, newest first. {@code limit} defaults to {@code
+   * optimizer.api.list.default-limit} (10) and is rejected with 400 outside {@code [1,
+   * optimizer.api.list.max-limit]} (1000).
+   */
   @GetMapping("/{tableUuid}")
   public ResponseEntity<List<TableOperationsHistory>> getHistory(
-      @PathVariable String tableUuid, @RequestParam(defaultValue = "100") int limit) {
+      @PathVariable String tableUuid, @RequestParam(required = false) Integer limit) {
+    int effectiveLimit = limits.validateAndResolve(limit);
     List<TableOperationsHistory> result =
-        service.getHistory(tableUuid, limit).stream()
+        service.getHistory(tableUuid, effectiveLimit).stream()
             .map(TableOperationsHistory::fromModel)
             .collect(Collectors.toList());
     return ResponseEntity.ok(result);

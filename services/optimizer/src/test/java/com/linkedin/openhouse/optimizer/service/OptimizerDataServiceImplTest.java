@@ -165,8 +165,52 @@ class OptimizerDataServiceImplTest {
                 Optional.of(OperationStatusDto.PENDING),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()))
+                Optional.empty(),
+                100))
         .extracting(op -> op.getId())
         .containsExactly(pendingId);
+  }
+
+  @Test
+  void listTableOperations_respectsLimit() {
+    for (int i = 0; i < 15; i++) {
+      operationsRepository.save(
+          TableOperationsRow.builder()
+              .id(UUID.randomUUID().toString())
+              .tableUuid(UUID.randomUUID().toString())
+              .databaseName("db1")
+              .tableName("tbl" + i)
+              .operationType(
+                  com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION)
+              .status(com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING)
+              .createdAt(Instant.now())
+              .build());
+    }
+
+    assertThat(
+            service.listTableOperations(
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                5))
+        .hasSize(5);
+  }
+
+  @Test
+  void listTableStats_respectsLimit() {
+    for (int i = 0; i < 15; i++) {
+      service.upsertTableStats(
+          TableStatsDto.builder()
+              .tableUuid(UUID.randomUUID().toString())
+              .databaseName("db1")
+              .tableName("tbl" + i)
+              .snapshot(TableStatsDto.SnapshotMetrics.builder().tableSizeBytes(1L).build())
+              .build());
+    }
+
+    assertThat(service.listTableStats(Optional.empty(), Optional.empty(), Optional.empty(), 7))
+        .hasSize(7);
   }
 }

@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.api.controller;
 
+import com.linkedin.openhouse.optimizer.api.spec.ApiListLimitProperties;
 import com.linkedin.openhouse.optimizer.api.spec.OperationStatus;
 import com.linkedin.openhouse.optimizer.api.spec.OperationType;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperations;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class TableOperationsController {
 
   private final OptimizerDataService service;
+  private final ApiListLimitProperties limits;
 
   /**
    * Report an update to an operation. The body carries the {@code operationId} the caller is
@@ -59,8 +61,9 @@ public class TableOperationsController {
   }
 
   /**
-   * List operations matching the given filters. All parameters are optional — omit all to return
-   * every row.
+   * List operations matching the given filters. Every filter is optional. {@code limit} defaults to
+   * {@code optimizer.api.list.default-limit} (10) and is rejected with 400 outside {@code [1,
+   * optimizer.api.list.max-limit]} (1000).
    */
   @GetMapping
   public ResponseEntity<List<TableOperations>> listTableOperations(
@@ -68,7 +71,9 @@ public class TableOperationsController {
       @RequestParam(required = false) OperationStatus status,
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
-      @RequestParam(required = false) String tableUuid) {
+      @RequestParam(required = false) String tableUuid,
+      @RequestParam(required = false) Integer limit) {
+    int effectiveLimit = limits.validateAndResolve(limit);
     List<TableOperations> result =
         service
             .listTableOperations(
@@ -76,7 +81,8 @@ public class TableOperationsController {
                 Optional.ofNullable(status).map(OperationStatus::toModel),
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
-                Optional.ofNullable(tableUuid))
+                Optional.ofNullable(tableUuid),
+                effectiveLimit)
             .stream()
             .map(TableOperations::fromModel)
             .collect(Collectors.toList());
