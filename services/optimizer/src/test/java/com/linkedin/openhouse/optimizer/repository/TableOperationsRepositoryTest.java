@@ -6,6 +6,7 @@ import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.OperationType;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -148,7 +149,10 @@ class TableOperationsRepositoryTest {
             .scheduledAt(Instant.now().minusSeconds(60))
             .build());
 
-    Instant now = Instant.now();
+    // Truncate to microseconds — MySQL TIMESTAMP(6) (and H2 in MySQL mode) stores microseconds,
+    // so a nano-precision now() round-trips lossily. On Linux CI Instant.now() carries nanos;
+    // truncating here keeps the watermark comparison exact across platforms.
+    Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
     int transitioned =
         repository.updateBatch(
             List.of(idA, idB, idC),
