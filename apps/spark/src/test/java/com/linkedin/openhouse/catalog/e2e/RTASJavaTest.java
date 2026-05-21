@@ -141,8 +141,8 @@ public class RTASJavaTest extends OpenHouseSparkITest {
     Table replacedTable = catalog.loadTable(TABLE_IDENT);
 
     assertEquals(
-        stripPathScheme(originalLocation),
-        stripPathScheme(replacedTable.location()),
+        originalLocation,
+        replacedTable.location(),
         "Table location should be preserved after replace");
     assertEquals(
         REPLACE_SCHEMA.asStruct(),

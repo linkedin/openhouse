@@ -83,10 +83,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
@@ -151,10 +148,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
@@ -201,10 +195,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
@@ -265,10 +256,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
