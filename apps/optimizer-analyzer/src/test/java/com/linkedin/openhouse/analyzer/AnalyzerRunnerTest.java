@@ -2,6 +2,7 @@ package com.linkedin.openhouse.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -54,9 +55,19 @@ class AnalyzerRunnerTest {
 
     TableDto expectedTable = TableDto.fromRow(statsEntity);
 
-    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
-    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
         .thenReturn(true);
@@ -91,9 +102,19 @@ class AnalyzerRunnerTest {
             .createdAt(Instant.now())
             .build();
 
-    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(List.of(existingEntity));
-    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(List.of(existingEntity));
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
     TableOperationDto existingOp = TableOperationDto.fromRow(existingEntity);
@@ -112,9 +133,19 @@ class AnalyzerRunnerTest {
 
     TableDto expectedTable = TableDto.fromRow(statsEntity);
 
-    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
-    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(false);
 
     runner.analyze(OFD_TYPE);
@@ -138,9 +169,19 @@ class AnalyzerRunnerTest {
             .createdAt(Instant.now())
             .build();
 
-    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(List.of(scheduled));
-    when(historyRepo.findLatestPerTable(OFD_DB)).thenReturn(Collections.emptyList());
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(List.of(scheduled));
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
     TableOperationDto scheduledOp = TableOperationDto.fromRow(scheduled);
@@ -156,9 +197,19 @@ class AnalyzerRunnerTest {
   void analyze_skipsTable_whenTableUuidIsNull() {
     TableStatsRow statsEntity = TableStatsRow.builder().databaseName(DB).build();
 
-    when(statsRepo.find(DB, null, null)).thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(OFD_DB, null, null, DB, null)).thenReturn(Collections.emptyList());
-    when(historyRepo.findLatestPerTable(any())).thenReturn(Collections.emptyList());
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.findLatest(any(), any())).thenReturn(Collections.emptyList());
 
     runner.analyze(OFD_TYPE);
 

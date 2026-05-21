@@ -8,6 +8,7 @@ import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +33,8 @@ class TableStatsHistoryRepositoryTest {
     repository.save(buildRow(tableUuid, "db1", "tbl1", 5L, 1L, now.minus(1, ChronoUnit.HOURS)));
     repository.save(buildRow(tableUuid, "db1", "tbl1", 3L, 0L, now));
 
-    List<TableStatsHistoryRow> rows = repository.find(tableUuid, null, PageRequest.of(0, 100));
+    List<TableStatsHistoryRow> rows =
+        repository.find(tableUuid, Optional.empty(), PageRequest.of(0, 100));
 
     assertThat(rows).hasSize(3);
     // newest first
@@ -49,7 +51,8 @@ class TableStatsHistoryRepositoryTest {
       repository.save(buildRow(tableUuid, "db1", "tbl1", i, 0L, now.minus(i, ChronoUnit.HOURS)));
     }
 
-    List<TableStatsHistoryRow> rows = repository.find(tableUuid, null, PageRequest.of(0, 3));
+    List<TableStatsHistoryRow> rows =
+        repository.find(tableUuid, Optional.empty(), PageRequest.of(0, 3));
 
     assertThat(rows).hasSize(3);
   }
@@ -64,7 +67,8 @@ class TableStatsHistoryRepositoryTest {
     repository.save(buildRow(tableUuid, "db1", "tbl1", 5L, 1L, now.minus(1, ChronoUnit.HOURS)));
     repository.save(buildRow(tableUuid, "db1", "tbl1", 3L, 0L, now));
 
-    List<TableStatsHistoryRow> rows = repository.find(tableUuid, cutoff, PageRequest.of(0, 100));
+    List<TableStatsHistoryRow> rows =
+        repository.find(tableUuid, Optional.of(cutoff), PageRequest.of(0, 100));
 
     // only the 2 rows within the last 90 minutes
     assertThat(rows).hasSize(2);
@@ -80,8 +84,8 @@ class TableStatsHistoryRepositoryTest {
     repository.save(buildRow(uuid1, "db1", "tbl1", 10L, 0L, now));
     repository.save(buildRow(uuid2, "db2", "tbl2", 20L, 0L, now));
 
-    assertThat(repository.find(uuid1, null, PageRequest.of(0, 100))).hasSize(1);
-    assertThat(repository.find(uuid2, null, PageRequest.of(0, 100))).hasSize(1);
+    assertThat(repository.find(uuid1, Optional.empty(), PageRequest.of(0, 100))).hasSize(1);
+    assertThat(repository.find(uuid2, Optional.empty(), PageRequest.of(0, 100))).hasSize(1);
   }
 
   @Test

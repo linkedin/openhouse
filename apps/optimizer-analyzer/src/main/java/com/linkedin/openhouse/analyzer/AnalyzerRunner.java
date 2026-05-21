@@ -15,6 +15,8 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 /**
@@ -39,6 +41,9 @@ public class AnalyzerRunner {
   private final TableStatsRepository statsRepo;
   private final TableOperationsRepository operationsRepo;
   private final TableOperationsHistoryRepository historyRepo;
+
+  @Value("${optimizer.repo.default-limit:10000}")
+  private int defaultLimit = 10_000;
 
   /**
    * Run the analysis loop for {@code operationType} across all databases, with no filters.
@@ -83,14 +88,18 @@ public class AnalyzerRunner {
         analyzer.getOperationType().toDb();
 
     // Pre-load the small sides of the joins — bounded by tables in this database.
-    // TODO(query-builder): the JPQL optional-filter shape used by these find(...) calls gets
-    // unwieldy as the filter count grows. Migrate to Criteria API or jOOQ once the scaffolding
-    // stabilizes — applies to operationsRepo.find, historyRepo.findLatestPerTable, and
-    // statsRepo.find below.
+    PageRequest page = PageRequest.of(0, defaultLimit);
     Map<String, TableOperationDto> currentOps =
         operationsRepo
             .find(
-                dbOperationType, null, tableUuid.orElse(null), databaseName, tableName.orElse(null))
+                Optional.of(dbOperationType),
+                Optional.empty(),
+                tableUuid,
+                Optional.of(databaseName),
+                tableName,
+                Optional.empty(),
+                Optional.empty(),
+                page)
             .stream()
             .filter(e -> e.getTableUuid() != null)
             .map(TableOperationDto::fromRow)
@@ -99,7 +108,7 @@ public class AnalyzerRunner {
                     TableOperationDto::getTableUuid, op -> op, TableOperationDto::mostRecent));
 
     Map<String, TableOperationsHistoryDto> latestHistory =
-        historyRepo.findLatestPerTable(dbOperationType).stream()
+        historyRepo.findLatest(dbOperationType, page).stream()
             .filter(r -> r.getTableUuid() != null)
             .map(TableOperationsHistoryDto::fromRow)
             .collect(
@@ -109,7 +118,7 @@ public class AnalyzerRunner {
                     AnalyzerRunner::moreRecentHistory));
 
     List<TableDto> tables =
-        statsRepo.find(databaseName, tableName.orElse(null), tableUuid.orElse(null)).stream()
+        statsRepo.find(Optional.of(databaseName), tableName, tableUuid, page).stream()
             .filter(row -> row.getTableUuid() != null)
             .map(TableDto::fromRow)
             .collect(Collectors.toList());

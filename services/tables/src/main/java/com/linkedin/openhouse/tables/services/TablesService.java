@@ -33,15 +33,31 @@ public interface TablesService {
   List<TableDto> searchTables(String databaseId);
 
   /**
-   * Given a databaseId, prepare list of {@link TableDto}s.
+   * Given a databaseId, prepare list of {@link TableDto}s. The returned dtos are populated with
+   * identifier fields plus any HouseTable-resident fields listed in {@code fields}. Passing null or
+   * empty returns identifier-only dtos.
+   *
+   * <p>When {@code fields} is non-empty, {@code actingPrincipal} must hold the {@code
+   * GET_TABLE_METADATA} privilege on the database — per-table sharing ACLs are not consulted by
+   * this call, so this guard prevents callers from bulk-reading field data on tables they would not
+   * be authorized to read individually.
    *
    * @param databaseId
    * @param page
    * @param size
    * @param sortBy
+   * @param fields optional list of {@link TableDto}/{@code GetTableResponseBody} field names to
+   *     populate in addition to identifiers
+   * @param actingPrincipal authenticated user; required when {@code fields} is non-empty
    * @return list of {@link TableDto}
    */
-  Page<TableDto> searchTables(String databaseId, int page, int size, String sortBy);
+  Page<TableDto> searchTables(
+      String databaseId,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal);
 
   /**
    * Given a {@link CreateUpdateTableRequestBody}, create or update a Openhouse table for it

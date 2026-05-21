@@ -60,6 +60,11 @@ public class SelectFromTableTest {
                 baseSchema,
                 null,
                 null));
+    // CachingCatalog (iceberg >= 1.2.0.15) issues two loadTable round-trips for a metadata-table
+    // identifier: one resolves `tbl.snapshots` through BaseMetastoreCatalog.loadMetadataTable
+    // (which fetches the base table) and a second populates the cache entry for the base
+    // identifier so the metadata-table view can share its TableOperations.
+    mockTableService.enqueue(mockResponse);
     mockTableService.enqueue(mockResponse);
 
     List<Row> actualRows =
