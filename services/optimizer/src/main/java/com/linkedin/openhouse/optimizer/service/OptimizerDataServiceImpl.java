@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,9 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   private final TableStatsRepository statsRepository;
   private final TableStatsHistoryRepository statsHistoryRepository;
 
+  @Value("${optimizer.repo.default-limit:10000}")
+  private int defaultLimit;
+
   // --- TableOperations ---
 
   @Override
@@ -50,11 +54,14 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       Optional<String> tableUuid) {
     return operationsRepository
         .find(
-            operationType.map(OperationTypeDto::toDb).orElse(null),
-            status.map(OperationStatusDto::toDb).orElse(null),
-            tableUuid.orElse(null),
-            databaseName.orElse(null),
-            tableName.orElse(null))
+            operationType.map(OperationTypeDto::toDb),
+            status.map(OperationStatusDto::toDb),
+            tableUuid,
+            databaseName,
+            tableName,
+            Optional.empty(),
+            Optional.empty(),
+            PageRequest.of(0, defaultLimit))
         .stream()
         .map(TableOperationDto::fromRow)
         .collect(Collectors.toList());
@@ -140,8 +147,8 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   @Override
   public List<TableStatsDto> listTableStats(
       Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid) {
-    return statsRepository
-        .find(databaseName.orElse(null), tableName.orElse(null), tableUuid.orElse(null)).stream()
+    return statsRepository.find(databaseName, tableName, tableUuid, PageRequest.of(0, defaultLimit))
+        .stream()
         .map(TableStatsDto::fromRow)
         .collect(Collectors.toList());
   }
@@ -149,8 +156,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   @Override
   public List<TableStatsHistoryDto> getStatsHistory(
       String tableUuid, Optional<Instant> since, int limit) {
-    return statsHistoryRepository.find(tableUuid, since.orElse(null), PageRequest.of(0, limit))
-        .stream()
+    return statsHistoryRepository.find(tableUuid, since, PageRequest.of(0, limit)).stream()
         .map(TableStatsHistoryDto::fromRow)
         .collect(Collectors.toList());
   }
@@ -171,8 +177,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public List<TableOperationsHistoryDto> getHistory(String tableUuid, int limit) {
-    return historyRepository
-        .findByTableUuidOrderByCompletedAtDesc(tableUuid, PageRequest.of(0, limit)).stream()
+    return historyRepository.find(tableUuid, PageRequest.of(0, limit)).stream()
         .map(TableOperationsHistoryDto::fromRow)
         .collect(Collectors.toList());
   }

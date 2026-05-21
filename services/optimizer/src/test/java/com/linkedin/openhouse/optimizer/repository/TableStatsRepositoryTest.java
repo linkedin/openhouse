@@ -11,6 +11,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 @ActiveProfiles("test")
 @Transactional
 class TableStatsRepositoryTest {
+
+  private static final Pageable PAGE = PageRequest.of(0, 10_000);
 
   @Autowired TableStatsRepository repository;
 
@@ -90,7 +94,8 @@ class TableStatsRepositoryTest {
             .updatedAt(Instant.now())
             .build());
 
-    assertThat(repository.find(null, null, null)).hasSize(2);
+    assertThat(repository.find(Optional.empty(), Optional.empty(), Optional.empty(), PAGE))
+        .hasSize(2);
   }
 
   @Test
@@ -112,7 +117,13 @@ class TableStatsRepositoryTest {
             .updatedAt(Instant.now())
             .build());
 
-    assertThat(repository.find("db1", null, null)).hasSize(1);
-    assertThat(repository.find("db1", null, null).get(0).getDatabaseName()).isEqualTo("db1");
+    assertThat(repository.find(Optional.of("db1"), Optional.empty(), Optional.empty(), PAGE))
+        .hasSize(1);
+    assertThat(
+            repository
+                .find(Optional.of("db1"), Optional.empty(), Optional.empty(), PAGE)
+                .get(0)
+                .getDatabaseName())
+        .isEqualTo("db1");
   }
 }

@@ -52,8 +52,7 @@ class TableOperationsHistoryRepositoryTest {
             .status(HistoryStatus.FAILED)
             .build());
 
-    List<TableOperationsHistoryRow> rows =
-        repository.findByTableUuidOrderByCompletedAtDesc(tableUuid, PageRequest.of(0, 10));
+    List<TableOperationsHistoryRow> rows = repository.find(tableUuid, PageRequest.of(0, 10));
 
     assertThat(rows).hasSize(2);
     assertThat(rows.get(0).getId()).isEqualTo(idNewer);
@@ -77,8 +76,7 @@ class TableOperationsHistoryRepositoryTest {
               .build());
     }
 
-    List<TableOperationsHistoryRow> rows =
-        repository.findByTableUuidOrderByCompletedAtDesc(tableUuid, PageRequest.of(0, 3));
+    List<TableOperationsHistoryRow> rows = repository.find(tableUuid, PageRequest.of(0, 3));
     assertThat(rows).hasSize(3);
   }
 
@@ -121,7 +119,7 @@ class TableOperationsHistoryRepositoryTest {
             .build());
 
     List<TableOperationsHistoryRow> latest =
-        repository.findLatestPerTable(OperationType.ORPHAN_FILES_DELETION);
+        repository.findLatest(OperationType.ORPHAN_FILES_DELETION, PageRequest.of(0, 10_000));
 
     assertThat(latest).hasSize(2);
     TableOperationsHistoryRow forTarget =

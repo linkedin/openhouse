@@ -8,6 +8,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponse
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import java.util.List;
 
 /**
  * Interface layer between REST and Tables backend. The implementation is injected into the Service
@@ -37,16 +38,25 @@ public interface TablesApiHandler {
 
   /**
    * Function to Get one Page of Table Resources in a given databaseId given the page size and sort
-   * the results by the sortBy field.
+   * the results by the sortBy field. The caller may optionally request that additional fields
+   * (beyond databaseId + tableId) be populated on each returned table. When {@code fields} is
+   * non-empty, {@code actingPrincipal} must hold GET_TABLE_METADATA on the database.
    *
    * @param databaseId
    * @param page
    * @param size
    * @param sortBy
+   * @param fields optional list of GetTableResponseBody field names to populate
+   * @param actingPrincipal authenticated user; required when {@code fields} is non-empty
    * @return A page of tables in the given database.
    */
   ApiResponse<GetAllTablesResponseBody> searchTables(
-      String databaseId, int page, int size, String sortBy);
+      String databaseId,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal);
 
   /**
    * Function to Create Table Resource in a given databaseId

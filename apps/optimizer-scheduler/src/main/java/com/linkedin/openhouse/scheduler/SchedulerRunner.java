@@ -10,6 +10,7 @@ import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.scheduler.client.JobsServiceClient;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,6 +18,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +36,9 @@ public class SchedulerRunner {
   private final JobsServiceClient jobsClient;
   private final Map<OperationTypeDto, BinPacker> binPackers;
   private final String resultsEndpoint;
+
+  @Value("${optimizer.repo.default-limit:10000}")
+  private int defaultLimit = 10_000;
 
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
@@ -68,20 +73,32 @@ public class SchedulerRunner {
           "No BinPacker registered for operation type " + operationType);
     }
 
+    PageRequest page = PageRequest.of(0, defaultLimit);
     List<TableOperationsRow> pendingRows =
         operationsRepo.find(
-            operationType.toDb(),
-            OperationStatus.PENDING,
-            null,
-            databaseName.orElse(null),
-            tableName.orElse(null));
+            Optional.of(operationType.toDb()),
+            Optional.of(OperationStatus.PENDING),
+            Optional.empty(),
+            databaseName,
+            tableName,
+            Optional.empty(),
+            Optional.empty(),
+            page);
     if (pendingRows.isEmpty()) {
       log.info("No PENDING operations of type {}; nothing to schedule", operationType);
       return;
     }
 
+    // Deduplicate before claiming: if multiple PENDING rows exist for the same tableUuid, keep
+    // the oldest (lex-tiebreak on id) and cancel the rest. Per-cycle, not per-bin — running this
+    // inside the bin loop nuked rows belonging to other bins of the same cycle.
+    List<TableOperationsRow> survivors = cancelDuplicates(pendingRows);
+    if (survivors.isEmpty()) {
+      return;
+    }
+
     List<TableOperationDto> pending =
-        pendingRows.stream().map(TableOperationDto::fromRow).collect(Collectors.toList());
+        survivors.stream().map(TableOperationDto::fromRow).collect(Collectors.toList());
 
     // Tradeoff: we fetch fresh table_stats per scheduling cycle (one batched query) rather than
     // denormalizing the relevant fields onto TableOperationDto. The denormalized alternative would
@@ -124,19 +141,68 @@ public class SchedulerRunner {
     bins.forEach(this::submitBin);
   }
 
+  /**
+   * Group {@code pendingRows} by {@code tableUuid}; for any group with more than one row, cancel
+   * all but the oldest (lex-tiebreak on id). Returns the survivors in input order. Deterministic.
+   */
+  private List<TableOperationsRow> cancelDuplicates(List<TableOperationsRow> pendingRows) {
+    Map<String, List<TableOperationsRow>> byTableUuid =
+        pendingRows.stream().collect(Collectors.groupingBy(TableOperationsRow::getTableUuid));
+
+    List<String> duplicateIds =
+        byTableUuid.values().stream()
+            .filter(rows -> rows.size() > 1)
+            .flatMap(
+                rows ->
+                    rows.stream()
+                        .sorted(
+                            Comparator.comparing(TableOperationsRow::getCreatedAt)
+                                .thenComparing(TableOperationsRow::getId))
+                        .skip(1))
+            .map(TableOperationsRow::getId)
+            .collect(Collectors.toList());
+
+    if (duplicateIds.isEmpty()) {
+      return pendingRows;
+    }
+
+    int cancelled = operationsRepo.cancel(duplicateIds);
+    log.warn("Cancelled {} duplicate PENDING rows", cancelled);
+
+    Set<String> cancelledIds = Set.copyOf(duplicateIds);
+    return pendingRows.stream()
+        .filter(r -> !cancelledIds.contains(r.getId()))
+        .collect(Collectors.toList());
+  }
+
   private void submitBin(Bin bin) {
     List<String> ids = bin.getOperationIds();
-
-    // Deduplicate PENDING rows per tableUuid for this op type, keeping the IDs in this bin.
-    operationsRepo.cancelDuplicatePendingBatch(bin.getOperationType().toDb(), ids);
 
     // Claim the rows in one batched UPDATE: PENDING → SCHEDULING. The UPDATE's row count is just
     // an aggregate — to know *which* rows we own, re-query for SCHEDULING rows tagged with our
     // scheduledAt watermark. Anything not in that subset belongs to another instance or was
     // canceled, and must not be submitted or marked SCHEDULED.
     Instant claimedAt = Instant.now();
-    operationsRepo.markSchedulingBatch(ids, claimedAt);
-    List<String> claimedIds = operationsRepo.findClaimedIds(ids, claimedAt);
+    operationsRepo.updateBatch(
+        ids,
+        OperationStatus.PENDING,
+        OperationStatus.SCHEDULING,
+        Optional.of(claimedAt),
+        Optional.empty());
+    List<String> claimedIds =
+        operationsRepo
+            .find(
+                Optional.empty(),
+                Optional.of(OperationStatus.SCHEDULING),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(claimedAt),
+                Optional.of(ids),
+                PageRequest.of(0, defaultLimit))
+            .stream()
+            .map(TableOperationsRow::getId)
+            .collect(Collectors.toList());
     if (claimedIds.isEmpty()) {
       log.info("All rows in bin already claimed by another scheduler instance; skipping");
       return;
@@ -151,14 +217,26 @@ public class SchedulerRunner {
     Bin claimedBin = bin.subset(claimedIds);
     Optional<String> jobId = claimedBin.schedule(jobsClient, resultsEndpoint);
     if (jobId.isPresent()) {
-      int updated = operationsRepo.markScheduledBatch(claimedIds, jobId.get());
+      int updated =
+          operationsRepo.updateBatch(
+              claimedIds,
+              OperationStatus.SCHEDULING,
+              OperationStatus.SCHEDULED,
+              Optional.empty(),
+              Optional.of(jobId.get()));
       log.info(
           "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
           jobId.get(),
           claimedBin.getOperations().size(),
           updated);
     } else {
-      int reverted = operationsRepo.markPendingBatch(claimedIds);
+      int reverted =
+          operationsRepo.updateBatch(
+              claimedIds,
+              OperationStatus.SCHEDULING,
+              OperationStatus.PENDING,
+              Optional.empty(),
+              Optional.empty());
       log.warn(
           "Job submission failed; reverted {} claimed rows back to PENDING for retry on the next"
               + " pass",

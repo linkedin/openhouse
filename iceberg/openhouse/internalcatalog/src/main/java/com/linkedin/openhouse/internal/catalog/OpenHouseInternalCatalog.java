@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
 import com.linkedin.openhouse.common.utils.NamespaceUtil;
+import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -63,6 +64,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired MeterRegistry meterRegistry;
 
+  @Autowired TableMetadataCache tableMetadataCache;
+
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     FileIO fileIO = resolveFileIO(tableIdentifier);
@@ -74,7 +77,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         houseTableMapper,
         tableIdentifier,
         metricsReporter,
-        fileIOManager);
+        fileIOManager,
+        tableMetadataCache);
   }
 
   @Override
@@ -117,6 +121,15 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     return houseTableRepository
         .findAllByDatabaseId(namespace.toString(), pageable)
         .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()));
+  }
+
+  /**
+   * Paginated listing that preserves the underlying {@link HouseTable} rows, so callers can read
+   * HTS-resident columns (e.g. tableLocation) without an extra metadata.json load per table.
+   */
+  public Page<HouseTable> listHouseTables(Namespace namespace, Pageable pageable) {
+    NamespaceUtil.validateOperationNamespace(namespace);
+    return houseTableRepository.findAllByDatabaseId(namespace.toString(), pageable);
   }
 
   @Override
