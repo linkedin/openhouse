@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.repository.impl;
 
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 import static com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils.*;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -158,9 +159,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
+      String tableVersion = tableProps.get(getCanonicalFieldName("tableVersion"));
       String tableLocation =
-          getSchemeLessPath(
-              tableDto.getTableVersion().substring(0, tableDto.getTableVersion().lastIndexOf("/")));
+          tableVersion.substring(0, tableVersion.lastIndexOf("/")); // only the root folder
       table =
           replaceTable(
               tableIdentifier, writeSchema, partitionSpec, tableLocation, tableProps, sortOrder);
@@ -432,7 +433,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String htsFieldName : HTS_FIELD_NAMES) {
       if (dtoMap.get(htsFieldName) != null) {
-        if (htsFieldName.equals("tableLocation")) {
+        if (htsFieldName.equals("tableLocation") || htsFieldName.equals("tableVersion")) {
           propertiesMap.put(
               getCanonicalFieldName(htsFieldName), getSchemeLessPath(dtoMap.get(htsFieldName)));
         } else {
