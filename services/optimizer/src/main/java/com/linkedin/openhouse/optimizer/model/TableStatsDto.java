@@ -47,6 +47,63 @@ public class TableStatsDto {
   /** When the current snapshot was last written. Stamped server-side on every upsert. */
   private Instant updatedAt;
 
+  /**
+   * Project to the current-state {@code table_stats} row. Snapshot only; deltas live on history.
+   */
+  public com.linkedin.openhouse.optimizer.db.TableStatsRow toRow() {
+    return com.linkedin.openhouse.optimizer.db.TableStatsRow.builder()
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .snapshot(snapshot == null ? null : snapshot.toDb())
+        .tableProperties(tableProperties != null ? tableProperties : Collections.emptyMap())
+        .updatedAt(updatedAt)
+        .build();
+  }
+
+  /**
+   * Build a {@link TableStatsDto} from a current-state DB row. {@link #delta} is left {@code null}.
+   */
+  public static TableStatsDto fromRow(com.linkedin.openhouse.optimizer.db.TableStatsRow row) {
+    if (row == null) {
+      return null;
+    }
+    return TableStatsDto.builder()
+        .tableUuid(row.getTableUuid())
+        .databaseName(row.getDatabaseName())
+        .tableName(row.getTableName())
+        .tableProperties(
+            row.getTableProperties() != null ? row.getTableProperties() : Collections.emptyMap())
+        .snapshot(SnapshotMetrics.fromDb(row.getSnapshot()))
+        .updatedAt(row.getUpdatedAt())
+        .build();
+  }
+
+  /** Project to the DB-layer {@link com.linkedin.openhouse.optimizer.db.SnapshotMetrics} object. */
+  public com.linkedin.openhouse.optimizer.db.SnapshotMetrics toSnapshotRow() {
+    return snapshot == null ? null : snapshot.toDb();
+  }
+
+  /**
+   * Project to the DB-layer {@link com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics} object.
+   */
+  public com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics toDeltaRow() {
+    return delta == null ? null : delta.toDb();
+  }
+
+  /** Join the two DB-side columns back into a single internal-model {@link TableStatsDto}. */
+  public static TableStatsDto fromRows(
+      com.linkedin.openhouse.optimizer.db.SnapshotMetrics dbSnapshot,
+      com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics dbDelta) {
+    if (dbSnapshot == null && dbDelta == null) {
+      return null;
+    }
+    return TableStatsDto.builder()
+        .snapshot(SnapshotMetrics.fromDb(dbSnapshot))
+        .delta(CommitDelta.fromDb(dbDelta))
+        .build();
+  }
+
   /** Point-in-time metadata read from Iceberg at scan time. */
   @Data
   @Builder(toBuilder = true)
@@ -66,6 +123,29 @@ public class TableStatsDto {
 
     /** Total number of data files as of the latest snapshot — used for bin-packing. */
     private Long numCurrentFiles;
+
+    /** Convert to the DB-layer counterpart. */
+    public com.linkedin.openhouse.optimizer.db.SnapshotMetrics toDb() {
+      return com.linkedin.openhouse.optimizer.db.SnapshotMetrics.builder()
+          .tableVersion(tableVersion)
+          .tableLocation(tableLocation)
+          .tableSizeBytes(tableSizeBytes)
+          .numCurrentFiles(numCurrentFiles)
+          .build();
+    }
+
+    /** Build the internal-model inner object from the DB-layer counterpart. */
+    public static SnapshotMetrics fromDb(com.linkedin.openhouse.optimizer.db.SnapshotMetrics v) {
+      if (v == null) {
+        return null;
+      }
+      return SnapshotMetrics.builder()
+          .tableVersion(v.getTableVersion())
+          .tableLocation(v.getTableLocation())
+          .tableSizeBytes(v.getTableSizeBytes())
+          .numCurrentFiles(v.getNumCurrentFiles())
+          .build();
+    }
   }
 
   /** Per-commit incremental counters; accumulated across all recorded commit events. */
@@ -87,5 +167,28 @@ public class TableStatsDto {
 
     /** Total bytes removed by this commit. */
     private Long deletedSizeBytes;
+
+    /** Convert to the DB-layer counterpart. */
+    public com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics toDb() {
+      return com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics.builder()
+          .numFilesAdded(numFilesAdded)
+          .numFilesDeleted(numFilesDeleted)
+          .addedSizeBytes(addedSizeBytes)
+          .deletedSizeBytes(deletedSizeBytes)
+          .build();
+    }
+
+    /** Build the internal-model inner object from the DB-layer counterpart. */
+    public static CommitDelta fromDb(com.linkedin.openhouse.optimizer.db.CommitDeltaMetrics v) {
+      if (v == null) {
+        return null;
+      }
+      return CommitDelta.builder()
+          .numFilesAdded(v.getNumFilesAdded())
+          .numFilesDeleted(v.getNumFilesDeleted())
+          .addedSizeBytes(v.getAddedSizeBytes())
+          .deletedSizeBytes(v.getDeletedSizeBytes())
+          .build();
+    }
   }
 }

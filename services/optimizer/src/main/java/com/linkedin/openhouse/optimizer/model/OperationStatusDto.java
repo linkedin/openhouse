@@ -19,5 +19,15 @@ public enum OperationStatusDto {
   SCHEDULED,
 
   /** Scheduler marked this row as a duplicate of another PENDING row; not claimable. */
-  CANCELED
+  CANCELED;
+
+  /** Convert to the DB-layer counterpart. */
+  public com.linkedin.openhouse.optimizer.db.OperationStatus toDb() {
+    return com.linkedin.openhouse.optimizer.db.OperationStatus.valueOf(name());
+  }
+
+  /** Build the internal-model enum from the DB-layer counterpart. */
+  public static OperationStatusDto fromDb(com.linkedin.openhouse.optimizer.db.OperationStatus v) {
+    return v == null ? null : OperationStatusDto.valueOf(v.name());
+  }
 }
