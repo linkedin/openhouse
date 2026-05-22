@@ -84,15 +84,12 @@ public class AnalyzerRunner {
       Optional<String> tableName,
       Optional<String> tableUuid) {
 
-    com.linkedin.openhouse.optimizer.db.OperationType dbOperationType =
-        analyzer.getOperationType().toDb();
-
     // Pre-load the small sides of the joins — bounded by tables in this database.
     PageRequest page = PageRequest.of(0, defaultLimit);
     Map<String, TableOperationDto> currentOps =
         operationsRepo
             .find(
-                Optional.of(dbOperationType),
+                Optional.of(analyzer.getOperationType().toDb()),
                 Optional.empty(),
                 tableUuid,
                 Optional.of(databaseName),
@@ -108,7 +105,7 @@ public class AnalyzerRunner {
                     TableOperationDto::getTableUuid, op -> op, TableOperationDto::mostRecent));
 
     Map<String, TableOperationsHistoryDto> latestHistory =
-        historyRepo.findLatest(dbOperationType, page).stream()
+        historyRepo.findLatest(analyzer.getOperationType().toDb(), page).stream()
             .filter(r -> r.getTableUuid() != null)
             .map(TableOperationsHistoryDto::fromRow)
             .collect(
