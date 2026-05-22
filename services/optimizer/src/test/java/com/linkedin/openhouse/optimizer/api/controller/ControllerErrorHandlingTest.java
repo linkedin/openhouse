@@ -20,9 +20,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Exercises what the controllers own: server-side validation on {@code updateOperation}, 404 on
- * missing rows, and the {@code ApiError} body shape. Framework-level 4xx (missing query param,
- * malformed JSON, etc.) is left to Spring's defaults and not asserted here.
+ * Exercises what the controllers own: server-side validation on {@code updateOperation} (path/body
+ * mismatch, missing fields) and 404s on missing rows. Assertions are status-code-only: MockMvc does
+ * not trigger Spring's error-dispatch to {@code BasicErrorController}, so the response body of a
+ * {@link org.springframework.web.server.ResponseStatusException} is empty in tests even though it
+ * is populated in production (with {@code server.error.include-message=always}). Framework-level
+ * 4xx (missing query param, malformed JSON, etc.) is left to Spring's defaults and not asserted.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -34,7 +37,7 @@ class ControllerErrorHandlingTest {
   @Autowired TableOperationsRepository operationsRepository;
 
   @Test
-  void updateOperation_notFound_returns404WithApiError() throws Exception {
+  void updateOperation_notFound_returns404() throws Exception {
     String id = UUID.randomUUID().toString();
     String body = String.format("{\"operationId\":\"%s\",\"status\":\"SUCCESS\"}", id);
     mockMvc
@@ -42,10 +45,7 @@ class ControllerErrorHandlingTest {
             post("/v1/optimizer/operations/" + id + "/update")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
-        .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.code").value("NOT_FOUND"))
-        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(id)))
-        .andExpect(jsonPath("$.path").value("/v1/optimizer/operations/" + id + "/update"));
+        .andExpect(status().isNotFound());
   }
 
   @Test
@@ -58,11 +58,7 @@ class ControllerErrorHandlingTest {
             post("/v1/optimizer/operations/" + pathId + "/update")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
-        .andExpect(
-            jsonPath("$.message")
-                .value(org.hamcrest.Matchers.containsString("does not match path id")));
+        .andExpect(status().isBadRequest());
   }
 
   @Test
@@ -74,9 +70,7 @@ class ControllerErrorHandlingTest {
             post("/v1/optimizer/operations/" + pathId + "/update")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
-        .andExpect(jsonPath("$.message").value("operationId is required"));
+        .andExpect(status().isBadRequest());
   }
 
   @Test
@@ -88,32 +82,23 @@ class ControllerErrorHandlingTest {
             post("/v1/optimizer/operations/" + id + "/update")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
-        .andExpect(jsonPath("$.message").value("status is required"));
+        .andExpect(status().isBadRequest());
   }
 
   @Test
-  void getTableOperation_notFound_returns404WithApiError() throws Exception {
+  void getTableOperation_notFound_returns404() throws Exception {
     String id = UUID.randomUUID().toString();
-    mockMvc
-        .perform(get("/v1/optimizer/operations/" + id))
-        .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.code").value("NOT_FOUND"))
-        .andExpect(jsonPath("$.path").value("/v1/optimizer/operations/" + id));
+    mockMvc.perform(get("/v1/optimizer/operations/" + id)).andExpect(status().isNotFound());
   }
 
   @Test
-  void getTableStats_notFound_returns404WithApiError() throws Exception {
+  void getTableStats_notFound_returns404() throws Exception {
     String uuid = UUID.randomUUID().toString();
-    mockMvc
-        .perform(get("/v1/optimizer/stats/" + uuid))
-        .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    mockMvc.perform(get("/v1/optimizer/stats/" + uuid)).andExpect(status().isNotFound());
   }
 
   @Test
-  void updateOperation_happyPath_stillReturns201() throws Exception {
+  void updateOperation_happyPath_returns201() throws Exception {
     String id = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
