@@ -27,16 +27,10 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UpdateOperationRequest {
 
-  /**
-   * Operation row's UUID. Must match the {@code {id}} path variable on {@code POST
-   * /v1/optimizer/operations/{id}/update} — the controller rejects mismatched requests with 400.
-   * Carrying it in the body keeps the payload self-describing for trace/log consumers that may not
-   * see the URL. Validated server-side (no bean-validation annotation) so that future relaxation
-   * does not break clients on the wire contract.
-   */
+  /** Operation row's UUID — the primary lookup key. */
   private String operationId;
 
-  /** Terminal outcome for this single operation. Validated server-side. */
+  /** Terminal outcome for this single operation. */
   private HistoryStatus status;
 
   /** Debug echo: stable table identity the caller believed it was completing. */
