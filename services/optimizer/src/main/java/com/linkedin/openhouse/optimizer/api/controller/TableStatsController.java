@@ -4,6 +4,8 @@ import com.linkedin.openhouse.optimizer.api.spec.TableStats;
 import com.linkedin.openhouse.optimizer.api.spec.TableStatsHistory;
 import com.linkedin.openhouse.optimizer.api.spec.UpsertTableStatsRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +34,7 @@ public class TableStatsController {
    * Create or overwrite the stats row for {@code tableUuid}. Called by the Tables Service on every
    * Iceberg commit. Idempotent.
    */
+  @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "Stats PUT: OK")})
   @PutMapping("/{tableUuid}")
   public ResponseEntity<TableStats> upsertTableStats(
       @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequest request) {
@@ -40,6 +43,11 @@ public class TableStatsController {
   }
 
   /** Fetch the stats row for {@code tableUuid}. Returns 404 if no stats have been written yet. */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Stats GET: OK"),
+        @ApiResponse(responseCode = "404", description = "Stats GET: NOT_FOUND")
+      })
   @GetMapping("/{tableUuid}")
   public ResponseEntity<TableStats> getTableStats(@PathVariable String tableUuid) {
     return service
@@ -56,6 +64,11 @@ public class TableStatsController {
    * List stats rows matching the given filters, capped at {@code limit} rows. Every filter is
    * optional; {@code limit} is required so callers always state how much they want back.
    */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Stats SEARCH: OK"),
+        @ApiResponse(responseCode = "400", description = "Stats SEARCH: BAD_REQUEST")
+      })
   @GetMapping
   public ResponseEntity<List<TableStats>> listTableStats(
       @RequestParam(required = false) String databaseName,
@@ -79,6 +92,11 @@ public class TableStatsController {
    * Return per-commit stats history for {@code tableUuid}, newest first, capped at {@code limit}
    * rows. Optional {@code since} filter (inclusive). {@code limit} is required.
    */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "StatsHistory GET: OK"),
+        @ApiResponse(responseCode = "400", description = "StatsHistory GET: BAD_REQUEST")
+      })
   @GetMapping("/{tableUuid}/history")
   public ResponseEntity<List<TableStatsHistory>> getStatsHistory(
       @PathVariable String tableUuid,
