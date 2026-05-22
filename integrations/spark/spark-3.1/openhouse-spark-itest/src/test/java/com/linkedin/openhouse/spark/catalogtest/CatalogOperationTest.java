@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.NullOrder;
@@ -31,6 +32,7 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import scala.collection.JavaConverters;
 
 public class CatalogOperationTest extends OpenHouseSparkITest {
 
@@ -621,5 +623,207 @@ public class CatalogOperationTest extends OpenHouseSparkITest {
       Assertions.assertEquals(2, rows.get(1).getInt(0));
       Assertions.assertEquals(3, rows.get(2).getInt(0));
     }
+  }
+
+  /**
+   * Partition-column case mismatch via {@code DataFrame.writeTo().append()} (by-name V2 write). The
+   * DataFrame has the partition column spelled {@code "DatePartition"} (camelCase) while the OH
+   * table stores {@code "datepartition"} (lowercase). With {@code caseSensitive=true} the normal
+   * Spark analyzer would fail with "Cannot find data for output column 'datepartition'". The rule
+   * must rename the source column so the value lands in the correct partition.
+   */
+  @Test
+  public void testWritePartitionColumnCaseMismatch_writeToAppend_succeeds() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql(
+          "CREATE TABLE openhouse.db.partition_writeto_case (id INT, datepartition STRING)"
+              + " PARTITIONED BY (datepartition)");
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      try {
+        Assertions.assertDoesNotThrow(
+            () ->
+                spark
+                    .sql("SELECT 1 AS id, '2026-05-22' AS DatePartition")
+                    .writeTo("openhouse.db.partition_writeto_case")
+                    .append(),
+            "writeTo append must succeed when DF has 'DatePartition' and table has 'datepartition'");
+        // Verify partition routing: a query that filters by the stored partition column name
+        // returns the row only if it landed in the correct partition.
+        List<Row> rows =
+            spark
+                .sql(
+                    "SELECT id, datepartition FROM openhouse.db.partition_writeto_case"
+                        + " WHERE datepartition = '2026-05-22'")
+                .collectAsList();
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertEquals(1, rows.get(0).getInt(0));
+        Assertions.assertEquals("2026-05-22", rows.get(0).getString(1));
+      } finally {
+        spark.conf().set("spark.sql.caseSensitive", "false");
+        spark.sql("DROP TABLE IF EXISTS openhouse.db.partition_writeto_case");
+      }
+    }
+  }
+
+  /**
+   * Partition-column case mismatch via SQL {@code INSERT INTO … SELECT} (by-position V2 write).
+   * Source table column is {@code "DatePartition"}; target table column is {@code "datepartition"}
+   * and is the partition key. Rows must land in the correct partitions despite the case difference.
+   */
+  @Test
+  public void testWritePartitionColumnCaseMismatch_sqlInsert_succeeds() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql(
+          "CREATE TABLE openhouse.db.partition_sql_case (id INT, datepartition STRING)"
+              + " PARTITIONED BY (datepartition)");
+      spark.sql("CREATE TABLE openhouse.db.partition_sql_src (Id INT, DatePartition STRING)");
+      spark.sql(
+          "INSERT INTO openhouse.db.partition_sql_src"
+              + " VALUES (1, '2026-05-22'), (2, '2026-05-23')");
+
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      try {
+        Assertions.assertDoesNotThrow(
+            () ->
+                spark.sql(
+                    "INSERT INTO openhouse.db.partition_sql_case"
+                        + " SELECT * FROM openhouse.db.partition_sql_src"),
+            "INSERT INTO SELECT must succeed when source has 'DatePartition' and target has"
+                + " 'datepartition'");
+        List<Row> rows =
+            spark
+                .sql("SELECT id, datepartition FROM openhouse.db.partition_sql_case ORDER BY id")
+                .collectAsList();
+        Assertions.assertEquals(2, rows.size());
+        Assertions.assertEquals("2026-05-22", rows.get(0).getString(1));
+        Assertions.assertEquals("2026-05-23", rows.get(1).getString(1));
+      } finally {
+        spark.conf().set("spark.sql.caseSensitive", "false");
+        spark.sql("DROP TABLE IF EXISTS openhouse.db.partition_sql_case");
+        spark.sql("DROP TABLE IF EXISTS openhouse.db.partition_sql_src");
+      }
+    }
+  }
+
+  /**
+   * Nested struct case mismatch where source fields are in a <em>different order</em> than target.
+   * Source struct order is {@code <lastName, firstName>} (lastName at index 0); target is {@code
+   * <firstname, lastname>} (firstname at index 0). A positional struct {@code Cast} would put the
+   * source's lastName value into the target's firstname slot — silent data corruption. The
+   * recursive name-based alignment in {@link
+   * com.linkedin.openhouse.spark.extensions.OHWriteSchemaNormalizationRule} maps fields by
+   * case-insensitive name so values land in the correct target field.
+   */
+  @Test
+  public void testWriteNestedStructReorderedFields_succeeds() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql(
+          "CREATE TABLE openhouse.db.nested_reordered_tgt"
+              + " (id INT, info STRUCT<firstname:STRING, lastname:STRING>)");
+      spark.sql(
+          "CREATE TABLE openhouse.db.nested_reordered_src"
+              + " (id INT, info STRUCT<lastName:STRING, firstName:STRING>)");
+      spark.sql(
+          "INSERT INTO openhouse.db.nested_reordered_src"
+              + " VALUES (1, named_struct('lastName', 'Doe', 'firstName', 'John'))");
+
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      try {
+        Assertions.assertDoesNotThrow(
+            () ->
+                spark.sql(
+                    "INSERT INTO openhouse.db.nested_reordered_tgt"
+                        + " SELECT * FROM openhouse.db.nested_reordered_src"),
+            "INSERT must succeed when nested source fields are in different order than target");
+        List<Row> rows =
+            spark
+                .sql("SELECT info.firstname, info.lastname FROM openhouse.db.nested_reordered_tgt")
+                .collectAsList();
+        Assertions.assertEquals(1, rows.size());
+        // Critical: John must land in 'firstname' (not 'lastname') — proves name-based, not
+        // positional, struct field matching.
+        Assertions.assertEquals(
+            "John",
+            rows.get(0).getString(0),
+            "firstname must contain 'John' — value matched by name, not by source position");
+        Assertions.assertEquals(
+            "Doe",
+            rows.get(0).getString(1),
+            "lastname must contain 'Doe' — value matched by name, not by source position");
+      } finally {
+        spark.conf().set("spark.sql.caseSensitive", "false");
+        spark.sql("DROP TABLE IF EXISTS openhouse.db.nested_reordered_tgt");
+        spark.sql("DROP TABLE IF EXISTS openhouse.db.nested_reordered_src");
+      }
+    }
+  }
+
+  /**
+   * Deeply nested struct (struct-in-struct) with case mismatches at every level. Exercises the
+   * recursion in {@code alignExpressionToTargetType}: outer struct fields, inner struct fields, and
+   * the leaf field all need case-insensitive name resolution.
+   */
+  @Test
+  public void testWriteDeepNestedStructCaseMismatch_succeeds() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql(
+          "CREATE TABLE openhouse.db.deep_nested_tgt"
+              + " (id INT,"
+              + " person STRUCT<name:STRING, address:STRUCT<street:STRING, city:STRING>>)");
+      spark.sql(
+          "CREATE TABLE openhouse.db.deep_nested_src"
+              + " (id INT,"
+              + " Person STRUCT<Name:STRING, Address:STRUCT<Street:STRING, CITY:STRING>>)");
+      spark.sql(
+          "INSERT INTO openhouse.db.deep_nested_src"
+              + " VALUES (1, named_struct('Name', 'Alice',"
+              + " 'Address', named_struct('Street', '100 Main', 'CITY', 'SF')))");
+
+      spark.conf().set("spark.sql.caseSensitive", "true");
+      try {
+        Assertions.assertDoesNotThrow(
+            () ->
+                spark.sql(
+                    "INSERT INTO openhouse.db.deep_nested_tgt"
+                        + " SELECT * FROM openhouse.db.deep_nested_src"),
+            "INSERT must succeed when struct-in-struct fields differ in case at every level");
+        List<Row> rows =
+            spark
+                .sql(
+                    "SELECT person.name, person.address.street, person.address.city"
+                        + " FROM openhouse.db.deep_nested_tgt")
+                .collectAsList();
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertEquals("Alice", rows.get(0).getString(0));
+        Assertions.assertEquals("100 Main", rows.get(0).getString(1));
+        Assertions.assertEquals("SF", rows.get(0).getString(2));
+      } finally {
+        spark.conf().set("spark.sql.caseSensitive", "false");
+        spark.sql("DROP TABLE IF EXISTS openhouse.db.deep_nested_tgt");
+        spark.sql("DROP TABLE IF EXISTS openhouse.db.deep_nested_src");
+      }
+    }
+  }
+
+  /**
+   * Builds the Iceberg {@link Catalog} that the configured Spark session is using to talk to
+   * OpenHouse. Tests that need a direct catalog handle (e.g. to call {@code createTable} with a
+   * specific schema before exercising the writer) use this rather than going through SQL DDL.
+   */
+  private Catalog getOpenHouseCatalog(SparkSession spark) {
+    final Map<String, String> catalogProperties = new HashMap<>();
+    final String catalogPropertyPrefix = "spark.sql.catalog.openhouse.";
+    final Map<String, String> sparkProperties = JavaConverters.mapAsJavaMap(spark.conf().getAll());
+    for (Map.Entry<String, String> entry : sparkProperties.entrySet()) {
+      if (entry.getKey().startsWith(catalogPropertyPrefix)) {
+        catalogProperties.put(
+            entry.getKey().substring(catalogPropertyPrefix.length()), entry.getValue());
+      }
+    }
+    return CatalogUtil.loadCatalog(
+        sparkProperties.get("spark.sql.catalog.openhouse.catalog-impl"),
+        "openhouse",
+        catalogProperties,
+        spark.sparkContext().hadoopConfiguration());
   }
 }
