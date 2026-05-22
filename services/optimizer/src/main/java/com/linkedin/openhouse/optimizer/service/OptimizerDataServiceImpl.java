@@ -19,7 +19,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,9 +39,6 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   private final TableStatsRepository statsRepository;
   private final TableStatsHistoryRepository statsHistoryRepository;
 
-  @Value("${optimizer.repo.default-limit:10000}")
-  private int defaultLimit;
-
   // --- TableOperations ---
 
   @Override
@@ -51,7 +47,8 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       Optional<OperationStatusDto> status,
       Optional<String> databaseName,
       Optional<String> tableName,
-      Optional<String> tableUuid) {
+      Optional<String> tableUuid,
+      int limit) {
     return operationsRepository
         .find(
             operationType.map(OperationTypeDto::toDb),
@@ -61,7 +58,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             tableName,
             Optional.empty(),
             Optional.empty(),
-            PageRequest.of(0, defaultLimit))
+            PageRequest.of(0, limit))
         .stream()
         .map(TableOperationDto::fromRow)
         .collect(Collectors.toList());
@@ -137,8 +134,11 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public List<TableStatsDto> listTableStats(
-      Optional<String> databaseName, Optional<String> tableName, Optional<String> tableUuid) {
-    return statsRepository.find(databaseName, tableName, tableUuid, PageRequest.of(0, defaultLimit))
+      Optional<String> databaseName,
+      Optional<String> tableName,
+      Optional<String> tableUuid,
+      int limit) {
+    return statsRepository.find(databaseName, tableName, tableUuid, PageRequest.of(0, limit))
         .stream()
         .map(TableStatsDto::fromRow)
         .collect(Collectors.toList());
