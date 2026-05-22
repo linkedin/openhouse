@@ -2,6 +2,7 @@ package com.linkedin.openhouse.optimizer.api.spec;
 
 import java.util.Collections;
 import java.util.Map;
+import javax.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,11 +20,11 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UpsertTableStatsRequest {
 
-  /** Denormalized database name for display. */
-  private String databaseName;
+  /** Denormalized database name for display. Required. */
+  @NotBlank private String databaseName;
 
-  /** Denormalized table name for display. */
-  private String tableName;
+  /** Denormalized table name for display. Required. */
+  @NotBlank private String tableName;
 
   /** Combined snapshot + delta stats payload from this commit. */
   private TableStatsPayload stats;

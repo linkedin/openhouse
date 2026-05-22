@@ -8,7 +8,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /** REST controller for managing per-table stats in the optimizer DB. */
 @RestController
@@ -32,7 +35,7 @@ public class TableStatsController {
    */
   @PutMapping("/{tableUuid}")
   public ResponseEntity<TableStats> upsertTableStats(
-      @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequest request) {
+      @PathVariable String tableUuid, @Valid @RequestBody UpsertTableStatsRequest request) {
     return ResponseEntity.ok(
         TableStats.fromModel(service.upsertTableStats(request.toModel(tableUuid))));
   }
@@ -44,7 +47,11 @@ public class TableStatsController {
         .getTableStats(tableUuid)
         .map(TableStats::fromModel)
         .map(ResponseEntity::ok)
-        .orElse(ResponseEntity.notFound().build());
+        .orElseThrow(
+            () ->
+                new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "STATS_NOT_FOUND: no stats for tableUuid '" + tableUuid + "'"));
   }
 
   /**

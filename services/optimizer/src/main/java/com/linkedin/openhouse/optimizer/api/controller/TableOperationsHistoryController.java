@@ -4,6 +4,7 @@ import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,7 +27,7 @@ public class TableOperationsHistoryController {
   /** Append a completed-job result. Called by the SparkJob after each run (success or failure). */
   @PostMapping
   public ResponseEntity<TableOperationsHistory> appendHistory(
-      @RequestBody TableOperationsHistory dto) {
+      @Valid @RequestBody TableOperationsHistory dto) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(TableOperationsHistory.fromModel(service.appendHistory(dto.toModel())));
   }

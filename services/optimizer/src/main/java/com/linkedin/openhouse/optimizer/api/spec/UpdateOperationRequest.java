@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.optimizer.api.spec;
 
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,11 +29,16 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UpdateOperationRequest {
 
-  /** Operation row's UUID — the primary lookup key. */
-  private String operationId;
+  /**
+   * Operation row's UUID. Required. Must match the {@code {id}} path variable on {@code POST
+   * /v1/optimizer/operations/{id}/update} — the controller rejects mismatched requests with 400.
+   * Carrying it in the body keeps the payload self-describing for trace/log consumers that may not
+   * see the URL.
+   */
+  @NotBlank private String operationId;
 
-  /** Terminal outcome for this single operation. */
-  private HistoryStatus status;
+  /** Terminal outcome for this single operation. Required. */
+  @NotNull private HistoryStatus status;
 
   /** Debug echo: stable table identity the caller believed it was completing. */
   private String tableUuid;
