@@ -6,6 +6,8 @@ import com.linkedin.openhouse.optimizer.api.spec.TableOperations;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.api.spec.UpdateOperationRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -35,6 +37,12 @@ public class TableOperationsController {
    * writes a history entry with the operation's table metadata plus the supplied metrics, and
    * returns 201 Created with the history row, or 404 if the operation does not exist.
    */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "201", description = "Operation UPDATE: CREATED"),
+        @ApiResponse(responseCode = "400", description = "Operation UPDATE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "Operation UPDATE: NOT_FOUND")
+      })
   @PostMapping("/{id}/update")
   public ResponseEntity<TableOperationsHistory> updateOperation(
       @PathVariable String id, @RequestBody UpdateOperationRequest request) {
@@ -60,6 +68,11 @@ public class TableOperationsController {
   }
 
   /** Fetch a single operation row by its ID, regardless of status. Returns 404 if not found. */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Operation GET: OK"),
+        @ApiResponse(responseCode = "404", description = "Operation GET: NOT_FOUND")
+      })
   @GetMapping("/{id}")
   public ResponseEntity<TableOperations> getTableOperation(@PathVariable String id) {
     return service
@@ -76,6 +89,11 @@ public class TableOperationsController {
    * List operations matching the given filters, capped at {@code limit} rows. Every filter is
    * optional; {@code limit} is required so callers always state how much they want back.
    */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Operation SEARCH: OK"),
+        @ApiResponse(responseCode = "400", description = "Operation SEARCH: BAD_REQUEST")
+      })
   @GetMapping
   public ResponseEntity<List<TableOperations>> listTableOperations(
       @RequestParam(required = false) OperationType operationType,
