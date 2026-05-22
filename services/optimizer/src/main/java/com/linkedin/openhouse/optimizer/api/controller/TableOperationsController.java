@@ -7,12 +7,13 @@ import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.api.spec.UpdateOperationRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,15 +39,19 @@ public class TableOperationsController {
    */
   @PostMapping("/{id}/update")
   public ResponseEntity<TableOperationsHistory> updateOperation(
-      @PathVariable String id, @Valid @RequestBody UpdateOperationRequest request) {
-    if (!id.equals(request.getOperationId())) {
+      @PathVariable String id, @RequestBody UpdateOperationRequest request) {
+    if (!StringUtils.hasText(request.getOperationId())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "operationId is required");
+    }
+    if (!Objects.equals(id, request.getOperationId())) {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST,
-          "PATH_BODY_MISMATCH: operationId in body ('"
-              + request.getOperationId()
-              + "') does not match path id ('"
-              + id
-              + "')");
+          String.format(
+              "operationId in body (%s) does not match path id (%s)",
+              request.getOperationId(), id));
+    }
+    if (request.getStatus() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required");
     }
     return service
         .updateOperation(id, request.getStatus().toModel())
@@ -57,8 +62,7 @@ public class TableOperationsController {
         .orElseThrow(
             () ->
                 new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "OPERATION_NOT_FOUND: no operation with id '" + id + "'"));
+                    HttpStatus.NOT_FOUND, String.format("no operation with id %s", id)));
   }
 
   /** Fetch a single operation row by its ID, regardless of status. Returns 404 if not found. */
@@ -71,8 +75,7 @@ public class TableOperationsController {
         .orElseThrow(
             () ->
                 new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "OPERATION_NOT_FOUND: no operation with id '" + id + "'"));
+                    HttpStatus.NOT_FOUND, String.format("no operation with id %s", id)));
   }
 
   /**

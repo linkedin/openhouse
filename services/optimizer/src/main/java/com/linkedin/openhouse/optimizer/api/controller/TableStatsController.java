@@ -8,7 +8,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,7 +34,7 @@ public class TableStatsController {
    */
   @PutMapping("/{tableUuid}")
   public ResponseEntity<TableStats> upsertTableStats(
-      @PathVariable String tableUuid, @Valid @RequestBody UpsertTableStatsRequest request) {
+      @PathVariable String tableUuid, @RequestBody UpsertTableStatsRequest request) {
     return ResponseEntity.ok(
         TableStats.fromModel(service.upsertTableStats(request.toModel(tableUuid))));
   }
@@ -50,8 +49,7 @@ public class TableStatsController {
         .orElseThrow(
             () ->
                 new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "STATS_NOT_FOUND: no stats for tableUuid '" + tableUuid + "'"));
+                    HttpStatus.NOT_FOUND, String.format("no stats for tableUuid %s", tableUuid)));
   }
 
   /**
