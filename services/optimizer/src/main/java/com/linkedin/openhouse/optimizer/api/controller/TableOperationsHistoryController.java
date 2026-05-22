@@ -2,6 +2,8 @@ package com.linkedin.openhouse.optimizer.api.controller;
 
 import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,10 @@ public class TableOperationsHistoryController {
   private final OptimizerDataService service;
 
   /** Append a completed-job result. Called by the SparkJob after each run (success or failure). */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "201", description = "OperationsHistory CREATE: CREATED")
+      })
   @PostMapping
   public ResponseEntity<TableOperationsHistory> appendHistory(
       @RequestBody TableOperationsHistory dto) {
@@ -35,6 +41,11 @@ public class TableOperationsHistoryController {
    * Return the most recent history for a table, newest first, capped at {@code limit} rows. {@code
    * limit} is required.
    */
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "OperationsHistory GET: OK"),
+        @ApiResponse(responseCode = "400", description = "OperationsHistory GET: BAD_REQUEST")
+      })
   @GetMapping("/{tableUuid}")
   public ResponseEntity<List<TableOperationsHistory>> getHistory(
       @PathVariable String tableUuid, @RequestParam int limit) {
