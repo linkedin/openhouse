@@ -31,10 +31,13 @@ public class TableOperationsHistoryController {
         .body(TableOperationsHistory.fromModel(service.appendHistory(dto.toModel())));
   }
 
-  /** Return the most recent history for a table, newest first, up to {@code limit} rows. */
+  /**
+   * Return the most recent history for a table, newest first, capped at {@code limit} rows. {@code
+   * limit} is required.
+   */
   @GetMapping("/{tableUuid}")
   public ResponseEntity<List<TableOperationsHistory>> getHistory(
-      @PathVariable String tableUuid, @RequestParam(defaultValue = "100") int limit) {
+      @PathVariable String tableUuid, @RequestParam int limit) {
     List<TableOperationsHistory> result =
         service.getHistory(tableUuid, limit).stream()
             .map(TableOperationsHistory::fromModel)
