@@ -198,7 +198,8 @@ class OptimizerDataServiceImplTest {
                 Optional.of(OperationStatusDto.PENDING),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()))
+                Optional.empty(),
+                100))
         .extracting(op -> op.getId())
         .containsExactly(pendingId);
   }

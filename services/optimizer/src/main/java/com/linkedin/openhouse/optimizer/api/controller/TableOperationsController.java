@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /** REST controller for {@code table_operations}. */
 @RestController
@@ -29,18 +30,21 @@ public class TableOperationsController {
   private final OptimizerDataService service;
 
   /**
-   * Report an update to an operation. {@code id} is the operation's UUID; the body carries the
-   * terminal status and any per-operation metrics or error details. The backend looks up the
-   * operation row, writes a history entry with the operation's table metadata plus the supplied
-   * metrics, and returns 201 Created with the history row, or 404 if the operation does not exist.
+   * Report an update to an operation. {@code id} comes from the URL; the body carries the terminal
+   * status and any per-operation metrics or error details. The backend looks up the operation row,
+   * writes a history entry with the operation's table metadata plus the supplied metrics, and
+   * returns 201 Created with the history row, or 404 if the operation does not exist.
    */
   @PostMapping("/{id}/update")
   public ResponseEntity<TableOperationsHistory> updateOperation(
       @PathVariable String id, @RequestBody UpdateOperationRequest request) {
+    if (request.getStatus() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required");
+    }
     return service
         .updateOperation(
             id,
-            request.getStatus() == null ? null : request.getStatus().toModel(),
+            request.getStatus().toModel(),
             request.getOrphanFilesDeleted(),
             request.getOrphanBytesDeleted(),
             request.getErrorMessage(),
@@ -49,7 +53,10 @@ public class TableOperationsController {
             history ->
                 ResponseEntity.status(HttpStatus.CREATED)
                     .body(TableOperationsHistory.fromModel(history)))
-        .orElse(ResponseEntity.notFound().build());
+        .orElseThrow(
+            () ->
+                new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, String.format("no operation with id %s", id)));
   }
 
   /** Fetch a single operation row by its ID, regardless of status. Returns 404 if not found. */
@@ -59,12 +66,15 @@ public class TableOperationsController {
         .getTableOperation(id)
         .map(TableOperations::fromModel)
         .map(ResponseEntity::ok)
-        .orElse(ResponseEntity.notFound().build());
+        .orElseThrow(
+            () ->
+                new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, String.format("no operation with id %s", id)));
   }
 
   /**
-   * List operations matching the given filters. All parameters are optional — omit all to return
-   * every row.
+   * List operations matching the given filters, capped at {@code limit} rows. Every filter is
+   * optional; {@code limit} is required so callers always state how much they want back.
    */
   @GetMapping
   public ResponseEntity<List<TableOperations>> listTableOperations(
@@ -72,7 +82,8 @@ public class TableOperationsController {
       @RequestParam(required = false) OperationStatus status,
       @RequestParam(required = false) String databaseName,
       @RequestParam(required = false) String tableName,
-      @RequestParam(required = false) String tableUuid) {
+      @RequestParam(required = false) String tableUuid,
+      @RequestParam int limit) {
     List<TableOperations> result =
         service
             .listTableOperations(
@@ -80,7 +91,8 @@ public class TableOperationsController {
                 Optional.ofNullable(status).map(OperationStatus::toModel),
                 Optional.ofNullable(databaseName),
                 Optional.ofNullable(tableName),
-                Optional.ofNullable(tableUuid))
+                Optional.ofNullable(tableUuid),
+                limit)
             .stream()
             .map(TableOperations::fromModel)
             .collect(Collectors.toList());
