@@ -1,0 +1,79 @@
+@startuml sequence
+title Optimizer Analyzer — Sequence (one OperationType, one analyzer pass)
+
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+skinparam sequenceMessageAlign center
+
+actor "Spring Boot\nCommandLineRunner" as CLR
+participant AnalyzerRunner as Runner
+participant "OperationAnalyzer\n(CadenceBased OFD)" as Analyzer
+participant CadencePolicy as Policy
+participant TableOperationsRepository as OpsRepo
+participant TableOperationsHistoryRepository as HistRepo
+participant TableStatsRepository as StatsRepo
+database MySQL
+
+== Per-process startup ==
+CLR -> Runner : analyze(operationType)
+activate Runner
+Runner -> Runner : lookup analyzer by operationType\n(IllegalStateException if none)
+Runner -> StatsRepo : findDistinctDatabaseNames()
+StatsRepo -> MySQL : SELECT DISTINCT database_name\nFROM table_stats
+StatsRepo --> Runner : List<String> dbs
+
+== Per-database fan-out ==
+loop for each database
+  Runner -> Runner : analyzeDatabase(...)\n[@Transactional]
+  activate Runner #LightBlue
+
+  group Pre-load: 3 reads bounded by tables-per-db
+    Runner -> OpsRepo : find(opType, *, *, db, *, *, *, page)
+    OpsRepo -> MySQL : SELECT * FROM table_operations\nWHERE operation_type=? AND database_name=?
+    OpsRepo --> Runner : currentOps : Map<uuid, TableOperationDto>
+
+    Runner -> HistRepo : findLatest(opType, page)
+    HistRepo -> MySQL : SELECT latest-per-table\nFROM table_operations_history
+    HistRepo --> Runner : latestHistory : Map<uuid, TableOperationsHistoryDto>
+
+    Runner -> StatsRepo : find(db, *, *, page)
+    StatsRepo -> MySQL : SELECT * FROM table_stats\nWHERE database_name=?
+    StatsRepo --> Runner : tables : List<TableDto>
+  end
+
+  group Per-table evaluation (continue on per-row failure)
+    loop for each table in this db
+      Runner -> Analyzer : isEnabled(table)
+      Analyzer --> Runner : enabled?
+      alt not enabled
+        note over Runner : continue
+      else enabled
+        Runner -> Analyzer : shouldSchedule(table, currentOp?, latestHistory?)
+        Analyzer -> Policy : shouldSchedule(currentOp?, latestHistory?)
+        alt active non-CANCELED currentOp
+          Policy --> Analyzer : false\n(scheduler owns this row)
+        else no currentOp (or CANCELED), no history
+          Policy --> Analyzer : true\n(first-time / post-cancel)
+        else no currentOp (or CANCELED), has history
+          Policy -> Policy : readyAfterHistoryEntry:\nnow - completedAt > intervalFor(status)
+          Policy --> Analyzer : true if elapsed,\nfalse otherwise
+        end
+        Analyzer --> Runner : decision
+        alt shouldSchedule == true
+          Runner -> OpsRepo : save(TableOperationDto.pending(...).toRow())
+          OpsRepo -> MySQL : INSERT INTO table_operations\n(status=PENDING, ...)
+          OpsRepo --> Runner : saved row
+          note right of Runner : try/catch RuntimeException —\nlog.error + continue;\nincrement {created} or {failed}
+        end
+      end
+    end
+  end
+
+  Runner -> Runner : log.info aggregate count\n(db, created, failed)
+  deactivate Runner
+end
+
+Runner --> CLR : analyze() returns
+deactivate Runner
+
+@enduml

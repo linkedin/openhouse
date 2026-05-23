@@ -1,0 +1,45 @@
+@startuml component
+title Optimizer Analyzer — Component View
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+
+package "apps/optimizer-analyzer" {
+  component "AnalyzerApplication\n@SpringBootApplication\nCommandLineRunner" as App
+  component "AnalyzerRunner" as Runner
+
+  interface "OperationAnalyzer\n(strategy)" as IfaceAnalyzer
+  component "CadenceBasedOrphanFiles\nDeletionAnalyzer" as OFD
+  component "CadencePolicy" as Policy
+}
+
+package "services/optimizer\n(shared module: db + repository)" {
+  component "TableOperationsRepository" as OpsRepo
+  component "TableOperationsHistoryRepository" as HistRepo
+  component "TableStatsRepository" as StatsRepo
+}
+
+database "MySQL\n(optimizer schema)" as DB
+
+App ..> Runner : invokes once per\nregistered analyzer
+Runner --> IfaceAnalyzer : isEnabled / shouldSchedule
+OFD ..|> IfaceAnalyzer
+OFD --> Policy : delegate cadence decision
+
+Runner --> StatsRepo : findDistinctDatabaseNames,\nfind(filters)
+Runner --> OpsRepo : read currentOps,\nsave PENDING
+Runner --> HistRepo : read latestHistory
+
+OpsRepo --> DB
+HistRepo --> DB
+StatsRepo --> DB
+
+note right of DB
+  Scheduler reads PENDING rows
+  from here on its own cadence;
+  the analyzer never talks to the
+  scheduler directly.
+end note
+
+@enduml
