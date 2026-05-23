@@ -23,8 +23,9 @@ public class CadencePolicy {
 
   /**
    * How long to wait after a successful operation before re-evaluating the table. For example, if
-   * set to 24 hours and OFD succeeded at 10:00 AM Monday, the table won't be scheduled again until
-   * after 10:00 AM Tuesday.
+   * set to 16 hours and OFD succeeded at 10:00 AM Monday, the table becomes eligible again at 2:00
+   * AM Tuesday. Configured below 24h so that at least one re-evaluation is guaranteed within any
+   * rolling 24-hour window regardless of when the prior run landed.
    */
   private final Duration successRetryInterval;
 
@@ -50,8 +51,22 @@ public class CadencePolicy {
   }
 
   private boolean readyAfterHistoryEntry(TableOperationsHistoryDto entry) {
-    Duration interval =
-        entry.getStatus() == HistoryStatusDto.FAILED ? failureRetryInterval : successRetryInterval;
-    return Duration.between(entry.getCompletedAt(), Instant.now()).compareTo(interval) > 0;
+    return Duration.between(entry.getCompletedAt(), Instant.now())
+            .compareTo(intervalFor(entry.getStatus()))
+        > 0;
+  }
+
+  private Duration intervalFor(HistoryStatusDto status) {
+    // Explicit per-status mapping. Adding a new HistoryStatusDto value forces this switch to
+    // grow a case; the default throws so an un-handled value surfaces at runtime rather than
+    // silently falling into the success bucket.
+    switch (status) {
+      case SUCCESS:
+        return successRetryInterval;
+      case FAILED:
+        return failureRetryInterval;
+      default:
+        throw new IllegalStateException("Unhandled HistoryStatusDto value: " + status);
+    }
   }
 }

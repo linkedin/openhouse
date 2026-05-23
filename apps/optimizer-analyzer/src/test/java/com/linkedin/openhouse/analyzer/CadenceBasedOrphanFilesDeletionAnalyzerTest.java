@@ -9,7 +9,6 @@ import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,8 +16,8 @@ import org.junit.jupiter.api.Test;
 
 class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
-  private static final Duration SUCCESS_INTERVAL = Duration.ofHours(24);
-  private static final Duration FAILURE_INTERVAL = Duration.ofHours(1);
+  private static final Duration TEST_SUCCESS_INTERVAL = Duration.ofHours(24);
+  private static final Duration TEST_FAILURE_INTERVAL = Duration.ofHours(1);
 
   private CadenceBasedOrphanFilesDeletionAnalyzer analyzer;
 
@@ -26,24 +25,19 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void setUp() {
     analyzer =
         new CadenceBasedOrphanFilesDeletionAnalyzer(
-            new CadencePolicy(SUCCESS_INTERVAL, FAILURE_INTERVAL));
+            new CadencePolicy(TEST_SUCCESS_INTERVAL, TEST_FAILURE_INTERVAL));
   }
 
   // --- isEnabled ---
 
   @Test
   void isEnabled_returnsTrue_whenPropertySet() {
-    assertThat(analyzer.isEnabled(tableWithProperty("true"))).isTrue();
-  }
-
-  @Test
-  void isEnabled_returnsFalse_whenPropertyAbsent() {
-    assertThat(analyzer.isEnabled(tableWithProperty(null))).isFalse();
+    assertThat(analyzer.isEnabled(tableWithProperty(true))).isTrue();
   }
 
   @Test
   void isEnabled_returnsFalse_whenPropertyFalse() {
-    assertThat(analyzer.isEnabled(tableWithProperty("false"))).isFalse();
+    assertThat(analyzer.isEnabled(tableWithProperty(false))).isFalse();
   }
 
   @Test
@@ -56,17 +50,16 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_noOp_noHistory_returnsTrue() {
-    assertThat(
-            analyzer.shouldSchedule(tableWithProperty("true"), Optional.empty(), Optional.empty()))
+    assertThat(analyzer.shouldSchedule(tableWithProperty(true), Optional.empty(), Optional.empty()))
         .isTrue();
   }
 
   @Test
   void shouldSchedule_noOp_successHistoryAfterCooldown_returnsTrue() {
-    Instant longAgo = Instant.now().minus(SUCCESS_INTERVAL).minusSeconds(60);
+    Instant longAgo = Instant.now().minus(TEST_SUCCESS_INTERVAL).minusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.empty(),
                 Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo))))
         .isTrue();
@@ -74,10 +67,10 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_noOp_successHistoryBeforeCooldown_returnsFalse() {
-    Instant recent = Instant.now().minus(SUCCESS_INTERVAL).plusSeconds(60);
+    Instant recent = Instant.now().minus(TEST_SUCCESS_INTERVAL).plusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.empty(),
                 Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent))))
         .isFalse();
@@ -85,10 +78,10 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_noOp_failedHistoryAfterRetry_returnsTrue() {
-    Instant longAgo = Instant.now().minus(FAILURE_INTERVAL).minusSeconds(60);
+    Instant longAgo = Instant.now().minus(TEST_FAILURE_INTERVAL).minusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.empty(),
                 Optional.of(historyWithStatus(HistoryStatusDto.FAILED, longAgo))))
         .isTrue();
@@ -96,10 +89,10 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_noOp_failedHistoryBeforeRetry_returnsFalse() {
-    Instant recent = Instant.now().minus(FAILURE_INTERVAL).plusSeconds(60);
+    Instant recent = Instant.now().minus(TEST_FAILURE_INTERVAL).plusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.empty(),
                 Optional.of(historyWithStatus(HistoryStatusDto.FAILED, recent))))
         .isFalse();
@@ -111,7 +104,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void shouldSchedule_pending_returnsFalse() {
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.PENDING)),
                 Optional.empty()))
         .isFalse();
@@ -121,7 +114,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void shouldSchedule_scheduling_returnsFalse() {
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.SCHEDULING)),
                 Optional.empty()))
         .isFalse();
@@ -129,10 +122,10 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_scheduled_returnsFalse_regardlessOfHistory() {
-    Instant historyAt = Instant.now().minus(SUCCESS_INTERVAL).minusSeconds(60);
+    Instant historyAt = Instant.now().minus(TEST_SUCCESS_INTERVAL).minusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.SCHEDULED)),
                 Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, historyAt))))
         .isFalse();
@@ -142,10 +135,10 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_canceled_successHistoryAfterCooldown_returnsTrue() {
-    Instant longAgo = Instant.now().minus(SUCCESS_INTERVAL).minusSeconds(60);
+    Instant longAgo = Instant.now().minus(TEST_SUCCESS_INTERVAL).minusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
                 Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo))))
         .isTrue();
@@ -153,10 +146,10 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_canceled_successHistoryBeforeCooldown_returnsFalse() {
-    Instant recent = Instant.now().minus(SUCCESS_INTERVAL).plusSeconds(60);
+    Instant recent = Instant.now().minus(TEST_SUCCESS_INTERVAL).plusSeconds(60);
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
                 Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent))))
         .isFalse();
@@ -166,7 +159,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void shouldSchedule_canceled_noHistory_returnsTrue() {
     assertThat(
             analyzer.shouldSchedule(
-                tableWithProperty("true"),
+                tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
                 Optional.empty()))
         .isTrue();
@@ -174,16 +167,15 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   // --- helpers ---
 
-  private TableDto tableWithProperty(String value) {
-    Map<String, String> props =
-        value == null
-            ? Collections.emptyMap()
-            : Map.of(CadenceBasedOrphanFilesDeletionAnalyzer.OFD_ENABLED_PROPERTY, value);
+  private TableDto tableWithProperty(boolean enabled) {
     return TableDto.builder()
         .tableUuid("test-uuid")
         .databaseName("db1")
         .tableId("tbl1")
-        .tableProperties(props)
+        .tableProperties(
+            Map.of(
+                CadenceBasedOrphanFilesDeletionAnalyzer.OFD_ENABLED_PROPERTY,
+                Boolean.toString(enabled)))
         .build();
   }
 

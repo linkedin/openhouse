@@ -10,7 +10,7 @@ import java.util.Optional;
  * Strategy interface for a single operation type. Each implementation decides whether a given table
  * needs an operation recommendation upserted in the Optimizer Service.
  *
- * <p>// TODO(circuit-breaker): a chronically-failing table currently produces a new PENDING row on
+ * <p>TODO(circuit-breaker): a chronically-failing table currently produces a new PENDING row on
  * every Analyzer pass. Add a circuit breaker that suppresses scheduling for a (table, type) after N
  * consecutive FAILED history entries. Requirements: configurable threshold per operation type,
  * automatic reset via exponential backoff so tables can recover, and an operator-visible signal

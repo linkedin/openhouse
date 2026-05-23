@@ -7,8 +7,6 @@ import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
-import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -18,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Core analysis loop. For one operation type per call, iterates databases and evaluates each table
@@ -28,9 +27,8 @@ import org.springframework.stereotype.Component;
  * tables); past that the per-db query shape and projection need further tuning. Scale-up work is
  * tracked in <a href="https://linkedin.atlassian.net/browse/BDP-102182">BDP-102182</a>.
  *
- * <p>// TODO(scale-test): benchmark the per-db working set at up to 10k tables and measure JVM heap
- * residency for the three intermediate maps; per-db iteration bounds memory by tables-per-db rather
- * than tables-total, but the upper bound still needs empirical validation.
+ * <p>The per-db working-set upper bound is not yet empirically validated. Scale-test tracked in <a
+ * href="https://linkedin.atlassian.net/browse/BDP-102738">BDP-102738</a>.
  */
 @Slf4j
 @Component
@@ -42,6 +40,8 @@ public class AnalyzerRunner {
   private final TableOperationsRepository operationsRepo;
   private final TableOperationsHistoryRepository historyRepo;
 
+  // Inline default also set on the field so Mockito-constructed instances (no Spring context) get
+  // a usable value; with Spring, the @Value annotation overrides this.
   @Value("${optimizer.repo.default-limit:10000}")
   private int defaultLimit = 10_000;
 
@@ -78,7 +78,8 @@ public class AnalyzerRunner {
     log.info("Analysis complete for {}", operationType);
   }
 
-  private void analyzeDatabase(
+  @Transactional
+  void analyzeDatabase(
       OperationAnalyzer analyzer,
       String databaseName,
       Optional<String> tableName,
@@ -112,7 +113,7 @@ public class AnalyzerRunner {
                 Collectors.toMap(
                     TableOperationsHistoryDto::getTableUuid,
                     h -> h,
-                    AnalyzerRunner::moreRecentHistory));
+                    TableOperationsHistoryDto::after));
 
     List<TableDto> tables =
         statsRepo.find(Optional.of(databaseName), tableName, tableUuid, page).stream()
@@ -123,39 +124,53 @@ public class AnalyzerRunner {
     /*
      * For each table in this database, decide whether to create a new PENDING operation.
      *
-     * 1. Skip tables not opted in to this operation type. The opt-in check today reads a
-     *    table-property flag; in the future it will read a denormalized column.
+     * 1. Skip tables not opted in to this operation type.
      * 2. Look up the table's current active operation (if any) and its most recent completed
      *    history entry from the maps loaded above.
      * 3. Delegate the schedule-or-not decision to the analyzer's shouldSchedule — strategy
      *    encapsulates cadence, retry policy, and any future per-operation signals.
      * 4. On true, persist a new PENDING operation. The scheduler picks it up on its next pass.
      */
-    tables.forEach(
-        table -> {
-          if (!analyzer.isEnabled(table)) {
-            return;
-          }
-          Optional<TableOperationDto> currentOp =
-              Optional.ofNullable(currentOps.get(table.getTableUuid()));
-          Optional<TableOperationsHistoryDto> entry =
-              Optional.ofNullable(latestHistory.get(table.getTableUuid()));
-          if (analyzer.shouldSchedule(table, currentOp, entry)) {
-            TableOperationDto op = TableOperationDto.pending(table, analyzer.getOperationType());
-            operationsRepo.save(op.toRow());
-            log.info(
-                "Created PENDING {} operation for table {}.{}",
-                analyzer.getOperationType(),
-                table.getDatabaseName(),
-                table.getTableId());
-          }
-        });
-  }
-
-  private static TableOperationsHistoryDto moreRecentHistory(
-      TableOperationsHistoryDto a, TableOperationsHistoryDto b) {
-    Comparator<TableOperationsHistoryDto> byCompletedAt =
-        Comparator.comparing(r -> r.getCompletedAt() != null ? r.getCompletedAt() : Instant.EPOCH);
-    return byCompletedAt.compare(a, b) >= 0 ? a : b;
+    int created = 0;
+    int failed = 0;
+    for (TableDto table : tables) {
+      if (!analyzer.isEnabled(table)) {
+        continue;
+      }
+      Optional<TableOperationDto> currentOp =
+          Optional.ofNullable(currentOps.get(table.getTableUuid()));
+      Optional<TableOperationsHistoryDto> entry =
+          Optional.ofNullable(latestHistory.get(table.getTableUuid()));
+      if (!analyzer.shouldSchedule(table, currentOp, entry)) {
+        continue;
+      }
+      try {
+        TableOperationDto op = TableOperationDto.pending(table, analyzer.getOperationType());
+        operationsRepo.save(op.toRow());
+        log.debug(
+            "Created PENDING {} operation for table {}.{}",
+            analyzer.getOperationType(),
+            table.getDatabaseName(),
+            table.getTableId());
+        created++;
+      } catch (RuntimeException e) {
+        // One bad table should not abort the rest of the database. Log and continue; the next
+        // analyzer pass will retry for any table whose save failed here.
+        log.error(
+            "Failed to create PENDING {} operation for table {}.{}: {}",
+            analyzer.getOperationType(),
+            table.getDatabaseName(),
+            table.getTableId(),
+            e.toString(),
+            e);
+        failed++;
+      }
+    }
+    log.info(
+        "Database {}: created {} PENDING {} operation(s) ({} failed)",
+        databaseName,
+        created,
+        analyzer.getOperationType(),
+        failed);
   }
 }
