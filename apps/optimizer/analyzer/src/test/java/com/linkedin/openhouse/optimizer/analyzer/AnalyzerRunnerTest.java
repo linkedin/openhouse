@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.analyzer;
+package com.linkedin.openhouse.optimizer.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;

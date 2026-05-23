@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.analyzer;
+package com.linkedin.openhouse.optimizer.analyzer;
 
 import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
 import com.linkedin.openhouse.optimizer.model.OperationStatusDto;

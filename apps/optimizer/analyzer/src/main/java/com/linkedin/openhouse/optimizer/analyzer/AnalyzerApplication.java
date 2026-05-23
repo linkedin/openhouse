@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.analyzer;
+package com.linkedin.openhouse.optimizer.analyzer;
 
 import java.util.List;
 import org.springframework.boot.CommandLineRunner;
