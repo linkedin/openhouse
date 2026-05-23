@@ -68,4 +68,12 @@ public class TableOperationsHistoryDto {
         .status(HistoryStatusDto.fromDb(row.getStatus()))
         .build();
   }
+
+  /**
+   * Return whichever of {@code this} and {@code other} completed later (or {@code this} on tie).
+   * Shaped for use as a {@link java.util.function.BinaryOperator} in stream collectors.
+   */
+  public TableOperationsHistoryDto after(TableOperationsHistoryDto other) {
+    return this.completedAt.isBefore(other.completedAt) ? other : this;
+  }
 }
