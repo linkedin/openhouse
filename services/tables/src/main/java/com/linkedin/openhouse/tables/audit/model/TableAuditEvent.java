@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.audit.model;
 
 import com.linkedin.openhouse.common.audit.model.BaseAuditEvent;
 import java.time.Instant;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -40,4 +41,6 @@ public class TableAuditEvent extends BaseAuditEvent {
   private Long currentSnapshotId;
 
   private Long currentSnapshotTimestampMs;
+
+  private Map<String, String> tableProperties;
 }

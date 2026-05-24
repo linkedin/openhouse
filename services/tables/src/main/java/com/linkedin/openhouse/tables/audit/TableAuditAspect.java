@@ -371,12 +371,18 @@ public class TableAuditAspect {
     } else {
       operationType = OperationType.COMMIT;
     }
+    CreateUpdateTableRequestBody createUpdateTableRequestBody =
+        icebergSnapshotRequestBody.getCreateUpdateTableRequestBody();
     TableAuditEvent.TableAuditEventBuilder eventBuilder =
         TableAuditEvent.builder()
             .eventTimestamp(Instant.now())
             .databaseName(databaseId)
             .tableName(tableId)
-            .operationType(operationType);
+            .operationType(operationType)
+            .tableProperties(
+                createUpdateTableRequestBody == null
+                    ? null
+                    : createUpdateTableRequestBody.getTableProperties());
     extractSnapshotInfo(icebergSnapshotRequestBody, eventBuilder);
     TableAuditEvent event = eventBuilder.build();
     try {

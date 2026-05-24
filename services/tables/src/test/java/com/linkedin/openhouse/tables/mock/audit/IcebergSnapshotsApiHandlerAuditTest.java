@@ -185,6 +185,37 @@ public class IcebergSnapshotsApiHandlerAuditTest {
   }
 
   @Test
+  public void testPutIcebergSnapshotsCarriesTableProperties() throws Exception {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("openhouse.watermark", "100");
+    properties.put("openhouse.tableType", "PRIMARY_TABLE");
+    properties.put("user.custom.key", "v");
+    IcebergSnapshotsRequestBody base = RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(base.getBaseTableVersion())
+            .jsonSnapshots(base.getJsonSnapshots())
+            .snapshotRefs(base.getSnapshotRefs())
+            .createUpdateTableRequestBody(
+                base.getCreateUpdateTableRequestBody()
+                    .toBuilder()
+                    .tableProperties(properties)
+                    .build())
+            .build();
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    assertEquals(properties, actualEvent.getTableProperties());
+  }
+
+  @Test
   public void testCTASCommitPhase() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.put(
