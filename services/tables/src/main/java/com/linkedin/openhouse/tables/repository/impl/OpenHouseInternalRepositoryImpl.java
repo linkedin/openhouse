@@ -680,10 +680,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   @Override
-  public Optional<TableDto> findStubById(TableDtoPrimaryKey tableDtoPrimaryKey) {
+  public Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey) {
     if (!(catalog instanceof OpenHouseInternalCatalog)) {
       throw new UnsupportedOperationException(
-          "findStubById is not supported for catalog type: " + catalog.getClass().getName());
+          "findTableRefById is not supported for catalog type: " + catalog.getClass().getName());
     }
     return ((OpenHouseInternalCatalog) catalog)
         .findHouseTable(

@@ -103,6 +103,29 @@ public class OpenHouseInternalCatalogTest {
   }
 
   @Test
+  void dropTableRefusesWhenMetadataLocationIsNotAMetadataJsonFile() {
+    // Defensive: if metadata_location somehow points at a directory (bad migration, manual
+    // MySQL edit, future regression), the derived parent would be a level too high — e.g. the
+    // whole database directory — which deletePrefix would happily wipe. Refuse instead.
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder()
+            .databaseId(DB)
+            .tableId(TABLE)
+            .tableLocation("/data/openhouse/test_db/test_table-uuid") // directory, not file
+            .build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertThrows(IllegalStateException.class, () -> catalog.dropTable(IDENTIFIER, true));
+    verify(repo, never()).deleteById(any(), anyBoolean());
+    verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  @Test
   void dropTableWithoutPurgeSkipsPrefixDelete() {
     HouseTableRepository repo = mock(HouseTableRepository.class);
     HouseTable row =

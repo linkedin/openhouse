@@ -111,7 +111,7 @@ public class OpenHouseInternalRepositoryImplTest {
   }
 
   @Test
-  void findStubByIdReturnsPartialTableDto() {
+  void findTableRefByIdReturnsPartialTableDto() {
     HouseTable row =
         HouseTable.builder()
             .databaseId(DB_ID)
@@ -122,7 +122,7 @@ public class OpenHouseInternalRepositoryImplTest {
     when(catalog.findHouseTable(TableIdentifier.of(DB_ID, TABLE_ID))).thenReturn(Optional.of(row));
 
     Optional<TableDto> result =
-        openHouseInternalRepository.findStubById(
+        openHouseInternalRepository.findTableRefById(
             TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
 
     Assertions.assertTrue(result.isPresent());
@@ -131,24 +131,24 @@ public class OpenHouseInternalRepositoryImplTest {
     Assertions.assertEquals(TABLE_ID, dto.getTableId());
     Assertions.assertEquals("uuid-1", dto.getTableUUID());
     Assertions.assertEquals("/base/db/table-uuid-1/00001-x.metadata.json", dto.getTableLocation());
-    // Fields not populated by the stub lookup should be null/default.
+    // Fields not populated by the table-ref lookup should be null/default.
     Assertions.assertNull(dto.getSchema());
     Assertions.assertNull(dto.getTableCreator());
   }
 
   @Test
-  void findStubByIdReturnsEmptyWhenHouseTableMissing() {
+  void findTableRefByIdReturnsEmptyWhenHouseTableMissing() {
     when(catalog.findHouseTable(any(TableIdentifier.class))).thenReturn(Optional.empty());
 
     Optional<TableDto> result =
-        openHouseInternalRepository.findStubById(
+        openHouseInternalRepository.findTableRefById(
             TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
 
     Assertions.assertFalse(result.isPresent());
   }
 
   @Test
-  void findStubByIdThrowsWhenCatalogIsNotOpenHouseInternalCatalog() {
+  void findTableRefByIdThrowsWhenCatalogIsNotOpenHouseInternalCatalog() {
     // Build a fresh impl with a non-OpenHouseInternal Catalog wired in.
     OpenHouseInternalRepositoryImpl impl = new OpenHouseInternalRepositoryImpl();
     impl.catalog = mock(Catalog.class);
@@ -156,7 +156,7 @@ public class OpenHouseInternalRepositoryImplTest {
     Assertions.assertThrows(
         UnsupportedOperationException.class,
         () ->
-            impl.findStubById(
+            impl.findTableRefById(
                 TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build()));
   }
 

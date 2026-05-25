@@ -20,12 +20,13 @@ public interface OpenHouseInternalRepository
     extends PagingAndSortingRepository<TableDto, TableDtoPrimaryKey> {
 
   /**
-   * Returns a stub {@link TableDto} populated only with the fields needed for existence + auth
-   * checks (identifiers, tableUUID, tableLocation). Unlike {@link #findById}, this does not parse
-   * the table's metadata.json, so it succeeds even when the metadata is corrupted. Intended for
-   * paths (e.g. drop) that don't need full table state.
+   * Returns a lightweight {@link TableDto} that acts as a catalog-level reference to the table —
+   * populated only with the identifiers, tableUUID, and the metadata.json location. Unlike {@link
+   * #findById}, this does not parse the table's metadata.json, so it succeeds even when the
+   * metadata is corrupted. Intended for paths (e.g. drop) that need only the reference, not the
+   * full table state.
    */
-  Optional<TableDto> findStubById(TableDtoPrimaryKey tableDtoPrimaryKey);
+  Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey);
 
   List<TableDtoPrimaryKey> findAllIds();
 

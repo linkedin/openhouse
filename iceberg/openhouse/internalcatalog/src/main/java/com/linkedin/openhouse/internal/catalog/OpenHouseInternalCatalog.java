@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
@@ -161,12 +162,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
             .databaseId(identifier.namespace().toString())
             .tableId(identifier.name())
             .build();
-    // OpenHouse writes metadata.json directly in the table base directory (not under /metadata/
-    // as standard Iceberg does), so the parent of the metadata.json path is the base location
-    // that Table.location() would return. Same derivation as OpenHouseInternalRepositoryImpl#save
-    // (replace flow).
-    String metadataLocation = houseTable.getTableLocation();
-    String tableLocation = metadataLocation.substring(0, metadataLocation.lastIndexOf("/"));
+    String tableLocation = getTableBaseLocation(houseTable, identifier);
     FileIO fileIO = resolveFileIO(identifier);
     log.debug("Dropping table {}, purge:{}", tableLocation, purge);
     try {
@@ -189,6 +185,23 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
       }
     }
     return true;
+  }
+
+  /**
+   * Returns the table base directory derived from the HouseTable's metadata location. OpenHouse
+   * writes metadata.json directly under the table base subdir, so the parent of the metadata.json
+   * path is the same value that {@link org.apache.iceberg.Table#location()} would return.
+   */
+  private static String getTableBaseLocation(HouseTable houseTable, TableIdentifier identifier) {
+    String metadataLocation = houseTable.getTableLocation();
+    // Defensive check to avoid any unintentional deletion
+    if (!metadataLocation.endsWith(".metadata.json")) {
+      throw new IllegalStateException(
+          String.format(
+              "Refusing to drop %s: metadata_location does not look like a metadata.json file: %s",
+              identifier, metadataLocation));
+    }
+    return new Path(metadataLocation).getParent().toString();
   }
 
   @Override

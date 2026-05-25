@@ -273,7 +273,7 @@ public class TablesServiceTest {
   /**
    * Regression test for the corrupted-metadata drop path: even when metadata.json cannot be parsed
    * (loadTable would throw), deleteTable must still succeed because it goes through the HTS-only
-   * findStubById lookup and avoids loadTable entirely.
+   * findTableRefById lookup and avoids loadTable entirely.
    */
   @Test
   public void testTableDeleteSucceedsWhenMetadataJsonIsCorrupted() throws IOException {
