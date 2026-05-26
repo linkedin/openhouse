@@ -190,7 +190,7 @@ public class AnalyzerRunner {
     }
 
     log.info(
-        "Database {}: created {} PENDING {} operation(s) ({} failed)",
+        "Finished analyzing Database {}: created {} PENDING {} operation(s) ({} failed)",
         databaseName,
         created,
         analyzer.getOperationType(),
