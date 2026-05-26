@@ -394,8 +394,7 @@ if __name__ == "__main__":
             )
             tight_splits = list(tight_loader)
             assert len(tight_splits) == 1, (
-                f"Expected 1 split from tight datetime filter (only 5/8 partition survives), "
-                f"got {len(tight_splits)}"
+                f"Expected 1 split from tight datetime filter (only 5/8 partition survives), got {len(tight_splits)}"
             )
             result = _read_all(tight_loader)
             assert result.column("id").to_pylist() == [3], (
