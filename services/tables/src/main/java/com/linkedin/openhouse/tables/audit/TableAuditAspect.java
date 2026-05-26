@@ -541,25 +541,38 @@ public class TableAuditAspect {
   }
 
   /**
-   * Narrows the request-body table properties down to the configured allowlist ({@code
-   * cluster.iceberg.tables.audit.table-properties-allowlist}). Returns {@code null} when there is
-   * nothing to emit so downstream audit handlers can skip the field entirely. Iterates the
-   * allowlist rather than the source so cost is O(|allowlist|) regardless of source size.
+   * Narrows the committed table properties down to the configured allowlist ({@code
+   * cluster.iceberg.tables.audit.table-properties-allowlist}) and drops any value longer than
+   * {@code cluster.iceberg.tables.audit.table-property-value-max-length} characters. Returns {@code
+   * null} when there is nothing to emit so downstream audit handlers can skip the field entirely.
+   * Iterates the allowlist rather than the source so cost is O(|allowlist|) regardless of source
+   * size.
    */
   private Map<String, String> filterTableProperties(Map<String, String> source) {
     if (source == null || source.isEmpty()) {
       return null;
     }
-    List<String> allowlist = internalCatalogProperties.getAudit().getTablePropertiesAllowlist();
+    InternalCatalogProperties.Audit auditConfig = internalCatalogProperties.getAudit();
+    List<String> allowlist = auditConfig.getTablePropertiesAllowlist();
     if (allowlist == null || allowlist.isEmpty()) {
       return null;
     }
+    int maxLength = auditConfig.getTablePropertyValueMaxLength();
     Map<String, String> filtered = new HashMap<>();
     for (String key : allowlist) {
       String value = source.get(key);
-      if (value != null) {
-        filtered.put(key, value);
+      if (value == null) {
+        continue;
       }
+      if (maxLength > 0 && value.length() > maxLength) {
+        log.warn(
+            "Dropping table-property '{}' from audit event: value length {} exceeds cap {}",
+            key,
+            value.length(),
+            maxLength);
+        continue;
+      }
+      filtered.put(key, value);
     }
     return filtered.isEmpty() ? null : filtered;
   }

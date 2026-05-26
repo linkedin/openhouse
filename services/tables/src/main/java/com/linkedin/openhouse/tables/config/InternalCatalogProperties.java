@@ -29,5 +29,13 @@ public class InternalCatalogProperties {
   @Setter
   public static class Audit {
     private List<String> tablePropertiesAllowlist = Collections.emptyList();
+
+    /**
+     * Maximum character length of a single allowlisted property value. Values exceeding this are
+     * dropped from the audit event (with a warning log) to prevent oversized events from blowing
+     * the Kafka producer's max.request.size budget or OOM-ing downstream consumers. {@code 0}
+     * disables the cap (current/legacy behavior).
+     */
+    private int tablePropertyValueMaxLength = 0;
   }
 }

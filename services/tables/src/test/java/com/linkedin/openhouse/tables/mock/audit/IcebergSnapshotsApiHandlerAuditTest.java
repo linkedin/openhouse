@@ -35,7 +35,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @TestPropertySource(
     properties = {
       "cluster.iceberg.tables.audit.table-properties-allowlist[0]=openhouse.watermark",
-      "cluster.iceberg.tables.audit.table-properties-allowlist[1]=openhouse.tableType"
+      "cluster.iceberg.tables.audit.table-properties-allowlist[1]=openhouse.tableType",
+      "cluster.iceberg.tables.audit.table-property-value-max-length=20"
     })
 @WithMockUser(username = "testUser")
 public class IcebergSnapshotsApiHandlerAuditTest {
@@ -222,6 +223,40 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     expected.put("openhouse.watermark", "100");
     expected.put("openhouse.tableType", "PRIMARY_TABLE");
     assertEquals(expected, actualEvent.getTableProperties());
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsDropsOversizedTableProperty() throws Exception {
+    // Cap is 20 chars (set at class level). "openhouse.watermark"="100" stays;
+    // "openhouse.tableType" with a 30+ char value is dropped.
+    Map<String, String> requestProperties = new HashMap<>();
+    requestProperties.put("openhouse.watermark", "100");
+    requestProperties.put(
+        "openhouse.tableType", "THIS_VALUE_IS_DEFINITELY_LONGER_THAN_TWENTY_CHARS");
+    IcebergSnapshotsRequestBody base = RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(base.getBaseTableVersion())
+            .jsonSnapshots(base.getJsonSnapshots())
+            .snapshotRefs(base.getSnapshotRefs())
+            .createUpdateTableRequestBody(
+                base.getCreateUpdateTableRequestBody()
+                    .toBuilder()
+                    .tableProperties(requestProperties)
+                    .build())
+            .build();
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    assertEquals(
+        Collections.singletonMap("openhouse.watermark", "100"), actualEvent.getTableProperties());
   }
 
   @Test
