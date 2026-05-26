@@ -2,7 +2,9 @@ package com.linkedin.openhouse.jobs.spark.optimizer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -18,6 +20,8 @@ import okhttp3.Response;
  * <p>Errors are surfaced as {@link IOException}; the caller decides whether to retry. Per the
  * design, a missed update is recoverable — the operation row stays SCHEDULED and the Analyzer's
  * stale-timeout will re-queue it.
+ *
+ * <p>Construct with the {@link Config} builder to override the default timeouts.
  */
 @Slf4j
 public class OptimizerServiceClient implements AutoCloseable {
@@ -30,11 +34,15 @@ public class OptimizerServiceClient implements AutoCloseable {
   private final ObjectMapper objectMapper;
 
   public OptimizerServiceClient(String baseUrl) {
-    this(baseUrl, defaultClient(), new ObjectMapper());
+    this(Config.builder().baseUrl(baseUrl).build());
+  }
+
+  public OptimizerServiceClient(Config config) {
+    this(config.getBaseUrl(), clientFor(config), new ObjectMapper());
   }
 
   OptimizerServiceClient(String baseUrl, OkHttpClient httpClient, ObjectMapper objectMapper) {
-    this.baseUrl = stripTrailingSlash(baseUrl);
+    this.baseUrl = stripTrailingSlash(Objects.requireNonNull(baseUrl, "baseUrl"));
     this.httpClient = httpClient;
     this.objectMapper = objectMapper;
   }
@@ -64,18 +72,25 @@ public class OptimizerServiceClient implements AutoCloseable {
     httpClient.connectionPool().evictAll();
   }
 
-  private static OkHttpClient defaultClient() {
+  private static OkHttpClient clientFor(Config config) {
     return new OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(config.getConnectTimeoutSeconds(), TimeUnit.SECONDS)
+        .readTimeout(config.getReadTimeoutSeconds(), TimeUnit.SECONDS)
+        .writeTimeout(config.getWriteTimeoutSeconds(), TimeUnit.SECONDS)
         .build();
   }
 
   private static String stripTrailingSlash(String url) {
-    if (url == null || url.isEmpty()) {
-      throw new IllegalArgumentException("Optimizer Service base URL must be non-empty");
-    }
     return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+  }
+
+  /** Tunable transport settings. Defaults match the previous hardcoded values. */
+  @lombok.Getter
+  @Builder
+  public static class Config {
+    private final String baseUrl;
+    @Builder.Default private final long connectTimeoutSeconds = 10L;
+    @Builder.Default private final long readTimeoutSeconds = 30L;
+    @Builder.Default private final long writeTimeoutSeconds = 30L;
   }
 }

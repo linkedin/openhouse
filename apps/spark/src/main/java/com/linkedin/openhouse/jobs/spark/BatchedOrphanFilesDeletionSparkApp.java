@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.exception.TableValidationException;
@@ -13,15 +14,18 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -125,42 +129,90 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
   private int runBatch(Operations ops, OptimizerServiceClient client) {
     ExecutorService pool = Executors.newFixedThreadPool(driverParallelism);
     try {
-      List<Future<Boolean>> futures = new ArrayList<>(entries.size());
-      for (BatchEntry entry : entries) {
-        futures.add(pool.submit(new TableWorker(ops, entry, client)));
-      }
-      int successes = 0;
-      for (int i = 0; i < futures.size(); i++) {
-        try {
-          if (Boolean.TRUE.equals(futures.get(i).get())) {
-            successes++;
-          }
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          log.error("Interrupted while waiting on table {}", entries.get(i).getFqtn(), e);
-        } catch (ExecutionException e) {
-          // Per-table workers swallow their own failures and report FAILED upstream; an
-          // ExecutionException here means the worker itself threw, which we treat as a failed
-          // operation but otherwise let the batch continue.
-          log.error("Worker threw for table {}", entries.get(i).getFqtn(), e.getCause());
-        }
-      }
-      return successes;
+      // Two-phase pipeline: submit every worker first (so they run concurrently), then await each.
+      // Pairing each Future with its BatchEntry via AbstractMap.SimpleImmutableEntry lets us avoid
+      // the indexed `entries.get(i)` access the reviewer flagged.
+      List<Map.Entry<BatchEntry, Future<Boolean>>> submissions =
+          entries.stream()
+              .map(
+                  entry ->
+                      new AbstractMap.SimpleImmutableEntry<>(
+                          entry, pool.submit(new TableWorker(ops, entry, client))))
+              .collect(Collectors.toList());
+      return submissions.stream()
+          .mapToInt(submission -> awaitOne(submission.getKey(), submission.getValue(), client))
+          .sum();
     } finally {
-      pool.shutdown();
-      try {
-        if (!pool.awaitTermination(30, TimeUnit.SECONDS)) {
-          pool.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
+      shutdownPool(pool);
+    }
+  }
+
+  private int awaitOne(BatchEntry entry, Future<Boolean> future, OptimizerServiceClient client) {
+    try {
+      return Boolean.TRUE.equals(future.get()) ? 1 : 0;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.error("Worker interrupted (likely job cancellation): fqtn={}", entry.getFqtn(), e);
+      otelEmitter.count(
+          METRICS_SCOPE,
+          "optimizer_batch_interrupted",
+          1,
+          Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), entry.getFqtn()));
+      return 0;
+    } catch (ExecutionException e) {
+      // The worker catches Throwable internally and always reports its own result, so reaching
+      // here means the worker itself leaked an exception. Be defensive: post FAILED so the
+      // operation row doesn't sit SCHEDULED until the stale-timeout.
+      log.error(
+          "Worker threw outside its own catch for fqtn={} — reporting FAILED",
+          entry.getFqtn(),
+          e.getCause());
+      reportResult(entry, false, client);
+      return 0;
+    }
+  }
+
+  private void shutdownPool(ExecutorService pool) {
+    pool.shutdown();
+    try {
+      if (!pool.awaitTermination(30, TimeUnit.SECONDS)) {
         pool.shutdownNow();
       }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      pool.shutdownNow();
     }
   }
 
   protected OptimizerServiceClient newOptimizerClient() {
     return new OptimizerServiceClient(resultsEndpoint);
+  }
+
+  /** POST the per-operation outcome to the Optimizer Service. Failure here is logged + counted. */
+  private void reportResult(BatchEntry entry, boolean success, OptimizerServiceClient client) {
+    OperationUpdateRequest body =
+        OperationUpdateRequest.builder()
+            .operationId(entry.getOperationId())
+            .status(success ? STATUS_SUCCESS : STATUS_FAILED)
+            .tableUuid(entry.getTableUuid())
+            .databaseName(entry.getDatabaseName())
+            .tableName(entry.getTableName())
+            .operationType(OPERATION_TYPE)
+            .build();
+    try {
+      client.updateOperation(body);
+    } catch (IOException e) {
+      log.error(
+          "Failed to report operation result; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
+          entry.getOperationId(),
+          entry.getFqtn(),
+          e);
+      otelEmitter.count(
+          METRICS_SCOPE,
+          "optimizer_update_failed",
+          1,
+          Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), entry.getFqtn()));
+    }
   }
 
   /** One unit of work in a batched OFD job. */
@@ -182,22 +234,19 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       try {
         log.info("OFD start: fqtn={} operationId={}", fqtn, entry.getOperationId());
         Table table = ops.getTable(fqtn);
-        long effectiveTtlSeconds = resolveTtlSeconds(table);
         long olderThanTimestampMillis =
-            System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(effectiveTtlSeconds);
-        boolean backupEnabled =
-            Boolean.parseBoolean(
-                table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
+            System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(resolveTtlSeconds(table));
         DeleteOrphanFiles.Result result =
             ops.deleteOrphanFiles(
                 table,
                 olderThanTimestampMillis,
-                backupEnabled,
+                Boolean.parseBoolean(
+                    table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false")),
                 backupDir,
                 concurrentDeletes,
                 streamResults,
                 maxOrphanFileSampleSize);
-        int orphanCount = countOrphans(result);
+        int orphanCount = Lists.newArrayList(result.orphanFileLocations().iterator()).size();
         otelEmitter.count(
             METRICS_SCOPE,
             AppConstants.ORPHAN_FILE_COUNT,
@@ -206,20 +255,25 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
         validate(fqtn);
         success = true;
         log.info("OFD success: fqtn={} orphansDetected={}", fqtn, orphanCount);
-      } catch (TableValidationException e) {
-        log.error("Post-job validation failed for fqtn={}", fqtn, e);
       } catch (Throwable t) {
         log.error("OFD failed: fqtn={} operationId={}", fqtn, entry.getOperationId(), t);
       } finally {
-        reportResult(success);
+        reportResult(entry, success, client);
       }
       return success;
     }
 
+    /**
+     * Re-runs {@link TableStateValidator} — the same post-job consistency check the single-table
+     * {@link OrphanFilesDeletionSparkApp} uses — to confirm the table's manifests and metadata are
+     * intact after deletion. A failure here is treated as a failed operation: it's logged, counted,
+     * and re-thrown so the outer {@link #call()} marks {@code success=false}.
+     */
     private void validate(String fqtn) {
       try {
         TableStateValidator.run(ops.spark(), fqtn);
       } catch (TableValidationException e) {
+        log.error("Post-job validation failed: fqtn={}", fqtn, e);
         otelEmitter.count(
             METRICS_SCOPE,
             "post_run_validation_error",
@@ -233,33 +287,10 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       }
     }
 
-    private void reportResult(boolean success) {
-      OperationUpdateRequest body =
-          OperationUpdateRequest.builder()
-              .operationId(entry.getOperationId())
-              .status(success ? STATUS_SUCCESS : STATUS_FAILED)
-              .tableUuid(entry.getTableUuid())
-              .databaseName(entry.getDatabaseName())
-              .tableName(entry.getTableName())
-              .operationType(OPERATION_TYPE)
-              .build();
-      try {
-        client.updateOperation(body);
-      } catch (IOException e) {
-        log.error(
-            "Failed to report operation result; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
-            entry.getOperationId(),
-            entry.getFqtn(),
-            e);
-      }
-    }
-
     private long resolveTtlSeconds(Table table) {
       long resolved = ttlSeconds;
-      boolean oneDayTtlEnabled =
-          Boolean.parseBoolean(
-              table.properties().getOrDefault(AppConstants.OFD_ONE_DAY_TTL_ENABLED_KEY, "false"));
-      if (oneDayTtlEnabled) {
+      if (Boolean.parseBoolean(
+          table.properties().getOrDefault(AppConstants.OFD_ONE_DAY_TTL_ENABLED_KEY, "false"))) {
         resolved = TimeUnit.DAYS.toSeconds(1);
       }
       String tableType =
@@ -273,14 +304,6 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
         }
       }
       return resolved;
-    }
-
-    private int countOrphans(DeleteOrphanFiles.Result result) {
-      int count = 0;
-      for (String unused : result.orphanFileLocations()) {
-        count++;
-      }
-      return count;
     }
   }
 
