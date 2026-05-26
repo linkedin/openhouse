@@ -42,8 +42,8 @@ public class AnalyzerRunner {
 
   /**
    * Page size for the per-database table scan. The analyzer iterates a database's tables in pages
-   * of this size and processes <em>every</em> page until the database is exhausted — no tables
-   * are dropped because of this bound. Caps the in-memory working set per page, not per cycle.
+   * of this size and processes <em>every</em> page until the database is exhausted — no tables are
+   * dropped because of this bound. Caps the in-memory working set per page, not per cycle.
    */
   @Value("${analyzer.tables-page-size:10000}")
   private int tablesPageSize = 10_000;
