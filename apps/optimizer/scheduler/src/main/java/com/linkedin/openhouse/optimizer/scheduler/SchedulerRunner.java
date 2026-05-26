@@ -25,8 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * For one operation type per call, reads PENDING rows, looks up per-table stats, dispatches to the
  * registered {@link BinPacker}, and submits one Spark job per returned {@link Bin}. The {@link
- * com.linkedin.openhouse.optimizer.scheduler.SchedulerApplication}'s CommandLineRunner loops over the
- * registered packers and invokes {@code schedule(opType)} for each.
+ * com.linkedin.openhouse.optimizer.scheduler.SchedulerApplication}'s CommandLineRunner loops over
+ * the registered packers and invokes {@code schedule(opType)} for each.
  */
 @Slf4j
 @Component
