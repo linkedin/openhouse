@@ -25,12 +25,18 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @ContextConfiguration
+@TestPropertySource(
+    properties = {
+      "cluster.iceberg.tables.audit.table-properties-allowlist[0]=openhouse.watermark",
+      "cluster.iceberg.tables.audit.table-properties-allowlist[1]=openhouse.tableType"
+    })
 @WithMockUser(username = "testUser")
 public class IcebergSnapshotsApiHandlerAuditTest {
   @Autowired private MockMvc mvc;
@@ -185,11 +191,11 @@ public class IcebergSnapshotsApiHandlerAuditTest {
   }
 
   @Test
-  public void testPutIcebergSnapshotsCarriesTableProperties() throws Exception {
-    Map<String, String> properties = new HashMap<>();
-    properties.put("openhouse.watermark", "100");
-    properties.put("openhouse.tableType", "PRIMARY_TABLE");
-    properties.put("user.custom.key", "v");
+  public void testPutIcebergSnapshotsFiltersTablePropertiesToAllowlist() throws Exception {
+    Map<String, String> requestProperties = new HashMap<>();
+    requestProperties.put("openhouse.watermark", "100");
+    requestProperties.put("openhouse.tableType", "PRIMARY_TABLE");
+    requestProperties.put("user.custom.key", "v");
     IcebergSnapshotsRequestBody base = RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
     IcebergSnapshotsRequestBody requestBody =
         IcebergSnapshotsRequestBody.builder()
@@ -199,7 +205,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .createUpdateTableRequestBody(
                 base.getCreateUpdateTableRequestBody()
                     .toBuilder()
-                    .tableProperties(properties)
+                    .tableProperties(requestProperties)
                     .build())
             .build();
     mvc.perform(
@@ -212,7 +218,10 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .content(requestBody.toJson()));
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
-    assertEquals(properties, actualEvent.getTableProperties());
+    Map<String, String> expected = new HashMap<>();
+    expected.put("openhouse.watermark", "100");
+    expected.put("openhouse.tableType", "PRIMARY_TABLE");
+    assertEquals(expected, actualEvent.getTableProperties());
   }
 
   @Test

@@ -13,7 +13,7 @@ task javadocJar(type: Jar) {
 }
 
 tasks.withType(GenerateModuleMetadata) {
-  enabled = false
+  enabled = project.version.toString().endsWith('-SNAPSHOT')
 }
 
 [jar, sourcesJar, javadocJar].each { task ->

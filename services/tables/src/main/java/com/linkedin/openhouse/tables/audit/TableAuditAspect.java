@@ -17,7 +17,9 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
+import com.linkedin.openhouse.tables.config.InternalCatalogProperties;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,8 @@ public class TableAuditAspect {
   @Autowired private ClusterProperties clusterProperties;
 
   @Autowired private AuditHandler<TableAuditEvent> tableAuditHandler;
+
+  @Autowired private InternalCatalogProperties internalCatalogProperties;
 
   /**
    * Install the Around advice for getTable() method in OpenHouseTablesApiHandler.
@@ -371,26 +375,27 @@ public class TableAuditAspect {
     } else {
       operationType = OperationType.COMMIT;
     }
-    CreateUpdateTableRequestBody createUpdateTableRequestBody =
-        icebergSnapshotRequestBody.getCreateUpdateTableRequestBody();
     TableAuditEvent.TableAuditEventBuilder eventBuilder =
         TableAuditEvent.builder()
             .eventTimestamp(Instant.now())
             .databaseName(databaseId)
             .tableName(tableId)
-            .operationType(operationType)
-            .tableProperties(
-                createUpdateTableRequestBody == null
-                    ? null
-                    : createUpdateTableRequestBody.getTableProperties());
+            .operationType(operationType);
     extractSnapshotInfo(icebergSnapshotRequestBody, eventBuilder);
-    TableAuditEvent event = eventBuilder.build();
     try {
       result = (ApiResponse<GetTableResponseBody>) point.proceed();
+      // Read tableProperties from the response, not the request body: OpenHouse mutates
+      // properties server-side during commit (e.g. openhouse.tableVersion,
+      // openhouse.lastModifiedTime), and the audit event should reflect the committed state.
+      TableAuditEvent event =
+          eventBuilder
+              .tableProperties(filterTableProperties(result.getResponseBody().getTableProperties()))
+              .build();
       buildAndSendEvent(
           event, OperationStatus.SUCCESS, result.getResponseBody().getTableLocation());
     } catch (Throwable t) {
-      buildAndSendEvent(event, OperationStatus.FAILED, null);
+      // On failure there is no committed state to read from, so tableProperties stays null.
+      buildAndSendEvent(eventBuilder.build(), OperationStatus.FAILED, null);
       throw t;
     }
     return result;
@@ -533,6 +538,30 @@ public class TableAuditAspect {
       throw t;
     }
     return result;
+  }
+
+  /**
+   * Narrows the request-body table properties down to the configured allowlist ({@code
+   * cluster.iceberg.tables.audit.table-properties-allowlist}). Returns {@code null} when there is
+   * nothing to emit so downstream audit handlers can skip the field entirely. Iterates the
+   * allowlist rather than the source so cost is O(|allowlist|) regardless of source size.
+   */
+  private Map<String, String> filterTableProperties(Map<String, String> source) {
+    if (source == null || source.isEmpty()) {
+      return null;
+    }
+    List<String> allowlist = internalCatalogProperties.getAudit().getTablePropertiesAllowlist();
+    if (allowlist == null || allowlist.isEmpty()) {
+      return null;
+    }
+    Map<String, String> filtered = new HashMap<>();
+    for (String key : allowlist) {
+      String value = source.get(key);
+      if (value != null) {
+        filtered.put(key, value);
+      }
+    }
+    return filtered.isEmpty() ? null : filtered;
   }
 
   private void buildAndSendEvent(
