@@ -41,13 +41,12 @@ public class AnalyzerRunner {
   private final TableOperationsHistoryRepository historyRepo;
 
   /**
-   * Maximum number of tables this analyzer processes per database in a single execution cycle. Caps
-   * the working set across the three pre-load reads (current operations, latest history, table
-   * stats); Spring Data translates this to SQL {@code LIMIT n} on each query. Tables beyond this
-   * bound in a given database are deferred to the next cycle.
+   * Page size for the per-database table scan. The analyzer iterates a database's tables in pages
+   * of this size and processes <em>every</em> page until the database is exhausted — no tables
+   * are dropped because of this bound. Caps the in-memory working set per page, not per cycle.
    */
-  @Value("${analyzer.max-tables-per-database:10000}")
-  private int maxTablesPerDatabase = 10_000;
+  @Value("${analyzer.tables-page-size:10000}")
+  private int tablesPageSize = 10_000;
 
   /**
    * Run the analysis loop for {@code operationType} across all databases, with no filters.
@@ -89,87 +88,107 @@ public class AnalyzerRunner {
       Optional<String> tableName,
       Optional<String> tableUuid) {
 
-    // Pre-load the small sides of the joins — bounded by tables in this database.
-    PageRequest page = PageRequest.of(0, maxTablesPerDatabase);
-    Map<String, TableOperationDto> currentOps =
-        operationsRepo
-            .find(
-                Optional.of(analyzer.getOperationType().toDb()),
-                Optional.empty(),
-                tableUuid,
-                Optional.of(databaseName),
-                tableName,
-                Optional.empty(),
-                Optional.empty(),
-                page)
-            .stream()
-            .filter(e -> e.getTableUuid() != null)
-            .map(TableOperationDto::fromRow)
-            .collect(
-                Collectors.toMap(
-                    TableOperationDto::getTableUuid, op -> op, TableOperationDto::mostRecent));
-
-    Map<String, TableOperationsHistoryDto> latestHistory =
-        historyRepo.findLatest(analyzer.getOperationType().toDb(), page).stream()
-            .filter(r -> r.getTableUuid() != null)
-            .map(TableOperationsHistoryDto::fromRow)
-            .collect(
-                Collectors.toMap(
-                    TableOperationsHistoryDto::getTableUuid,
-                    h -> h,
-                    TableOperationsHistoryDto::after));
-
-    List<TableDto> tables =
-        statsRepo.find(Optional.of(databaseName), tableName, tableUuid, page).stream()
-            .filter(row -> row.getTableUuid() != null)
-            .map(TableDto::fromRow)
-            .collect(Collectors.toList());
-
-    /*
-     * For each table in this database, decide whether to create a new PENDING operation.
-     *
-     * 1. Skip tables not opted in to this operation type.
-     * 2. Look up the table's current active operation (if any) and its most recent completed
-     *    history entry from the maps loaded above.
-     * 3. Delegate the schedule-or-not decision to the analyzer's shouldSchedule — strategy
-     *    encapsulates cadence, retry policy, and any future per-operation signals.
-     * 4. On true, persist a new PENDING operation. The scheduler picks it up on its next pass.
-     */
     int created = 0;
     int failed = 0;
-    for (TableDto table : tables) {
-      if (!analyzer.isEnabled(table)) {
-        continue;
+    int pageNumber = 0;
+
+    while (true) {
+      PageRequest page = PageRequest.of(pageNumber, tablesPageSize);
+
+      // Per-page pre-load: ops and history are re-queried for each table page so the working set
+      // stays bounded. Maps are keyed by tableUuid and may miss entries for tables whose
+      // operations / history happen to fall in a different page of those queries — affected
+      // tables get treated as "no current op / no history" and may produce a duplicate PENDING
+      // row that the scheduler's cancelDuplicates path handles. The alternative (load all maps
+      // unbounded once per DB) trades that minor duplication for unbounded memory per cycle.
+      Map<String, TableOperationDto> currentOps =
+          operationsRepo
+              .find(
+                  Optional.of(analyzer.getOperationType().toDb()),
+                  Optional.empty(),
+                  tableUuid,
+                  Optional.of(databaseName),
+                  tableName,
+                  Optional.empty(),
+                  Optional.empty(),
+                  page)
+              .stream()
+              .filter(e -> e.getTableUuid() != null)
+              .map(TableOperationDto::fromRow)
+              .collect(
+                  Collectors.toMap(
+                      TableOperationDto::getTableUuid, op -> op, TableOperationDto::mostRecent));
+
+      Map<String, TableOperationsHistoryDto> latestHistory =
+          historyRepo.findLatest(analyzer.getOperationType().toDb(), page).stream()
+              .filter(r -> r.getTableUuid() != null)
+              .map(TableOperationsHistoryDto::fromRow)
+              .collect(
+                  Collectors.toMap(
+                      TableOperationsHistoryDto::getTableUuid,
+                      h -> h,
+                      TableOperationsHistoryDto::after));
+
+      List<TableDto> tables =
+          statsRepo.find(Optional.of(databaseName), tableName, tableUuid, page).stream()
+              .filter(row -> row.getTableUuid() != null)
+              .map(TableDto::fromRow)
+              .collect(Collectors.toList());
+
+      if (tables.isEmpty()) {
+        break;
       }
-      Optional<TableOperationDto> currentOp =
-          Optional.ofNullable(currentOps.get(table.getTableUuid()));
-      Optional<TableOperationsHistoryDto> entry =
-          Optional.ofNullable(latestHistory.get(table.getTableUuid()));
-      if (!analyzer.shouldSchedule(table, currentOp, entry)) {
-        continue;
+
+      /*
+       * For each table in this page, decide whether to create a new PENDING operation.
+       *
+       * 1. Skip tables not opted in to this operation type.
+       * 2. Look up the table's current active operation (if any) and its most recent completed
+       *    history entry from the maps loaded above.
+       * 3. Delegate the schedule-or-not decision to the analyzer's shouldSchedule — strategy
+       *    encapsulates cadence, retry policy, and any future per-operation signals.
+       * 4. On true, persist a new PENDING operation. The scheduler picks it up on its next pass.
+       */
+      for (TableDto table : tables) {
+        if (!analyzer.isEnabled(table)) {
+          continue;
+        }
+        Optional<TableOperationDto> currentOp =
+            Optional.ofNullable(currentOps.get(table.getTableUuid()));
+        Optional<TableOperationsHistoryDto> entry =
+            Optional.ofNullable(latestHistory.get(table.getTableUuid()));
+        if (!analyzer.shouldSchedule(table, currentOp, entry)) {
+          continue;
+        }
+        try {
+          TableOperationDto op = TableOperationDto.pending(table, analyzer.getOperationType());
+          operationsRepo.save(op.toRow());
+          log.debug(
+              "Created PENDING {} operation for table {}.{}",
+              analyzer.getOperationType(),
+              table.getDatabaseName(),
+              table.getTableId());
+          created++;
+        } catch (RuntimeException e) {
+          // One bad table should not abort the rest of the database. Log and continue; the next
+          // analyzer pass will retry for any table whose save failed here.
+          log.error(
+              "Failed to create PENDING {} operation for table {}.{}: {}",
+              analyzer.getOperationType(),
+              table.getDatabaseName(),
+              table.getTableId(),
+              e.toString(),
+              e);
+          failed++;
+        }
       }
-      try {
-        TableOperationDto op = TableOperationDto.pending(table, analyzer.getOperationType());
-        operationsRepo.save(op.toRow());
-        log.debug(
-            "Created PENDING {} operation for table {}.{}",
-            analyzer.getOperationType(),
-            table.getDatabaseName(),
-            table.getTableId());
-        created++;
-      } catch (RuntimeException e) {
-        // One bad table should not abort the rest of the database. Log and continue; the next
-        // analyzer pass will retry for any table whose save failed here.
-        log.error(
-            "Failed to create PENDING {} operation for table {}.{}: {}",
-            analyzer.getOperationType(),
-            table.getDatabaseName(),
-            table.getTableId(),
-            e.toString(),
-            e);
-        failed++;
+
+      if (tables.size() < tablesPageSize) {
+        break;
       }
+      pageNumber++;
     }
+
     log.info(
         "Database {}: created {} PENDING {} operation(s) ({} failed)",
         databaseName,
