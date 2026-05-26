@@ -41,10 +41,10 @@ public class AnalyzerRunner {
   private final TableOperationsHistoryRepository historyRepo;
 
   /**
-   * Maximum number of tables this analyzer processes per database in a single execution cycle.
-   * Caps the working set across the three pre-load reads (current operations, latest history,
-   * table stats); Spring Data translates this to SQL {@code LIMIT n} on each query. Tables beyond
-   * this bound in a given database are deferred to the next cycle.
+   * Maximum number of tables this analyzer processes per database in a single execution cycle. Caps
+   * the working set across the three pre-load reads (current operations, latest history, table
+   * stats); Spring Data translates this to SQL {@code LIMIT n} on each query. Tables beyond this
+   * bound in a given database are deferred to the next cycle.
    */
   @Value("${analyzer.max-tables-per-database:10000}")
   private int maxTablesPerDatabase = 10_000;
