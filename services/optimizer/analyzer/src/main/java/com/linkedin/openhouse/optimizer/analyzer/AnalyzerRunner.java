@@ -40,10 +40,14 @@ public class AnalyzerRunner {
   private final TableOperationsRepository operationsRepo;
   private final TableOperationsHistoryRepository historyRepo;
 
-  // Inline default also set on the field so Mockito-constructed instances (no Spring context) get
-  // a usable value; with Spring, the @Value annotation overrides this.
-  @Value("${optimizer.repo.default-limit:10000}")
-  private int defaultLimit = 10_000;
+  /**
+   * Maximum number of tables this analyzer processes per database in a single execution cycle.
+   * Caps the working set across the three pre-load reads (current operations, latest history,
+   * table stats); Spring Data translates this to SQL {@code LIMIT n} on each query. Tables beyond
+   * this bound in a given database are deferred to the next cycle.
+   */
+  @Value("${analyzer.max-tables-per-database:10000}")
+  private int maxTablesPerDatabase = 10_000;
 
   /**
    * Run the analysis loop for {@code operationType} across all databases, with no filters.
@@ -86,7 +90,7 @@ public class AnalyzerRunner {
       Optional<String> tableUuid) {
 
     // Pre-load the small sides of the joins — bounded by tables in this database.
-    PageRequest page = PageRequest.of(0, defaultLimit);
+    PageRequest page = PageRequest.of(0, maxTablesPerDatabase);
     Map<String, TableOperationDto> currentOps =
         operationsRepo
             .find(
