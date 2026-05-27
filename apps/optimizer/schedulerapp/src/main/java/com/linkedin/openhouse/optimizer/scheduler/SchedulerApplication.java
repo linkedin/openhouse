@@ -16,7 +16,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 public class SchedulerApplication {
 
   public static void main(String[] args) {
-    SpringApplication.run(SchedulerApplication.class, args);
+    System.exit(SpringApplication.exit(SpringApplication.run(SchedulerApplication.class, args)));
   }
 
   /**
