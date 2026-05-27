@@ -18,7 +18,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,9 +36,6 @@ public class SchedulerRunner {
   private final JobsServiceClient jobsClient;
   private final Map<OperationTypeDto, BinPacker> binPackers;
   private final String resultsEndpoint;
-
-  @Value("${optimizer.repo.default-limit:10000}")
-  private int defaultLimit = 10_000;
 
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
@@ -73,7 +70,10 @@ public class SchedulerRunner {
           "No BinPacker registered for operation type " + operationType);
     }
 
-    PageRequest page = PageRequest.of(0, defaultLimit);
+    // Unpaged: a single-page truncation would silently drop work past page 0 (next cycle would
+    // re-load the same first page in MySQL row order, leaving the tail unscheduled until the
+    // ordering shifts). Correctness here requires the full PENDING set in one cycle; the working
+    // set is bounded by count(PENDING for this op type), tracked in BDP-102738.
     List<TableOperationsRow> pendingRows =
         operationsRepo.find(
             Optional.of(operationType.toDb()),
@@ -83,7 +83,7 @@ public class SchedulerRunner {
             tableName,
             Optional.empty(),
             Optional.empty(),
-            page);
+            Pageable.unpaged());
     if (pendingRows.isEmpty()) {
       log.info("No PENDING operations of type {}; nothing to schedule", operationType);
       return;
@@ -189,6 +189,8 @@ public class SchedulerRunner {
         OperationStatus.SCHEDULING,
         Optional.of(claimedAt),
         Optional.empty());
+    // Unpaged: the result set is already bounded by ids.size() (the bin we just claimed); no
+    // need to cap it further.
     List<String> claimedIds =
         operationsRepo
             .find(
@@ -199,7 +201,7 @@ public class SchedulerRunner {
                 Optional.empty(),
                 Optional.of(claimedAt),
                 Optional.of(ids),
-                PageRequest.of(0, defaultLimit))
+                Pageable.unpaged())
             .stream()
             .map(TableOperationsRow::getId)
             .collect(Collectors.toList());

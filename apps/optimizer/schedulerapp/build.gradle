@@ -1,0 +1,14 @@
+plugins {
+  id 'openhouse.springboot-ext-conventions'
+  id 'org.springframework.boot' version '2.7.8'
+}
+
+// Deployable Spring Boot wrapper around the scheduler library. Holds SchedulerApplication (the
+// @SpringBootApplication entry point) and application.properties; the scheduling logic lives in
+// :services:optimizer:scheduler.
+dependencies {
+  implementation project(':services:optimizer:scheduler')
+  implementation 'org.springframework.boot:spring-boot-starter:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
+  runtimeOnly 'mysql:mysql-connector-java:8.0.33'
+}
