@@ -6,10 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Configuration for the post-commit stats push from the Tables Service to the Optimizer's stats
- * endpoint. Property prefix: {@code optimizer.stats}.
- *
- * <p>When {@code enabled} is false (the default), no client bean is constructed and the push is a
- * no-op on every commit. Environments that want the feed turn it on and set {@link #baseUri}.
+ * endpoint. Property prefix {@code optimizer.stats}. When {@code enabled} is false (the default),
+ * no client bean is constructed and the operation is absent from the dispatcher. Environments that
+ * want the feed turn it on and set {@link #baseUri}.
  */
 @ConfigurationProperties("optimizer.stats")
 @Getter

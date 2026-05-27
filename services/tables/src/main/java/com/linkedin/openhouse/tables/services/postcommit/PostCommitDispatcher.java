@@ -17,23 +17,12 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 
 /**
- * Runs {@link PostCommitOperation}s after a successful Iceberg commit. Best-effort and bounded:
- * each operation gets a wall-clock timeout, errors are swallowed after metric/log, and dispatch
- * itself is fire-and-forget so the commit thread is never blocked on operation work.
- *
- * <p><b>Why async.</b> A synchronous post-commit hook converts a downstream outage (the optimizer
- * being slow or unavailable, a network glitch) into a Tables-Service write outage — the post-commit
- * push is a best-effort scheduling signal, not a write-correctness step, and its blast radius must
- * not include the write path. The crash-loss window (a JVM dying after commit and before the HTTP
- * push completes) is acceptable because operations are designed to be cumulative: the next commit
- * carries the same state forward and the consumer self-corrects from missing data.
- *
- * <p><b>Why the dispatcher owns timeouts.</b> Operations only describe payload + endpoint. The
- * timeout/swallow/subscribe machinery lives here once so individual operations stay small and so
- * the contract across operations is uniform (one knob: {@code
- * tables.postcommit.per-op-timeout-ms}).
- *
- * <p>Bean is only wired when {@code tables.postcommit.enabled=true}.
+ * Runs {@link PostCommitOperation}s after a successful Iceberg commit. Each operation gets a
+ * wall-clock timeout ({@code tables.postcommit.per-op-timeout-ms}), errors are swallowed after
+ * metric/log, and dispatch is fire-and-forget so the commit thread is never blocked. Operations
+ * describe payload and endpoint only — the timeout/swallow/subscribe machinery lives here so the
+ * contract across operations is uniform. Bean wired only when {@code
+ * tables.postcommit.enabled=true}.
  */
 @Slf4j
 @Component
@@ -65,12 +54,10 @@ public class PostCommitDispatcher {
   }
 
   /**
-   * Returns the fully-decorated {@link Mono} for {@code op} (per-op timeout, success / error metric
-   * emission, error swallow) without subscribing. Emits the {@code skipped} or {@code
-   * prepare_threw} metric synchronously and returns {@link Optional#empty()} in those cases.
-   *
-   * <p>Package-private so tests can {@code .block()} on the decorated chain rather than polling for
-   * metric emission after a fire-and-forget {@code subscribe()}.
+   * Returns the fully-decorated {@link Mono} for {@code op} (per-op timeout, success/error metric
+   * emission, error swallow) without subscribing. Emits {@code skipped} or {@code prepare_threw}
+   * synchronously and returns {@link Optional#empty()} in those cases. Package-private so tests can
+   * {@code .block()} on the chain rather than poll for metric emission.
    */
   Optional<Mono<Void>> decorate(PostCommitOperation op, TableDto savedDto) {
     Optional<Mono<Void>> work;

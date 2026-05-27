@@ -7,13 +7,11 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 /**
- * In-memory snapshot of the Iceberg current-snapshot metadata that was loaded alongside a {@link
- * TableDto}. Carries only fields already materialized by the catalog client — never triggers a
- * separate HDFS / object-store read.
- *
- * <p>Present whenever the table has at least one committed snapshot at construction time; absent
- * (modeled as {@link java.util.Optional#empty()} on {@link TableDto}) when the table has no
- * committed data — e.g. a {@code CREATE TABLE} with no rows yet.
+ * In-memory snapshot of the Iceberg current-snapshot metadata loaded alongside a {@link TableDto}.
+ * Carries only fields already materialized by the catalog client — never triggers a separate HDFS
+ * or object-store read. Present whenever the table has at least one committed snapshot at
+ * construction time; absent (modeled as {@link java.util.Optional#empty()} on {@link TableDto}) for
+ * tables with no committed data, e.g. a {@code CREATE TABLE} with no rows yet.
  */
 @Getter
 @Builder

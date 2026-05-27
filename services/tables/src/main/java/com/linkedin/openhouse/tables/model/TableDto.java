@@ -89,8 +89,7 @@ public class TableDto {
    * In-memory current-snapshot metadata captured when this {@code TableDto} was built from an
    * Iceberg {@code Table}. Present whenever the underlying table has at least one committed
    * snapshot at that point; absent for tables with no committed data (e.g. {@code CREATE TABLE}
-   * with no rows). Not persisted, not part of equality. Stored nullable internally; consumers must
-   * read through {@link #getCurrentSnapshot()} to get the {@link Optional}.
+   * with no rows). Not persisted, not part of equality. Read through {@link #getCurrentSnapshot()}.
    */
   @Getter(AccessLevel.NONE)
   @Transient

@@ -9,9 +9,9 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
 /**
- * Wiring for the post-commit Tables → Optimizer stats push. Only active when {@code
- * optimizer.stats.enabled=true}; otherwise no WebClient or client bean is constructed and the
- * on-commit hook in {@code IcebergSnapshotsServiceImpl} is a no-op.
+ * Wiring for the post-commit Tables → Optimizer stats push. Active only when {@code
+ * optimizer.stats.enabled=true}; otherwise no WebClient bean is constructed and the dispatcher sees
+ * no optimizer-stats operation.
  */
 @Configuration
 @EnableConfigurationProperties(OptimizerStatsProperties.class)
@@ -19,12 +19,11 @@ import reactor.netty.http.client.HttpClient;
 public class OptimizerStatsConfig {
 
   /**
-   * Dedicated WebClient for the optimizer stats endpoint. Per-attempt and outer timeouts are
-   * applied at the call site on the Reactor chain (per-attempt in {@link
-   * OptimizerStatsPostCommitOperation}, outer per-op in the {@code PostCommitDispatcher}) — they
-   * are not configured on the underlying Netty client so that the timeout always emerges as a
-   * standard {@link java.util.concurrent.TimeoutException} (not a Netty {@code
-   * ReadTimeoutException}), which keeps the dispatcher's outcome classification simple.
+   * Dedicated WebClient for the optimizer stats endpoint. Per-attempt timeout is applied on the
+   * Reactor chain in {@link OptimizerStatsPostCommitOperation} and the outer per-op timeout in
+   * {@code PostCommitDispatcher}; neither is configured on the Netty client so the timeout always
+   * emerges as a standard {@link java.util.concurrent.TimeoutException} rather than a Netty {@code
+   * ReadTimeoutException}, keeping the dispatcher's outcome classification simple.
    */
   @Bean("optimizerStatsWebClient")
   public WebClient optimizerStatsWebClient(OptimizerStatsProperties properties) {

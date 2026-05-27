@@ -22,19 +22,13 @@ import reactor.util.retry.RetrySpec;
  * {@link PostCommitOperation} that PUTs a snapshot-stats record to the optimizer's per-table stats
  * endpoint. {@link #prepare(TableDto)} returns a {@link Mono} that completes on HTTP 2xx and
  * signals an error otherwise; the dispatcher owns timeout, subscription, error swallowing, and
- * metric emission.
- *
- * <p>Skipped (operation returns {@link Optional#empty()}) when the table is not opted in via the
- * {@link #OPT_IN_PROPERTY} table property, or when no current snapshot is present (e.g. {@code
- * CREATE TABLE} with no rows yet).
- *
- * <p>Internal retry: bounded by {@link OptimizerStatsProperties#getMaxAttempts()}, fires only on
- * retryable errors (network, {@link TimeoutException}, HTTP 408 / 429 / 5xx). The dispatcher's
- * outer per-op timeout is the hard ceiling on the whole chain.
- *
- * <p>Bean is only wired when {@code optimizer.stats.enabled=true}. The path constant is
- * intentionally duplicated from {@code TableStatsController.TABLE_PATH_TEMPLATE}; keep in sync.
- * Tables service does not take a compile-time dependency on the optimizer service jar.
+ * metric emission. Returns {@link Optional#empty()} when the table is not opted in via {@link
+ * #OPT_IN_PROPERTY} or has no current snapshot. Internal retry is bounded by {@link
+ * OptimizerStatsProperties#getMaxAttempts()} and fires only on retryable errors (network, {@link
+ * TimeoutException}, HTTP 408 / 429 / 5xx); the dispatcher's per-op timeout is the hard ceiling.
+ * Bean wired only when {@code optimizer.stats.enabled=true}. Path constant is intentionally
+ * duplicated from {@code TableStatsController.TABLE_PATH_TEMPLATE} (keep in sync) so the tables
+ * service does not take a compile-time dependency on the optimizer jar.
  */
 @Slf4j
 @Component

@@ -9,11 +9,8 @@ import lombok.NoArgsConstructor;
 
 /**
  * Wire body for {@code PUT /v1/optimizer/stats/{tableUuid}}. Mirrors the optimizer's {@code
- * UpsertTableStatsRequest} field-for-field — see {@code
- * services/optimizer/src/main/java/com/linkedin/openhouse/optimizer/api/spec/UpsertTableStatsRequest.java}.
- *
- * <p>Tables service owns its own copy so that the wire contract is explicit at the call site and
- * the optimizer client jar is not a compile-time dependency.
+ * UpsertTableStatsRequest} field-for-field. Duplicated here so the tables service does not take a
+ * compile-time dependency on the optimizer jar; keep in sync with that type.
  */
 @Data
 @Builder
