@@ -42,7 +42,7 @@ public class SchedulerRunner {
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
       Map<OperationTypeDto, BinPacker> binPackers,
-      @Value("${scheduler.results-endpoint}") String resultsEndpoint) {
+      @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
     this.jobsClient = jobsClient;
