@@ -216,12 +216,14 @@ public class TablesServiceImpl implements TablesService {
     TableDtoPrimaryKey tableDtoPrimaryKey =
         TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
 
-    Optional<TableDto> tableDto = openHouseInternalRepository.findById(tableDtoPrimaryKey);
-    if (!tableDto.isPresent()) {
-      throw new NoSuchUserTableException(databaseId, tableId);
-    }
-    authorizationUtils.checkTableDropPrivilege(
-        tableDto.get(), actingPrincipal, Privileges.DELETE_TABLE);
+    // Table-ref lookup (no metadata.json parse) is enough here — drop only needs identifiers +
+    // tableUUID for the ACL check. Lets us drop tables whose metadata.json is corrupted.
+    TableDto tableDto =
+        openHouseInternalRepository
+            .findTableRefById(tableDtoPrimaryKey)
+            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+
+    authorizationUtils.checkTableDropPrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
 
     openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
   }
