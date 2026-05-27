@@ -43,7 +43,7 @@ public class OptimizerStatsRequest {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public static class Snapshot {
     // Iceberg snapshot ID. Sent so the optimizer can use it as an idempotency token on upsert and
-    // reject out-of-order replays. Server-side wiring is tracked in BDP-102985.
+    // reject out-of-order replays.
     private Long snapshotId;
 
     private String tableVersion;
