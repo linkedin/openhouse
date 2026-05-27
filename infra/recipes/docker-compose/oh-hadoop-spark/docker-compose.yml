@@ -22,6 +22,7 @@ services:
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
       - OTEL_TRACES_SAMPLER=always_on
+      - CLUSTER_OPTIMIZER_BASE_URI=http://openhouse-optimizer:8080
 
   openhouse-jobs:
     container_name: local.openhouse-jobs

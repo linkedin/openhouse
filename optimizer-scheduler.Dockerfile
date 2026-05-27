@@ -16,7 +16,7 @@ WORKDIR $USER_HOME
 ENV PATH=$PATH:/export/apps/jdk/JDK-1_8_0_172/bin/:$USER_HOME
 
 ARG VERSION="1.0.0-SNAPSHOT"
-ARG BUILD_DIR="build/$APP_NAME/libs"
+ARG BUILD_DIR="build/schedulerapp/libs"
 ARG JAR_FILES=$BUILD_DIR/*.jar
 
 COPY $JAR_FILES ./
