@@ -11,7 +11,9 @@ import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -219,5 +221,38 @@ public class TablesMapperTest {
     TableDtoPrimaryKey tableDtoPrimaryKey = tablesMapper.toTableDtoPrimaryKey(tableIdentifier);
     Assertions.assertEquals("d1", tableDtoPrimaryKey.getDatabaseId());
     Assertions.assertEquals("t1", tableDtoPrimaryKey.getTableId());
+  }
+
+  /**
+   * Pins that the snapshots-endpoint mapping carries {@code
+   * createUpdateTableRequestBody.newIntermediateSchemas} into {@code
+   * tableDto.newIntermediateSchemas}. Without it, multi-schema replication commits through {@code
+   * /iceberg/v2/snapshots} silently drop intermediates and the dest replica's snapshot.schema-id
+   * ends up outside {@code schemas[]}.
+   */
+  @Test
+  public void testToTableDtoWithPutSnapshotsPreservesNewIntermediateSchemas() {
+    List<String> intermediateSchemas =
+        Arrays.asList(
+            "{\"type\":\"struct\",\"schema-id\":1,\"fields\":["
+                + "{\"id\":1,\"name\":\"a\",\"required\":false,\"type\":\"string\"}]}",
+            "{\"type\":\"struct\",\"schema-id\":2,\"fields\":["
+                + "{\"id\":1,\"name\":\"a\",\"required\":false,\"type\":\"string\"},"
+                + "{\"id\":2,\"name\":\"b\",\"required\":false,\"type\":\"int\"}]}");
+    CreateUpdateTableRequestBody createUpdateRequestBody =
+        CREATE_TABLE_REQUEST_BODY_WITHIN_SNAPSHOTS_REQUEST
+            .toBuilder()
+            .newIntermediateSchemas(intermediateSchemas)
+            .build();
+    IcebergSnapshotsRequestBody icebergSnapshotsRequestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion("v1")
+            .createUpdateTableRequestBody(createUpdateRequestBody)
+            .jsonSnapshots(Collections.singletonList("dummy"))
+            .build();
+
+    TableDto tableDto = tablesMapper.toTableDto(TABLE_DTO, icebergSnapshotsRequestBody);
+
+    Assertions.assertEquals(intermediateSchemas, tableDto.getNewIntermediateSchemas());
   }
 }
