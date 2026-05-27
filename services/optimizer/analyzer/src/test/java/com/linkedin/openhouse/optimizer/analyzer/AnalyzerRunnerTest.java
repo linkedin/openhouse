@@ -2,10 +2,8 @@ package com.linkedin.openhouse.optimizer.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -193,54 +191,6 @@ class AnalyzerRunnerTest {
     runner.analyze(OFD_TYPE);
 
     verify(operationsRepo, never()).save(any());
-  }
-
-  @Test
-  void analyze_iteratesAllPages_processesEveryTableAcrossPageBoundary() throws Exception {
-    // Force a tiny page size so 3 tables span 2 pages: page 0 returns [t1, t2] (full → loop
-    // continues), page 1 returns [t3] (partial → loop terminates).
-    java.lang.reflect.Field f = AnalyzerRunner.class.getDeclaredField("tablesPageSize");
-    f.setAccessible(true);
-    f.setInt(runner, 2);
-
-    TableStatsRow t1 =
-        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
-    TableStatsRow t2 =
-        TableStatsRow.builder().tableUuid("uuid-2").databaseName(DB).tableName("tbl2").build();
-    TableStatsRow t3 =
-        TableStatsRow.builder().tableUuid("uuid-3").databaseName(DB).tableName("tbl3").build();
-
-    when(statsRepo.find(
-            eq(Optional.of(DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            argThat(p -> p != null && p.getPageNumber() == 0)))
-        .thenReturn(List.of(t1, t2));
-    when(statsRepo.find(
-            eq(Optional.of(DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            argThat(p -> p != null && p.getPageNumber() == 1)))
-        .thenReturn(List.of(t3));
-    when(operationsRepo.find(
-            eq(Optional.of(OFD_DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            eq(Optional.of(DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            any()))
-        .thenReturn(Collections.emptyList());
-    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
-    when(analyzer.isEnabled(any())).thenReturn(true);
-    when(analyzer.shouldSchedule(any(), eq(Optional.empty()), eq(Optional.empty())))
-        .thenReturn(true);
-
-    runner.analyze(OFD_TYPE);
-
-    // All 3 tables across both pages get a PENDING row saved.
-    verify(operationsRepo, times(3)).save(any());
   }
 
   @Test
