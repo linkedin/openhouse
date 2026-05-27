@@ -13,8 +13,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,11 +38,6 @@ public class AnalyzerRunner {
   private final TableStatsRepository statsRepo;
   private final TableOperationsRepository operationsRepo;
   private final TableOperationsHistoryRepository historyRepo;
-
-  // Inline default also set on the field so Mockito-constructed instances (no Spring context) get
-  // a usable value; with Spring, the @Value annotation overrides this.
-  @Value("${optimizer.repo.default-limit:10000}")
-  private int defaultLimit = 10_000;
 
   /**
    * Run the analysis loop for {@code operationType} across all databases, with no filters.
@@ -85,8 +79,12 @@ public class AnalyzerRunner {
       Optional<String> tableName,
       Optional<String> tableUuid) {
 
-    // Pre-load the small sides of the joins — bounded by tables in this database.
-    PageRequest page = PageRequest.of(0, defaultLimit);
+    // Load the three join inputs unbounded for this database. Aligned page-by-page pagination on
+    // these maps would leave keys in one map's page mismatched with the others' — a table whose
+    // op/history happens to fall in a different page would be misread as "no current op / no
+    // history" and trigger duplicate scheduling. Correctness requires the maps to be complete
+    // relative to the tables being processed; the working set is bounded by tables-in-db, not by
+    // any per-cycle cap. Memory characterization is tracked in BDP-102738.
     Map<String, TableOperationDto> currentOps =
         operationsRepo
             .find(
@@ -97,7 +95,7 @@ public class AnalyzerRunner {
                 tableName,
                 Optional.empty(),
                 Optional.empty(),
-                page)
+                Pageable.unpaged())
             .stream()
             .filter(e -> e.getTableUuid() != null)
             .map(TableOperationDto::fromRow)
@@ -106,7 +104,7 @@ public class AnalyzerRunner {
                     TableOperationDto::getTableUuid, op -> op, TableOperationDto::mostRecent));
 
     Map<String, TableOperationsHistoryDto> latestHistory =
-        historyRepo.findLatest(analyzer.getOperationType().toDb(), page).stream()
+        historyRepo.findLatest(analyzer.getOperationType().toDb(), Pageable.unpaged()).stream()
             .filter(r -> r.getTableUuid() != null)
             .map(TableOperationsHistoryDto::fromRow)
             .collect(
@@ -116,7 +114,7 @@ public class AnalyzerRunner {
                     TableOperationsHistoryDto::after));
 
     List<TableDto> tables =
-        statsRepo.find(Optional.of(databaseName), tableName, tableUuid, page).stream()
+        statsRepo.find(Optional.of(databaseName), tableName, tableUuid, Pageable.unpaged()).stream()
             .filter(row -> row.getTableUuid() != null)
             .map(TableDto::fromRow)
             .collect(Collectors.toList());
@@ -167,7 +165,7 @@ public class AnalyzerRunner {
       }
     }
     log.info(
-        "Database {}: created {} PENDING {} operation(s) ({} failed)",
+        "Finished analyzing Database {}: created {} PENDING {} operation(s) ({} failed)",
         databaseName,
         created,
         analyzer.getOperationType(),
