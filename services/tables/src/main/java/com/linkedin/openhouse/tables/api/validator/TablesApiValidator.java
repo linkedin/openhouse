@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.api.validator;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
-import java.util.List;
 
 public interface TablesApiValidator {
 
@@ -34,12 +33,10 @@ public interface TablesApiValidator {
    * @param page
    * @param size
    * @param sortBy
-   * @param fields optional list of GetTableResponseBody field names to populate
    * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
    *     invalid
    */
-  void validateSearchTables(
-      String databaseId, int page, int size, String sortBy, List<String> fields);
+  void validateSearchTables(String databaseId, int page, int size, String sortBy);
 
   /**
    * Function to validate a request to create a Table Resource.

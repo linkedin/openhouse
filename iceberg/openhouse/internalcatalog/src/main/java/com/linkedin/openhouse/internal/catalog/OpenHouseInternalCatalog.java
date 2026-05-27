@@ -125,6 +125,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()));
   }
 
+<<<<<<< HEAD
   /**
    * Paginated listing that preserves the underlying {@link HouseTable} rows, so callers can read
    * HTS-resident columns (e.g. tableLocation) without an extra metadata.json load per table.
@@ -153,6 +154,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     }
   }
 
+=======
+>>>>>>> parent of 63789621 (Support returning HTS fields in table list api (#579))
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
     // Look up the HouseTable row directly instead of calling loadTable(), so drop works even when
