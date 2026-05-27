@@ -13,13 +13,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Configuration
 public class SchedulerConfig {
 
-  @Value("${jobs.base-uri}")
+  @Value("${optimizer.scheduler.jobs.base-uri}")
   private String jobsBaseUri;
 
-  @Value("${scheduler.cluster-id}")
+  @Value("${optimizer.scheduler.cluster-id}")
   private String clusterId;
 
-  @Value("${scheduler.ofd.max-files-per-bin}")
+  @Value("${optimizer.scheduler.ofd.max-files-per-bin}")
   private long ofdMaxFilesPerBin;
 
   @Bean
