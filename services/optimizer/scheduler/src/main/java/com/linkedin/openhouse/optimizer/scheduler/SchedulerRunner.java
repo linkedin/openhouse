@@ -73,7 +73,7 @@ public class SchedulerRunner {
     // Unpaged: a single-page truncation would silently drop work past page 0 (next cycle would
     // re-load the same first page in MySQL row order, leaving the tail unscheduled until the
     // ordering shifts). Correctness here requires the full PENDING set in one cycle; the working
-    // set is bounded by count(PENDING for this op type), tracked in BDP-102738.
+    // set is bounded by count(PENDING for this op type).
     List<TableOperationsRow> pendingRows =
         operationsRepo.find(
             Optional.of(operationType.toDb()),

@@ -23,11 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Both sides of the join — current operations and latest history per (table, type) — are loaded
  * into maps once per database before the table loop. This is correct at small scale (≤~100k
- * tables); past that the per-db query shape and projection need further tuning. Scale-up work is
- * tracked in <a href="https://linkedin.atlassian.net/browse/BDP-102182">BDP-102182</a>.
+ * tables); past that the per-db query shape and projection need further tuning.
  *
- * <p>The per-db working-set upper bound is not yet empirically validated. Scale-test tracked in <a
- * href="https://linkedin.atlassian.net/browse/BDP-102738">BDP-102738</a>.
+ * <p>The per-db working-set upper bound is not yet empirically validated.
  */
 @Slf4j
 @Component
@@ -84,7 +82,7 @@ public class AnalyzerRunner {
     // op/history happens to fall in a different page would be misread as "no current op / no
     // history" and trigger duplicate scheduling. Correctness requires the maps to be complete
     // relative to the tables being processed; the working set is bounded by tables-in-db, not by
-    // any per-cycle cap. Memory characterization is tracked in BDP-102738.
+    // any per-cycle cap.
     Map<String, TableOperationDto> currentOps =
         operationsRepo
             .find(
