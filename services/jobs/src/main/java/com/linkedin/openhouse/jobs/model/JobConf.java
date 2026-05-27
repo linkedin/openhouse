@@ -27,6 +27,12 @@ public class JobConf {
     SQL_TEST,
     RETENTION,
     ORPHAN_FILES_DELETION,
+    /**
+     * Multi-table orphan-files-deletion. One Spark job processes a list of tables grouped by
+     * database — bin-packing happens scheduler-side. See {@code
+     * BatchedOrphanFilesDeletionSparkApp}.
+     */
+    ORPHAN_FILES_DELETION_BATCH,
     SNAPSHOTS_EXPIRATION,
     STAGED_FILES_DELETION,
     DATA_COMPACTION,

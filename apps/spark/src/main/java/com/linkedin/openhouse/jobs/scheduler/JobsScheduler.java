@@ -587,6 +587,13 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
+            .longOpt(OperationTasksBuilder.BATCH_MAX_ITEMS)
+            .desc("Max tables per batched OFD job (ORPHAN_FILES_DELETION_BATCH only)")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
             .longOpt("parallelMetadataFetchMode")
             .desc("Turn on/off parallel metadata fetch mode")
             .build());
@@ -743,6 +750,11 @@ public class JobsScheduler {
       result.setProperty(
           OperationTasksBuilder.MAX_STRATEGIES_COUNT,
           cmdLine.getOptionValue(OperationTasksBuilder.MAX_STRATEGIES_COUNT));
+    }
+    if (cmdLine.hasOption(OperationTasksBuilder.BATCH_MAX_ITEMS)) {
+      result.setProperty(
+          OperationTasksBuilder.BATCH_MAX_ITEMS,
+          cmdLine.getOptionValue(OperationTasksBuilder.BATCH_MAX_ITEMS));
     }
     return result;
   }

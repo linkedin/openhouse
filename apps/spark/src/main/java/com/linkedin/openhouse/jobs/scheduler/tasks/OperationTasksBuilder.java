@@ -9,6 +9,7 @@ import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrat
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
+import com.linkedin.openhouse.jobs.spark.BatchedOrphanFilesDeletionSparkApp;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.DataLayoutUtil;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
@@ -16,10 +17,15 @@ import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import com.linkedin.openhouse.jobs.util.TableMetadataBatch;
+import com.linkedin.openhouse.jobs.util.binpack.Bin;
+import com.linkedin.openhouse.jobs.util.binpack.BinItem;
+import com.linkedin.openhouse.jobs.util.binpack.FirstFitDecreasingBinPacker;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.stream.Collectors;
@@ -40,10 +46,12 @@ import reactor.core.scheduler.Schedulers;
 public class OperationTasksBuilder {
   public static final String MAX_COST_BUDGET_GB_HRS = "maxCostBudgetGbHrs";
   public static final String MAX_STRATEGIES_COUNT = "maxStrategiesCount";
+  public static final String BATCH_MAX_ITEMS = "batchMaxItems";
   private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.3;
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+  private static final int BATCH_MAX_ITEMS_DEFAULT = 25;
   private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
@@ -63,6 +71,80 @@ public class OperationTasksBuilder {
     List<TableMetadata> tableMetadataList = tablesClient.getTableMetadataList();
     log.info("Fetched metadata for {} tables", tableMetadataList.size());
     return processMetadataList(tableMetadataList, jobType, operationMode, otelEmitter);
+  }
+
+  /**
+   * Builds one {@link BatchedTableOrphanFilesDeletionTask} per database-scoped bin. Groups eligible
+   * tables by database (batches never cross databases), then applies the first-fit-decreasing bin
+   * packer with a per-bin item cap from {@code properties} (defaults to {@value
+   * #BATCH_MAX_ITEMS_DEFAULT}). Tables with the maintenance op disabled are filtered out before
+   * grouping.
+   */
+  private List<OperationTask<?>> prepareBatchedOrphanFilesDeletionTaskList(
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
+    int maxItemsPerBin =
+        NumberUtils.toInt(properties.getProperty(BATCH_MAX_ITEMS), BATCH_MAX_ITEMS_DEFAULT);
+    if (maxItemsPerBin > BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE) {
+      throw new IllegalArgumentException(
+          String.format(
+              "--%s=%d exceeds Spark-app ceiling MAX_BATCH_SIZE=%d",
+              BATCH_MAX_ITEMS, maxItemsPerBin, BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE));
+    }
+    List<TableMetadata> eligible =
+        tablesClient.getTableMetadataList().stream()
+            .filter(t -> !t.isMaintenanceJobDisabled(jobType))
+            .collect(Collectors.toList());
+    log.info(
+        "Fetched metadata for {} batched-OFD-eligible tables; binMaxItems={}",
+        eligible.size(),
+        maxItemsPerBin);
+
+    FirstFitDecreasingBinPacker packer =
+        FirstFitDecreasingBinPacker.builder()
+            .maxItemsPerBin(maxItemsPerBin)
+            // Item-count cap only; weight/size dimensions disabled until table_stats is wired in.
+            .maxWeightPerBin(0)
+            .maxSizeBytesPerBin(0)
+            .build();
+
+    Map<String, List<TableMetadata>> byDb =
+        eligible.stream().collect(Collectors.groupingBy(TableMetadata::getDbName));
+
+    List<TableMetadataBatch> batches = new ArrayList<>();
+    for (Map.Entry<String, List<TableMetadata>> dbGroup : byDb.entrySet()) {
+      String dbName = dbGroup.getKey();
+      List<BinItem> items =
+          dbGroup.getValue().stream()
+              .map(
+                  t ->
+                      BinItem.builder()
+                          .fqtn(t.fqtn())
+                          .operationId("")
+                          .tableUuid("")
+                          .databaseName(t.getDbName())
+                          .tableName(t.getTableName())
+                          .weight(1L)
+                          .sizeBytes(0L)
+                          .build())
+              .collect(Collectors.toList());
+      for (Bin bin : packer.pack(items)) {
+        List<TableMetadata> tablesForBin =
+            bin.items().stream()
+                .map(
+                    item ->
+                        dbGroup.getValue().stream()
+                            .filter(t -> t.fqtn().equals(item.getFqtn()))
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException("missing table for bin")))
+                .collect(Collectors.toList());
+        batches.add(TableMetadataBatch.builder().dbName(dbName).tables(tablesForBin).build());
+      }
+    }
+    log.info("Packed {} eligible tables into {} batches", eligible.size(), batches.size());
+    return processMetadataList(batches, jobType, operationMode, otelEmitter);
   }
 
   private List<OperationTask<?>> prepareReplicationOperationTaskList(
@@ -272,6 +354,9 @@ public class OperationTasksBuilder {
       case DATA_LAYOUT_STRATEGY_GENERATION:
       case SORT_STATS_COLLECTION:
         return prepareTableOperationTaskList(jobType, operationMode, otelEmitter);
+      case ORPHAN_FILES_DELETION_BATCH:
+        return prepareBatchedOrphanFilesDeletionTaskList(
+            jobType, properties, operationMode, otelEmitter);
       case REPLICATION:
         return prepareReplicationOperationTaskList(jobType, operationMode, otelEmitter);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
@@ -300,6 +385,22 @@ public class OperationTasksBuilder {
       buildDataLayoutOperationTaskListInParallel(jobType, properties, operationMode, otelEmitter);
     } else if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
       buildDatabaseLevelOperationTasksInParallel(jobType, operationMode, otelEmitter);
+    } else if (jobType == JobConf.JobTypeEnum.ORPHAN_FILES_DELETION_BATCH) {
+      // Batched OFD needs the full table set in hand before it can group-by-db and bin-pack,
+      // so we use the synchronous fetch path then enqueue the tasks in bulk.
+      List<OperationTask<?>> tasks =
+          prepareBatchedOrphanFilesDeletionTaskList(
+              jobType, properties, operationMode, otelEmitter);
+      for (OperationTask<?> task : tasks) {
+        try {
+          operationTaskManager.addData(task);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          log.warn("Interrupted while enqueueing batched OFD task", e);
+        }
+      }
+      operationTaskManager.updateDataGenerationCompletion();
+      log.info("Enqueued {} batched OFD tasks for job type: {}", tasks.size(), jobType);
     } else {
       buildOperationTaskListInParallelInternal(jobType, operationMode, otelEmitter);
     }
