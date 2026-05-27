@@ -47,6 +47,12 @@ public class OptimizerStatsRequest {
   @AllArgsConstructor
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public static class Snapshot {
+    /**
+     * Iceberg snapshot ID. Sent so the optimizer can use it as an idempotency token on upsert and
+     * reject out-of-order replays — server-side wiring tracked in BDP-102985.
+     */
+    private Long snapshotId;
+
     private String tableVersion;
     private String tableLocation;
     private Long tableSizeBytes;

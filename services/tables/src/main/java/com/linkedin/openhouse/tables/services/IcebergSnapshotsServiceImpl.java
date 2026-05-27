@@ -10,7 +10,7 @@ import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
-import com.linkedin.openhouse.tables.services.optimizer.OptimizerStatsClient;
+import com.linkedin.openhouse.tables.services.postcommit.PostCommitDispatcher;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Optional;
@@ -34,11 +34,11 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
   @Autowired AuthorizationUtils authorizationUtils;
 
   /**
-   * Present only when {@code optimizer.stats.enabled=true}. When absent, no post-commit push is
-   * attempted.
+   * Present only when {@code tables.postcommit.enabled=true}. When absent, the on-commit hook is a
+   * literal no-op and no post-commit operations run.
    */
   @Autowired(required = false)
-  Optional<OptimizerStatsClient> optimizerStatsClient = Optional.empty();
+  Optional<PostCommitDispatcher> postCommitDispatcher = Optional.empty();
 
   @Override
   public Pair<TableDto, Boolean> putIcebergSnapshots(
@@ -92,12 +92,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
     }
     try {
       TableDto savedDto = openHouseInternalRepository.save(tableDtoToSave);
-      // Fire-and-forget push of the post-commit snapshot summary to the optimizer. Returns
-      // immediately; failures are swallowed inside the client. Skipped at the client when the
-      // table is not opted in via maintenance.optimizer.stats.enabled or when there is no current
-      // snapshot (e.g. CREATE TABLE without a data commit).
-      optimizerStatsClient.ifPresent(
-          client -> client.report(savedDto, savedDto.getCurrentSnapshotSummary()));
+      postCommitDispatcher.ifPresent(d -> d.dispatch(savedDto));
       return Pair.of(savedDto, !tableDto.isPresent());
     } catch (BadRequestException e) {
       throw new RequestValidationFailureException(e.getMessage(), e);

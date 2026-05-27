@@ -20,10 +20,11 @@ public class OptimizerStatsConfig {
 
   /**
    * Dedicated WebClient for the optimizer stats endpoint. Per-attempt and outer timeouts are
-   * applied at the call site on the Reactor chain in {@link OptimizerStatsClient} — they are not
-   * configured on the underlying Netty client so that the timeout always emerges as a standard
-   * {@link java.util.concurrent.TimeoutException} (not a Netty {@code ReadTimeoutException}), which
-   * keeps the client's outcome classification simple.
+   * applied at the call site on the Reactor chain (per-attempt in {@link
+   * OptimizerStatsPostCommitOperation}, outer per-op in the {@code PostCommitDispatcher}) — they
+   * are not configured on the underlying Netty client so that the timeout always emerges as a
+   * standard {@link java.util.concurrent.TimeoutException} (not a Netty {@code
+   * ReadTimeoutException}), which keeps the dispatcher's outcome classification simple.
    */
   @Bean("optimizerStatsWebClient")
   public WebClient optimizerStatsWebClient(OptimizerStatsProperties properties) {

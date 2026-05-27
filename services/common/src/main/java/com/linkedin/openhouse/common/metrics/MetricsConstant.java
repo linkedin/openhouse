@@ -64,9 +64,11 @@ public final class MetricsConstant {
   public static final String HTS_LIST_TABLES_TIME = "hts_list_tables_time";
   public static final String HTS_SEARCH_TABLES_TIME = "hts_search_tables_time";
 
-  // Optimizer post-commit stats push (Tables → Optimizer)
-  public static final String OPTIMIZER_STATS_DURATION = "optimizer_stats_duration";
-  public static final String OPTIMIZER_STATS_ATTEMPTS = "optimizer_stats_attempts";
-  public static final String OPTIMIZER_STATS_SKIPPED = "optimizer_stats_skipped";
-  public static final String OPTIMIZER_STATS_FAILED_FINAL = "optimizer_stats_failed_final";
+  // Tables post-commit operation framework (bounded, best-effort actions after commit).
+  // Tagged with op={operation name}; on failure additionally tagged with outcome={timeout,
+  // network_error, server_error, client_error, prepare_threw, unknown_error}.
+  // The duration timer is bounded by tables.postcommit.per-op-timeout-ms.
+  public static final String POSTCOMMIT_OP_DURATION = "postcommit_op_duration";
+  public static final String POSTCOMMIT_OP_SKIPPED = "postcommit_op_skipped";
+  public static final String POSTCOMMIT_OP_FAILED = "postcommit_op_failed";
 }

@@ -25,19 +25,16 @@ public class OptimizerStatsProperties {
    */
   private String baseUri;
 
-  /** Per-attempt request timeout in milliseconds. Default 1000. */
+  /**
+   * Per-attempt HTTP timeout in milliseconds. Bounds each individual attempt so retries can fit
+   * inside the dispatcher's outer per-op budget ({@code tables.postcommit.per-op-timeout-ms},
+   * default 3000 ms). Default 1000 ms.
+   */
   private long perAttemptTimeoutMs = 1000L;
 
   /**
-   * Hard ceiling on total wall-clock time for the entire call (including retries) in milliseconds.
-   * Default 2000. When the outer timeout fires, the chain is cancelled and the error is swallowed.
-   */
-  private long totalTimeoutMs = 2000L;
-
-  /**
-   * Total attempt count (initial try plus retries). Default 3. With 1000 ms per attempt and a 2000
-   * ms outer ceiling, only about two attempts realistically fit on a slow path; the third is
-   * available if attempts return quickly.
+   * Total attempt count (initial try plus retries). Default 3. Retries fire only on retryable
+   * errors (network, timeout, 408/429/5xx); other 4xx fail fast without retry.
    */
   private int maxAttempts = 3;
 }

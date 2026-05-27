@@ -9,6 +9,7 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.TableTypeMapper;
+import com.linkedin.openhouse.tables.model.CurrentSnapshotInfo;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import java.net.URI;
@@ -135,8 +136,13 @@ public final class InternalRepositoryUtils {
             .jsonSnapshots(null)
             .tableProperties(megaProps)
             .sortOrder(SortOrderParser.toJson(table.sortOrder()))
-            .currentSnapshotSummary(
-                table.currentSnapshot() == null ? null : table.currentSnapshot().summary())
+            .currentSnapshot(
+                table.currentSnapshot() == null
+                    ? null
+                    : CurrentSnapshotInfo.builder()
+                        .snapshotId(table.currentSnapshot().snapshotId())
+                        .summary(table.currentSnapshot().summary())
+                        .build())
             .build();
 
     return tableDto;

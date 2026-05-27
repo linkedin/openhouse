@@ -34,7 +34,7 @@ public class TableDtoMappingTest {
           "snapshotRefs",
           "policies",
           "tableType",
-          "currentSnapshotSummary");
+          "currentSnapshot");
 
   /** Making all fields making it to map is expected, and all expected field are making it there. */
   @Test
