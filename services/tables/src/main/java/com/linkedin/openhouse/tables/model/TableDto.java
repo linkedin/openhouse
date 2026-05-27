@@ -85,18 +85,19 @@ public class TableDto {
 
   private boolean replaceCommit;
 
-  /**
-   * In-memory current-snapshot metadata captured when this {@code TableDto} was built from an
-   * Iceberg {@code Table}. Present whenever the underlying table has at least one committed
-   * snapshot at that point; absent for tables with no committed data (e.g. {@code CREATE TABLE}
-   * with no rows). Not persisted, not part of equality. Read through {@link #getCurrentSnapshot()}.
-   */
+  // In-memory current-snapshot metadata captured when this TableDto was built from an Iceberg
+  // Table.
+  //
+  // Present whenever the underlying table has at least one committed snapshot at that point.
+  // Absent for tables with no committed data, such as a CREATE TABLE with no rows yet.
+  //
+  // Not persisted and not part of equality. Read through getCurrentSnapshot().
   @Getter(AccessLevel.NONE)
   @Transient
   @EqualsAndHashCode.Exclude
   private CurrentSnapshotInfo currentSnapshot;
 
-  /** Returns the current-snapshot metadata if any, else {@link Optional#empty()}. */
+  // Returns the current-snapshot metadata if any, else Optional.empty().
   public Optional<CurrentSnapshotInfo> getCurrentSnapshot() {
     return Optional.ofNullable(currentSnapshot);
   }

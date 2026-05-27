@@ -6,26 +6,25 @@ import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
-/**
- * In-memory snapshot of the Iceberg current-snapshot metadata loaded alongside a {@link TableDto}.
- * Carries only fields already materialized by the catalog client — never triggers a separate HDFS
- * or object-store read. Present whenever the table has at least one committed snapshot at
- * construction time; absent (modeled as {@link java.util.Optional#empty()} on {@link TableDto}) for
- * tables with no committed data, e.g. a {@code CREATE TABLE} with no rows yet.
- */
+// In-memory snapshot of the Iceberg current-snapshot metadata that was loaded alongside a
+// TableDto.
+//
+// This carries only fields already materialized by the catalog client. Constructing it never
+// triggers a separate HDFS or object-store read.
+//
+// The value is present whenever the underlying table has at least one committed snapshot at
+// construction time. It is absent (modeled as Optional.empty() on TableDto) for tables with no
+// committed data, such as a CREATE TABLE with no rows yet.
 @Getter
 @Builder
 @AllArgsConstructor
 @EqualsAndHashCode
 public class CurrentSnapshotInfo {
 
-  /** Iceberg snapshot ID (decimal long). Stable per commit; usable as an idempotency token. */
+  // Iceberg snapshot ID. Stable per commit; usable as an idempotency token.
   private final long snapshotId;
 
-  /**
-   * Iceberg {@code Snapshot.summary()} map, unmodified. Keys include {@code total-data-files},
-   * {@code total-files-size}, {@code added-data-files}, {@code deleted-data-files}, {@code
-   * added-files-size}, {@code removed-files-size}.
-   */
+  // Iceberg Snapshot.summary() map, unmodified. Keys include total-data-files, total-files-size,
+  // added-data-files, deleted-data-files, added-files-size, removed-files-size.
   private final Map<String, String> summary;
 }

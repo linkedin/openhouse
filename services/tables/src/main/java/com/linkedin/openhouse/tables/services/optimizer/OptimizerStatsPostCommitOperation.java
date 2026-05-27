@@ -18,38 +18,38 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 import reactor.util.retry.RetrySpec;
 
-/**
- * {@link PostCommitOperation} that PUTs a snapshot-stats record to the optimizer's per-table stats
- * endpoint. {@link #prepare(TableDto)} returns a {@link Mono} that completes on HTTP 2xx and
- * signals an error otherwise; the dispatcher owns timeout, subscription, error swallowing, and
- * metric emission. Returns {@link Optional#empty()} when the table is not opted in via {@link
- * #OPT_IN_PROPERTY} or has no current snapshot. Internal retry is bounded by {@link
- * OptimizerStatsProperties#getMaxAttempts()} and fires only on retryable errors (network, {@link
- * TimeoutException}, HTTP 408 / 429 / 5xx); the dispatcher's per-op timeout is the hard ceiling.
- * Bean wired only when {@code optimizer.stats.enabled=true}. Path constant is intentionally
- * duplicated from {@code TableStatsController.TABLE_PATH_TEMPLATE} (keep in sync) so the tables
- * service does not take a compile-time dependency on the optimizer jar.
- */
+// A PostCommitOperation that PUTs a snapshot-stats record to the optimizer's per-table stats
+// endpoint.
+//
+// prepare() returns a Mono that completes on HTTP 2xx and signals an error otherwise. The
+// dispatcher owns the timeout, the subscription, error swallowing, and metric emission. The
+// returned value is Optional.empty() when the table is not opted in via OPT_IN_PROPERTY or has
+// no current snapshot.
+//
+// Internal retry is bounded by OptimizerStatsProperties.maxAttempts and fires only on retryable
+// errors: network failures, a TimeoutException, or HTTP 408 / 429 / 5xx responses. The
+// dispatcher's per-op timeout is the hard ceiling on the whole chain.
+//
+// The bean is wired only when optimizer.stats.enabled=true. PATH_TEMPLATE is intentionally
+// duplicated from TableStatsController.TABLE_PATH_TEMPLATE so the tables service does not take a
+// compile-time dependency on the optimizer jar. Keep both copies in sync.
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "optimizer.stats", name = "enabled", havingValue = "true")
 public class OptimizerStatsPostCommitOperation implements PostCommitOperation {
 
-  /** Metric tag value for {@code op}. */
+  // Metric tag value for the "op" tag.
   static final String OP_NAME = "optimizer_stats";
 
-  /**
-   * Per-call URL path. Intentionally duplicated from {@code
-   * TableStatsController.TABLE_PATH_TEMPLATE}; keep in sync.
-   */
+  // Per-call URL path. Intentionally duplicated from TableStatsController.TABLE_PATH_TEMPLATE so
+  // that we avoid a compile-time dependency on the optimizer jar. Keep both copies in sync.
   static final String PATH_TEMPLATE = "/v1/optimizer/stats/{tableUuid}";
 
-  /** Table-property key that opts a table in for the post-commit stats push. */
+  // Table-property key that opts a table in for the post-commit stats push.
   static final String OPT_IN_PROPERTY = "maintenance.optimizer.stats.enabled";
 
-  /** Iceberg snapshot-summary keys we read. All values are decimal-string longs. */
+  // Iceberg snapshot-summary keys we read. All values are decimal-string longs.
   static final String SUMMARY_TOTAL_DATA_FILES = "total-data-files";
-
   static final String SUMMARY_TOTAL_FILES_SIZE = "total-files-size";
   static final String SUMMARY_ADDED_DATA_FILES = "added-data-files";
   static final String SUMMARY_DELETED_DATA_FILES = "deleted-data-files";
@@ -100,13 +100,14 @@ public class OptimizerStatsPostCommitOperation implements PostCommitOperation {
     return Optional.of(chain);
   }
 
-  /** {@code true} iff the table's properties contain the literal opt-in value {@code "true"}. */
+  // Returns true when the table's properties contain the literal opt-in value "true" for the
+  // configured OPT_IN_PROPERTY.
   private boolean isOptedIn(TableDto saved) {
     Map<String, String> props = saved.getTableProperties();
     return props != null && "true".equals(props.get(OPT_IN_PROPERTY));
   }
 
-  /** Build the wire body. Missing summary keys default to 0L. */
+  // Builds the wire body. Missing summary keys default to 0L.
   OptimizerStatsRequest buildRequest(TableDto saved, CurrentSnapshotInfo snapshot) {
     Map<String, String> summary = snapshot.getSummary();
     OptimizerStatsRequest.Snapshot snapshotPayload =
@@ -132,10 +133,10 @@ public class OptimizerStatsPostCommitOperation implements PostCommitOperation {
         .build();
   }
 
-  /**
-   * Retryable errors: per-attempt timeout, network-level failures, 5xx, 408, 429. Other 4xx are
-   * client errors — retrying won't fix them.
-   */
+  // Returns true for errors that a later attempt could plausibly succeed against: a per-attempt
+  // timeout, a network-level failure, or an HTTP 5xx / 408 / 429 response.
+  //
+  // Other 4xx responses are client errors that retries cannot fix, so we fail fast on them.
   boolean isRetryable(Throwable e) {
     if (e instanceof TimeoutException) {
       return true;

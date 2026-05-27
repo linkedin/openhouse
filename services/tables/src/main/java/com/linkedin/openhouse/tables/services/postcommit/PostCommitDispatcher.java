@@ -16,14 +16,16 @@ import org.springframework.web.reactive.function.client.WebClientRequestExceptio
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
-/**
- * Runs {@link PostCommitOperation}s after a successful Iceberg commit. Each operation gets a
- * wall-clock timeout ({@code tables.postcommit.per-op-timeout-ms}), errors are swallowed after
- * metric/log, and dispatch is fire-and-forget so the commit thread is never blocked. Operations
- * describe payload and endpoint only — the timeout/swallow/subscribe machinery lives here so the
- * contract across operations is uniform. Bean wired only when {@code
- * tables.postcommit.enabled=true}.
- */
+// Runs PostCommitOperations after a successful Iceberg commit.
+//
+// Each operation receives a wall-clock timeout from tables.postcommit.per-op-timeout-ms. Any
+// error the operation signals is recorded as a metric and a log line, then swallowed. Dispatch
+// is fire-and-forget, so the commit thread is never blocked on operation work.
+//
+// Operations describe payload and endpoint only. The timeout, error swallowing, subscription,
+// and metric emission all live here, so the contract across operations stays uniform.
+//
+// The bean is constructed only when tables.postcommit.enabled=true.
 @Slf4j
 @Component
 @EnableConfigurationProperties(PostCommitProperties.class)
@@ -43,22 +45,24 @@ public class PostCommitDispatcher {
     this.meterRegistry = meterRegistry;
   }
 
-  /**
-   * Dispatch all registered operations for {@code savedDto}. Returns immediately on the calling
-   * thread; each operation runs on its underlying reactive scheduler. Never throws.
-   */
+  // Dispatches all registered operations for savedDto.
+  //
+  // Returns immediately on the calling thread. Each operation runs on its underlying reactive
+  // scheduler. This method never throws.
   public void dispatch(TableDto savedDto) {
     for (PostCommitOperation op : operations) {
       decorate(op, savedDto).ifPresent(Mono::subscribe);
     }
   }
 
-  /**
-   * Returns the fully-decorated {@link Mono} for {@code op} (per-op timeout, success/error metric
-   * emission, error swallow) without subscribing. Emits {@code skipped} or {@code prepare_threw}
-   * synchronously and returns {@link Optional#empty()} in those cases. Package-private so tests can
-   * {@code .block()} on the chain rather than poll for metric emission.
-   */
+  // Returns the fully-decorated Mono for op without subscribing to it.
+  //
+  // The decoration applies the per-op timeout, records the success or error metric, and swallows
+  // any error. When the operation does not apply (or its prepare() throws synchronously), this
+  // method emits the "skipped" or "prepare_threw" metric and returns Optional.empty().
+  //
+  // Package-private so that tests can .block() on the chain rather than poll for metric emission
+  // after a fire-and-forget subscription.
   Optional<Mono<Void>> decorate(PostCommitOperation op, TableDto savedDto) {
     Optional<Mono<Void>> work;
     try {
@@ -109,10 +113,8 @@ public class PostCommitDispatcher {
     return Optional.of(decorated);
   }
 
-  /**
-   * Map a terminal error to a small set of outcome tags. Kept here so all operations share the same
-   * taxonomy.
-   */
+  // Maps a terminal error to a small set of outcome tags. The classifier lives here so that all
+  // operations share the same taxonomy.
   private static String classifyOutcome(Throwable e) {
     if (e instanceof TimeoutException) {
       return "timeout";
