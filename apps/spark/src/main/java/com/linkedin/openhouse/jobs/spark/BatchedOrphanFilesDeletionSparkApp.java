@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.Iterables;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.exception.TableValidationException;
@@ -130,8 +130,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     ExecutorService pool = Executors.newFixedThreadPool(driverParallelism);
     try {
       // Two-phase pipeline: submit every worker first (so they run concurrently), then await each.
-      // Pairing each Future with its BatchEntry via AbstractMap.SimpleImmutableEntry lets us avoid
-      // the indexed `entries.get(i)` access the reviewer flagged.
+      // Pairing each Future with its BatchEntry via AbstractMap.SimpleImmutableEntry.
       List<Map.Entry<BatchEntry, Future<Boolean>>> submissions =
           entries.stream()
               .map(
@@ -246,7 +245,10 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
                 concurrentDeletes,
                 streamResults,
                 maxOrphanFileSampleSize);
-        int orphanCount = Lists.newArrayList(result.orphanFileLocations().iterator()).size();
+        // Count via iteration rather than materializing the full path list: a table with millions
+        // of orphan files would otherwise OOM the driver, and that risk multiplies with
+        // driverParallelism workers running concurrently.
+        int orphanCount = Iterables.size(result.orphanFileLocations());
         otelEmitter.count(
             METRICS_SCOPE,
             AppConstants.ORPHAN_FILE_COUNT,
