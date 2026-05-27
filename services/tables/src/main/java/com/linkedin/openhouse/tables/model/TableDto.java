@@ -16,6 +16,7 @@ import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
+import javax.persistence.Transient;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -82,6 +83,18 @@ public class TableDto {
   private boolean stageReplace;
 
   private boolean replaceCommit;
+
+  /**
+   * Iceberg {@code Snapshot.summary()} for the current snapshot at the time the {@code TableDto}
+   * was constructed (post-commit on save; post-load on read). Populated only when an Iceberg {@code
+   * Table} is available — i.e. by {@code InternalRepositoryUtils.convertToTableDto}. Not persisted,
+   * not part of equality.
+   *
+   * <p>Used downstream by the optimizer post-commit stats push (see {@code
+   * services.optimizer.OptimizerStatsClient}) so that the service layer can read snapshot stats
+   * without a separate HDFS round-trip.
+   */
+  @Transient @EqualsAndHashCode.Exclude private Map<String, String> currentSnapshotSummary;
 
   /**
    * Bundling eligible string type field into a map as {@link org.mapstruct.Mapper} doesn't provide

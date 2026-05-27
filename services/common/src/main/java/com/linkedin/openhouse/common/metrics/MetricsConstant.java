@@ -63,4 +63,10 @@ public final class MetricsConstant {
   public static final String HTS_LIST_TABLES_REQUEST = "hts_list_tables_request";
   public static final String HTS_LIST_TABLES_TIME = "hts_list_tables_time";
   public static final String HTS_SEARCH_TABLES_TIME = "hts_search_tables_time";
+
+  // Optimizer post-commit stats push (Tables → Optimizer)
+  public static final String OPTIMIZER_STATS_DURATION = "optimizer_stats_duration";
+  public static final String OPTIMIZER_STATS_ATTEMPTS = "optimizer_stats_attempts";
+  public static final String OPTIMIZER_STATS_SKIPPED = "optimizer_stats_skipped";
+  public static final String OPTIMIZER_STATS_FAILED_FINAL = "optimizer_stats_failed_final";
 }

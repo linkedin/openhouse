@@ -135,6 +135,8 @@ public final class InternalRepositoryUtils {
             .jsonSnapshots(null)
             .tableProperties(megaProps)
             .sortOrder(SortOrderParser.toJson(table.sortOrder()))
+            .currentSnapshotSummary(
+                table.currentSnapshot() == null ? null : table.currentSnapshot().summary())
             .build();
 
     return tableDto;

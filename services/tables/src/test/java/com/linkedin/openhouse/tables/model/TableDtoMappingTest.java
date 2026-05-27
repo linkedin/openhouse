@@ -33,7 +33,8 @@ public class TableDtoMappingTest {
           "jsonSnapshots",
           "snapshotRefs",
           "policies",
-          "tableType");
+          "tableType",
+          "currentSnapshotSummary");
 
   /** Making all fields making it to map is expected, and all expected field are making it there. */
   @Test
