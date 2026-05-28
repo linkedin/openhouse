@@ -11,11 +11,13 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.persistence.Convert;
 import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
+import javax.persistence.Transient;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -82,6 +84,23 @@ public class TableDto {
   private boolean stageReplace;
 
   private boolean replaceCommit;
+
+  // In-memory current-snapshot metadata captured when this TableDto was built from an Iceberg
+  // Table.
+  //
+  // Present whenever the underlying table has at least one committed snapshot at that point.
+  // Absent for tables with no committed data, such as a CREATE TABLE with no rows yet.
+  //
+  // Not persisted and not part of equality. Read through getCurrentSnapshot().
+  @Getter(AccessLevel.NONE)
+  @Transient
+  @EqualsAndHashCode.Exclude
+  private CurrentSnapshotInfo currentSnapshot;
+
+  // Returns the current-snapshot metadata if any, else Optional.empty().
+  public Optional<CurrentSnapshotInfo> getCurrentSnapshot() {
+    return Optional.ofNullable(currentSnapshot);
+  }
 
   /**
    * Bundling eligible string type field into a map as {@link org.mapstruct.Mapper} doesn't provide

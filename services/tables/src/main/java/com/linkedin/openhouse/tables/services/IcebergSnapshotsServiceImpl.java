@@ -6,11 +6,11 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
-import com.linkedin.openhouse.tables.config.OptimizerTableStatsClient;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.services.postcommit.PostCommitDispatcher;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Optional;
@@ -33,9 +33,12 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
 
   @Autowired AuthorizationUtils authorizationUtils;
 
-  /** Optional — wired only when {@code cluster.optimizer.base-uri} is set. */
+  /**
+   * Present only when {@code tables.postcommit.enabled=true}. When absent, the on-commit hook is a
+   * literal no-op and no post-commit operations run.
+   */
   @Autowired(required = false)
-  OptimizerTableStatsClient optimizerTableStatsClient;
+  Optional<PostCommitDispatcher> postCommitDispatcher = Optional.empty();
 
   @Override
   public Pair<TableDto, Boolean> putIcebergSnapshots(
@@ -88,11 +91,9 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
     try {
-      TableDto saved = openHouseInternalRepository.save(tableDtoToSave);
-      if (optimizerTableStatsClient != null) {
-        optimizerTableStatsClient.upsertTableStats(saved);
-      }
-      return Pair.of(saved, !tableDto.isPresent());
+      TableDto savedDto = openHouseInternalRepository.save(tableDtoToSave);
+      postCommitDispatcher.ifPresent(d -> d.dispatch(savedDto));
+      return Pair.of(savedDto, !tableDto.isPresent());
     } catch (BadRequestException e) {
       throw new RequestValidationFailureException(e.getMessage(), e);
     } catch (CommitFailedException ce) {

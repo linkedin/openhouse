@@ -96,11 +96,4 @@ public class ClusterProperties {
   // string
   @Value("${cluster.tables.allowed-client-name-values:}")
   private List<String> allowedClientNameValues;
-
-  /**
-   * Base URI of the optimizer service. When set, the Tables Service POSTs a stats snapshot to the
-   * optimizer on every successful Iceberg commit; when null, the hook is a no-op.
-   */
-  @Value("${cluster.optimizer.base-uri:#{null}}")
-  private String clusterOptimizerBaseUri;
 }

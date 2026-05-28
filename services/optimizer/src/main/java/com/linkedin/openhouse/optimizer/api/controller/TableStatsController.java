@@ -24,9 +24,21 @@ import org.springframework.web.server.ResponseStatusException;
 
 /** REST controller for managing per-table stats in the optimizer DB. */
 @RestController
-@RequestMapping("/v1/optimizer/stats")
+@RequestMapping(TableStatsController.BASE_PATH)
 @RequiredArgsConstructor
 public class TableStatsController {
+
+  /**
+   * Base path for the stats endpoints. Single source of truth — external callers must reference.
+   */
+  public static final String BASE_PATH = "/v1/optimizer/stats";
+
+  /**
+   * URI template (with {@code {tableUuid}} placeholder) for the per-table stats upsert/fetch
+   * endpoint. Use this from any client that calls the optimizer over HTTP, rather than rebuilding
+   * the path inline.
+   */
+  public static final String TABLE_PATH_TEMPLATE = BASE_PATH + "/{tableUuid}";
 
   private final OptimizerDataService service;
 
