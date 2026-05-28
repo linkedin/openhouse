@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional explicit version (e.g. 0.5.417.1). Leave blank to auto-compute the next hotfix suffix from the nearest base tag. Ignored for main pushes.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write  # For git tagging
@@ -25,7 +32,7 @@ jobs:
           fetch-depth: 0
 
       - name: Bump version and push tag
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         uses: anothrNick/github-tag-action@1.69.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -34,23 +41,44 @@ jobs:
           DRY_RUN: false # if true, will not push tag
           INITIAL_VERSION: 0.5.0 # if no tags, will use this version
 
-      - name: Get the latest tag
+      - name: Resolve semVer (main push -> latest tag, hotfix dispatch -> input or auto-compute)
         id: get_tag
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.repository == 'linkedin/openhouse' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/'))) }}
         run: |
-          latest_tag=$(git describe --tags --abbrev=0 main)
-          semVer=${latest_tag:1} # Remove the first character ('v')
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            input_ver="${{ inputs.version }}"
+            if [ -n "${input_ver}" ]; then
+              # Manual override
+              semVer="${input_ver}"
+              tag="v${semVer}"
+            else
+              # Auto-compute: find nearest 3-component base tag (e.g. v0.5.417) reachable from HEAD,
+              # then bump the trailing hotfix suffix (v0.5.417.1, .2, ...).
+              base=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude 'v*.*.*.*' HEAD)
+              base_num=${base#v}
+              last=$(git tag --list "v${base_num}.*" | sed "s|^v${base_num}\.||" | sort -n | tail -1)
+              next=$(( ${last:-0} + 1 ))
+              semVer="${base_num}.${next}"
+              tag="v${semVer}"
+            fi
+          else
+            latest_tag=$(git describe --tags --abbrev=0 main)
+            semVer=${latest_tag:1} # Remove the first character ('v')
+            tag="${latest_tag}"
+          fi
           echo "semVer=${semVer}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved semVer=${semVer}, tag=${tag}"
 
       - name: Publish with Gradle
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.repository == 'linkedin/openhouse' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/'))) }}
         env:
           JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
           JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
         run: ./gradlew publish -Pversion=${{ steps.get_tag.outputs.semVer }}
 
       - name: Login to LinkedIn Jfrog Docker artifactory
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.repository == 'linkedin/openhouse' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/'))) }}
         uses: docker/login-action@v3
         with:
           registry: linkedin-openhouse-docker.jfrog.io
@@ -58,28 +86,38 @@ jobs:
           password: ${{ secrets.JFROG_DOCKER_PASSWORD }}
 
       - name: Build and push Docker image for Tables Service
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.repository == 'linkedin/openhouse' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/'))) }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ steps.get_tag.outputs.semVer }} -f tables-service.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/tables-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for House Tables Service
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.repository == 'linkedin/openhouse' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/'))) }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }} -f housetables-service.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for Jobs Service
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.repository == 'linkedin/openhouse' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/'))) }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ steps.get_tag.outputs.semVer }} -f jobs-service.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for Jobs Scheduler
-        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
+        if: ${{ success() && github.repository == 'linkedin/openhouse' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/'))) }}
         run: |
           docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ steps.get_tag.outputs.semVer }} -f jobs-scheduler.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/jobs-scheduler:${{ steps.get_tag.outputs.semVer }}
+
+      - name: Tag hotfix release
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/hotfix/') && github.repository == 'linkedin/openhouse' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag ${{ steps.get_tag.outputs.tag }}
+          git push origin ${{ steps.get_tag.outputs.tag }}
 
   build-publish-python:
     name: Build and Publish Python
