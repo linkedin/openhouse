@@ -69,7 +69,10 @@ for entry in $TABLES; do
   "$SCRIPT_DIR/local-spark-sql.sh" "DROP TABLE IF EXISTS openhouse.db1.$TABLE" > /dev/null
   "$SCRIPT_DIR/local-spark-sql.sh" "CREATE TABLE openhouse.db1.$TABLE (
     id STRING, val STRING
-  ) TBLPROPERTIES ('maintenance.optimizer.ofd.enabled'='true')" > /dev/null
+  ) TBLPROPERTIES (
+    'maintenance.optimizer.ofd.enabled'='true',
+    'maintenance.optimizer.stats.enabled'='true'
+  )" > /dev/null
 
   for i in $(seq 1 "$WRITES"); do
     "$SCRIPT_DIR/local-spark-sql.sh" \
@@ -88,10 +91,41 @@ for entry in $TABLES; do
   echo "$TABLE=$TABLE_UUID" >> /tmp/demo_ofd_uuids.txt
 done
 
-STATS_COUNT=$(curl -sf "$OPT_API/v1/optimizer/stats?limit=100" | jq 'length')
+# Stats push is async fire-and-forget; the dispatcher subscribes on the Netty event
+# loop after the commit thread returns. Poll briefly for the rows to settle so we
+# don't false-fail before the loop wakes up.
+echo ""
+echo "=== [Wait] Tables on-commit stats push to land in optimizer DB ==="
+STATS_WAIT_SECS=30
+i=0
+STATS_COUNT=0
+while [ $i -lt "$STATS_WAIT_SECS" ]; do
+  STATS_COUNT=$(curl -sf "$OPT_API/v1/optimizer/stats?limit=100" | jq 'length')
+  [ "$STATS_COUNT" -ge "$TABLE_COUNT" ] && break
+  printf "  stats rows: %d/%d (waited %ds)\r" "$STATS_COUNT" "$TABLE_COUNT" "$i"
+  sleep 2
+  i=$((i + 2))
+done
+echo ""
 [ "$STATS_COUNT" -ge "$TABLE_COUNT" ] \
-  || { echo "FAIL: expected $TABLE_COUNT stats rows, got $STATS_COUNT"; exit 1; }
+  || { echo "FAIL: expected $TABLE_COUNT stats rows, got $STATS_COUNT after ${STATS_WAIT_SECS}s"; exit 1; }
 echo "PASS: $STATS_COUNT stats rows posted by Tables Service on-commit hook"
+
+# Verify the new payload shape carries snapshot stats, not just identity fields.
+# Pick one table and confirm the optimizer recorded a non-zero numCurrentFiles, a
+# non-zero tableSizeBytes, and the snapshot ID we sent.
+SAMPLE_UUID=$(head -n1 /tmp/demo_ofd_uuids.txt | cut -d= -f2)
+SAMPLE_ROW=$(curl -sf "$OPT_API/v1/optimizer/stats/$SAMPLE_UUID")
+SAMPLE_NUM_FILES=$(echo "$SAMPLE_ROW" | jq -r '.stats.snapshot.numCurrentFiles // 0')
+SAMPLE_SIZE=$(echo "$SAMPLE_ROW" | jq -r '.stats.snapshot.tableSizeBytes // 0')
+SAMPLE_SNAPSHOT_ID=$(echo "$SAMPLE_ROW" | jq -r '.stats.snapshot.snapshotId // empty')
+[ "$SAMPLE_NUM_FILES" -gt 0 ] \
+  || { echo "FAIL: sample stats row has numCurrentFiles=$SAMPLE_NUM_FILES, expected > 0"; exit 1; }
+[ "$SAMPLE_SIZE" -gt 0 ] \
+  || { echo "FAIL: sample stats row has tableSizeBytes=$SAMPLE_SIZE, expected > 0"; exit 1; }
+[ -n "$SAMPLE_SNAPSHOT_ID" ] \
+  || { echo "FAIL: sample stats row missing snapshotId"; exit 1; }
+echo "PASS: sample stats row carries snapshot payload (files=$SAMPLE_NUM_FILES, bytes=$SAMPLE_SIZE, snapshotId=$SAMPLE_SNAPSHOT_ID)"
 
 echo ""
 echo "=== [2/4] Expire old snapshots (creates orphan data files) ==="

@@ -22,7 +22,10 @@ services:
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
       - OTEL_TRACES_SAMPLER=always_on
-      - CLUSTER_OPTIMIZER_BASE_URI=http://openhouse-optimizer:8080
+      # Post-commit operation framework: enable the dispatcher and the optimizer-stats op.
+      - TABLES_POSTCOMMIT_ENABLED=true
+      - OPTIMIZER_STATS_ENABLED=true
+      - OPTIMIZER_STATS_BASE_URI=http://openhouse-optimizer:8080
 
   openhouse-jobs:
     container_name: local.openhouse-jobs
