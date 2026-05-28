@@ -265,8 +265,35 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     try {
       // Now that we have metadataLocation we stamp it in metadata property.
       Map<String, String> properties = new HashMap<>(metadata.properties());
+
+      // Capture the writer's declared base BEFORE failIfRetryUpdate strips COMMIT_KEY. The value
+      // is the writer's request body's baseTableVersion (set on the transaction by
+      // OpenHouseInternalRepositoryImpl.save's `updateProperties.set(COMMIT_KEY, ...).commit()`),
+      // which equals the metadata file path the writer's local view was loaded from.
+      String writerClaimedBase = properties.get(CatalogConstants.COMMIT_KEY);
+
       failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
+
+      // Abort if the transaction's base has advanced past what the writer claimed it was
+      // committing against. This catches the SNAPSHOTS_EXPIRATION race-orphan bug class:
+      // BaseTransaction.applyUpdates:497 silently refreshes the transaction's base mid-commit,
+      // which would otherwise cause the subtractive merge below (lines 336-343) to interpret
+      // racing-acquired snapshots as writer-intended removals and silently drop them.
+      //
+      // Analog of HiveTableOperations:210 and HadoopTableOperations:133 — visible failure on
+      // stale-base commits, surfacing through Iceberg's BaseMetastoreTableOperations.commit
+      // retry path to the application instead of corrupting silently.
+      if (base != null
+          && writerClaimedBase != null
+          && !CatalogConstants.INITIAL_VERSION.equals(writerClaimedBase)
+          && !isSameMetadataPath(writerClaimedBase, base.metadataFileLocation())) {
+        throw new CommitFailedException(
+            "Cannot commit: writer's declared base [%s] does not match the table's current base "
+                + "[%s] for table %s. The catalog advanced after the writer constructed its "
+                + "request. Refresh and retry.",
+            writerClaimedBase, base.metadataFileLocation(), tableIdentifier);
+      }
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -580,6 +607,23 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
 
     return builder.build();
+  }
+
+  /**
+   * Compare two metadata file paths ignoring URI scheme/authority. The writer's declared base may
+   * carry a scheme (e.g. {@code hdfs://cluster/...}) while internal Iceberg metadata locations are
+   * scheme-less, or vice versa, depending on the FileIO configuration. We compare on the underlying
+   * path component to avoid spurious mismatches.
+   */
+  private static boolean isSameMetadataPath(String a, String b) {
+    if (java.util.Objects.equals(a, b)) {
+      return true;
+    }
+    if (a == null || b == null) {
+      return false;
+    }
+    return java.util.Objects.equals(
+        java.net.URI.create(a).getPath(), java.net.URI.create(b).getPath());
   }
 
   /**
