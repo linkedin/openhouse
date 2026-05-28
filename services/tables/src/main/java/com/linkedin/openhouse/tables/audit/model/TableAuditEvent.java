@@ -42,5 +42,7 @@ public class TableAuditEvent extends BaseAuditEvent {
 
   private Long currentSnapshotTimestampMs;
 
+  private String branchRefName;
+
   private Map<String, String> tableProperties;
 }

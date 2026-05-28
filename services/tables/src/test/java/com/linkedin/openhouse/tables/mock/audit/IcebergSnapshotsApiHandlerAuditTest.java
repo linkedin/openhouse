@@ -114,10 +114,64 @@ public class IcebergSnapshotsApiHandlerAuditTest {
   }
 
   @Test
+  public void testPutIcebergSnapshotsMainCommitSetsBranchRefNameToMain() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    assertEquals("main", argCaptor.getValue().getBranchRefName());
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsNamedBranchCommitSetsBranchRefName() throws Exception {
+    // Realistic named-branch commit: main ref exists but its snapshot is NOT in jsonSnapshots
+    // (main didn't advance). Only the feature branch got a new snapshot.
+    String newSnapshotJson =
+        "{\n"
+            + "  \"snapshot-id\" : 999,\n"
+            + "  \"timestamp-ms\" : 5000,\n"
+            + "  \"summary\" : {\"operation\": \"append\"},\n"
+            + "  \"manifest-list\" : \"/tmp/feature.avro\",\n"
+            + "  \"schema-id\" : 0\n"
+            + "}";
+    Map<String, String> refs = new HashMap<>();
+    refs.put("main", "{\"snapshot-id\":100,\"type\":\"branch\"}"); // main stayed at old snapshot
+    refs.put("feature", "{\"snapshot-id\":999,\"type\":\"branch\"}"); // feature got new snapshot
+
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion("v1")
+            .jsonSnapshots(Collections.singletonList(newSnapshotJson))
+            .snapshotRefs(refs)
+            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
+            .build();
+
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    assertEquals("feature", actualEvent.getBranchRefName());
+    // main didn't advance, so currentSnapshotId is main's old snapshot and timestamp is null
+    assertEquals(100L, actualEvent.getCurrentSnapshotId().longValue());
+    assertNull(actualEvent.getCurrentSnapshotTimestampMs());
+  }
+
+  @Test
   public void testPutIcebergSnapshotsBranchOnlyCommitLeavesSnapshotInfoNull() throws Exception {
-    // Simulate a branch-only commit where main is absent from snapshotRefs.
-    // In this case the main branch ref doesn't exist, so currentSnapshotId /
-    // currentSnapshotTimestampMs should be null.
+    // Simulate a branch-only commit where main is absent from snapshotRefs entirely.
+    // currentSnapshotId / currentSnapshotTimestampMs are null (no main), but branchRefName
+    // is still populated from the ref that received the new snapshot.
     IcebergSnapshotsRequestBody branchOnlyRequestBody =
         IcebergSnapshotsRequestBody.builder()
             .baseTableVersion("v1")
@@ -138,6 +192,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .content(branchOnlyRequestBody.toJson()));
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
+    assertEquals("my_branch", actualEvent.getBranchRefName());
     assertNull(actualEvent.getCurrentSnapshotId());
     assertNull(actualEvent.getCurrentSnapshotTimestampMs());
   }
@@ -188,6 +243,8 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertEquals(100L, actualEvent.getCurrentSnapshotId().longValue());
     assertEquals(1000L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
+    // The last snapshot (200) belongs to feature — that is the committed branch.
+    assertEquals("feature", actualEvent.getBranchRefName());
   }
 
   @Test

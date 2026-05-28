@@ -402,22 +402,38 @@ public class TableAuditAspect {
   }
 
   /**
-   * Extracts snapshot ID and timestamp of the main branch from the request body. The snapshotRefs
-   * map contains branch name to JSON-serialized SnapshotRef. We read the main branch's snapshot-id
-   * (this is what Iceberg treats as current-snapshot-id — see TableMetadata.Builder.setRef()) and
-   * then find the matching snapshot in jsonSnapshots to get its timestamp-ms.
+   * Extracts snapshot ID, timestamp, and branch ref name from the request body.
    *
-   * <p>Leaves both fields null if the main branch ref is absent (e.g. branch-only commits where
-   * main didn't advance, or non-commit operations) or if the matching snapshot can't be found.
+   * <p>branchRefName is the ref whose snapshot-id matches the last snapshot in jsonSnapshots.
+   * Iceberg appends snapshots chronologically, so the last one is always the newly-committed
+   * snapshot, and the ref pointing to it is the branch that was written.
+   *
+   * <p>currentSnapshotId and currentSnapshotTimestampMs track the main branch ref for backwards
+   * compatibility. They are null when main is absent from snapshotRefs.
    */
   private void extractSnapshotInfo(
       IcebergSnapshotsRequestBody requestBody,
       TableAuditEvent.TableAuditEventBuilder eventBuilder) {
     try {
       Map<String, String> snapshotRefs = requestBody.getSnapshotRefs();
-      if (snapshotRefs == null) {
+      List<String> jsonSnapshots = requestBody.getJsonSnapshots();
+      if (snapshotRefs == null || jsonSnapshots == null || jsonSnapshots.isEmpty()) {
         return;
       }
+
+      // The last snapshot in the list is the one being committed (Iceberg appends chronologically).
+      // Find which ref points to it — that is the branch being written.
+      long lastSnapshotId =
+          SnapshotParser.fromJson(jsonSnapshots.get(jsonSnapshots.size() - 1)).snapshotId();
+      for (Map.Entry<String, String> entry : snapshotRefs.entrySet()) {
+        if (SnapshotRefParser.fromJson(entry.getValue()).snapshotId() == lastSnapshotId) {
+          eventBuilder.branchRefName(entry.getKey());
+          break;
+        }
+      }
+
+      // Extract snapshot ID and timestamp for main branch (backwards-compatible).
+      // Iterate jsonSnapshots in reverse: main's snapshot is typically the most recent.
       String mainRefJson = snapshotRefs.get(SnapshotRef.MAIN_BRANCH);
       if (mainRefJson == null) {
         return;
@@ -425,14 +441,6 @@ public class TableAuditAspect {
       long mainSnapshotId = SnapshotRefParser.fromJson(mainRefJson).snapshotId();
       eventBuilder.currentSnapshotId(mainSnapshotId);
 
-      // Find the matching snapshot in jsonSnapshots to get its timestamp-ms. Iterate in reverse
-      // because Iceberg appends snapshots chronologically and main's snapshot is typically the
-      // most recent. Skip snapshots whose JSON doesn't contain the target id as a cheap
-      // pre-filter before invoking the JSON parser.
-      List<String> jsonSnapshots = requestBody.getJsonSnapshots();
-      if (jsonSnapshots == null) {
-        return;
-      }
       String mainSnapshotIdStr = Long.toString(mainSnapshotId);
       for (int i = jsonSnapshots.size() - 1; i >= 0; i--) {
         String snapshotJson = jsonSnapshots.get(i);
