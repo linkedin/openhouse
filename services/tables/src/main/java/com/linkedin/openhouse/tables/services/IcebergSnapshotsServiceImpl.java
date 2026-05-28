@@ -10,6 +10,7 @@ import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.services.postcommit.PostCommitDispatcher;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Optional;
@@ -31,6 +32,13 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
   @Autowired TableUUIDGenerator tableUUIDGenerator;
 
   @Autowired AuthorizationUtils authorizationUtils;
+
+  /**
+   * Present only when {@code tables.postcommit.enabled=true}. When absent, the on-commit hook is a
+   * literal no-op and no post-commit operations run.
+   */
+  @Autowired(required = false)
+  Optional<PostCommitDispatcher> postCommitDispatcher = Optional.empty();
 
   @Override
   public Pair<TableDto, Boolean> putIcebergSnapshots(
@@ -83,7 +91,9 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
     try {
-      return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
+      TableDto savedDto = openHouseInternalRepository.save(tableDtoToSave);
+      postCommitDispatcher.ifPresent(d -> d.dispatch(savedDto));
+      return Pair.of(savedDto, !tableDto.isPresent());
     } catch (BadRequestException e) {
       throw new RequestValidationFailureException(e.getMessage(), e);
     } catch (CommitFailedException ce) {
