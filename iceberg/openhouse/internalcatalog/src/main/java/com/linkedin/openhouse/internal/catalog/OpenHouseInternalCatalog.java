@@ -126,15 +126,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   }
 
   /**
-   * Paginated listing that preserves the underlying {@link HouseTable} rows, so callers can read
-   * HTS-resident columns (e.g. tableLocation) without an extra metadata.json load per table.
-   */
-  public Page<HouseTable> listHouseTables(Namespace namespace, Pageable pageable) {
-    NamespaceUtil.validateOperationNamespace(namespace);
-    return houseTableRepository.findAllByDatabaseId(namespace.toString(), pageable);
-  }
-
-  /**
    * Direct HTS lookup that returns the {@link HouseTable} row without parsing metadata.json. Use
    * this when only HTS-resident columns (e.g. tableUUID, tableLocation) are needed — for example,
    * to authorize a drop without loading the full Iceberg table, which is important when the
