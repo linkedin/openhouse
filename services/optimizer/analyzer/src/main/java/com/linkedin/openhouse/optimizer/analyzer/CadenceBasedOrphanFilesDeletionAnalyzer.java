@@ -51,6 +51,7 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
 
   private final CadencePolicy cadencePolicy;
 
+  @org.springframework.beans.factory.annotation.Autowired
   public CadenceBasedOrphanFilesDeletionAnalyzer(
       @Value("${ofd.success-retry-hours:16}") long successRetryHours,
       @Value("${ofd.failure-retry-hours:1}") long failureRetryHours) {

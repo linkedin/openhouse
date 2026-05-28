@@ -9,13 +9,11 @@ import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,10 +32,10 @@ public class TableOperationsController {
   private final OptimizerDataService service;
 
   /**
-   * Report an update to an operation. {@code id} comes from the URL; the body's {@code operationId}
-   * must match (the controller rejects mismatched requests with 400). The backend looks up the
-   * operation row, writes a history entry with the operation's table metadata, and returns 201
-   * Created with the history row, or 404 if the operation does not exist.
+   * Report an update to an operation. {@code id} comes from the URL; the body carries the terminal
+   * status and any per-operation metrics or error details. The backend looks up the operation row,
+   * writes a history entry with the operation's table metadata plus the supplied metrics, and
+   * returns 201 Created with the history row, or 404 if the operation does not exist.
    */
   @ApiResponses(
       value = {
@@ -48,21 +46,17 @@ public class TableOperationsController {
   @PostMapping("/{id}/update")
   public ResponseEntity<TableOperationsHistory> updateOperation(
       @PathVariable String id, @RequestBody UpdateOperationRequest request) {
-    if (!StringUtils.hasText(request.getOperationId())) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "operationId is required");
-    }
-    if (!Objects.equals(id, request.getOperationId())) {
-      throw new ResponseStatusException(
-          HttpStatus.BAD_REQUEST,
-          String.format(
-              "operationId in body (%s) does not match path id (%s)",
-              request.getOperationId(), id));
-    }
     if (request.getStatus() == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required");
     }
     return service
-        .updateOperation(id, request.getStatus().toModel())
+        .updateOperation(
+            id,
+            request.getStatus().toModel(),
+            request.getOrphanFilesDeleted(),
+            request.getOrphanBytesDeleted(),
+            request.getErrorMessage(),
+            request.getErrorType())
         .map(
             history ->
                 ResponseEntity.status(HttpStatus.CREATED)

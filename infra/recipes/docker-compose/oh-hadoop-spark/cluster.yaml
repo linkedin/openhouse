@@ -23,6 +23,8 @@ cluster:
     database:
       type: "MYSQL"
       url: "jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false"
+  optimizer:
+    base-uri: "http://openhouse-optimizer:8080"
   security:
     token:
       interceptor:

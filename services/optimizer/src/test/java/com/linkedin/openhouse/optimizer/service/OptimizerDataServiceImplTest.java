@@ -37,7 +37,7 @@ class OptimizerDataServiceImplTest {
   // --- updateOperation ---
 
   @Test
-  void completeOperation_writesHistoryFromOperationRow() {
+  void updateOperation_writesHistoryFromOperationRow() {
     String operationId = UUID.randomUUID().toString();
     String tableUuid = UUID.randomUUID().toString();
     operationsRepository.save(
@@ -54,7 +54,7 @@ class OptimizerDataServiceImplTest {
             .build());
 
     Optional<TableOperationsHistoryDto> result =
-        service.updateOperation(operationId, HistoryStatusDto.SUCCESS);
+        service.updateOperation(operationId, HistoryStatusDto.SUCCESS, 42L, 1024L, null, null);
 
     assertThat(result).isPresent();
     assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.SUCCESS);
@@ -62,12 +62,45 @@ class OptimizerDataServiceImplTest {
     assertThat(result.get().getOperationType()).isEqualTo(OperationTypeDto.ORPHAN_FILES_DELETION);
     assertThat(result.get().getDatabaseName()).isEqualTo("db1");
     assertThat(result.get().getCompletedAt()).isNotNull();
+    assertThat(result.get().getOrphanFilesDeleted()).isEqualTo(42L);
+    assertThat(result.get().getOrphanBytesDeleted()).isEqualTo(1024L);
+    assertThat(result.get().getErrorMessage()).isNull();
+    assertThat(result.get().getErrorType()).isNull();
   }
 
   @Test
-  void completeOperation_notFound_returnsEmpty() {
+  void updateOperation_failurePersistsErrorFields() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .jobId("spark-job-456")
+            .build());
+
     Optional<TableOperationsHistoryDto> result =
-        service.updateOperation(UUID.randomUUID().toString(), HistoryStatusDto.FAILED);
+        service.updateOperation(
+            operationId, HistoryStatusDto.FAILED, null, null, "boom", "RuntimeException");
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.FAILED);
+    assertThat(result.get().getOrphanFilesDeleted()).isNull();
+    assertThat(result.get().getOrphanBytesDeleted()).isNull();
+    assertThat(result.get().getErrorMessage()).isEqualTo("boom");
+    assertThat(result.get().getErrorType()).isEqualTo("RuntimeException");
+  }
+
+  @Test
+  void updateOperation_notFound_returnsEmpty() {
+    Optional<TableOperationsHistoryDto> result =
+        service.updateOperation(
+            UUID.randomUUID().toString(), HistoryStatusDto.FAILED, null, null, null, null);
 
     assertThat(result).isEmpty();
   }

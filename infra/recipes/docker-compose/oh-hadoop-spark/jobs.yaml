@@ -51,8 +51,8 @@ jobs:
         << : *apps-defaults
         << : *livy-engine
       - type: ORPHAN_FILES_DELETION
-        class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
-        args: ["--backupDir", ".backup"]
+        class-name: com.linkedin.openhouse.jobs.spark.BatchedOrphanFilesDeletionSparkApp
+        args: ["--backupDir", ".backup", "--ttl", "0"]
         <<: *apps-defaults
         spark-properties:
           <<: *spark-defaults

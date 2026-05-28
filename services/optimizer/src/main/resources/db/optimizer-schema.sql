@@ -38,13 +38,17 @@ CREATE TABLE IF NOT EXISTS table_stats_history (
 );
 
 CREATE TABLE IF NOT EXISTS table_operations_history (
-  id             VARCHAR(36)   NOT NULL,
-  table_uuid     VARCHAR(36)   NOT NULL,
-  database_name  VARCHAR(128)  NOT NULL,
-  table_name     VARCHAR(128)  NOT NULL,
-  operation_type VARCHAR(50)   NOT NULL,
-  completed_at   TIMESTAMP(6)  NOT NULL,
-  status         VARCHAR(20)   NOT NULL,
+  id                    VARCHAR(36)   NOT NULL,
+  table_uuid            VARCHAR(36)   NOT NULL,
+  database_name         VARCHAR(128)  NOT NULL,
+  table_name            VARCHAR(128)  NOT NULL,
+  operation_type        VARCHAR(50)   NOT NULL,
+  completed_at          TIMESTAMP(6)  NOT NULL,
+  status                VARCHAR(20)   NOT NULL,
+  orphan_files_deleted  BIGINT,
+  orphan_bytes_deleted  BIGINT,
+  error_message         VARCHAR(1024),
+  error_type            VARCHAR(256),
   PRIMARY KEY (id),
   INDEX idx_toph_db_table (database_name, table_name),
   -- Drives TableOperationHistoryRepository.findLatestPerTable: the correlated

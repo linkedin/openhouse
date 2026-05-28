@@ -40,6 +40,18 @@ public class TableOperationsHistoryDto {
   /** Terminal outcome: {@link HistoryStatusDto#SUCCESS} or {@link HistoryStatusDto#FAILED}. */
   private HistoryStatusDto status;
 
+  /** OFD-specific: number of orphan files deleted; null if not an OFD operation or on failure. */
+  private Long orphanFilesDeleted;
+
+  /** OFD-specific: bytes reclaimed by orphan file deletion; null if not OFD or on failure. */
+  private Long orphanBytesDeleted;
+
+  /** On failure, the message from the Spark-side exception. Null on success. */
+  private String errorMessage;
+
+  /** On failure, the simple name of the Spark-side exception class. Null on success. */
+  private String errorType;
+
   /** Convert to the corresponding DB row. */
   public TableOperationsHistoryRow toRow() {
     return TableOperationsHistoryRow.builder()
@@ -50,6 +62,10 @@ public class TableOperationsHistoryDto {
         .operationType(operationType == null ? null : operationType.toDb())
         .completedAt(completedAt)
         .status(status == null ? null : status.toDb())
+        .orphanFilesDeleted(orphanFilesDeleted)
+        .orphanBytesDeleted(orphanBytesDeleted)
+        .errorMessage(errorMessage)
+        .errorType(errorType)
         .build();
   }
 
@@ -66,6 +82,10 @@ public class TableOperationsHistoryDto {
         .operationType(OperationTypeDto.fromDb(row.getOperationType()))
         .completedAt(row.getCompletedAt())
         .status(HistoryStatusDto.fromDb(row.getStatus()))
+        .orphanFilesDeleted(row.getOrphanFilesDeleted())
+        .orphanBytesDeleted(row.getOrphanBytesDeleted())
+        .errorMessage(row.getErrorMessage())
+        .errorType(row.getErrorType())
         .build();
   }
 

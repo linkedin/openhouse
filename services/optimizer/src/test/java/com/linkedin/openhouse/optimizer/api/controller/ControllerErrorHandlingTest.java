@@ -20,12 +20,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Exercises what the controllers own: server-side validation on {@code updateOperation} (path/body
- * mismatch, missing fields) and 404s on missing rows. Assertions are status-code-only: MockMvc does
- * not trigger Spring's error-dispatch to {@code BasicErrorController}, so the response body of a
- * {@link org.springframework.web.server.ResponseStatusException} is empty in tests even though it
- * is populated in production (with {@code server.error.include-message=always}). Framework-level
- * 4xx (missing query param, malformed JSON, etc.) is left to Spring's defaults and not asserted.
+ * Exercises what the controllers own: server-side validation on {@code updateOperation} (status
+ * required) and 404s on missing rows. Assertions are status-code-only: MockMvc does not trigger
+ * Spring's error-dispatch to {@code BasicErrorController}, so the response body of a {@link
+ * org.springframework.web.server.ResponseStatusException} is empty in tests even though it is
+ * populated in production (with {@code server.error.include-message=always}). Framework-level 4xx
+ * (missing query param, malformed JSON, etc.) is left to Spring's defaults and not asserted.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -39,7 +39,7 @@ class ControllerErrorHandlingTest {
   @Test
   void updateOperation_notFound_returns404() throws Exception {
     String id = UUID.randomUUID().toString();
-    String body = String.format("{\"operationId\":\"%s\",\"status\":\"SUCCESS\"}", id);
+    String body = "{\"status\":\"SUCCESS\"}";
     mockMvc
         .perform(
             post("/v1/optimizer/operations/" + id + "/update")
@@ -49,39 +49,13 @@ class ControllerErrorHandlingTest {
   }
 
   @Test
-  void updateOperation_pathBodyMismatch_returns400() throws Exception {
-    String pathId = UUID.randomUUID().toString();
-    String bodyId = UUID.randomUUID().toString();
-    String body = String.format("{\"operationId\":\"%s\",\"status\":\"SUCCESS\"}", bodyId);
-    mockMvc
-        .perform(
-            post("/v1/optimizer/operations/" + pathId + "/update")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(body))
-        .andExpect(status().isBadRequest());
-  }
-
-  @Test
-  void updateOperation_missingOperationId_returns400() throws Exception {
-    String pathId = UUID.randomUUID().toString();
-    String body = "{\"status\":\"SUCCESS\"}";
-    mockMvc
-        .perform(
-            post("/v1/optimizer/operations/" + pathId + "/update")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(body))
-        .andExpect(status().isBadRequest());
-  }
-
-  @Test
   void updateOperation_missingStatus_returns400() throws Exception {
     String id = UUID.randomUUID().toString();
-    String body = String.format("{\"operationId\":\"%s\"}", id);
     mockMvc
         .perform(
             post("/v1/optimizer/operations/" + id + "/update")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(body))
+                .content("{}"))
         .andExpect(status().isBadRequest());
   }
 
@@ -112,7 +86,7 @@ class ControllerErrorHandlingTest {
             .scheduledAt(Instant.now())
             .jobId("job-x")
             .build());
-    String body = String.format("{\"operationId\":\"%s\",\"status\":\"SUCCESS\"}", id);
+    String body = "{\"status\":\"SUCCESS\"}";
     mockMvc
         .perform(
             post("/v1/optimizer/operations/" + id + "/update")
