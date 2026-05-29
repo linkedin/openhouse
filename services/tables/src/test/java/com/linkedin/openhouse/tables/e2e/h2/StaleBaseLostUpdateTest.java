@@ -88,20 +88,22 @@ public class StaleBaseLostUpdateTest {
   private void assertRacingSnapshotSurvivesStaleStagedCommit(TableDto l1) throws Exception {
     TableIdentifier id = idOf(l1);
 
-    // Stale writer opens a transaction at L1 and stages its real L1 view + COMMIT_KEY=L1 (exactly
-    // what OpenHouseInternalRepositoryImpl.save stamps), held uncommitted so a racing commit lands
-    // first.
+    // Stale writer opens a transaction at L1 and performs its own insert: a new data snapshot
+    // appended at base L1. Its staged payload contains the existing snapshots + its own append but
+    // NOT the racing snapshot (which it cannot see), with COMMIT_KEY=L1 — exactly what
+    // OpenHouseInternalRepositoryImpl.save stamps. Held uncommitted so a racing commit lands first.
     Table staleHandle = catalog.loadTable(id);
     List<Snapshot> staleView = Lists.newArrayList(staleHandle.snapshots());
     int priorSnapshotCount = staleView.size();
-    Snapshot staleLatest = staleHandle.currentSnapshot();
+    Snapshot staleInsert = staleHandle.newAppend().appendFile(dummyDataFile()).apply();
+    List<Snapshot> stalePayload = new ArrayList<>(staleView);
+    stalePayload.add(staleInsert);
     Transaction staleTxn = staleHandle.newTransaction();
     staleTxn
         .updateProperties()
-        .set(CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(staleView))
-        .set(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(refs(staleLatest)))
+        .set(CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(stalePayload))
+        .set(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(refs(staleInsert)))
         .set(CatalogConstants.COMMIT_KEY, l1.getTableLocation())
-        .set("foo", "bar")
         .commit();
 
     // Racing writer appends S2 via the repository path -> catalog advances L1 -> L2.
@@ -134,13 +136,18 @@ public class StaleBaseLostUpdateTest {
     LOG.info(
         "staged-conflict result: remaining snapshots={}",
         remaining.stream().map(Snapshot::snapshotId).collect(Collectors.toList()));
+    Assertions.assertTrue(
+        remaining.stream().anyMatch(x -> x.snapshotId() == s2.snapshotId()),
+        "racing snapshot S2 (" + s2.snapshotId() + ") must not be silently dropped from H2");
+    Assertions.assertTrue(
+        remaining.stream().noneMatch(x -> x.snapshotId() == staleInsert.snapshotId()),
+        "stale writer's conflicting insert ("
+            + staleInsert.snapshotId()
+            + ") must be rejected wholesale, not merged on top of the racing commit");
     Assertions.assertEquals(
         priorSnapshotCount + 1,
         remaining.size(),
-        "racing snapshot S2 (" + s2.snapshotId() + ") must not be silently dropped from H2");
-    Assertions.assertTrue(
-        remaining.stream().anyMatch(x -> x.snapshotId() == s2.snapshotId()),
-        "racing snapshot S2 must still be present after the conflicting stale commit");
+        "table must hold only the prior snapshots + the racing snapshot S2");
 
     cleanup(id);
   }
