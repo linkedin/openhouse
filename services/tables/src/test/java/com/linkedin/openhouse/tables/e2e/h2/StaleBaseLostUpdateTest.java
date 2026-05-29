@@ -115,8 +115,8 @@ public class StaleBaseLostUpdateTest {
   }
 
   /**
-   * A stale commit that updates metadata without adding a snapshot, racing a concurrent insert. Its
-   * declared snapshot set is its base view, which omits the concurrent insert, so the diff is a
+   * A stale commit that changes a table property and adds no snapshot, racing a concurrent insert.
+   * Its declared snapshot set is its base view, which omits the concurrent insert, so the diff is a
    * pure deletion of the concurrent snapshot. The concurrent insert must remain and the stale
    * commit must be rejected.
    */
@@ -129,8 +129,55 @@ public class StaleBaseLostUpdateTest {
     List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots());
     Snapshot head = staleHandle.currentSnapshot();
 
-    // The stale writer adds no snapshot; its declared set is its base view and main stays at head.
-    assertRacingDataCommitSurvivesStaleCommit(l1, base, base, head);
+    // Stale writer: set a table property and carry the base snapshot view (no new snapshot), held.
+    Transaction staleTxn = staleHandle.newTransaction();
+    staleTxn
+        .updateProperties()
+        .set("test.stale.property", "changed")
+        .set(CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(base))
+        .set(
+            CatalogConstants.SNAPSHOTS_REFS_KEY,
+            SnapshotsUtil.serializeMap(
+                IcebergSnapshotsModelTestUtilities.obtainSnapshotRefsFromSnapshot(
+                    SnapshotParser.toJson(head))))
+        .set(CatalogConstants.COMMIT_KEY, l1.getTableLocation())
+        .commit();
+
+    // Second writer commits a fresh data snapshot, advancing the catalog.
+    Snapshot racing = catalog.loadTable(id).newAppend().appendFile(dummyDataFile()).apply();
+    List<Snapshot> snapshotsAfterRace = new ArrayList<>(base);
+    snapshotsAfterRace.add(racing);
+    openHouseInternalRepository.save(
+        l1.toBuilder()
+            .tableVersion(l1.getTableLocation())
+            .jsonSnapshots(
+                snapshotsAfterRace.stream()
+                    .map(SnapshotParser::toJson)
+                    .collect(Collectors.toList()))
+            .snapshotRefs(
+                IcebergSnapshotsModelTestUtilities.obtainSnapshotRefsFromSnapshot(
+                    SnapshotParser.toJson(racing)))
+            .build());
+
+    clearRetryCache();
+
+    Set<Long> expected = base.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+    expected.add(racing.snapshotId());
+    Assertions.assertThrows(
+        Exception.class,
+        staleTxn::commitTransaction,
+        "the stale property update must be rejected, not applied against the advanced catalog");
+    Set<Long> actual =
+        Lists.newArrayList(catalog.loadTable(id).snapshots()).stream()
+            .map(Snapshot::snapshotId)
+            .collect(Collectors.toSet());
+    Assertions.assertEquals(
+        expected,
+        actual,
+        "table must hold exactly the prior snapshots plus the concurrently committed snapshot "
+            + racing.snapshotId());
+
+    cleanup(id);
   }
 
   /**
