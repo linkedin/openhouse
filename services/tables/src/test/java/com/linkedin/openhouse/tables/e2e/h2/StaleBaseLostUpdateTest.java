@@ -17,7 +17,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
@@ -33,8 +33,6 @@ import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -46,15 +44,13 @@ import org.springframework.test.context.ContextConfiguration;
  * <p>In each test the table is at version L1, a second writer commits a new snapshot (advancing the
  * catalog to L2), and then a writer that still declares L1 as its base commits a snapshot set
  * computed at L1 — which therefore omits the snapshot the second writer just added. The catalog
- * must not drop that concurrently added snapshot: the stale commit is rejected and the concurrently
- * added snapshot remains in the table.
+ * must not drop that concurrently added snapshot: the stale commit is rejected and the
+ * concurrently added snapshot remains in the table.
  */
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 public class StaleBaseLostUpdateTest {
-
-  private static final Logger LOG = LoggerFactory.getLogger(StaleBaseLostUpdateTest.class);
 
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
@@ -69,7 +65,7 @@ public class StaleBaseLostUpdateTest {
   @Test
   void testExpireSnapshotsDropsConcurrentDataCommit() throws Exception {
     TableDto l1 = createTableWithCommittedDataSnapshots("expire_race", 2);
-    TableIdentifier id = idOf(l1);
+    TableIdentifier id = TableIdentifier.of(l1.getDatabaseId(), l1.getTableId());
 
     Table staleHandle = catalog.loadTable(id);
     List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots());
@@ -87,7 +83,7 @@ public class StaleBaseLostUpdateTest {
   @Test
   void testStaleInsertDropsConcurrentDataCommitOnFreshTable() throws Exception {
     TableDto l1 = createTableWithCommittedDataSnapshots("insert_race_fresh", 0);
-    TableIdentifier id = idOf(l1);
+    TableIdentifier id = TableIdentifier.of(l1.getDatabaseId(), l1.getTableId());
 
     Table staleHandle = catalog.loadTable(id);
     List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots()); // empty
@@ -104,7 +100,7 @@ public class StaleBaseLostUpdateTest {
   @Test
   void testConcurrentInsertOnPopulatedTableIsRejected() throws Exception {
     TableDto l1 = createTableWithCommittedDataSnapshots("insert_race_populated", 2);
-    TableIdentifier id = idOf(l1);
+    TableIdentifier id = TableIdentifier.of(l1.getDatabaseId(), l1.getTableId());
 
     Table staleHandle = catalog.loadTable(id);
     List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots());
@@ -117,8 +113,8 @@ public class StaleBaseLostUpdateTest {
    * Loads the table at version {@code l1}, has a second writer commit a fresh data snapshot
    * (advancing the catalog), then commits a writer that still declares {@code l1} as its base with
    * {@code stalePayload} (pointing main at {@code staleHead}) — a snapshot set that omits the second
-   * writer's snapshot. Asserts the concurrently committed snapshot remains and the stale commit is
-   * rejected without applying any of its payload.
+   * writer's snapshot. After the stale commit, the table must hold exactly the prior snapshots plus
+   * the second writer's snapshot: the stale commit applies none of its payload.
    *
    * @param base the snapshots present at {@code l1}
    * @param stalePayload the snapshot set the stale writer commits (omits the concurrent snapshot)
@@ -127,54 +123,61 @@ public class StaleBaseLostUpdateTest {
   private void assertRacingDataCommitSurvivesStaleCommit(
       TableDto l1, List<Snapshot> base, List<Snapshot> stalePayload, Snapshot staleHead)
       throws Exception {
-    TableIdentifier id = idOf(l1);
-    int priorSnapshotCount = base.size();
+    TableIdentifier id = TableIdentifier.of(l1.getDatabaseId(), l1.getTableId());
 
     // Stale writer holds a transaction at L1 staging its payload, left uncommitted.
     Transaction staleTxn = catalog.loadTable(id).newTransaction();
     staleTxn
         .updateProperties()
         .set(CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(stalePayload))
-        .set(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(refs(staleHead)))
+        .set(
+            CatalogConstants.SNAPSHOTS_REFS_KEY,
+            SnapshotsUtil.serializeMap(
+                IcebergSnapshotsModelTestUtilities.obtainSnapshotRefsFromSnapshot(
+                    SnapshotParser.toJson(staleHead))))
         .set(CatalogConstants.COMMIT_KEY, l1.getTableLocation())
         .commit();
 
     // Second writer, also based on L1, commits a fresh data snapshot, advancing the catalog to L2.
     Snapshot racing = catalog.loadTable(id).newAppend().appendFile(dummyDataFile()).apply();
-    commitThroughRepository(l1, snapshotJson(base, racing), racing);
+    openHouseInternalRepository.save(
+        l1.toBuilder()
+            .tableVersion(l1.getTableLocation())
+            .jsonSnapshots(
+                appended(base, racing).stream()
+                    .map(SnapshotParser::toJson)
+                    .collect(Collectors.toList()))
+            .snapshotRefs(
+                IcebergSnapshotsModelTestUtilities.obtainSnapshotRefsFromSnapshot(
+                    SnapshotParser.toJson(racing)))
+            .build());
 
     // Evaluate the stale commit on its base version rather than short-circuit it as a duplicate.
     clearRetryCache();
 
+    // The stale commit may be rejected outright; it must not succeed by dropping the concurrent
+    // snapshot. The table-state assertion below holds whether or not the commit throws.
     try {
       staleTxn.commitTransaction();
-    } catch (Exception expected) {
-      LOG.info("stale commit rejected: {}", expected.toString());
+    } catch (Exception rejected) {
+      // Rejection is an acceptable outcome; the table state is asserted below.
     }
 
-    List<Snapshot> remaining = Lists.newArrayList(catalog.loadTable(id).snapshots());
-    LOG.info(
-        "remaining snapshots after stale commit={}",
-        remaining.stream().map(Snapshot::snapshotId).collect(Collectors.toList()));
-    Assertions.assertTrue(
-        remaining.stream().anyMatch(s -> s.snapshotId() == racing.snapshotId()),
-        "concurrently committed snapshot (" + racing.snapshotId() + ") must not be dropped");
+    Set<Long> expected =
+        base.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+    expected.add(racing.snapshotId());
+    Set<Long> actual =
+        Lists.newArrayList(catalog.loadTable(id).snapshots()).stream()
+            .map(Snapshot::snapshotId)
+            .collect(Collectors.toSet());
     Assertions.assertEquals(
-        priorSnapshotCount + 1,
-        remaining.size(),
-        "table must hold only the prior snapshots plus the concurrently committed snapshot");
+        expected,
+        actual,
+        "table must hold exactly the prior snapshots plus the concurrently committed snapshot "
+            + racing.snapshotId()
+            + "; the stale commit must apply none of its own payload");
 
     cleanup(id);
-  }
-
-  /** Commits {@code jsonSnapshots} (main -&gt; {@code head}) declaring base {@code l1}'s version. */
-  private void commitThroughRepository(TableDto l1, List<String> jsonSnapshots, Snapshot head) {
-    openHouseInternalRepository.save(
-        l1.toBuilder()
-            .tableVersion(l1.getTableLocation())
-            .jsonSnapshots(jsonSnapshots)
-            .snapshotRefs(refs(head))
-            .build());
   }
 
   /**
@@ -196,7 +199,7 @@ public class StaleBaseLostUpdateTest {
                 .clustering(null)
                 .tableVersion(INITIAL_TABLE_VERSION)
                 .build());
-    TableIdentifier id = idOf(dto);
+    TableIdentifier id = TableIdentifier.of(dto.getDatabaseId(), dto.getTableId());
     List<Snapshot> committed = new ArrayList<>();
     for (int i = 0; i < count; i++) {
       Snapshot snapshot = catalog.loadTable(id).newAppend().appendFile(dummyDataFile()).apply();
@@ -207,7 +210,9 @@ public class StaleBaseLostUpdateTest {
                   .tableVersion(dto.getTableLocation())
                   .jsonSnapshots(
                       committed.stream().map(SnapshotParser::toJson).collect(Collectors.toList()))
-                  .snapshotRefs(refs(snapshot))
+                  .snapshotRefs(
+                      IcebergSnapshotsModelTestUtilities.obtainSnapshotRefsFromSnapshot(
+                          SnapshotParser.toJson(snapshot)))
                   .build());
     }
     return dto;
@@ -219,25 +224,10 @@ public class StaleBaseLostUpdateTest {
     return all;
   }
 
-  private static List<String> snapshotJson(List<Snapshot> existing, Snapshot extra) {
-    return appended(existing, extra).stream()
-        .map(SnapshotParser::toJson)
-        .collect(Collectors.toList());
-  }
-
-  private static TableIdentifier idOf(TableDto dto) {
-    return TableIdentifier.of(dto.getDatabaseId(), dto.getTableId());
-  }
-
   private DataFile dummyDataFile() throws Exception {
     return IcebergSnapshotsModelTestUtilities.createDummyDataFile(
         Files.createTempFile("stale-base-conflict-", ".orc").toString(),
         PartitionSpec.unpartitioned());
-  }
-
-  private static Map<String, String> refs(Snapshot snapshot) {
-    return IcebergSnapshotsModelTestUtilities.obtainSnapshotRefsFromSnapshot(
-        SnapshotParser.toJson(snapshot));
   }
 
   private void cleanup(TableIdentifier id) {
