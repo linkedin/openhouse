@@ -342,7 +342,7 @@ public class OpenHouseInternalTableOperationsTest {
     // Build T_Y (post-refresh base) and round-trip through TableMetadataParser so
     // metadataFileLocation() is non-null, matching a base loaded from disk -- identical to the
     // abort test, so the ONLY behavioral difference is the replica flag.
-    java.nio.file.Path tmpDir = Files.createTempDirectory("oh-incident-12185-replica");
+    java.nio.file.Path tmpDir = Files.createTempDirectory("oh-replica-stale-base");
     String postRefreshBasePath = tmpDir.resolve("00010-post-refresh-base.metadata.json").toString();
     TableMetadata buildable =
         TableMetadata.buildFrom(BASE_TABLE_METADATA)
