@@ -604,9 +604,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         metadata
             .properties()
             .getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"))) {
-      // Replica tables are written by the replication job, which replays the primary's
-      // authoritative snapshot list wholesale. There is no meaningful writer-vs-catalog base to
-      // compare, so the stale-base CAS does not apply.
       return;
     }
     if (!metadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY)) {
