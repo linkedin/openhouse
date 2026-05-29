@@ -88,6 +88,70 @@ public class StaleBaseLostUpdateTest {
   }
 
   /**
+   * A snapshot-expiration commit racing a concurrent data insert — the production maintenance
+   * shape. The expire job stages a "keep" subset computed against base L1 (here: keep only the
+   * current head, expiring older snapshots); that subset cannot reference the concurrently-added
+   * data snapshot. When the stale expire rebases onto L2, the subtractive merge would expire the
+   * racing data commit along with the intended old snapshots. Asserts the data commit survives and
+   * the stale expire is rejected wholesale.
+   */
+  @Test
+  void testExpireSnapshotsDropsConcurrentDataCommit() throws Exception {
+    TableDto l1 = createTableWithCommittedDataSnapshots("expire_race", 2);
+    TableIdentifier id = idOf(l1);
+
+    Table staleHandle = catalog.loadTable(id);
+    List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots());
+    Snapshot head = staleHandle.currentSnapshot();
+    List<Snapshot> keep = Lists.newArrayList(head); // expire everything older than the head
+    Transaction expireTxn = staleHandle.newTransaction();
+    expireTxn
+        .updateProperties()
+        .set(CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(keep))
+        .set(CatalogConstants.SNAPSHOTS_REFS_KEY, SnapshotsUtil.serializeMap(refs(head)))
+        .set(CatalogConstants.COMMIT_KEY, l1.getTableLocation())
+        .commit();
+
+    // Racing data insert -> catalog advances L1 -> L2.
+    Snapshot racingData = catalog.loadTable(id).newAppend().appendFile(dummyDataFile()).apply();
+    List<String> l2Snapshots = new ArrayList<>();
+    for (Snapshot s : base) {
+      l2Snapshots.add(SnapshotParser.toJson(s));
+    }
+    l2Snapshots.add(SnapshotParser.toJson(racingData));
+    openHouseInternalRepository.save(
+        l1.toBuilder()
+            .tableVersion(l1.getTableLocation())
+            .jsonSnapshots(l2Snapshots)
+            .snapshotRefs(refs(racingData))
+            .build());
+
+    clearPerJvmRetryCache();
+
+    try {
+      expireTxn.commitTransaction();
+    } catch (Exception expected) {
+      LOG.info("commitTransaction rejected the stale expire: {}", expected.toString());
+    }
+
+    List<Snapshot> remaining = Lists.newArrayList(catalog.loadTable(id).snapshots());
+    LOG.info(
+        "expire-race result: remaining snapshots={}",
+        remaining.stream().map(Snapshot::snapshotId).collect(Collectors.toList()));
+    Assertions.assertTrue(
+        remaining.stream().anyMatch(x -> x.snapshotId() == racingData.snapshotId()),
+        "racing data commit ("
+            + racingData.snapshotId()
+            + ") must not be expired away by a stale concurrent expire");
+    Assertions.assertEquals(
+        base.size() + 1,
+        remaining.size(),
+        "stale expire must be rejected wholesale; nothing expired and the racing data commit kept");
+
+    cleanup(id);
+  }
+
+  /**
    * Core reproduction. Given a table whose latest committed version is {@code l1}, stages a stale
    * commit at L1, lands a racing append (L1 -&gt; L2), then commits the stale transaction and
    * asserts the racing snapshot is not dropped.
