@@ -29,8 +29,6 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.io.IOException;
-import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
@@ -261,43 +259,6 @@ public class TablesServiceTest {
   public void testTableDeleteAlreadyDeleted() {
     verifyPutTableRequest(TABLE_DTO, null, true);
     tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
-    Assertions.assertThrows(
-        NoSuchUserTableException.class,
-        () ->
-            tablesService.deleteTable(
-                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
-  }
-
-  /**
-   * Regression test for the corrupted-metadata drop path: even when metadata.json cannot be parsed
-   * (loadTable would throw), deleteTable must still succeed because it goes through the HTS-only
-   * findTableRefById lookup and avoids loadTable entirely.
-   */
-  @Test
-  public void testTableDeleteSucceedsWhenMetadataJsonIsCorrupted() throws IOException {
-    TableDto created = verifyPutTableRequest(TABLE_DTO, null, true);
-
-    // tableLocation on TableDto is the metadata.json path (file:/<base>/<filename>.metadata.json).
-    Path metadataPath = Paths.get(URI.create(created.getTableLocation()));
-    Assertions.assertTrue(
-        Files.exists(metadataPath),
-        "metadata.json should exist on disk after create: " + metadataPath);
-
-    // Corrupt the file so TableMetadataParser.read fails.
-    Files.write(metadataPath, "{\"not\":\"valid iceberg metadata\"}".getBytes());
-
-    // Sanity check: reading the table now fails because loadTable parses metadata.json.
-    Assertions.assertThrows(
-        Exception.class,
-        () -> tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
-
-    // Drop should still succeed despite the corruption.
-    Assertions.assertDoesNotThrow(
-        () ->
-            tablesService.deleteTable(
-                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
-
-    // Verify HTS row is gone — a second delete should now hit the not-found path.
     Assertions.assertThrows(
         NoSuchUserTableException.class,
         () ->

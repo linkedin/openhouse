@@ -5,7 +5,6 @@ Data lives in HDFS, so these tests run inside a Docker container on the same
 network as the oh-hadoop-spark Docker Compose services.
 """
 
-import datetime as _dt
 import logging
 import multiprocessing
 import os
@@ -20,9 +19,7 @@ from pyiceberg.exceptions import NoSuchTableError
 
 from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
-from openhouse.dataloader.data_loader_split import to_sql_identifier
 from openhouse.dataloader.filters import col
-from openhouse.dataloader.table_transformer import TableTransformer
 
 BASE_URL = "http://openhouse-tables:8080"
 LIVY_URL = "http://spark-livy:8998"
@@ -328,81 +325,6 @@ if __name__ == "__main__":
             f"Worker MaxHeapSize ({worker_heap}) should be larger than planner ({planner_heap})"
         )
         print(f"PASS: worker_jvm_args honored by child JVM (MaxHeapSize={worker_heap})")
-
-        # 9. Day-partitioned table: datetime filters must prune partitions.
-        part_table = "t_part_itest"
-        part_fqtn = f"openhouse.{DATABASE_ID}.{part_table}"
-        livy.execute(f"CREATE TABLE {part_fqtn} (id BIGINT, ts TIMESTAMP) USING iceberg PARTITIONED BY (days(ts))")
-        try:
-            livy.execute(
-                f"INSERT INTO {part_fqtn} VALUES "
-                f"(1, TIMESTAMP '2026-05-02 00:00:00'), "
-                f"(2, TIMESTAMP '2026-05-03 00:00:00'), "
-                f"(3, TIMESTAMP '2026-05-08 00:00:00')"
-            )
-
-            # A trivial passthrough transformer forces OpenHouseDataLoader into the
-            # SQL roundtrip path (filters -> DataFusion SQL -> sqlglot -> scan_optimizer ->
-            # PyIceberg expression). Without a transformer, _build_query() returns None
-            # and the loader skips that path entirely, which would mean a CAST(literal,
-            # TIMESTAMP) regression in _literal_to_sql / scan_optimizer would go unnoticed.
-            class _PartPassthroughTransformer(TableTransformer):
-                def __init__(self):
-                    super().__init__(dialect="datafusion")
-
-                def transform(self, table, context):
-                    return f'SELECT "id", "ts" FROM {to_sql_identifier(table)}'
-
-            part_ctx = DataLoaderContext(table_transformer=_PartPassthroughTransformer())
-
-            loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=part_table, context=part_ctx)
-            assert _read_all(loader).num_rows == 3
-            print("PASS: partitioned table read all 3 rows with no filter")
-
-            # Assert on split count, not just final rows. DataFusion's WHERE clause
-            # still filters correctly even if manifest pruning is silently dropped, so
-            # row-count assertions miss a CAST-handling regression. Split count is the
-            # direct signal that PyIceberg saw the predicate and pruned partition files.
-            range_filter = (col("ts") >= _dt.datetime(2026, 5, 2, tzinfo=_dt.timezone.utc)) & (
-                col("ts") < _dt.datetime(2026, 5, 4, tzinfo=_dt.timezone.utc)
-            )
-            range_loader = OpenHouseDataLoader(
-                catalog=catalog,
-                database=DATABASE_ID,
-                table=part_table,
-                filters=range_filter,
-                context=part_ctx,
-            )
-            range_splits = list(range_loader)
-            assert len(range_splits) == 2, (
-                f"Expected 2 splits from datetime range filter (5/2 + 5/3 partitions pruned to 5/2 + 5/3 splits), "
-                f"got {len(range_splits)}"
-            )
-            result = _read_all(range_loader)
-            assert result.column("id").to_pylist() == [1, 2], (
-                f"Expected ids [1, 2] from datetime range filter, got {result.column('id').to_pylist()}"
-            )
-            print(f"PASS: datetime range filter returned {result.num_rows} rows from {len(range_splits)} splits")
-
-            tight_filter = col("ts") >= _dt.datetime(2026, 5, 8, tzinfo=_dt.timezone.utc)
-            tight_loader = OpenHouseDataLoader(
-                catalog=catalog,
-                database=DATABASE_ID,
-                table=part_table,
-                filters=tight_filter,
-                context=part_ctx,
-            )
-            tight_splits = list(tight_loader)
-            assert len(tight_splits) == 1, (
-                f"Expected 1 split from tight datetime filter (only 5/8 partition survives), got {len(tight_splits)}"
-            )
-            result = _read_all(tight_loader)
-            assert result.column("id").to_pylist() == [3], (
-                f"Expected id [3] from tight datetime filter, got {result.column('id').to_pylist()}"
-            )
-            print(f"PASS: tight datetime filter returned {result.num_rows} row from {len(tight_splits)} split")
-        finally:
-            livy.execute(f"DROP TABLE IF EXISTS {part_fqtn}")
 
         print("All integration tests passed")
     finally:

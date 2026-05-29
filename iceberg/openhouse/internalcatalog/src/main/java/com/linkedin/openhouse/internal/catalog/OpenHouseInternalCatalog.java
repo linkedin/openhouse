@@ -10,7 +10,6 @@ import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
 import com.linkedin.openhouse.common.utils.NamespaceUtil;
-import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -26,7 +25,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
@@ -34,7 +32,6 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
@@ -66,8 +63,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired MeterRegistry meterRegistry;
 
-  @Autowired TableMetadataCache tableMetadataCache;
-
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     FileIO fileIO = resolveFileIO(tableIdentifier);
@@ -79,8 +74,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         houseTableMapper,
         tableIdentifier,
         metricsReporter,
-        fileIOManager,
-        tableMetadataCache);
+        fileIOManager);
   }
 
   @Override
@@ -125,42 +119,17 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()));
   }
 
-  /**
-   * Direct HTS lookup that returns the {@link HouseTable} row without parsing metadata.json. Use
-   * this when only HTS-resident columns (e.g. tableUUID, tableLocation) are needed — for example,
-   * to authorize a drop without loading the full Iceberg table, which is important when the
-   * underlying metadata is corrupted and {@link #loadTable} would throw.
-   */
-  public Optional<HouseTable> findHouseTable(TableIdentifier identifier) {
-    HouseTablePrimaryKey primaryKey =
-        HouseTablePrimaryKey.builder()
-            .databaseId(identifier.namespace().toString())
-            .tableId(identifier.name())
-            .build();
-    try {
-      return houseTableRepository.findById(primaryKey);
-    } catch (HouseTableNotFoundException e) {
-      return Optional.empty();
-    }
-  }
-
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
-    // Look up the HouseTable row directly instead of calling loadTable(), so drop works even when
-    // the table's metadata.json is corrupted and cannot be parsed by TableMetadataParser.
-    HouseTable houseTable =
-        findHouseTable(identifier)
-            .orElseThrow(() -> new NoSuchTableException("Table does not exist: %s", identifier));
-
-    HouseTablePrimaryKey primaryKey =
-        HouseTablePrimaryKey.builder()
-            .databaseId(identifier.namespace().toString())
-            .tableId(identifier.name())
-            .build();
-    String tableLocation = getTableBaseLocation(houseTable, identifier);
+    String tableLocation = loadTable(identifier).location();
     FileIO fileIO = resolveFileIO(identifier);
     log.debug("Dropping table {}, purge:{}", tableLocation, purge);
     try {
+      HouseTablePrimaryKey primaryKey =
+          HouseTablePrimaryKey.builder()
+              .databaseId(identifier.namespace().toString())
+              .tableId(identifier.name())
+              .build();
       houseTableRepository.deleteById(primaryKey, purge);
     } catch (HouseTableRepositoryException houseTableRepositoryException) {
       throw new RuntimeException(
@@ -168,6 +137,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
           houseTableRepositoryException);
     }
     if (purge) {
+      // Delete data and metadata files from storage.
       if (fileIO instanceof SupportsPrefixOperations) {
         log.debug("Deleting files for table {}", tableLocation);
         ((SupportsPrefixOperations) fileIO).deletePrefix(tableLocation);
@@ -180,23 +150,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
       }
     }
     return true;
-  }
-
-  /**
-   * Returns the table base directory derived from the HouseTable's metadata location. OpenHouse
-   * writes metadata.json directly under the table base subdir, so the parent of the metadata.json
-   * path is the same value that {@link org.apache.iceberg.Table#location()} would return.
-   */
-  private static String getTableBaseLocation(HouseTable houseTable, TableIdentifier identifier) {
-    String metadataLocation = houseTable.getTableLocation();
-    // Defensive check to avoid any unintentional deletion
-    if (!metadataLocation.endsWith(".metadata.json")) {
-      throw new IllegalStateException(
-          String.format(
-              "Refusing to drop %s: metadata_location does not look like a metadata.json file: %s",
-              identifier, metadataLocation));
-    }
-    return new Path(metadataLocation).getParent().toString();
   }
 
   @Override
