@@ -316,6 +316,80 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
+   * Companion to {@link #testDoCommitMustAbortStaleBaseRebaseToPreventSnapshotLoss}: the stale-base
+   * CAS must NOT fire for replica tables. The replication job replays the primary's authoritative
+   * snapshot list wholesale, so its {@code COMMIT_KEY} does not encode a "base I read" contract
+   * that the catalog head can be compared against; enforcing the CAS there would spuriously abort
+   * legitimate replication commits.
+   *
+   * <p>Same divergence setup as the abort test (writer {@code COMMIT_KEY = T_X}, catalog base =
+   * T_Y), but with {@code openhouse.isTableReplicated=true} and a non-initial table version -- i.e.
+   * a replica UPDATE, which is the case the create-only {@code isReplicatedTableCreate} guard would
+   * NOT catch. {@code doCommit} must complete normally and persist via {@code
+   * houseTableRepository.save} rather than throwing {@link CommitFailedException}.
+   */
+  @Test
+  void testDoCommitDoesNotAbortStaleBaseForReplicaTable() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Snapshot writerKnown1 = testSnapshots.get(0);
+    Snapshot writerKnown2 = testSnapshots.get(1);
+    // Lands in the catalog base (T_Y); absent from the replica writer's stale payload.
+    Snapshot racingSnapshot = testSnapshots.get(2);
+
+    String writerClaimedBaseLocation =
+        "/test/openhouse/test_db/test_table/00001-writer-claimed-base.metadata.json";
+
+    // Build T_Y (post-refresh base) and round-trip through TableMetadataParser so
+    // metadataFileLocation() is non-null, matching a base loaded from disk -- identical to the
+    // abort test, so the ONLY behavioral difference is the replica flag.
+    java.nio.file.Path tmpDir = Files.createTempDirectory("oh-incident-12185-replica");
+    String postRefreshBasePath = tmpDir.resolve("00010-post-refresh-base.metadata.json").toString();
+    TableMetadata buildable =
+        TableMetadata.buildFrom(BASE_TABLE_METADATA)
+            .setBranchSnapshot(writerKnown1, SnapshotRef.MAIN_BRANCH)
+            .setBranchSnapshot(writerKnown2, SnapshotRef.MAIN_BRANCH)
+            .setBranchSnapshot(racingSnapshot, SnapshotRef.MAIN_BRANCH)
+            .build();
+    Path postRefreshBaseFsPath = new Path(postRefreshBasePath);
+    FileSystem fs = postRefreshBaseFsPath.getFileSystem(new Configuration());
+    try (FSDataOutputStream out = fs.create(postRefreshBaseFsPath, true)) {
+      out.write(TableMetadataParser.toJson(buildable).getBytes());
+    }
+    TableMetadata postRefreshBase =
+        TableMetadataParser.read(new HadoopFileIO(new Configuration()), postRefreshBasePath);
+    Assertions.assertNotNull(postRefreshBase.metadataFileLocation());
+
+    List<Snapshot> staleWriterPayload = Arrays.asList(writerKnown1, writerKnown2);
+    Map<String, String> properties = new HashMap<>();
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(staleWriterPayload));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(IcebergTestUtil.createMainBranchRefPointingTo(writerKnown2)));
+    properties.put(getCanonicalFieldName("tableLocation"), TEST_LOCATION);
+    properties.put(CatalogConstants.COMMIT_KEY, writerClaimedBaseLocation);
+    // Replica UPDATE: replicated flag set, version past INITIAL_VERSION -- the case the create-only
+    // isReplicatedTableCreate guard would miss, so this exercises the broad isReplicatedTable
+    // exemption in abortIfWriterBaseDivergedFromCatalog.
+    properties.put(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "true");
+    properties.put(CatalogConstants.OPENHOUSE_TABLE_VERSION, "v1.0.0");
+
+    TableMetadata metadata = postRefreshBase.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      Assertions.assertDoesNotThrow(
+          () -> openHouseInternalTableOperations.doCommit(postRefreshBase, metadata),
+          "Replica tables must be exempt from the stale-base CAS: the replication job replays the "
+              + "primary's authoritative snapshot list, so a COMMIT_KEY/base divergence is expected "
+              + "and must not abort the commit.");
+
+      // The replica commit was persisted normally rather than aborted.
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  /**
    * Tests committing changes that both append new snapshots and delete existing ones. Verifies that
    * both appended and deleted snapshots are correctly reflected in table metadata.
    */
