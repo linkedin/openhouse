@@ -326,27 +326,25 @@ def _escape_like(value: str) -> str:
 
 
 def _literal_to_sql(value: object) -> str:
-    """Convert a Python literal to a SQL literal string using sqlglot.
-
-    Datetime/date/time values are emitted as plain string literals (ISO format).
-    DataFusion implicitly coerces string literals to the column type at execution,
-    and PyIceberg promotes StringLiteral to the matching typed literal during expression binding.
-    """
+    """Convert a Python literal to a SQL literal string using sqlglot."""
     if isinstance(value, str):
         return exp.Literal.string(value).sql()
     if isinstance(value, bool):
         return exp.Boolean(this=True).sql() if value else exp.Boolean(this=False).sql()
     if isinstance(value, datetime):
-        return exp.Literal.string(value.isoformat()).sql()
+        lit = exp.Literal.string(value.strftime("%Y-%m-%d %H:%M:%S.%f%z"))
+        return exp.Cast(this=lit, to=exp.DataType.build("TIMESTAMP")).sql()
     if isinstance(value, date):
-        return exp.Literal.string(value.isoformat()).sql()
+        lit = exp.Literal.string(value.isoformat())
+        return exp.Cast(this=lit, to=exp.DataType.build("DATE")).sql()
     if isinstance(value, time):
         if value.tzinfo is not None:
             raise TypeError(
                 "DataFusion does not support timezones for time data types. "
                 "The time should match the timezone used in the dataset."
             )
-        return exp.Literal.string(value.isoformat()).sql()
+        lit = exp.Literal.string(value.strftime("%H:%M:%S.%f"))
+        return exp.Cast(this=lit, to=exp.DataType.build("TIME")).sql()
     if isinstance(value, (int, float)):
         if isinstance(value, float) and not math.isfinite(value):
             return exp.Cast(this=exp.Literal.string(str(value)), to=exp.DataType.build("DOUBLE")).sql()
