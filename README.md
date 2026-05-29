@@ -46,7 +46,7 @@ For building and running locally in [Docker Compose](SETUP.md), you would need t
 
 - [Java](https://www.oracle.com/java/technologies/downloads/)
   - OpenHouse is currently built with Java 17.
-  - Set the `JAVA_HOME` environment variable to the location of your JDK17.
+  - Set the `JAVA_HOME` environment variable to the location of your JDK-17.
 - [Docker](https://www.docker.com/)
 - [Docker Compose](https://docs.docker.com/compose/)
 - [Python3](https://www.python.org/downloads/)
