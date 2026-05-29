@@ -63,6 +63,13 @@ public class StaleBaseLostUpdateTest {
 
   @Autowired Catalog catalog;
 
+  /** Base table is freshly created with zero committed data snapshots when the race begins. */
+  @Test
+  void testLostUpdateViaStagedTransactionConflictWithNoPriorData() throws Exception {
+    TableDto l1 = createTableWithCommittedDataSnapshots("conflict_staged_no_data", 0);
+    assertRacingSnapshotSurvivesStaleStagedCommit(l1);
+  }
+
   /** Base table holds a single committed data snapshot when the race begins. */
   @Test
   void testLostUpdateViaStagedTransactionConflict() throws Exception {
