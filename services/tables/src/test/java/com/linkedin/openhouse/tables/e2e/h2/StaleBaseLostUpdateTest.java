@@ -41,8 +41,6 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
- * Deterministic H2 reproduction of the incident-12185 stale-base silent snapshot drop. Single-JVM,
- * no threads, no docker.
  *
  * <p>A stale writer opens an Iceberg transaction at base L1 and stages its real L1 snapshot view
  * (the writer's {@code SNAPSHOTS_JSON} payload) plus {@code COMMIT_KEY=L1}, but holds it
