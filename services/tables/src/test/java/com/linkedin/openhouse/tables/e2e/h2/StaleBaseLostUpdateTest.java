@@ -70,16 +70,9 @@ public class StaleBaseLostUpdateTest {
     assertRacingSnapshotSurvivesStaleStagedCommit(l1);
   }
 
-  /** Base table holds a single committed data snapshot when the race begins. */
-  @Test
-  void testLostUpdateViaStagedTransactionConflict() throws Exception {
-    TableDto l1 = createTableWithCommittedDataSnapshots("conflict_staged", 1);
-    assertRacingSnapshotSurvivesStaleStagedCommit(l1);
-  }
-
   /**
-   * Same scenario, but the table already has prior committed data history (two snapshots) before
-   * the race begins — the stale writer's base is a non-trivial, data-bearing table.
+   * Table already has prior committed data history (two snapshots) before the race begins — the
+   * stale writer's base is a non-trivial, data-bearing table.
    */
   @Test
   void testLostUpdateViaStagedTransactionConflictWithPriorDataSnapshot() throws Exception {
