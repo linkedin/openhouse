@@ -88,8 +88,10 @@ public class StaleBaseLostUpdateTest {
     Table staleHandle = catalog.loadTable(id);
     List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots()); // empty
     Snapshot staleInsert = staleHandle.newAppend().appendFile(dummyDataFile()).apply();
+    List<Snapshot> stalePayload = new ArrayList<>(base);
+    stalePayload.add(staleInsert);
 
-    assertRacingDataCommitSurvivesStaleCommit(l1, base, appended(base, staleInsert), staleInsert);
+    assertRacingDataCommitSurvivesStaleCommit(l1, base, stalePayload, staleInsert);
   }
 
   /**
@@ -105,8 +107,10 @@ public class StaleBaseLostUpdateTest {
     Table staleHandle = catalog.loadTable(id);
     List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots());
     Snapshot staleInsert = staleHandle.newAppend().appendFile(dummyDataFile()).apply();
+    List<Snapshot> stalePayload = new ArrayList<>(base);
+    stalePayload.add(staleInsert);
 
-    assertRacingDataCommitSurvivesStaleCommit(l1, base, appended(base, staleInsert), staleInsert);
+    assertRacingDataCommitSurvivesStaleCommit(l1, base, stalePayload, staleInsert);
   }
 
   /**
@@ -140,11 +144,13 @@ public class StaleBaseLostUpdateTest {
 
     // Second writer, also based on L1, commits a fresh data snapshot, advancing the catalog to L2.
     Snapshot racing = catalog.loadTable(id).newAppend().appendFile(dummyDataFile()).apply();
+    List<Snapshot> snapshotsAfterRace = new ArrayList<>(base);
+    snapshotsAfterRace.add(racing);
     openHouseInternalRepository.save(
         l1.toBuilder()
             .tableVersion(l1.getTableLocation())
             .jsonSnapshots(
-                appended(base, racing).stream()
+                snapshotsAfterRace.stream()
                     .map(SnapshotParser::toJson)
                     .collect(Collectors.toList()))
             .snapshotRefs(
@@ -216,12 +222,6 @@ public class StaleBaseLostUpdateTest {
                   .build());
     }
     return dto;
-  }
-
-  private static List<Snapshot> appended(List<Snapshot> existing, Snapshot extra) {
-    List<Snapshot> all = new ArrayList<>(existing);
-    all.add(extra);
-    return all;
   }
 
   private DataFile dummyDataFile() throws Exception {
