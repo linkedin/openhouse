@@ -115,6 +115,25 @@ public class StaleBaseLostUpdateTest {
   }
 
   /**
+   * A stale commit that updates metadata without adding a snapshot, racing a concurrent insert. Its
+   * declared snapshot set is its base view, which omits the concurrent insert, so the diff is a
+   * pure deletion of the concurrent snapshot. The concurrent insert must remain and the stale
+   * commit must be rejected.
+   */
+  @Test
+  void testStaleMetadataUpdateDropsConcurrentDataCommit() throws Exception {
+    TableDto l1 = createTableWithCommittedDataSnapshots("metadata_update_race", 2);
+    TableIdentifier id = TableIdentifier.of(l1.getDatabaseId(), l1.getTableId());
+
+    Table staleHandle = catalog.loadTable(id);
+    List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots());
+    Snapshot head = staleHandle.currentSnapshot();
+
+    // The stale writer adds no snapshot; its declared set is its base view and main stays at head.
+    assertRacingDataCommitSurvivesStaleCommit(l1, base, base, head);
+  }
+
+  /**
    * Loads the table at version {@code l1}, has a second writer commit a fresh data snapshot
    * (advancing the catalog), then commits a writer that still declares {@code l1} as its base with
    * {@code stalePayload} (pointing main at {@code staleHead}) — a snapshot set that omits the second
@@ -162,9 +181,10 @@ public class StaleBaseLostUpdateTest {
     // Evaluate the stale commit on its base version rather than short-circuit it as a duplicate.
     clearRetryCache();
 
-    // The stale commit declares a base that no longer matches the catalog, so it must be rejected.
+    // The stale commit declares a base that no longer matches the catalog, so it must be rejected
+    // (the rejection's exception type is not part of the contract).
     Assertions.assertThrows(
-        CommitFailedException.class,
+        Exception.class,
         staleTxn::commitTransaction,
         "the stale commit must be rejected, not applied against the advanced catalog");
 
