@@ -588,12 +588,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * stage-create, stage-replace) are authoritative over the snapshot set and are intentionally not
    * defended: there is no stale base to compare against.
    *
-   * <p>Replica tables are likewise exempt: the replication job replays the primary's authoritative
-   * snapshot list wholesale rather than committing incrementally against a loaded base, so its
-   * {@code COMMIT_KEY} does not encode a "base I read" contract that the catalog head can be
-   * compared against. Enforcing the CAS there would spuriously abort legitimate replication
-   * commits.
-   *
    * <p>Must run before failIfRetryUpdate, which strips COMMIT_KEY from the doCommit-local
    * properties copy.
    *
@@ -606,7 +600,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // metadata before any metadata.json has been written).
       return;
     }
-    if (isReplicatedTable(metadata.properties())) {
+    if (Boolean.parseBoolean(
+        metadata
+            .properties()
+            .getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"))) {
       // Replica tables are written by the replication job, which replays the primary's
       // authoritative snapshot list wholesale. There is no meaningful writer-vs-catalog base to
       // compare, so the stale-base CAS does not apply.
@@ -832,20 +829,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * @return
    */
   private boolean isReplicatedTableCreate(Map<String, String> properties) {
-    return isReplicatedTable(properties)
+    return Boolean.parseBoolean(
+            properties.getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"))
         && properties
             .getOrDefault(
                 CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION)
             .equals(CatalogConstants.INITIAL_VERSION);
-  }
-
-  /**
-   * Whether the properties mark this as a replicated (replica) table, regardless of whether the
-   * commit is a create or an update.
-   */
-  private boolean isReplicatedTable(Map<String, String> properties) {
-    return Boolean.parseBoolean(
-        properties.getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"));
   }
 
   private List<String> getIntermediateSchemasFromProps(TableMetadata metadata) {
