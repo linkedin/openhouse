@@ -41,19 +41,13 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
- * A stale writer opens an Iceberg transaction at base L1 and stages its L1 snapshot view +
- * {@code COMMIT_KEY=L1}, held uncommitted. A racing writer commits a new snapshot through the
- * repository path, advancing the catalog L1 -&gt; L2. Committing the held transaction drives {@code
- * BaseTransaction.applyUpdates} to silently refresh the in-flight base to L2 (passing the HTS
- * optimistic-version CAS) while keeping the stale payload + {@code COMMIT_KEY=L1}; {@code doCommit}
- * then subtracts the racing snapshot. On the buggy catalog the racing commit is silently dropped;
- * PR #612's stale-base CAS aborts instead. Invariant: the racing data commit always survives.
+ * Concurrency tests for committing a snapshot set against a stale base version.
  *
- * <p>Both cases here are <b>subtractive</b> stale commits — the stale payload omits the racing
- * snapshot and does not add a new snapshot whose sequence number would collide with it. That is the
- * shape that actually reproduced incident-12185 (an expire/optimizer commit dropping a fresh data
- * commit). A stale writer that <i>adds</i> its own snapshot on a multi-snapshot base is instead
- * rejected by Iceberg's snapshot sequence-number validation, so that shape cannot lose data.
+ * <p>In each test the table is at version L1, a second writer commits a new snapshot (advancing the
+ * catalog to L2), and then a writer that still declares L1 as its base commits a snapshot set
+ * computed at L1 — which therefore omits the snapshot the second writer just added. The catalog
+ * must not drop that concurrently added snapshot: the stale commit is rejected and the concurrently
+ * added snapshot remains in the table.
  */
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
@@ -67,11 +61,10 @@ public class StaleBaseLostUpdateTest {
   @Autowired Catalog catalog;
 
   /**
-   * Snapshot-expiration commit racing a concurrent data insert — the production maintenance shape,
-   * on a table with prior committed data history. The stale expire keeps only the current head
-   * (expiring older snapshots); its keep-subset cannot reference the concurrently-added data
-   * snapshot, so the subtractive merge would expire the racing data commit. Asserts the data commit
-   * survives and the stale expire is rejected wholesale.
+   * An expiration commit declaring a stale base, racing a concurrent insert. The expiring writer
+   * keeps only the current head and drops older snapshots; its kept set, computed at the stale
+   * base, does not include the concurrently inserted snapshot. The concurrent insert must remain
+   * and the expiration must be rejected, leaving the prior snapshots plus the concurrent insert.
    */
   @Test
   void testExpireSnapshotsDropsConcurrentDataCommit() throws Exception {
@@ -87,9 +80,9 @@ public class StaleBaseLostUpdateTest {
   }
 
   /**
-   * Two writers concurrently perform the first insert into a freshly created table. The racing
-   * writer commits first; the stale writer then commits its own first snapshot still declaring the
-   * create version as its base. The subtractive merge would drop the racing first commit.
+   * Two writers each perform the first insert into a freshly created table. One commits first; the
+   * other then commits its own first snapshot still declaring the create version as its base. The
+   * first writer's snapshot must remain.
    */
   @Test
   void testStaleInsertDropsConcurrentDataCommitOnFreshTable() throws Exception {
@@ -104,14 +97,31 @@ public class StaleBaseLostUpdateTest {
   }
 
   /**
-   * Core reproduction. A stale writer holds a transaction at base {@code l1} staging {@code
-   * stalePayload} (main -&gt; {@code staleHead}); a racing writer commits a fresh data snapshot
-   * first (L1 -&gt; L2); the held transaction then commits, rebasing the stale payload (which omits
-   * the racing snapshot) onto L2. Asserts the racing commit survives and the stale commit is
-   * rejected wholesale (nothing from the stale payload is applied).
+   * Two writers insert into a table that already holds data, both based on the same version. The
+   * stale writer's appended snapshot shares a sequence number with the concurrent insert, so the
+   * catalog rejects the stale commit; the concurrent insert remains.
+   */
+  @Test
+  void testConcurrentInsertOnPopulatedTableIsRejected() throws Exception {
+    TableDto l1 = createTableWithCommittedDataSnapshots("insert_race_populated", 2);
+    TableIdentifier id = idOf(l1);
+
+    Table staleHandle = catalog.loadTable(id);
+    List<Snapshot> base = Lists.newArrayList(staleHandle.snapshots());
+    Snapshot staleInsert = staleHandle.newAppend().appendFile(dummyDataFile()).apply();
+
+    assertRacingDataCommitSurvivesStaleCommit(l1, base, appended(base, staleInsert), staleInsert);
+  }
+
+  /**
+   * Loads the table at version {@code l1}, has a second writer commit a fresh data snapshot
+   * (advancing the catalog), then commits a writer that still declares {@code l1} as its base with
+   * {@code stalePayload} (pointing main at {@code staleHead}) — a snapshot set that omits the second
+   * writer's snapshot. Asserts the concurrently committed snapshot remains and the stale commit is
+   * rejected without applying any of its payload.
    *
-   * @param base the snapshots present at L1 (the stale writer's view before its own staging)
-   * @param stalePayload the full snapshot set the stale writer commits (omits the racing snapshot)
+   * @param base the snapshots present at {@code l1}
+   * @param stalePayload the snapshot set the stale writer commits (omits the concurrent snapshot)
    * @param staleHead the snapshot the stale writer points main at
    */
   private void assertRacingDataCommitSurvivesStaleCommit(
@@ -120,7 +130,7 @@ public class StaleBaseLostUpdateTest {
     TableIdentifier id = idOf(l1);
     int priorSnapshotCount = base.size();
 
-    // Stale writer: held transaction at L1 staging its payload + COMMIT_KEY=L1, uncommitted.
+    // Stale writer holds a transaction at L1 staging its payload, left uncommitted.
     Transaction staleTxn = catalog.loadTable(id).newTransaction();
     staleTxn
         .updateProperties()
@@ -129,11 +139,12 @@ public class StaleBaseLostUpdateTest {
         .set(CatalogConstants.COMMIT_KEY, l1.getTableLocation())
         .commit();
 
-    // Racing writer (also based on L1) commits a fresh data snapshot first -> L1 -> L2.
+    // Second writer, also based on L1, commits a fresh data snapshot, advancing the catalog to L2.
     Snapshot racing = catalog.loadTable(id).newAppend().appendFile(dummyDataFile()).apply();
     commitThroughRepository(l1, snapshotJson(base, racing), racing);
 
-    clearPerJvmRetryCache();
+    // Evaluate the stale commit on its base version rather than short-circuit it as a duplicate.
+    clearRetryCache();
 
     try {
       staleTxn.commitTransaction();
@@ -143,16 +154,15 @@ public class StaleBaseLostUpdateTest {
 
     List<Snapshot> remaining = Lists.newArrayList(catalog.loadTable(id).snapshots());
     LOG.info(
-        "stale-conflict result: remaining={}",
+        "remaining snapshots after stale commit={}",
         remaining.stream().map(Snapshot::snapshotId).collect(Collectors.toList()));
     Assertions.assertTrue(
         remaining.stream().anyMatch(s -> s.snapshotId() == racing.snapshotId()),
-        "racing data commit (" + racing.snapshotId() + ") must not be silently dropped");
+        "concurrently committed snapshot (" + racing.snapshotId() + ") must not be dropped");
     Assertions.assertEquals(
         priorSnapshotCount + 1,
         remaining.size(),
-        "stale commit must be rejected wholesale; table holds only the prior snapshots + the racing "
-            + "data commit");
+        "table must hold only the prior snapshots plus the concurrently committed snapshot");
 
     cleanup(id);
   }
@@ -168,8 +178,8 @@ public class StaleBaseLostUpdateTest {
   }
 
   /**
-   * Creates a table and commits {@code count} data-bearing snapshots through the repository path,
-   * returning the latest committed {@link TableDto} (the base L1 the racers will load).
+   * Creates a table and commits {@code count} data-bearing snapshots, returning the latest
+   * committed {@link TableDto} (the version both writers load as their base).
    */
   private TableDto createTableWithCommittedDataSnapshots(String tableId, int count)
       throws Exception {
@@ -221,7 +231,8 @@ public class StaleBaseLostUpdateTest {
 
   private DataFile dummyDataFile() throws Exception {
     return IcebergSnapshotsModelTestUtilities.createDummyDataFile(
-        Files.createTempFile("incident-12185-", ".orc").toString(), PartitionSpec.unpartitioned());
+        Files.createTempFile("stale-base-conflict-", ".orc").toString(),
+        PartitionSpec.unpartitioned());
   }
 
   private static Map<String, String> refs(Snapshot snapshot) {
@@ -238,12 +249,10 @@ public class StaleBaseLostUpdateTest {
   }
 
   /**
-   * Invalidates the per-JVM static retry cache used by {@code failIfRetryUpdate} so the stale write
-   * models a request reaching a replica that never cached the racing commit's {@code COMMIT_KEY}.
-   * Without this, the single-JVM cache hit would reject the stale write before the subtractive
-   * merge (or the PR #612 abort) is exercised.
+   * Invalidates the per-JVM retry cache so the stale commit is evaluated against its base version
+   * rather than short-circuited as a duplicate retry of an already-seen commit.
    */
-  private static void clearPerJvmRetryCache() throws Exception {
+  private static void clearRetryCache() throws Exception {
     Field cacheField = OpenHouseInternalTableOperations.class.getDeclaredField("CACHE");
     cacheField.setAccessible(true);
     ((com.google.common.cache.Cache<?, ?>) cacheField.get(null)).invalidateAll();
