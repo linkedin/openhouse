@@ -259,6 +259,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     try {
       // Now that we have metadataLocation we stamp it in metadata property.
       Map<String, String> properties = new HashMap<>(metadata.properties());
+
+      abortIfWriterBaseDivergedFromCatalog(base, metadata);
+
       failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
 
@@ -573,6 +576,55 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
 
     return builder.build();
+  }
+
+  /**
+   * Catalog-level CAS. Aborts the commit if the writer's declared base ({@code COMMIT_KEY}) does
+   * not match the catalog's current persisted base. Closes the BaseTransaction.applyUpdates
+   * silent-rebase variant of the stale-base bug class, where {@code applyUpdates} re-stamps the
+   * writer's original (non-null) {@code COMMIT_KEY} on top of a concurrently-advanced base.
+   *
+   * <p>Commits that leave {@code COMMIT_KEY} unset (wholesale replace / create — replaceTable,
+   * stage-create, stage-replace) are authoritative over the snapshot set and are intentionally not
+   * defended: there is no stale base to compare against.
+   *
+   * <p>Must run before failIfRetryUpdate, which strips COMMIT_KEY from the doCommit-local
+   * properties copy.
+   *
+   * @throws CommitFailedException when writer and catalog disagree on the base — retriable by
+   *     Iceberg's commit loop after the writer refreshes
+   */
+  private void abortIfWriterBaseDivergedFromCatalog(TableMetadata base, TableMetadata metadata) {
+    if (base == null || base.metadataFileLocation() == null) {
+      // No persisted catalog state to defend (initial CREATE, or mid-CREATE constructed
+      // metadata before any metadata.json has been written).
+      return;
+    }
+    if (!metadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY)) {
+      // Not a snapshot-bearing writer commit (e.g. rename, property-only update, internal
+      // metadata-field write). These paths legitimately have no COMMIT_KEY because they don't
+      // go through OpenHouseInternalRepositoryImpl.save:187, and they don't carry the
+      // stale-snapshot-list payload that the subtractive merge would silently expire.
+      return;
+    }
+    String actualBase = base.metadataFileLocation();
+    String writerClaimedBase = metadata.properties().get(CatalogConstants.COMMIT_KEY);
+
+    if (writerClaimedBase == null) {
+      return;
+    }
+
+    if (CatalogConstants.INITIAL_VERSION.equals(writerClaimedBase)
+        || !new org.apache.hadoop.fs.Path(writerClaimedBase)
+            .toUri()
+            .getPath()
+            .equals(new org.apache.hadoop.fs.Path(actualBase).toUri().getPath())) {
+      throw new CommitFailedException(
+          "Cannot commit: writer's declared base [%s] does not match the catalog's current "
+              + "base [%s] for table %s. A concurrent commit landed between the writer's "
+              + "loadTable and commit. Refresh and retry.",
+          writerClaimedBase, actualBase, tableIdentifier);
+    }
   }
 
   /**
