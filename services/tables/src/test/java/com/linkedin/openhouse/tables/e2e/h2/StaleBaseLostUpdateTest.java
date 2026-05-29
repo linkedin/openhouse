@@ -29,6 +29,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -161,16 +162,14 @@ public class StaleBaseLostUpdateTest {
     // Evaluate the stale commit on its base version rather than short-circuit it as a duplicate.
     clearRetryCache();
 
-    // The stale commit may be rejected outright; it must not succeed by dropping the concurrent
-    // snapshot. The table-state assertion below holds whether or not the commit throws.
-    try {
-      staleTxn.commitTransaction();
-    } catch (Exception rejected) {
-      // Rejection is an acceptable outcome; the table state is asserted below.
-    }
+    // The stale commit declares a base that no longer matches the catalog, so it must be rejected.
+    Assertions.assertThrows(
+        CommitFailedException.class,
+        staleTxn::commitTransaction,
+        "the stale commit must be rejected, not applied against the advanced catalog");
 
-    Set<Long> expected =
-        base.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
+    // The table must then hold exactly the prior snapshots plus the concurrently committed snapshot.
+    Set<Long> expected = base.stream().map(Snapshot::snapshotId).collect(Collectors.toSet());
     expected.add(racing.snapshotId());
     Set<Long> actual =
         Lists.newArrayList(catalog.loadTable(id).snapshots()).stream()
@@ -180,8 +179,7 @@ public class StaleBaseLostUpdateTest {
         expected,
         actual,
         "table must hold exactly the prior snapshots plus the concurrently committed snapshot "
-            + racing.snapshotId()
-            + "; the stale commit must apply none of its own payload");
+            + racing.snapshotId());
 
     cleanup(id);
   }
