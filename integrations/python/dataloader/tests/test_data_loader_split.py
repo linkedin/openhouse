@@ -44,6 +44,7 @@ def _create_test_split(
     table_id: TableIdentifier = _DEFAULT_TABLE_ID,
     udf_registry: UDFRegistry | None = None,
     batch_size: int | None = None,
+    transform_batch_size: int | None = None,
 ) -> DataLoaderSplit:
     """Create a DataLoaderSplit for testing by writing data to disk.
 
@@ -105,6 +106,7 @@ def _create_test_split(
         transform_sql=transform_sql,
         udf_registry=udf_registry,
         batch_size=batch_size,
+        transform_batch_size=transform_batch_size,
     )
 
 
