@@ -117,6 +117,10 @@ services:
     extends:
       file: ../common/spark-services.yml
       service: spark-master
+    # replication PoC: mount recipe dir so replicate.scala / run_replicate.sh are live in-container
+    # (edit on host -> docker exec re-run, no rebuild). See replication-poc/PLAN.md.
+    volumes:
+      - ./:/var/config/
 
   spark-worker-a:
     container_name: local.spark-worker-a
