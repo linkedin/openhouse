@@ -1,0 +1,34 @@
+plugins {
+  id 'openhouse.springboot-ext-conventions'
+  id 'org.springframework.boot' version '2.7.8'
+}
+
+// Library jar — the @SpringBootApplication entry point lives in :apps:optimizer:analyzerapp.
+// Disable bootJar so we don't try to assemble a runnable jar from a library that has no main
+// class; keep jar enabled so consumers (the apps wrapper) get a normal library artifact.
+bootJar {
+  enabled = false
+}
+
+jar {
+  enabled = true
+  archiveClassifier = ''
+}
+
+dependencies {
+  // api: the analyzer's public types (e.g. OperationAnalyzer's signature, OperationTypeDto) come
+  // from :services:optimizer, so consumers of this library see them on their compile classpath.
+  api project(':services:optimizer')
+  implementation 'org.springframework.boot:spring-boot-starter:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-aop:2.7.8'
+  runtimeOnly 'mysql:mysql-connector-java:8.0.33'
+  testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
+  testImplementation 'com.squareup.okhttp3:mockwebserver:4.10.0'
+  testRuntimeOnly 'com.h2database:h2'
+}
+
+test {
+  useJUnitPlatform()
+}
