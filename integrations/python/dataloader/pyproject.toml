@@ -10,7 +10,14 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "BSD-2-Clause"}
 keywords = ["openhouse", "data-loader", "lakehouse", "iceberg", "datafusion"]
-dependencies = ["datafusion==53.0.0", "li-pyiceberg==0.11.5", "requests>=2.31.0", "sqlglot>=29.0.0", "tenacity>=8.0.0"]
+dependencies = [
+    "datafusion==53.0.0",
+    "li-pyiceberg==0.11.5",
+    "requests>=2.31.0",
+    "sqlglot>=29.0.0",
+    "tenacity>=8.0.0",
+    "opentelemetry-api>=1.38.0",
+]
 
 [[tool.uv.index]]
 url = "https://linkedin.jfrog.io/artifactory/api/pypi/openhouse-pypi/simple/"
@@ -20,7 +27,15 @@ name = "openhouse-pypi"
 li-pyiceberg = { index = "openhouse-pypi" }
 
 [project.optional-dependencies]
-dev = ["responses>=0.25.0", "ruff>=0.9.0", "pytest>=8.0.0", "twine>=6.0.0", "mypy>=1.14.0", "types-requests>=2.31.0"]
+dev = [
+    "responses>=0.25.0",
+    "ruff>=0.9.0",
+    "pytest>=8.0.0",
+    "twine>=6.0.0",
+    "mypy>=1.14.0",
+    "types-requests>=2.31.0",
+    "opentelemetry-sdk>=1.38.0",
+]
 
 [tool.hatch.version]
 source = "vcs"

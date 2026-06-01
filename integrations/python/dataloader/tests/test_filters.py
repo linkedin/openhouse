@@ -356,58 +356,55 @@ class TestDataFusionLiteralConversion:
     def test_datetime_greater_than_or_equal(self):
         dt = datetime(2026, 4, 27, tzinfo=UTC)
         result = _to_datafusion_sql(col("datepartition") >= dt)
-        assert result == "\"datepartition\" >= CAST('2026-04-27 00:00:00.000000+0000' AS TIMESTAMP)"
+        assert result == "\"datepartition\" >= '2026-04-27T00:00:00+00:00'"
 
     def test_datetime_equal(self):
         dt = datetime(2026, 4, 27, 12, 30, 45, tzinfo=UTC)
         result = _to_datafusion_sql(col("ts") == dt)
-        assert result == "\"ts\" = CAST('2026-04-27 12:30:45.000000+0000' AS TIMESTAMP)"
+        assert result == "\"ts\" = '2026-04-27T12:30:45+00:00'"
 
     def test_datetime_with_microseconds(self):
         dt = datetime(2026, 4, 27, 12, 30, 45, 123456, tzinfo=UTC)
         result = _to_datafusion_sql(col("ts") == dt)
-        assert result == "\"ts\" = CAST('2026-04-27 12:30:45.123456+0000' AS TIMESTAMP)"
+        assert result == "\"ts\" = '2026-04-27T12:30:45.123456+00:00'"
 
     def test_datetime_non_utc_timezone_preserved(self):
         dt = datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone(timedelta(hours=5)))
         result = _to_datafusion_sql(col("ts") >= dt)
-        assert result == "\"ts\" >= CAST('2026-04-27 12:00:00.000000+0500' AS TIMESTAMP)"
+        assert result == "\"ts\" >= '2026-04-27T12:00:00+05:00'"
 
     def test_datetime_naive_no_offset(self):
         dt = datetime(2026, 4, 27, 12, 0, 0)
         result = _to_datafusion_sql(col("ts") >= dt)
-        assert result == "\"ts\" >= CAST('2026-04-27 12:00:00.000000' AS TIMESTAMP)"
+        assert result == "\"ts\" >= '2026-04-27T12:00:00'"
 
     def test_date_greater_than_or_equal(self):
         d = date(2026, 4, 27)
         result = _to_datafusion_sql(col("datepartition") >= d)
-        assert result == "\"datepartition\" >= CAST('2026-04-27' AS DATE)"
+        assert result == "\"datepartition\" >= '2026-04-27'"
 
     def test_datetime_between(self):
         dt1 = datetime(2026, 4, 27, tzinfo=UTC)
         dt2 = datetime(2026, 5, 1, tzinfo=UTC)
         result = _to_datafusion_sql(col("ts").between(dt1, dt2))
-        assert result == (
-            "\"ts\" BETWEEN CAST('2026-04-27 00:00:00.000000+0000' AS TIMESTAMP)"
-            " AND CAST('2026-05-01 00:00:00.000000+0000' AS TIMESTAMP)"
-        )
+        assert result == "\"ts\" BETWEEN '2026-04-27T00:00:00+00:00' AND '2026-05-01T00:00:00+00:00'"
 
     def test_datetime_in_compound_filter(self):
         dt = datetime(2026, 4, 27, tzinfo=UTC)
         f = (col("datepartition") >= dt) & (col("status") == "active")
         result = _to_datafusion_sql(f)
-        assert "CAST('2026-04-27 00:00:00.000000+0000' AS TIMESTAMP)" in result
+        assert "'2026-04-27T00:00:00+00:00'" in result
         assert "\"status\" = 'active'" in result
 
     def test_time_equal(self):
         t = time(14, 30, 0)
         result = _to_datafusion_sql(col("event_time") == t)
-        assert result == "\"event_time\" = CAST('14:30:00.000000' AS TIME)"
+        assert result == "\"event_time\" = '14:30:00'"
 
     def test_time_with_microseconds(self):
         t = time(14, 30, 0, 500000)
         result = _to_datafusion_sql(col("event_time") == t)
-        assert result == "\"event_time\" = CAST('14:30:00.500000' AS TIME)"
+        assert result == "\"event_time\" = '14:30:00.500000'"
 
     def test_time_with_timezone_rejected(self):
         t = time(14, 30, 0, tzinfo=timezone(timedelta(hours=5)))
