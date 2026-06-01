@@ -27,10 +27,14 @@ Branch `mkuchenb/replication-poc`. Pick up at first unchecked item. Never delete
 - [x] Add a source snapshot → only it replays; dest extends
 - [ ] Partial copy then re-run → converges (stateless) — not yet tested
 
-## P2 — MOR + mutations
-- [ ] Positional deletes (internal file_path remapped) — oracle passes
+## P2 — mutations
+CoW [GREEN 2026-06-01] — OpenHouse default delete/overwrite is copy-on-write (no MOR delete files emitted).
+- [x] CoW delete (DELETE WHERE) — oracle passes (overwrite replay +0 -1)
+- [x] Overwrite (INSERT OVERWRITE, replace whole) — oracle passes (+2 -5)
+- [x] Compaction (rewrite_data_files) — no-op on tiny table; add+remove path proven by overwrite
+- [ ] MOR positional deletes — force `write.delete.mode=merge-on-read`, copy delete files, rewrite their
+      internal `file_path` column to remapped paths — oracle passes
 - [ ] Equality deletes — oracle passes
-- [ ] Overwrite + compaction snapshot (no double-count) — oracle passes
 - [ ] Schema/partition-spec evolution step — oracle passes
 
 ## Deferred (out of PoC)

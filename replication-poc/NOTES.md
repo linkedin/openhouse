@@ -20,6 +20,21 @@ Newest entries at top.
 
 ## Log
 
+### P2 CoW — GREEN + functional refactor (2026-06-01)
+Replay now handles removed files (CoW). `p2_delete`, `p2_overwrite`, `p2_compaction` all PASS, history
+still intact at every snapshot.
+- **Finding:** OpenHouse here writes deletes/overwrites **copy-on-write** — no `MOR delete file` NOTE
+  fired on default `DELETE`/`INSERT OVERWRITE`. So MOR positional deletes only arise if a table opts into
+  `write.delete.mode=merge-on-read` (must force it to exercise the internal-file_path rewrite). Compaction
+  no-ops on the tiny table (toReplay=0) but the overwrite case already exercises add+remove.
+- **Refactor (per review):** cases modeled explicitly — `Replay(add, remove)` from `planReplay`
+  (floor vs delta), op chosen by `dels match { Nil => append; ds => overwrite }` (no nested if/else).
+  Functional: `Option(parentId).map` chain walk, `Option(..).filter(_.nonEmpty).foreach` for the MOR note,
+  `Try(loadTbl).getOrElse` for ensureDest (no existence check), `results.forall(identity)`, `zipWithIndex`
+  instead of a mutable `bootstrapped` var.
+Remaining: P1 resume-after-partial-copy; P2 MOR (force merge-on-read → positional-delete path rewrite) +
+schema/partition-spec evolution.
+
 ### P0 + P1(2/3) — GREEN (2026-06-01)
 Real `replicateTable` (full history, floor + append-deltas, summary reconcile) vs `db.p0_append`→`p0_replica`.
 - **P0 full-history bootstrap:** chain of 3 snaps replayed (floor full-state=2 files, then +1, +2). Oracle
