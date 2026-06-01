@@ -16,16 +16,16 @@ Branch `mkuchenb/replication-poc`. Pick up at first unchecked item. Never delete
 - [x] **PASS** — OH accepts a committed snapshot referencing files WE placed (relocated DataFile, carried
       metrics). See NOTES.md 2026-06-01. Files are ORC; summary `source-snapshot-id` stamp round-trips.
 
-## P0 — append-only, rename, full history
-- [ ] `seed_sources.scala`: append-only source table, multiple snapshots, (un)partitioned
-- [ ] `replicateTable` floor (full materialization) + append deltas; stamp `source-snapshot-id` in summary
-- [ ] Oracle passes: `dest AS OF mapped_i == src AS OF i` for all in-window i
-- [ ] Idempotent re-run = no-op (0 files copied, 0 new snapshots)
+## P0 — append-only, rename, full history  [GREEN 2026-06-01]
+- [x] append-only source table, multiple snapshots (scenario self-seeds in replicate.scala)
+- [x] `replicateTable` floor (full materialization) + append deltas; stamp `source-snapshot-id` in summary
+- [x] Oracle passes: `dest AS OF mapped_i == src AS OF i` for all in-window i
+- [x] Idempotent re-run = no-op (toReplay=0)
 
 ## P1 — anti-join / incremental / resume
-- [ ] 2nd run copies 0 files (manifest anti-join)
-- [ ] Add a source snapshot → only it replays; dest extends
-- [ ] Partial copy then re-run → converges (stateless)
+- [x] 2nd run copies 0 files (summary reconcile)
+- [x] Add a source snapshot → only it replays; dest extends
+- [ ] Partial copy then re-run → converges (stateless) — not yet tested
 
 ## P2 — MOR + mutations
 - [ ] Positional deletes (internal file_path remapped) — oracle passes

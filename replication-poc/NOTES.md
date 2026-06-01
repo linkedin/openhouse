@@ -20,6 +20,19 @@ Newest entries at top.
 
 ## Log
 
+### P0 + P1(2/3) — GREEN (2026-06-01)
+Real `replicateTable` (full history, floor + append-deltas, summary reconcile) vs `db.p0_append`→`p0_replica`.
+- **P0 full-history bootstrap:** chain of 3 snaps replayed (floor full-state=2 files, then +1, +2). Oracle
+  PASS at every snapshot (2/3/5 rows accumulating). Each dest snapshot stamped with its `source-snapshot-id`.
+- **P1 idempotent:** re-run → `toReplay=0` (reconcile via dest summaries), oracle PASS. True no-op.
+- **P1 incremental:** added snap 4 → only it replayed (+1), oracle PASS across all 4 (6 rows).
+Mechanics confirmed: floor = `newScan().useSnapshot(id).planFiles()`; delta = `snapshot.addedDataFiles(io)`;
+relocate carries metrics; time-travel oracle via `spark.read.format("iceberg").option("snapshot-id",id)`
+(Spark 3.1 → no `VERSION AS OF` SQL, DataFrame reader option works). Reconcile/recovery key = the same
+`source-snapshot-id` summary. Driver-side file copy (executor distribution is a perf TODO, not correctness).
+Remaining P1: resume-after-partial-copy. Next: P2 (removed-files/overwrite, MOR positional-delete rewrite,
+compaction, schema evolution) — needs the replay to handle removedDataFiles + delete files, not just appends.
+
 ### Spike — GATE PASSED (2026-06-01)
 OH accepts a committed snapshot referencing files WE placed. Spike: created `db.src_spike` (3 rows, 2
 data files), copied both ORC files to `db.dst_spike`'s location (`<destLoc>/data/<sameName>`), rebuilt
