@@ -6,6 +6,7 @@ import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
+import com.linkedin.openhouse.optimizer.operations.ofd.OfdBinItem;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.optimizer.scheduler.binpack.Bin;
@@ -28,15 +29,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * For one operation type per call, reads PENDING rows, looks up per-table stats, projects each into
- * a {@link BinItem}, dispatches to the registered {@link BinPacker}, and submits one Spark job per
- * returned {@link Bin}. The {@link com.linkedin.openhouse.optimizer.scheduler.SchedulerApplication}
- * 's CommandLineRunner loops over the registered packers and invokes {@code schedule(opType)} for
- * each.
+ * the op-type's {@link BinItem} impl, dispatches to the registered {@link BinPacker}, and submits
+ * one Spark job per returned {@link Bin}. The {@link SchedulerApplication}'s CommandLineRunner
+ * loops over the registered packers and invokes {@code schedule(opType)} for each.
  *
  * <p>The runner owns all optimizer-specific orchestration — claim CAS, status transitions, and the
- * actual {@link JobsServiceClient#launch} call. The bin packer is a pure utility over a flat list
- * of {@link BinItem}s, deliberately decoupled from operation types and JPA rows so the same packer
- * can be shared with the existing {@code JobsScheduler} flow.
+ * actual {@link JobsServiceClient#launch} call. Per-op-type projection (build the right {@link
+ * BinItem} impl from an op + stats) and dispatch live in op-specific sub-methods; today there is
+ * only OFD, and the per-op switch is a TODO to factor into an {@code OperationScheduler<T>} handler
+ * once a second op type lands.
  */
 @Slf4j
 @Component
@@ -44,14 +45,14 @@ public class SchedulerRunner {
   private final TableOperationsRepository operationsRepo;
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
-  private final Map<OperationTypeDto, BinPacker> binPackers;
+  private final Map<OperationTypeDto, BinPacker<? extends BinItem>> binPackers;
   private final String resultsEndpoint;
 
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
-      Map<OperationTypeDto, BinPacker> binPackers,
+      Map<OperationTypeDto, BinPacker<? extends BinItem>> binPackers,
       @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
@@ -74,7 +75,7 @@ public class SchedulerRunner {
   public void schedule(
       OperationTypeDto operationType, Optional<String> databaseName, Optional<String> tableName) {
 
-    BinPacker packer = binPackers.get(operationType);
+    BinPacker<? extends BinItem> packer = binPackers.get(operationType);
     if (packer == null) {
       throw new IllegalStateException(
           "No BinPacker registered for operation type " + operationType);
@@ -111,17 +112,17 @@ public class SchedulerRunner {
         survivors.stream().map(TableOperationDto::fromRow).collect(Collectors.toList());
 
     // Tradeoff: we fetch fresh table_stats per scheduling cycle (one batched query) rather than
-    // denormalizing the relevant fields onto TableOperationDto. The denormalized alternative would
-    // remove the per-cycle lookup but widen the TableOperationDto row and serve staler data; the
-    // current shape favors smaller operations + freshness over fewer queries.
+    // denormalizing the relevant fields onto TableOperationDto. The denormalized alternative
+    // would remove the per-cycle lookup but widen the TableOperationDto row and serve staler
+    // data; the current shape favors smaller operations + freshness over fewer queries.
     Set<String> uuids =
         pending.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
     Map<String, TableStatsDto> statsByUuid =
         statsRepo.findAllById(uuids).stream()
             .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
 
-    // Filter at the boundary so every BinItem is built from a known-non-null stats row. A table
-    // without a stats row gets skipped this cycle and reconsidered after stats land.
+    // Filter at the boundary so every projection is built from a known-non-null stats row. A
+    // table without a stats row gets skipped this cycle and reconsidered after stats land.
     List<TableOperationDto> withStats =
         pending.stream()
             .filter(op -> statsByUuid.containsKey(op.getTableUuid()))
@@ -136,45 +137,36 @@ public class SchedulerRunner {
       return;
     }
 
-    List<BinItem> items =
-        withStats.stream()
-            .map(op -> toBinItem(op, statsByUuid.get(op.getTableUuid())))
-            .collect(Collectors.toList());
-
-    List<Bin> bins = packer.pack(items);
-    log.info(
-        "Packed {} PENDING {} operations into {} bins", items.size(), operationType, bins.size());
-
-    bins.forEach(bin -> submitBin(operationType, bin));
+    // TODO: when a second op type lands, factor each branch into an OperationScheduler<T extends
+    // BinItem> handler (own projection + own submit). Today's switch is the one place we narrow
+    // the wildcard packer to a concrete BinItem impl; the cast is safe by SchedulerConfig's
+    // registration invariant (the packer for ORPHAN_FILES_DELETION is built as a
+    // BinPacker<OfdBinItem>).
+    switch (operationType) {
+      case ORPHAN_FILES_DELETION:
+        @SuppressWarnings("unchecked")
+        BinPacker<OfdBinItem> ofdPacker = (BinPacker<OfdBinItem>) packer;
+        scheduleOfd(ofdPacker, withStats, statsByUuid);
+        return;
+      default:
+        throw new IllegalStateException(
+            "No scheduling handler for operation type " + operationType);
+    }
   }
 
-  /**
-   * Project an (operation, stats) pair into the packer's input row. Weight is current file count
-   * (the packing dimension OFD cares about); sizeBytes is the on-disk footprint when stats expose
-   * it, else 0.
-   */
-  private static BinItem toBinItem(TableOperationDto op, TableStatsDto stats) {
-    long weight = 0L;
-    long sizeBytes = 0L;
-    if (stats != null && stats.getSnapshot() != null) {
-      Long files = stats.getSnapshot().getNumCurrentFiles();
-      if (files != null) {
-        weight = files;
-      }
-      Long bytes = stats.getSnapshot().getTableSizeBytes();
-      if (bytes != null) {
-        sizeBytes = bytes;
-      }
-    }
-    return BinItem.builder()
-        .fqtn(op.getDatabaseName() + "." + op.getTableName())
-        .operationId(op.getId())
-        .tableUuid(op.getTableUuid())
-        .databaseName(op.getDatabaseName())
-        .tableName(op.getTableName())
-        .weight(weight)
-        .sizeBytes(sizeBytes)
-        .build();
+  private void scheduleOfd(
+      BinPacker<OfdBinItem> packer,
+      List<TableOperationDto> withStats,
+      Map<String, TableStatsDto> statsByUuid) {
+
+    List<OfdBinItem> items =
+        withStats.stream()
+            .map(op -> OfdBinItem.from(op, statsByUuid.get(op.getTableUuid())))
+            .collect(Collectors.toList());
+    List<Bin<OfdBinItem>> bins = packer.pack(items);
+    log.info("Packed {} PENDING OFD operations into {} bins", items.size(), bins.size());
+
+    bins.forEach(this::submitOfdBin);
   }
 
   /**
@@ -212,12 +204,12 @@ public class SchedulerRunner {
   }
 
   /**
-   * Claim the bin, narrow to the rows actually claimed, launch the batched Spark job for the
-   * claimed subset, and mark them SCHEDULED — or revert to PENDING if launch failed.
+   * Claim a bin of OFD work, narrow to the rows actually claimed, launch the batched Spark job for
+   * the claimed subset, and mark them SCHEDULED — or revert to PENDING if launch failed.
    */
-  private void submitBin(OperationTypeDto operationType, Bin bin) {
+  private void submitOfdBin(Bin<OfdBinItem> bin) {
     List<String> ids =
-        bin.items().stream().map(BinItem::getOperationId).collect(Collectors.toList());
+        bin.items().stream().map(OfdBinItem::getOperationId).collect(Collectors.toList());
 
     // Claim in one batched UPDATE: PENDING → SCHEDULING. Aggregate row count alone doesn't tell us
     // *which* rows we own — re-query for SCHEDULING rows tagged with our scheduledAt watermark.
@@ -258,19 +250,19 @@ public class SchedulerRunner {
 
     // Narrow the bin's items to the rows we actually own before extracting Spark-args.
     Set<String> claimedSet = new HashSet<>(claimedIds);
-    List<BinItem> claimedItems =
+    List<OfdBinItem> claimedItems =
         bin.items().stream()
             .filter(item -> claimedSet.contains(item.getOperationId()))
             .collect(Collectors.toList());
     List<String> tableNames =
-        claimedItems.stream().map(BinItem::getFqtn).collect(Collectors.toList());
+        claimedItems.stream().map(OfdBinItem::getFqtn).collect(Collectors.toList());
     List<String> operationIds =
-        claimedItems.stream().map(BinItem::getOperationId).collect(Collectors.toList());
+        claimedItems.stream().map(OfdBinItem::getOperationId).collect(Collectors.toList());
 
-    String jobName =
-        "batched-" + operationType.name().toLowerCase() + "-" + claimedAt.toEpochMilli();
+    String operationTypeName = OperationTypeDto.ORPHAN_FILES_DELETION.name();
+    String jobName = "batched-" + operationTypeName.toLowerCase() + "-" + claimedAt.toEpochMilli();
     Optional<String> jobId =
-        jobsClient.launch(jobName, operationType.name(), tableNames, operationIds, resultsEndpoint);
+        jobsClient.launch(jobName, operationTypeName, tableNames, operationIds, resultsEndpoint);
 
     if (jobId.isPresent()) {
       int updated =

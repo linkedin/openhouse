@@ -9,41 +9,35 @@ import lombok.ToString;
 /**
  * Mutable accumulator used by a {@link BinPacker} while assembling a batch. Callers receiving a
  * packed list of {@code Bin}s treat them as read-only — {@link #items()} returns an unmodifiable
- * view, and the running totals are exposed only via getters.
+ * view and the running total is exposed only via the getter.
  *
- * <p>Structurally identical to {@code jobs.util.binpack.Bin} introduced by PR&nbsp;#599; see the
- * note on {@link BinItem} for the swap-out plan.
+ * @param <T> concrete {@link BinItem} implementation carried by this bin
  */
 @ToString
-public class Bin {
-  private final List<BinItem> items = new ArrayList<>();
+public class Bin<T extends BinItem> {
+  private final List<T> items = new ArrayList<>();
   @Getter private long totalWeight;
-  @Getter private long totalSizeBytes;
 
   /**
-   * Returns true iff adding {@code item} would keep this bin at or below all three caps. A cap of
-   * {@code <= 0} disables that dimension.
+   * Returns true iff adding {@code item} keeps the bin at or below both caps. A cap of {@code <= 0}
+   * disables that dimension.
    */
-  boolean fits(BinItem item, long maxWeight, long maxSizeBytes, int maxItems) {
+  boolean fits(T item, long maxWeight, int maxItems) {
     if (maxItems > 0 && items.size() >= maxItems) {
       return false;
     }
     if (maxWeight > 0 && totalWeight + item.getWeight() > maxWeight) {
       return false;
     }
-    if (maxSizeBytes > 0 && totalSizeBytes + item.getSizeBytes() > maxSizeBytes) {
-      return false;
-    }
     return true;
   }
 
-  void add(BinItem item) {
+  void add(T item) {
     items.add(item);
     totalWeight += item.getWeight();
-    totalSizeBytes += item.getSizeBytes();
   }
 
-  public List<BinItem> items() {
+  public List<T> items() {
     return Collections.unmodifiableList(items);
   }
 
