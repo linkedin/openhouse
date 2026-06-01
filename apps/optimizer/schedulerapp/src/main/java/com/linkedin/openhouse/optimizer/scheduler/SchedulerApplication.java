@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.optimizer.scheduler;
 
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -8,9 +8,13 @@ import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.Bin;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,10 +27,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * For one operation type per call, reads PENDING rows, looks up per-table stats, dispatches to the
- * registered {@link BinPacker}, and submits one Spark job per returned {@link Bin}. The {@link
- * com.linkedin.openhouse.optimizer.scheduler.SchedulerApplication}'s CommandLineRunner loops over
- * the registered packers and invokes {@code schedule(opType)} for each.
+ * For one operation type per call, reads PENDING rows, looks up per-table stats, projects each into
+ * a {@link BinItem}, dispatches to the registered {@link BinPacker}, and submits one Spark job per
+ * returned {@link Bin}. The {@link com.linkedin.openhouse.optimizer.scheduler.SchedulerApplication}
+ * 's CommandLineRunner loops over the registered packers and invokes {@code schedule(opType)} for
+ * each.
+ *
+ * <p>The runner owns all optimizer-specific orchestration — claim CAS, status transitions, and the
+ * actual {@link JobsServiceClient#launch} call. The bin packer is a pure utility over a flat list
+ * of {@link BinItem}s, deliberately decoupled from operation types and JPA rows so the same packer
+ * can be shared with the existing {@code JobsScheduler} flow.
  */
 @Slf4j
 @Component
@@ -110,8 +120,8 @@ public class SchedulerRunner {
         statsRepo.findAllById(uuids).stream()
             .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
 
-    // Filter at the boundary so SchedulingCandidate.stats is guaranteed non-null. A table without
-    // a stats row gets skipped this cycle and reconsidered after stats land.
+    // Filter at the boundary so every BinItem is built from a known-non-null stats row. A table
+    // without a stats row gets skipped this cycle and reconsidered after stats land.
     List<TableOperationDto> withStats =
         pending.stream()
             .filter(op -> statsByUuid.containsKey(op.getTableUuid()))
@@ -126,19 +136,45 @@ public class SchedulerRunner {
       return;
     }
 
-    List<SchedulingCandidate> candidates =
+    List<BinItem> items =
         withStats.stream()
-            .map(op -> new SchedulingCandidate(op, statsByUuid.get(op.getTableUuid())))
+            .map(op -> toBinItem(op, statsByUuid.get(op.getTableUuid())))
             .collect(Collectors.toList());
 
-    List<Bin> bins = packer.pack(candidates);
+    List<Bin> bins = packer.pack(items);
     log.info(
-        "Packed {} PENDING {} operations into {} bins",
-        candidates.size(),
-        operationType,
-        bins.size());
+        "Packed {} PENDING {} operations into {} bins", items.size(), operationType, bins.size());
 
-    bins.forEach(this::submitBin);
+    bins.forEach(bin -> submitBin(operationType, bin));
+  }
+
+  /**
+   * Project an (operation, stats) pair into the packer's input row. Weight is current file count
+   * (the packing dimension OFD cares about); sizeBytes is the on-disk footprint when stats expose
+   * it, else 0.
+   */
+  private static BinItem toBinItem(TableOperationDto op, TableStatsDto stats) {
+    long weight = 0L;
+    long sizeBytes = 0L;
+    if (stats != null && stats.getSnapshot() != null) {
+      Long files = stats.getSnapshot().getNumCurrentFiles();
+      if (files != null) {
+        weight = files;
+      }
+      Long bytes = stats.getSnapshot().getTableSizeBytes();
+      if (bytes != null) {
+        sizeBytes = bytes;
+      }
+    }
+    return BinItem.builder()
+        .fqtn(op.getDatabaseName() + "." + op.getTableName())
+        .operationId(op.getId())
+        .tableUuid(op.getTableUuid())
+        .databaseName(op.getDatabaseName())
+        .tableName(op.getTableName())
+        .weight(weight)
+        .sizeBytes(sizeBytes)
+        .build();
   }
 
   /**
@@ -175,13 +211,18 @@ public class SchedulerRunner {
         .collect(Collectors.toList());
   }
 
-  private void submitBin(Bin bin) {
-    List<String> ids = bin.getOperationIds();
+  /**
+   * Claim the bin, narrow to the rows actually claimed, launch the batched Spark job for the
+   * claimed subset, and mark them SCHEDULED — or revert to PENDING if launch failed.
+   */
+  private void submitBin(OperationTypeDto operationType, Bin bin) {
+    List<String> ids =
+        bin.items().stream().map(BinItem::getOperationId).collect(Collectors.toList());
 
-    // Claim the rows in one batched UPDATE: PENDING → SCHEDULING. The UPDATE's row count is just
-    // an aggregate — to know *which* rows we own, re-query for SCHEDULING rows tagged with our
-    // scheduledAt watermark. Anything not in that subset belongs to another instance or was
-    // canceled, and must not be submitted or marked SCHEDULED.
+    // Claim in one batched UPDATE: PENDING → SCHEDULING. Aggregate row count alone doesn't tell us
+    // *which* rows we own — re-query for SCHEDULING rows tagged with our scheduledAt watermark.
+    // Anything not in that subset belongs to another instance or was canceled, and must not be
+    // submitted or marked SCHEDULED.
     Instant claimedAt = Instant.now();
     operationsRepo.updateBatch(
         ids,
@@ -189,8 +230,7 @@ public class SchedulerRunner {
         OperationStatus.SCHEDULING,
         Optional.of(claimedAt),
         Optional.empty());
-    // Unpaged: the result set is already bounded by ids.size() (the bin we just claimed); no
-    // need to cap it further.
+    // Unpaged: the result set is bounded by ids.size() (the bin we just claimed).
     List<String> claimedIds =
         operationsRepo
             .find(
@@ -216,8 +256,22 @@ public class SchedulerRunner {
           ids.size());
     }
 
-    Bin claimedBin = bin.subset(claimedIds);
-    Optional<String> jobId = claimedBin.schedule(jobsClient, resultsEndpoint);
+    // Narrow the bin's items to the rows we actually own before extracting Spark-args.
+    Set<String> claimedSet = new HashSet<>(claimedIds);
+    List<BinItem> claimedItems =
+        bin.items().stream()
+            .filter(item -> claimedSet.contains(item.getOperationId()))
+            .collect(Collectors.toList());
+    List<String> tableNames =
+        claimedItems.stream().map(BinItem::getFqtn).collect(Collectors.toList());
+    List<String> operationIds =
+        claimedItems.stream().map(BinItem::getOperationId).collect(Collectors.toList());
+
+    String jobName =
+        "batched-" + operationType.name().toLowerCase() + "-" + claimedAt.toEpochMilli();
+    Optional<String> jobId =
+        jobsClient.launch(jobName, operationType.name(), tableNames, operationIds, resultsEndpoint);
+
     if (jobId.isPresent()) {
       int updated =
           operationsRepo.updateBatch(
@@ -229,7 +283,7 @@ public class SchedulerRunner {
       log.info(
           "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
           jobId.get(),
-          claimedBin.getOperations().size(),
+          claimedItems.size(),
           updated);
     } else {
       int reverted =

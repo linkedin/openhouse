@@ -17,13 +17,15 @@ import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.FirstFitDecreasingBinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -84,17 +86,20 @@ class SchedulerRunnerTest {
         .thenReturn(rows);
   }
 
-  /** Stubs the bin packer to return one bin containing every candidate. */
-  private void stubOneBinForAllCandidates() {
+  /**
+   * Stubs the bin packer to put every input item into a single bin, by routing through a real FFD
+   * packer with unbounded caps. Lets the test exercise the runner's projection (op → BinItem)
+   * without bypassing Bin's package-private mutators.
+   */
+  private void stubOneBinForAllItems() {
+    FirstFitDecreasingBinPacker realPacker =
+        FirstFitDecreasingBinPacker.builder()
+            .maxWeightPerBin(0L)
+            .maxSizeBytesPerBin(0L)
+            .maxItemsPerBin(0)
+            .build();
     when(binPacker.pack(anyList()))
-        .thenAnswer(
-            inv ->
-                List.of(
-                    new Bin(
-                        OFD,
-                        inv.<List<SchedulingCandidate>>getArgument(0).stream()
-                            .map(SchedulingCandidate::getOperation)
-                            .collect(Collectors.toList()))));
+        .thenAnswer(inv -> realPacker.pack(inv.<List<BinItem>>getArgument(0)));
   }
 
   private TableOperationsRow pendingRow(String uuid, String db, String table) {
@@ -152,7 +157,7 @@ class SchedulerRunnerTest {
 
     stubFindPending(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
-    stubOneBinForAllCandidates();
+    stubOneBinForAllItems();
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
         .thenReturn(1);
@@ -189,7 +194,7 @@ class SchedulerRunnerTest {
 
     stubFindPending(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
-    stubOneBinForAllCandidates();
+    stubOneBinForAllItems();
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
         .thenReturn(1);
@@ -221,7 +226,7 @@ class SchedulerRunnerTest {
 
     stubFindPending(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
-    stubOneBinForAllCandidates();
+    stubOneBinForAllItems();
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
         .thenReturn(0);
@@ -247,7 +252,7 @@ class SchedulerRunnerTest {
     stubFindPending(List.of(row1, row2));
     when(operationsRepo.cancel(anyList())).thenReturn(1);
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
-    stubOneBinForAllCandidates();
+    stubOneBinForAllItems();
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
         .thenReturn(1);
@@ -281,7 +286,7 @@ class SchedulerRunnerTest {
     stubFindPending(List.of(rowA, rowB));
     when(statsRepo.findAllById(any()))
         .thenReturn(List.of(statsRow(uuidA, 100L), statsRow(uuidB, 100L)));
-    stubOneBinForAllCandidates();
+    stubOneBinForAllItems();
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
         .thenReturn(1);
@@ -325,7 +330,7 @@ class SchedulerRunnerTest {
 
     stubFindPending(List.of(withStatsRow, missingRow));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(withStats, 50L)));
-    stubOneBinForAllCandidates();
+    stubOneBinForAllItems();
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
         .thenReturn(1);
