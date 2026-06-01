@@ -19,4 +19,19 @@ Newest entries at top.
 - **GATE:** does OH accept the relocated-DataFile append+commit (spike RESULT line)?
 
 ## Log
-(append entries here as the spike/phases run)
+
+### Spike — GATE PASSED (2026-06-01)
+OH accepts a committed snapshot referencing files WE placed. Spike: created `db.src_spike` (3 rows, 2
+data files), copied both ORC files to `db.dst_spike`'s location (`<destLoc>/data/<sameName>`), rebuilt
+each via `DataFiles.builder(dst.spec()).copy(df).withPath(new).build()` (metrics carried — 336B/1rec,
+341B/2rec), `dst.newAppend().appendFile(...).set("source-snapshot-id", srcSnap).commit()` through the OH
+catalog. Oracle: `dst == src` (`[1,a],[2,b],[3,c]`). Summary stamp present on dest snapshot.
+Implications confirmed:
+- Relocation + carried-metrics + commit-through-catalog is accepted by real OH (no re-stat/rejection).
+- Files are **ORC** here (not parquet); paths `/data/openhouse/db/<table>-<uuid>/data/<file>`.
+- `source-snapshot-id` summary stamp round-trips → recovery index mechanism viable.
+Harness reality: running stack predates the `/var/config` mount, so used `docker cp` of run_replicate.sh
++ replicate.scala into live `local.spark-master`; token + `openhouse-spark-runtime_*.jar` already present.
+`docker exec ... run_replicate.sh </dev/null` runs spark-shell `-i` then exits cleanly.
+
+(append newer entries above this line)

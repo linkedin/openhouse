@@ -5,15 +5,16 @@ Branch `mkuchenb/replication-poc`. Pick up at first unchecked item. Never delete
 ## Setup (one-time, keep warm)
 - [x] Create isolated worktree `~/code/openhouse-replica`
 - [x] Write PLAN.md + this checklist
-- [ ] Scaffold harness in `infra/recipes/docker-compose/oh-hadoop-spark/`: `run_replicate.sh`,
+- [x] Scaffold harness in `infra/recipes/docker-compose/oh-hadoop-spark/`: `run_replicate.sh`,
       `replicate.scala` (spike), `seed_sources.scala`; add `/var/config` mount to spark-master
-- [ ] Commit plan + harness scaffold
-- [ ] Verify Docker images exist (or build once); `docker compose up` the `oh-hadoop-spark` stack
-- [ ] Generate `openhouse.token`; confirm spark-shell reaches `openhouse-tables:8080` catalog
+- [x] Commit plan + harness scaffold
+- [x] Docker images exist + stack already warm (containers up 3-5 days; no build/up needed)
+- [x] Token + runtime jar already in live container; spark-shell reaches `openhouse-tables:8080` catalog
+      (used `docker cp` into live spark-master since running container predates the `/var/config` mount)
 
 ## Spike (gate)
-- [ ] Does OH accept a committed snapshot referencing files WE placed (relocated DataFile, carried
-      metrics)? Minimal append+commit through OH catalog, then SELECT. Record the answer in NOTES.md.
+- [x] **PASS** — OH accepts a committed snapshot referencing files WE placed (relocated DataFile, carried
+      metrics). See NOTES.md 2026-06-01. Files are ORC; summary `source-snapshot-id` stamp round-trips.
 
 ## P0 — append-only, rename, full history
 - [ ] `seed_sources.scala`: append-only source table, multiple snapshots, (un)partitioned
