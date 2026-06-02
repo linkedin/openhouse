@@ -12,8 +12,8 @@ import lombok.ToString;
  * implementation knows nothing about which operation type it is wired up to.
  *
  * <p>Construction: callers pass {@code TotalFilesBinItem::new} as the {@code Supplier<T>} to {@link
- * FirstFitBinPacker}; the packer calls the supplier per operation to get a seat, then {@link
- * #fromOpAndStats} on the seat to get a populated copy.
+ * FirstFitBinPacker}; the packer calls the supplier per operation to get an empty instance, then
+ * {@link #fromOpAndStats} on it to get a populated copy.
  */
 @Getter
 @ToString
@@ -23,7 +23,7 @@ public class TotalFilesBinItem implements BinItem {
   private final String operationId;
   private final long weight;
 
-  /** Seat constructor: call {@link #fromOpAndStats} on the result to get a populated instance. */
+  /** Empty constructor: call {@link #fromOpAndStats} on the result to get a populated instance. */
   public TotalFilesBinItem() {
     this("", "", 0L);
   }

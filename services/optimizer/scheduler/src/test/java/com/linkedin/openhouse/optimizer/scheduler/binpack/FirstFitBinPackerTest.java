@@ -13,9 +13,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Tests the {@link FirstFitBinPacker} bucketing logic in isolation via a {@link TestItem} whose
- * weight comes from a {@code "weight"} entry in {@code tableProperties}. The seat-then-populate
- * pattern is exercised end-to-end through the public {@code pack} entry point. Projection logic for
- * production BinItems (e.g. {@link TotalFilesBinItem}) is covered by their own tests.
+ * weight comes from a {@code "weight"} entry in {@code tableProperties}. The supplier-then-{@code
+ * fromOpAndStats} pattern is exercised end-to-end through the public {@code pack} entry point.
+ * Projection logic for production BinItems (e.g. {@link TotalFilesBinItem}) is covered by their own
+ * tests.
  */
 class FirstFitBinPackerTest {
 

@@ -60,11 +60,11 @@ class TotalFilesBinItemTest {
   }
 
   @Test
-  void seat_doesNotShareStateWithPopulated() {
-    TotalFilesBinItem seat = new TotalFilesBinItem();
-    BinItem populated = seat.fromOpAndStats(op(), statsWithFiles(7L));
+  void emptyInstance_doesNotShareStateWithPopulated() {
+    TotalFilesBinItem empty = new TotalFilesBinItem();
+    BinItem populated = empty.fromOpAndStats(op(), statsWithFiles(7L));
 
-    assertThat(seat.getWeight()).isEqualTo(0L);
+    assertThat(empty.getWeight()).isEqualTo(0L);
     assertThat(populated.getWeight()).isEqualTo(7L);
   }
 }

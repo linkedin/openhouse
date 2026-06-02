@@ -13,27 +13,27 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * First-fit-decreasing packing, generic over the concrete {@link BinItem} subtype {@code T}.
  * Construction takes a {@code Supplier<T>} — typically a {@code MyItem::new} method reference —
- * which the packer invokes per operation to get a seat, then calls {@link BinItem#fromOpAndStats}
- * on the seat to project the (operation, stats) pair into a populated item.
+ * which the packer invokes per operation to get an empty instance, then calls {@link
+ * BinItem#fromOpAndStats} on it to project the (operation, stats) pair into a populated item.
  *
  * <p>Sorts items by weight descending, then places each into the first group whose totals stay at
  * or below {@code maxWeightPerBin} and {@code maxItemsPerBin}. An item whose weight exceeds the cap
  * on its own goes into a group by itself. Operations whose {@code tableUuid} has no entry in {@code
  * statsByTableUuid} are dropped.
  *
- * <p>Stateless: the constructor takes only the seat factory and the cap configuration; {@link
+ * <p>Stateless: the constructor takes only the BinItem supplier and the cap configuration; {@link
  * #pack} is a pure function over its arguments. The packer is operation-agnostic — the scheduler
  * wraps each grouping into a {@link Bin} with the registered operation type.
  */
 @Slf4j
 public class FirstFitBinPacker<T extends BinItem> implements BinPacker {
 
-  private final Supplier<T> seatFactory;
+  private final Supplier<T> binItemSupplier;
   private final long maxWeightPerBin;
   private final int maxItemsPerBin;
 
-  public FirstFitBinPacker(Supplier<T> seatFactory, long maxWeightPerBin, int maxItemsPerBin) {
-    this.seatFactory = seatFactory;
+  public FirstFitBinPacker(Supplier<T> binItemSupplier, long maxWeightPerBin, int maxItemsPerBin) {
+    this.binItemSupplier = binItemSupplier;
     this.maxWeightPerBin = maxWeightPerBin;
     this.maxItemsPerBin = maxItemsPerBin;
   }
@@ -45,7 +45,10 @@ public class FirstFitBinPacker<T extends BinItem> implements BinPacker {
         operations.stream()
             .filter(op -> statsByTableUuid.containsKey(op.getTableUuid()))
             .map(
-                op -> seatFactory.get().fromOpAndStats(op, statsByTableUuid.get(op.getTableUuid())))
+                op ->
+                    binItemSupplier
+                        .get()
+                        .fromOpAndStats(op, statsByTableUuid.get(op.getTableUuid())))
             .collect(Collectors.toList());
     List<PackingBin> packingBins =
         items.stream()
