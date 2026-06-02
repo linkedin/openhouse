@@ -98,64 +98,51 @@ public class SchedulerRunner {
 
   public void schedule(
       OperationTypeDto type, Optional<String> databaseName, Optional<String> tableName) {
-    BinPacker packer =
-        Optional.ofNullable(registry.get(type))
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "No BinPacker registered for operation type " + type));
-
-    List<TableOperationsRow> pending =
-        operationsRepo.find(
-            Optional.of(type.toDb()),
-            Optional.of(OperationStatus.PENDING),
-            Optional.empty(),
-            databaseName,
-            tableName,
-            Optional.empty(),
-            Optional.empty(),
-            Pageable.unpaged());
-    if (pending.isEmpty()) {
-      log.info("No PENDING operations of type {}; nothing to schedule", type);
-      return;
-    }
+    Comparator<TableOperationsRow> oldestFirst =
+        Comparator.comparing(TableOperationsRow::getCreatedAt)
+            .thenComparing(TableOperationsRow::getId);
 
     // Per tableUuid, the oldest row (lex-tiebreak on id) is the one we schedule; any others are
     // duplicates we cancel. Both lists are derived independently from the same grouping —
     // scheduling does not wait on cancellation and is not predicated on its outcome.
     Map<String, List<TableOperationsRow>> byTableUuid =
-        pending.stream().collect(Collectors.groupingBy(TableOperationsRow::getTableUuid));
-    Comparator<TableOperationsRow> oldestFirst =
-        Comparator.comparing(TableOperationsRow::getCreatedAt)
-            .thenComparing(TableOperationsRow::getId);
-    List<TableOperationDto> toSchedule =
-        byTableUuid.values().stream()
-            .map(rows -> rows.stream().min(oldestFirst).orElseThrow())
-            .map(TableOperationDto::fromRow)
-            .collect(Collectors.toList());
+        operationsRepo
+            .find(
+                Optional.of(type.toDb()),
+                Optional.of(OperationStatus.PENDING),
+                Optional.empty(),
+                databaseName,
+                tableName,
+                Optional.empty(),
+                Optional.empty(),
+                Pageable.unpaged())
+            .stream()
+            .collect(Collectors.groupingBy(TableOperationsRow::getTableUuid));
 
-    int cancelled =
-        operationsRepo.cancel(
-            byTableUuid.values().stream()
-                .filter(rows -> rows.size() > 1)
-                .flatMap(rows -> rows.stream().sorted(oldestFirst).skip(1))
-                .map(TableOperationsRow::getId)
-                .collect(Collectors.toList()));
-    if (cancelled > 0) {
-      log.warn("Cancelled {} duplicate PENDING rows", cancelled);
-    }
+    operationsRepo.cancel(
+        byTableUuid.values().stream()
+            .filter(rows -> rows.size() > 1)
+            .flatMap(rows -> rows.stream().sorted(oldestFirst).skip(1))
+            .map(TableOperationsRow::getId)
+            .collect(Collectors.toList()));
 
     Map<String, TableStatsDto> statsByUuid =
         statsRepo.findAllById(byTableUuid.keySet()).stream()
             .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
 
-    List<Bin> bins =
-        packer.pack(toSchedule, statsByUuid).stream()
-            .map(grouping -> new Bin(type, grouping))
-            .collect(Collectors.toList());
-    log.info("Packed {} PENDING {} operations into {} bins", toSchedule.size(), type, bins.size());
-
-    bins.forEach(this::scheduleBin);
+    Optional.ofNullable(registry.get(type))
+        .ifPresent(
+            packer ->
+                packer
+                    .pack(
+                        byTableUuid.values().stream()
+                            .map(rows -> rows.stream().min(oldestFirst).orElseThrow())
+                            .map(TableOperationDto::fromRow)
+                            .collect(Collectors.toList()),
+                        statsByUuid)
+                    .stream()
+                    .map(grouping -> new Bin(type, grouping))
+                    .forEach(this::scheduleBin));
   }
 
   /**

@@ -2,7 +2,6 @@ package com.linkedin.openhouse.optimizer.scheduler;
 
 import static com.linkedin.openhouse.optimizer.model.OperationTypeDto.ORPHAN_FILES_DELETION;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -107,13 +106,16 @@ class SchedulerRunnerTest {
   // ---- Tests ----
 
   @Test
-  void schedule_unknownOperationType_throws() {
+  void schedule_unknownOperationType_doesNotLaunch() {
     SchedulerRunner empty =
         new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT);
+    String uuid = UUID.randomUUID().toString();
+    stubFindPending(List.of(pendingRow(uuid, "db1", "tbl1")));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
 
-    assertThatThrownBy(() -> empty.schedule(ORPHAN_FILES_DELETION))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("No BinPacker registered");
+    empty.schedule(ORPHAN_FILES_DELETION);
+
+    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
   @Test
