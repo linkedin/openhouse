@@ -8,75 +8,125 @@ import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.Bin;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * For one operation type per call, reads PENDING rows, looks up per-table stats, dispatches to the
- * registered {@link BinPacker}, and submits one Spark job per returned {@link Bin}. The {@link
- * com.linkedin.openhouse.optimizer.scheduler.SchedulerApplication}'s CommandLineRunner loops over
- * the registered packers and invokes {@code schedule(opType)} for each.
+ * Generic scheduler. Operation types are registered at construction via {@link #registerOperation},
+ * which returns a new instance with the additional entry — the registry is immutable, so the bean
+ * Spring publishes is the fully-registered runner produced in {@link
+ * com.linkedin.openhouse.optimizer.scheduler.config.SchedulerConfig}. For each registered type the
+ * runner:
+ *
+ * <ol>
+ *   <li>Reads PENDING rows from MySQL.
+ *   <li>Deduplicates duplicate PENDING rows for the same {@code tableUuid}.
+ *   <li>Loads the stats row for every survivor.
+ *   <li>Hands the (operations, stats) pair to the {@link BinPacker} and receives one grouping per
+ *       batch.
+ *   <li>Wraps each grouping into a {@link Bin} tagged with the operation type and schedules it
+ *       (claim CAS, narrow to claimed, launch, record).
+ * </ol>
+ *
+ * <p>The runner is operation-agnostic. All IO and the claim/launch/mark lifecycle live here; the
+ * only per-operation knowledge in the module is the {@link BinPacker} the caller registers.
  */
 @Slf4j
-@Component
 public class SchedulerRunner {
+
   private final TableOperationsRepository operationsRepo;
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
-  private final Map<OperationTypeDto, BinPacker> binPackers;
   private final String resultsEndpoint;
+  private final Map<OperationTypeDto, BinPacker> registry;
 
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
-      Map<OperationTypeDto, BinPacker> binPackers,
-      @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint) {
+      String resultsEndpoint) {
+    this(operationsRepo, statsRepo, jobsClient, resultsEndpoint, Map.of());
+  }
+
+  private SchedulerRunner(
+      TableOperationsRepository operationsRepo,
+      TableStatsRepository statsRepo,
+      JobsServiceClient jobsClient,
+      String resultsEndpoint,
+      Map<OperationTypeDto, BinPacker> registry) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
     this.jobsClient = jobsClient;
-    this.binPackers = binPackers;
     this.resultsEndpoint = resultsEndpoint;
-  }
-
-  /** Schedule all PENDING operations of the given type across all databases. */
-  @Transactional
-  public void schedule(OperationTypeDto operationType) {
-    schedule(operationType, Optional.empty(), Optional.empty());
+    this.registry = registry;
   }
 
   /**
-   * Schedule PENDING operations for {@code operationType}, optionally scoped to a single database
-   * or table name.
+   * Return a new {@link SchedulerRunner} whose registry is this one's plus {@code (type, packer)}.
+   * If {@code type} was already registered, the new entry replaces the prior one. Pure: the
+   * receiver is unchanged.
    */
-  @Transactional
+  public SchedulerRunner registerOperation(OperationTypeDto type, BinPacker packer) {
+    HashMap<OperationTypeDto, BinPacker> next = new HashMap<>(registry);
+    next.put(type, packer);
+    return new SchedulerRunner(
+        operationsRepo, statsRepo, jobsClient, resultsEndpoint, Map.copyOf(next));
+  }
+
+  public Set<OperationTypeDto> getRegisteredOperationTypes() {
+    return registry.keySet();
+  }
+
+  public void schedule(OperationTypeDto type) {
+    schedule(type, Optional.empty(), Optional.empty());
+  }
+
   public void schedule(
-      OperationTypeDto operationType, Optional<String> databaseName, Optional<String> tableName) {
+      OperationTypeDto type, Optional<String> databaseName, Optional<String> tableName) {
+    BinPacker packer =
+        Optional.ofNullable(registry.get(type))
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "No BinPacker registered for operation type " + type));
 
-    BinPacker packer = binPackers.get(operationType);
-    if (packer == null) {
-      throw new IllegalStateException(
-          "No BinPacker registered for operation type " + operationType);
+    List<TableOperationDto> pending = loadAndDedupPending(type, databaseName, tableName);
+    if (pending.isEmpty()) {
+      return;
     }
+    Map<String, TableStatsDto> statsByUuid = loadStatsByUuid(pending);
 
-    // Unpaged: a single-page truncation would silently drop work past page 0 (next cycle would
-    // re-load the same first page in MySQL row order, leaving the tail unscheduled until the
-    // ordering shifts). Correctness here requires the full PENDING set in one cycle; the working
-    // set is bounded by count(PENDING for this op type).
+    List<Bin> bins =
+        packer.pack(pending, statsByUuid).stream()
+            .map(grouping -> new Bin(type, grouping))
+            .collect(Collectors.toList());
+    log.info("Packed {} PENDING {} operations into {} bins", pending.size(), type, bins.size());
+
+    bins.forEach(this::scheduleBin);
+  }
+
+  private List<TableOperationDto> loadAndDedupPending(
+      OperationTypeDto type, Optional<String> databaseName, Optional<String> tableName) {
+    // Unpaged: correctness requires the full PENDING set in one cycle; the working set is bounded
+    // by count(PENDING for this op type). Single-page truncation would silently drop work past
+    // page 0.
     List<TableOperationsRow> pendingRows =
         operationsRepo.find(
-            Optional.of(operationType.toDb()),
+            Optional.of(type.toDb()),
             Optional.of(OperationStatus.PENDING),
             Optional.empty(),
             databaseName,
@@ -85,65 +135,16 @@ public class SchedulerRunner {
             Optional.empty(),
             Pageable.unpaged());
     if (pendingRows.isEmpty()) {
-      log.info("No PENDING operations of type {}; nothing to schedule", operationType);
-      return;
+      log.info("No PENDING operations of type {}; nothing to schedule", type);
+      return List.of();
     }
-
-    // Deduplicate before claiming: if multiple PENDING rows exist for the same tableUuid, keep
-    // the oldest (lex-tiebreak on id) and cancel the rest. Per-cycle, not per-bin — running this
-    // inside the bin loop nuked rows belonging to other bins of the same cycle.
     List<TableOperationsRow> survivors = cancelDuplicates(pendingRows);
-    if (survivors.isEmpty()) {
-      return;
-    }
-
-    List<TableOperationDto> pending =
-        survivors.stream().map(TableOperationDto::fromRow).collect(Collectors.toList());
-
-    // Tradeoff: we fetch fresh table_stats per scheduling cycle (one batched query) rather than
-    // denormalizing the relevant fields onto TableOperationDto. The denormalized alternative would
-    // remove the per-cycle lookup but widen the TableOperationDto row and serve staler data; the
-    // current shape favors smaller operations + freshness over fewer queries.
-    Set<String> uuids =
-        pending.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
-    Map<String, TableStatsDto> statsByUuid =
-        statsRepo.findAllById(uuids).stream()
-            .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
-
-    // Filter at the boundary so SchedulingCandidate.stats is guaranteed non-null. A table without
-    // a stats row gets skipped this cycle and reconsidered after stats land.
-    List<TableOperationDto> withStats =
-        pending.stream()
-            .filter(op -> statsByUuid.containsKey(op.getTableUuid()))
-            .collect(Collectors.toList());
-    if (withStats.size() < pending.size()) {
-      log.warn(
-          "Skipped {} {} operations with no table_stats row",
-          pending.size() - withStats.size(),
-          operationType);
-    }
-    if (withStats.isEmpty()) {
-      return;
-    }
-
-    List<SchedulingCandidate> candidates =
-        withStats.stream()
-            .map(op -> new SchedulingCandidate(op, statsByUuid.get(op.getTableUuid())))
-            .collect(Collectors.toList());
-
-    List<Bin> bins = packer.pack(candidates);
-    log.info(
-        "Packed {} PENDING {} operations into {} bins",
-        candidates.size(),
-        operationType,
-        bins.size());
-
-    bins.forEach(this::submitBin);
+    return survivors.stream().map(TableOperationDto::fromRow).collect(Collectors.toList());
   }
 
   /**
    * Group {@code pendingRows} by {@code tableUuid}; for any group with more than one row, cancel
-   * all but the oldest (lex-tiebreak on id). Returns the survivors in input order. Deterministic.
+   * all but the oldest (lex-tiebreak on id). Returns survivors in input order. Deterministic.
    */
   private List<TableOperationsRow> cancelDuplicates(List<TableOperationsRow> pendingRows) {
     Map<String, List<TableOperationsRow>> byTableUuid =
@@ -175,13 +176,23 @@ public class SchedulerRunner {
         .collect(Collectors.toList());
   }
 
-  private void submitBin(Bin bin) {
-    List<String> ids = bin.getOperationIds();
+  private Map<String, TableStatsDto> loadStatsByUuid(List<TableOperationDto> ops) {
+    Set<String> uuids =
+        ops.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
+    return statsRepo.findAllById(uuids).stream()
+        .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
+  }
 
-    // Claim the rows in one batched UPDATE: PENDING → SCHEDULING. The UPDATE's row count is just
-    // an aggregate — to know *which* rows we own, re-query for SCHEDULING rows tagged with our
-    // scheduledAt watermark. Anything not in that subset belongs to another instance or was
-    // canceled, and must not be submitted or marked SCHEDULED.
+  /**
+   * Claim the bin's operations, narrow to the rows actually owned, launch one batched Spark job for
+   * the claimed subset, and mark SCHEDULED — or revert to PENDING if launch failed.
+   */
+  @Transactional
+  void scheduleBin(Bin bin) {
+    List<BinItem> items = bin.getItems();
+    OperationTypeDto type = bin.getOperationType();
+    List<String> ids = items.stream().map(BinItem::getOperationId).collect(Collectors.toList());
+
     Instant claimedAt = Instant.now();
     operationsRepo.updateBatch(
         ids,
@@ -189,8 +200,6 @@ public class SchedulerRunner {
         OperationStatus.SCHEDULING,
         Optional.of(claimedAt),
         Optional.empty());
-    // Unpaged: the result set is already bounded by ids.size() (the bin we just claimed); no
-    // need to cap it further.
     List<String> claimedIds =
         operationsRepo
             .find(
@@ -216,8 +225,21 @@ public class SchedulerRunner {
           ids.size());
     }
 
-    Bin claimedBin = bin.subset(claimedIds);
-    Optional<String> jobId = claimedBin.schedule(jobsClient, resultsEndpoint);
+    Set<String> claimedSet = new HashSet<>(claimedIds);
+    List<BinItem> claimedItems =
+        items.stream()
+            .filter(item -> claimedSet.contains(item.getOperationId()))
+            .collect(Collectors.toList());
+    List<String> tableNames =
+        claimedItems.stream().map(BinItem::getFullyQualifiedTableName).collect(Collectors.toList());
+    List<String> operationIds =
+        claimedItems.stream().map(BinItem::getOperationId).collect(Collectors.toList());
+
+    String jobTypeName = type.name();
+    String jobName = "batched-" + jobTypeName.toLowerCase() + "-" + claimedAt.toEpochMilli();
+    Optional<String> jobId =
+        jobsClient.launch(jobName, jobTypeName, tableNames, operationIds, resultsEndpoint);
+
     if (jobId.isPresent()) {
       int updated =
           operationsRepo.updateBatch(
@@ -229,7 +251,7 @@ public class SchedulerRunner {
       log.info(
           "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
           jobId.get(),
-          claimedBin.getOperations().size(),
+          claimedItems.size(),
           updated);
     } else {
       int reverted =

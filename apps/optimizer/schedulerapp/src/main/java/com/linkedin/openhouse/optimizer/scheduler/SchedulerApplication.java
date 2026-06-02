@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.optimizer.scheduler;
 
-import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
@@ -26,13 +24,11 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 public class SchedulerApplication implements CommandLineRunner, ExitCodeGenerator {
 
   private final SchedulerRunner runner;
-  private final Map<OperationTypeDto, BinPacker> binPackers;
   private int exitCode = 0;
 
   @Autowired
-  public SchedulerApplication(SchedulerRunner runner, Map<OperationTypeDto, BinPacker> binPackers) {
+  public SchedulerApplication(SchedulerRunner runner) {
     this.runner = runner;
-    this.binPackers = binPackers;
   }
 
   public static void main(String[] args) {
@@ -40,15 +36,15 @@ public class SchedulerApplication implements CommandLineRunner, ExitCodeGenerato
   }
 
   /**
-   * Runs the scheduler once per registered {@link BinPacker} per process invocation. Each call is
-   * scoped to one operation type. Any thrown exception is logged and surfaces as a non-zero exit
-   * code via {@link #getExitCode()} after the context is shut down cleanly.
+   * Runs the scheduler once per registered operation type per process invocation. Any thrown
+   * exception is logged and surfaces as a non-zero exit code via {@link #getExitCode()} after the
+   * context is shut down cleanly.
    */
   @Override
   public void run(String... args) {
     try {
-      log.info("Scheduler starting; operation types: {}", binPackers.keySet());
-      binPackers.keySet().forEach(runner::schedule);
+      log.info("Scheduler starting; operation types: {}", runner.getRegisteredOperationTypes());
+      runner.getRegisteredOperationTypes().forEach(runner::schedule);
       log.info("Scheduler completed successfully");
     } catch (Exception e) {
       log.error("Scheduler failed", e);
