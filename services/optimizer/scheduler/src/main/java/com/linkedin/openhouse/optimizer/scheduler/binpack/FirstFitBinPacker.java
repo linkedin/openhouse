@@ -1,27 +1,31 @@
 package com.linkedin.openhouse.optimizer.scheduler.binpack;
 
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import lombok.Builder;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * First-fit-decreasing packing algorithm. Sorts items by weight descending and places each into the
- * first group whose running totals stay at or below {@code maxWeightPerBin} and {@code
- * maxItemsPerBin}. An item that exceeds the weight cap on its own goes into a group by itself.
+ * First-fit-decreasing packing. Sorts items by weight descending, then places each into the first
+ * group whose totals stay at or below {@code maxWeightPerBin} and {@code maxItemsPerBin}. An item
+ * whose weight exceeds the cap on its own goes into a group by itself.
  *
- * <p>Returns flat groupings ({@code List<List<BinItem>>}). Callers wrap each grouping into the
- * {@link Bin} implementation they need for their operation type.
+ * <p>Stateless: the constructor takes only immutable configuration; {@link #pack(List)} is a pure
+ * function over its argument.
  */
 @Slf4j
-@Builder
-public class FirstFitDecreasingBinPacker {
+@AllArgsConstructor
+public class FirstFitBinPacker implements BinPacker {
 
+  @Getter private final OperationTypeDto operationType;
   private final long maxWeightPerBin;
   private final int maxItemsPerBin;
 
-  public List<List<BinItem>> pack(List<BinItem> items) {
+  @Override
+  public List<Bin> pack(List<BinItem> items) {
     if (items == null || items.isEmpty()) {
       return new ArrayList<>();
     }
@@ -29,8 +33,12 @@ public class FirstFitDecreasingBinPacker {
         items.stream()
             .sorted(Comparator.comparingLong(BinItem::getWeight).reversed())
             .collect(ArrayList::new, this::placeItem, List::addAll);
-    log.info("Packed {} items into {} groupings", items.size(), bins.size());
-    return bins.stream().map(b -> b.items).collect(java.util.stream.Collectors.toList());
+    log.info("Packed {} items into {} bins", items.size(), bins.size());
+    List<Bin> result = new ArrayList<>(bins.size());
+    for (PackingBin pb : bins) {
+      result.add(new Bin(operationType, pb.items));
+    }
+    return result;
   }
 
   private void placeItem(List<PackingBin> bins, BinItem item) {
@@ -46,7 +54,7 @@ public class FirstFitDecreasingBinPacker {
             });
   }
 
-  /** Per-bin running-totals helper used during the fold. Hidden from callers. */
+  /** Running-totals helper used during the fold. */
   private static class PackingBin {
     final List<BinItem> items = new ArrayList<>();
     long totalWeight;
