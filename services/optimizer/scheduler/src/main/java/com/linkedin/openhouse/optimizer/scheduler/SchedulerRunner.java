@@ -34,8 +34,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ol>
  *   <li>Reads PENDING rows from MySQL.
- *   <li>Deduplicates duplicate PENDING rows for the same {@code tableUuid}.
- *   <li>Loads the stats row for every survivor.
+ *   <li>For each {@code tableUuid}, picks the oldest PENDING row to schedule and the rest to cancel
+ *       — both lists derived independently from the same grouping.
+ *   <li>Cancels the duplicate rows; loads stats for the rows to schedule.
  *   <li>Hands the (operations, stats) pair to the {@link BinPacker} and receives one grouping per
  *       batch.
  *   <li>Wraps each grouping into a {@link Bin} tagged with the operation type and schedules it
@@ -104,27 +105,10 @@ public class SchedulerRunner {
                     new IllegalStateException(
                         "No BinPacker registered for operation type " + type));
 
-    List<TableOperationDto> pending = loadAndDedupPending(type, databaseName, tableName);
-    if (pending.isEmpty()) {
-      return;
-    }
-    Map<String, TableStatsDto> statsByUuid = loadStatsByUuid(pending);
-
-    List<Bin> bins =
-        packer.pack(pending, statsByUuid).stream()
-            .map(grouping -> new Bin(type, grouping))
-            .collect(Collectors.toList());
-    log.info("Packed {} PENDING {} operations into {} bins", pending.size(), type, bins.size());
-
-    bins.forEach(this::scheduleBin);
-  }
-
-  private List<TableOperationDto> loadAndDedupPending(
-      OperationTypeDto type, Optional<String> databaseName, Optional<String> tableName) {
     // Unpaged: correctness requires the full PENDING set in one cycle; the working set is bounded
     // by count(PENDING for this op type). Single-page truncation would silently drop work past
     // page 0.
-    List<TableOperationsRow> pendingRows =
+    List<TableOperationsRow> pending =
         operationsRepo.find(
             Optional.of(type.toDb()),
             Optional.of(OperationStatus.PENDING),
@@ -134,53 +118,49 @@ public class SchedulerRunner {
             Optional.empty(),
             Optional.empty(),
             Pageable.unpaged());
-    if (pendingRows.isEmpty()) {
+    if (pending.isEmpty()) {
       log.info("No PENDING operations of type {}; nothing to schedule", type);
-      return List.of();
+      return;
     }
-    List<TableOperationsRow> survivors = cancelDuplicates(pendingRows);
-    return survivors.stream().map(TableOperationDto::fromRow).collect(Collectors.toList());
-  }
 
-  /**
-   * Group {@code pendingRows} by {@code tableUuid}; for any group with more than one row, cancel
-   * all but the oldest (lex-tiebreak on id). Returns survivors in input order. Deterministic.
-   */
-  private List<TableOperationsRow> cancelDuplicates(List<TableOperationsRow> pendingRows) {
+    // Per tableUuid, the oldest row (lex-tiebreak on id) is the one we schedule; any others are
+    // duplicates we cancel. Both lists are derived independently from the same grouping —
+    // scheduling does not wait on cancellation and is not predicated on its outcome.
     Map<String, List<TableOperationsRow>> byTableUuid =
-        pendingRows.stream().collect(Collectors.groupingBy(TableOperationsRow::getTableUuid));
-
-    List<String> duplicateIds =
+        pending.stream().collect(Collectors.groupingBy(TableOperationsRow::getTableUuid));
+    Comparator<TableOperationsRow> oldestFirst =
+        Comparator.comparing(TableOperationsRow::getCreatedAt)
+            .thenComparing(TableOperationsRow::getId);
+    List<TableOperationDto> toSchedule =
+        byTableUuid.values().stream()
+            .map(rows -> rows.stream().min(oldestFirst).orElseThrow())
+            .map(TableOperationDto::fromRow)
+            .collect(Collectors.toList());
+    List<String> toCancel =
         byTableUuid.values().stream()
             .filter(rows -> rows.size() > 1)
-            .flatMap(
-                rows ->
-                    rows.stream()
-                        .sorted(
-                            Comparator.comparing(TableOperationsRow::getCreatedAt)
-                                .thenComparing(TableOperationsRow::getId))
-                        .skip(1))
+            .flatMap(rows -> rows.stream().sorted(oldestFirst).skip(1))
             .map(TableOperationsRow::getId)
             .collect(Collectors.toList());
 
-    if (duplicateIds.isEmpty()) {
-      return pendingRows;
+    if (!toCancel.isEmpty()) {
+      int cancelled = operationsRepo.cancel(toCancel);
+      log.warn("Cancelled {} duplicate PENDING rows", cancelled);
     }
 
-    int cancelled = operationsRepo.cancel(duplicateIds);
-    log.warn("Cancelled {} duplicate PENDING rows", cancelled);
+    Set<String> uuidsToSchedule =
+        toSchedule.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
+    Map<String, TableStatsDto> statsByUuid =
+        statsRepo.findAllById(uuidsToSchedule).stream()
+            .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
 
-    Set<String> cancelledIds = Set.copyOf(duplicateIds);
-    return pendingRows.stream()
-        .filter(r -> !cancelledIds.contains(r.getId()))
-        .collect(Collectors.toList());
-  }
+    List<Bin> bins =
+        packer.pack(toSchedule, statsByUuid).stream()
+            .map(grouping -> new Bin(type, grouping))
+            .collect(Collectors.toList());
+    log.info("Packed {} PENDING {} operations into {} bins", toSchedule.size(), type, bins.size());
 
-  private Map<String, TableStatsDto> loadStatsByUuid(List<TableOperationDto> ops) {
-    Set<String> uuids =
-        ops.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
-    return statsRepo.findAllById(uuids).stream()
-        .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
+    bins.forEach(this::scheduleBin);
   }
 
   /**
