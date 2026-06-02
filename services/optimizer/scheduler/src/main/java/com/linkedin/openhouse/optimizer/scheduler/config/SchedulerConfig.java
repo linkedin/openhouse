@@ -2,7 +2,8 @@ package com.linkedin.openhouse.optimizer.scheduler.config;
 
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.scheduler.SchedulerRunner;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.TotalFilesFirstFitBinPacker;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.FirstFitBinPacker;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.TotalFilesBinItem;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import javax.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,13 +46,14 @@ public class SchedulerConfig {
   }
 
   /**
-   * Orphan files deletion: a {@link TotalFilesFirstFitBinPacker}. Cost scales with file count —
-   * per-file list, manifest joins, and delete calls dominate independent of file size.
+   * Orphan files deletion: a {@link FirstFitBinPacker} over {@link TotalFilesBinItem}. Cost scales
+   * with file count — per-file list, manifest joins, and delete calls dominate independent of file
+   * size.
    */
   @PostConstruct
   public void registerOperations() {
     schedulerRunner.registerOperation(
         OperationTypeDto.ORPHAN_FILES_DELETION,
-        new TotalFilesFirstFitBinPacker(ofdMaxFilesPerBin, ofdMaxTablesPerBin));
+        new FirstFitBinPacker<>(TotalFilesBinItem::new, ofdMaxFilesPerBin, ofdMaxTablesPerBin));
   }
 }

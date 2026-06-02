@@ -6,46 +6,46 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * First-fit-decreasing packing, abstract over the concrete {@link BinItem} subtype {@code T}. The
- * subclass tells the packer how to construct {@code T} from a {@code (operation, stats)} pair via
- * {@link #create}; the base class handles the bucketing: sort by weight descending, then place each
- * item into the first group whose totals stay at or below {@code maxWeightPerBin} and {@code
- * maxItemsPerBin}. An item whose weight exceeds the cap on its own goes into a group by itself.
- * Operations whose {@code tableUuid} has no entry in the stats map are dropped.
+ * First-fit-decreasing packing, generic over the concrete {@link BinItem} subtype {@code T}.
+ * Construction takes a {@code Supplier<T>} — typically a {@code MyItem::new} method reference —
+ * which the packer invokes per operation to get a seat, then calls {@link BinItem#fromOpAndStats}
+ * on the seat to project the (operation, stats) pair into a populated item.
  *
- * <p>Stateless: the constructor takes only immutable cap configuration; {@link #pack} is a pure
- * function over its arguments. The packer is operation-agnostic — the scheduler wraps each grouping
- * into a {@link Bin} with the registered operation type.
+ * <p>Sorts items by weight descending, then places each into the first group whose totals stay at
+ * or below {@code maxWeightPerBin} and {@code maxItemsPerBin}. An item whose weight exceeds the cap
+ * on its own goes into a group by itself. Operations whose {@code tableUuid} has no entry in {@code
+ * statsByTableUuid} are dropped.
+ *
+ * <p>Stateless: the constructor takes only the seat factory and the cap configuration; {@link
+ * #pack} is a pure function over its arguments. The packer is operation-agnostic — the scheduler
+ * wraps each grouping into a {@link Bin} with the registered operation type.
  */
 @Slf4j
-public abstract class FirstFitBinPacker<T extends BinItem> implements BinPacker {
+public class FirstFitBinPacker<T extends BinItem> implements BinPacker {
 
+  private final Supplier<T> seatFactory;
   private final long maxWeightPerBin;
   private final int maxItemsPerBin;
 
-  protected FirstFitBinPacker(long maxWeightPerBin, int maxItemsPerBin) {
+  public FirstFitBinPacker(Supplier<T> seatFactory, long maxWeightPerBin, int maxItemsPerBin) {
+    this.seatFactory = seatFactory;
     this.maxWeightPerBin = maxWeightPerBin;
     this.maxItemsPerBin = maxItemsPerBin;
   }
 
-  /**
-   * Construct one {@code T} for a single operation. Called by {@link #pack} for every operation
-   * whose stats are available; implementations encode the projection from {@code (op, stats)} to
-   * the concrete {@link BinItem} subtype.
-   */
-  protected abstract T create(TableOperationDto operation, TableStatsDto stats);
-
   @Override
-  public final List<List<BinItem>> pack(
+  public List<List<BinItem>> pack(
       List<TableOperationDto> operations, Map<String, TableStatsDto> statsByTableUuid) {
     List<BinItem> items =
         operations.stream()
             .filter(op -> statsByTableUuid.containsKey(op.getTableUuid()))
-            .map(op -> (BinItem) create(op, statsByTableUuid.get(op.getTableUuid())))
+            .map(
+                op -> seatFactory.get().fromOpAndStats(op, statsByTableUuid.get(op.getTableUuid())))
             .collect(Collectors.toList());
     List<PackingBin> packingBins =
         items.stream()
