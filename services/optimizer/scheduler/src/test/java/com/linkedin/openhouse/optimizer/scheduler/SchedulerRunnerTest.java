@@ -109,9 +109,7 @@ class SchedulerRunnerTest {
   void schedule_unknownOperationType_doesNotLaunch() {
     SchedulerRunner empty =
         new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT);
-    String uuid = UUID.randomUUID().toString();
-    stubFindPending(List.of(pendingRow(uuid, "db1", "tbl1")));
-    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
+    stubFindPending(List.of(pendingRow(UUID.randomUUID().toString(), "db1", "tbl1")));
 
     empty.schedule(ORPHAN_FILES_DELETION);
 
