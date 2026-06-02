@@ -1,0 +1,18 @@
+@startuml state
+title Operation states
+
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+
+[*] --> PENDING : analyzer\ndecides table is due
+
+PENDING --> SCHEDULING : scheduler\nclaims for a bin
+SCHEDULING --> SCHEDULED : job submitted\nto Jobs service
+
+SCHEDULED --> [*] : history row written\n(SUCCESS or FAILED)
+
+PENDING --> CANCELED : superseded\nby another PENDING
+
+CANCELED --> [*]
+
+@enduml

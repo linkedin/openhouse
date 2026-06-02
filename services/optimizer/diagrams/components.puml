@@ -1,0 +1,35 @@
+@startuml components
+title Optimizer — Components
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+
+actor "External cron" as Cron
+
+package "Optimizer" {
+  component "Analyzer" as Analyzer
+  component "Scheduler" as Scheduler
+  component "Optimizer service\n(REST)" as Service
+  database "Optimizer DB" as DB
+}
+
+package "OpenHouse" {
+  component "Tables service" as Tables
+  component "Jobs service" as Jobs
+  component "Maintenance Spark job" as Spark
+}
+
+Cron --> Analyzer : trigger
+Cron --> Scheduler : trigger
+
+Tables --> Service : commit stats
+Analyzer --> Service : read stats / history,\nwrite PENDING
+Scheduler --> Service : read PENDING,\nclaim, mark SCHEDULED
+Scheduler --> Jobs : submit batched job
+Jobs --> Spark : launch
+Spark --> Service : per-table result
+
+Service --> DB
+
+@enduml

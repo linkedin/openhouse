@@ -1,0 +1,35 @@
+@startuml sequence
+title Optimizer — One cycle
+
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+skinparam sequenceMessageAlign center
+
+participant "Tables service" as Tables
+participant "Analyzer" as Analyzer
+participant "Scheduler" as Scheduler
+participant "Optimizer service" as Service
+participant "Jobs service" as Jobs
+participant "Spark job" as Spark
+
+== Continuously, on every table commit ==
+Tables -> Service : PUT  table stats
+
+== Analyzer cycle ==
+Analyzer -> Service : read table stats + recent history
+Analyzer -> Service : write PENDING operation\nfor each table due
+
+== Scheduler cycle ==
+Scheduler -> Service : read PENDING operations
+Scheduler -> Scheduler : bin-pack
+Scheduler -> Service : claim bin\n(PENDING → SCHEDULING → SCHEDULED)
+Scheduler -> Jobs : submit one job per bin
+
+== Job execution ==
+Jobs -> Spark : launch
+loop one POST per operation in the bin
+  Spark -> Service : POST result\n(SUCCESS or FAILED)
+end
+Service -> Service : append history row
+
+@enduml
