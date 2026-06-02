@@ -4,15 +4,14 @@ import java.util.List;
 
 /**
  * Strategy interface for grouping a flat list of {@link BinItem}s into one or more {@link Bin}s.
- * Implementations encode the per-bin caps (weight, items, etc.) and the placement algorithm;
- * callers iterate the returned bins and dispatch one batch per bin.
+ * Implementations encode the per-bin caps and the placement algorithm; callers iterate the returned
+ * bins and dispatch one batch per bin.
  *
- * <p>Parametric on the {@link BinItem} impl so the packer, bins, and items are all type-consistent
- * end-to-end — the dispatch site receives {@code List<Bin<T>>} and never has to downcast.
- *
- * @param <T> concrete {@link BinItem} implementation packed by this packer
+ * <p>The input parameter uses {@code ? extends BinItem} so callers can pass a typed list of a
+ * concrete impl (e.g. {@code List<OfdBinItem>}) without fighting Java's invariance. The packer sees
+ * the items only as {@link BinItem}s; the per-op-type dispatcher downcasts at access time.
  */
-public interface BinPacker<T extends BinItem> {
+public interface BinPacker {
   /** Pack {@code items} into one or more bins. Each returned bin is non-empty. */
-  List<Bin<T>> pack(List<T> items);
+  List<Bin> pack(List<? extends BinItem> items);
 }

@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.optimizer.scheduler;
 
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
 import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -28,12 +27,11 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 public class SchedulerApplication implements CommandLineRunner, ExitCodeGenerator {
 
   private final SchedulerRunner runner;
-  private final Map<OperationTypeDto, BinPacker<? extends BinItem>> binPackers;
+  private final Map<OperationTypeDto, BinPacker> binPackers;
   private int exitCode = 0;
 
   @Autowired
-  public SchedulerApplication(
-      SchedulerRunner runner, Map<OperationTypeDto, BinPacker<? extends BinItem>> binPackers) {
+  public SchedulerApplication(SchedulerRunner runner, Map<OperationTypeDto, BinPacker> binPackers) {
     this.runner = runner;
     this.binPackers = binPackers;
   }

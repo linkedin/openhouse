@@ -36,7 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The runner owns all optimizer-specific orchestration — claim CAS, status transitions, and the
  * actual {@link JobsServiceClient#launch} call. Per-op-type projection (build the right {@link
  * BinItem} impl from an op + stats) and dispatch live in op-specific sub-methods; today there is
- * only OFD, and the per-op switch is a TODO to factor into an {@code OperationScheduler<T>} handler
+ * only OFD, and the per-op switch is a TODO to factor into an {@code OperationScheduler} handler
  * once a second op type lands.
  */
 @Slf4j
@@ -45,14 +45,14 @@ public class SchedulerRunner {
   private final TableOperationsRepository operationsRepo;
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
-  private final Map<OperationTypeDto, BinPacker<? extends BinItem>> binPackers;
+  private final Map<OperationTypeDto, BinPacker> binPackers;
   private final String resultsEndpoint;
 
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
-      Map<OperationTypeDto, BinPacker<? extends BinItem>> binPackers,
+      Map<OperationTypeDto, BinPacker> binPackers,
       @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
@@ -75,7 +75,7 @@ public class SchedulerRunner {
   public void schedule(
       OperationTypeDto operationType, Optional<String> databaseName, Optional<String> tableName) {
 
-    BinPacker<? extends BinItem> packer = binPackers.get(operationType);
+    BinPacker packer = binPackers.get(operationType);
     if (packer == null) {
       throw new IllegalStateException(
           "No BinPacker registered for operation type " + operationType);
@@ -137,16 +137,13 @@ public class SchedulerRunner {
       return;
     }
 
-    // TODO: when a second op type lands, factor each branch into an OperationScheduler<T extends
-    // BinItem> handler (own projection + own submit). Today's switch is the one place we narrow
-    // the wildcard packer to a concrete BinItem impl; the cast is safe by SchedulerConfig's
-    // registration invariant (the packer for ORPHAN_FILES_DELETION is built as a
-    // BinPacker<OfdBinItem>).
+    // TODO: when a second op type lands, factor each branch into an OperationScheduler handler
+    // (own projection + own submit). Today's switch is the only place that knows the concrete
+    // BinItem impl per op type; the downcasts inside submitOfdBin are safe by SchedulerConfig's
+    // registration invariant (the packer for ORPHAN_FILES_DELETION is fed OfdBinItem instances).
     switch (operationType) {
       case ORPHAN_FILES_DELETION:
-        @SuppressWarnings("unchecked")
-        BinPacker<OfdBinItem> ofdPacker = (BinPacker<OfdBinItem>) packer;
-        scheduleOfd(ofdPacker, withStats, statsByUuid);
+        scheduleOfd(packer, withStats, statsByUuid);
         return;
       default:
         throw new IllegalStateException(
@@ -155,15 +152,13 @@ public class SchedulerRunner {
   }
 
   private void scheduleOfd(
-      BinPacker<OfdBinItem> packer,
-      List<TableOperationDto> withStats,
-      Map<String, TableStatsDto> statsByUuid) {
+      BinPacker packer, List<TableOperationDto> withStats, Map<String, TableStatsDto> statsByUuid) {
 
     List<OfdBinItem> items =
         withStats.stream()
             .map(op -> OfdBinItem.from(op, statsByUuid.get(op.getTableUuid())))
             .collect(Collectors.toList());
-    List<Bin<OfdBinItem>> bins = packer.pack(items);
+    List<Bin> bins = packer.pack(items);
     log.info("Packed {} PENDING OFD operations into {} bins", items.size(), bins.size());
 
     bins.forEach(this::submitOfdBin);
@@ -205,11 +200,16 @@ public class SchedulerRunner {
 
   /**
    * Claim a bin of OFD work, narrow to the rows actually claimed, launch the batched Spark job for
-   * the claimed subset, and mark them SCHEDULED — or revert to PENDING if launch failed.
+   * the claimed subset, and mark them SCHEDULED — or revert to PENDING if launch failed. Items in
+   * the bin are typed as {@link BinItem}; we narrow once to {@link OfdBinItem} on entry since this
+   * method runs only on bins produced by the OFD packer (see {@link #schedule(OperationTypeDto,
+   * Optional, Optional)}).
    */
-  private void submitOfdBin(Bin<OfdBinItem> bin) {
+  private void submitOfdBin(Bin bin) {
+    List<OfdBinItem> ofdItems =
+        bin.items().stream().map(OfdBinItem.class::cast).collect(Collectors.toList());
     List<String> ids =
-        bin.items().stream().map(OfdBinItem::getOperationId).collect(Collectors.toList());
+        ofdItems.stream().map(OfdBinItem::getOperationId).collect(Collectors.toList());
 
     // Claim in one batched UPDATE: PENDING → SCHEDULING. Aggregate row count alone doesn't tell us
     // *which* rows we own — re-query for SCHEDULING rows tagged with our scheduledAt watermark.
@@ -251,7 +251,7 @@ public class SchedulerRunner {
     // Narrow the bin's items to the rows we actually own before extracting Spark-args.
     Set<String> claimedSet = new HashSet<>(claimedIds);
     List<OfdBinItem> claimedItems =
-        bin.items().stream()
+        ofdItems.stream()
             .filter(item -> claimedSet.contains(item.getOperationId()))
             .collect(Collectors.toList());
     List<String> tableNames =

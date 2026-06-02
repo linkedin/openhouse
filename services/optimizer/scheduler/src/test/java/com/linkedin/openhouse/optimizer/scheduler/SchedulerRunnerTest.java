@@ -15,10 +15,8 @@ import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
-import com.linkedin.openhouse.optimizer.operations.ofd.OfdBinItem;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
 import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.binpack.FirstFitDecreasingBinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
@@ -46,13 +44,13 @@ class SchedulerRunnerTest {
   @Mock private TableOperationsRepository operationsRepo;
   @Mock private TableStatsRepository statsRepo;
   @Mock private JobsServiceClient jobsClient;
-  @Mock private BinPacker<OfdBinItem> binPacker;
+  @Mock private BinPacker binPacker;
 
   private SchedulerRunner runner;
 
   @BeforeEach
   void setUp() {
-    Map<OperationTypeDto, BinPacker<? extends BinItem>> packers = Map.of(OFD, binPacker);
+    Map<OperationTypeDto, BinPacker> packers = Map.of(OFD, binPacker);
     runner = new SchedulerRunner(operationsRepo, statsRepo, jobsClient, packers, RESULTS_ENDPOINT);
   }
 
@@ -91,13 +89,9 @@ class SchedulerRunnerTest {
    * op→OfdBinItem projection is exercised without bypassing Bin's package-private mutators.
    */
   private void stubOneBinForAllItems() {
-    FirstFitDecreasingBinPacker<OfdBinItem> realPacker =
-        FirstFitDecreasingBinPacker.<OfdBinItem>builder()
-            .maxWeightPerBin(0L)
-            .maxItemsPerBin(0)
-            .build();
-    when(binPacker.pack(anyList()))
-        .thenAnswer(inv -> realPacker.pack(inv.<List<OfdBinItem>>getArgument(0)));
+    FirstFitDecreasingBinPacker realPacker =
+        FirstFitDecreasingBinPacker.builder().maxWeightPerBin(0L).maxItemsPerBin(0).build();
+    when(binPacker.pack(anyList())).thenAnswer(inv -> realPacker.pack(inv.getArgument(0)));
   }
 
   private TableOperationsRow pendingRow(String uuid, String db, String table) {
