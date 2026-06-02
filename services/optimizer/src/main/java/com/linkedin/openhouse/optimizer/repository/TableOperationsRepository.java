@@ -81,15 +81,15 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
 
   /**
    * Delete the specified rows, but only if they are still {@code PENDING}. The status gate is
-   * defensive — never drop a row another instance has claimed. Returns the number of rows actually
-   * removed.
+   * defensive — never drop a row another instance has claimed. Empty {@code ids} is a no-op that
+   * returns 0. Returns the number of rows actually removed.
    */
-  @Modifying(flushAutomatically = true, clearAutomatically = true)
-  @Query(
-      "DELETE FROM TableOperationsRow r "
-          + "WHERE r.id IN :ids "
-          + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING")
-  int cancel(@Param("ids") List<String> ids);
+  default int cancel(List<String> ids) {
+    if (ids.isEmpty()) {
+      return 0;
+    }
+    return cancelInternal(ids);
+  }
 
   // ---- Internals. Use the Optional-typed default methods above. ----
 
@@ -143,4 +143,11 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
       @Param("toStatus") OperationStatus toStatus,
       @Param("scheduledAt") Instant scheduledAt,
       @Param("jobId") String jobId);
+
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
+  @Query(
+      "DELETE FROM TableOperationsRow r "
+          + "WHERE r.id IN :ids "
+          + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING")
+  int cancelInternal(@Param("ids") List<String> ids);
 }

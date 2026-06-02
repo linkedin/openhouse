@@ -133,22 +133,20 @@ public class SchedulerRunner {
             .map(rows -> rows.stream().min(oldestFirst).orElseThrow())
             .map(TableOperationDto::fromRow)
             .collect(Collectors.toList());
-    List<String> toCancel =
-        byTableUuid.values().stream()
-            .filter(rows -> rows.size() > 1)
-            .flatMap(rows -> rows.stream().sorted(oldestFirst).skip(1))
-            .map(TableOperationsRow::getId)
-            .collect(Collectors.toList());
 
-    if (!toCancel.isEmpty()) {
-      int cancelled = operationsRepo.cancel(toCancel);
+    int cancelled =
+        operationsRepo.cancel(
+            byTableUuid.values().stream()
+                .filter(rows -> rows.size() > 1)
+                .flatMap(rows -> rows.stream().sorted(oldestFirst).skip(1))
+                .map(TableOperationsRow::getId)
+                .collect(Collectors.toList()));
+    if (cancelled > 0) {
       log.warn("Cancelled {} duplicate PENDING rows", cancelled);
     }
 
-    Set<String> uuidsToSchedule =
-        toSchedule.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
     Map<String, TableStatsDto> statsByUuid =
-        statsRepo.findAllById(uuidsToSchedule).stream()
+        statsRepo.findAllById(byTableUuid.keySet()).stream()
             .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
 
     List<Bin> bins =
