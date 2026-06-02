@@ -221,7 +221,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     Map<String, String> expected = new HashMap<>();
     expected.put("openhouse.watermark", "100");
     expected.put("openhouse.tableType", "PRIMARY_TABLE");
-    assertEquals(expected, actualEvent.getTableProperties());
+    assertEquals(expected, actualEvent.getAuditedTableProperties());
   }
 
   @Test

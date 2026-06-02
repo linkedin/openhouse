@@ -389,7 +389,8 @@ public class TableAuditAspect {
       // openhouse.lastModifiedTime), and the audit event should reflect the committed state.
       TableAuditEvent event =
           eventBuilder
-              .tableProperties(filterTableProperties(result.getResponseBody().getTableProperties()))
+              .auditedTableProperties(
+                  filterTableProperties(result.getResponseBody().getTableProperties()))
               .build();
       buildAndSendEvent(
           event, OperationStatus.SUCCESS, result.getResponseBody().getTableLocation());

@@ -42,5 +42,6 @@ public class TableAuditEvent extends BaseAuditEvent {
 
   private Long currentSnapshotTimestampMs;
 
-  private Map<String, String> tableProperties;
+  /** Allowlisted subset of table properties at commit time, not the full property map. */
+  private Map<String, String> auditedTableProperties;
 }
