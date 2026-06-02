@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -103,15 +102,6 @@ public class SchedulerRunner {
         Comparator.comparing(TableOperationsRow::getCreatedAt)
             .thenComparing(TableOperationsRow::getId);
 
-    // Guard around TableOperationsRepository.cancel: skip the call when the id list is empty —
-    // Hibernate barfs on an `IN ()` clause, so the boundary check belongs at the call site.
-    BiConsumer<TableOperationsRepository, List<String>> cancelIfNonEmpty =
-        (repo, ids) -> {
-          if (!ids.isEmpty()) {
-            repo.cancel(ids);
-          }
-        };
-
     // Per tableUuid, the oldest row (lex-tiebreak on id) is the one we schedule; any others are
     // duplicates we cancel. Both lists are derived independently from the same grouping —
     // scheduling does not wait on cancellation and is not predicated on its outcome.
@@ -129,13 +119,21 @@ public class SchedulerRunner {
             .stream()
             .collect(Collectors.groupingBy(TableOperationsRow::getTableUuid));
 
-    cancelIfNonEmpty.accept(
-        operationsRepo,
-        byTableUuid.values().stream()
-            .filter(rows -> rows.size() > 1)
-            .flatMap(rows -> rows.stream().sorted(oldestFirst).skip(1))
-            .map(TableOperationsRow::getId)
-            .collect(Collectors.toList()));
+    // Cancel the duplicate-per-tableUuid rows as the terminal side effect of the dedup pipeline.
+    // The collectingAndThen finisher short-circuits the IN () clause that Hibernate will not run.
+    byTableUuid.values().stream()
+        .filter(rows -> rows.size() > 1)
+        .flatMap(rows -> rows.stream().sorted(oldestFirst).skip(1))
+        .map(TableOperationsRow::getId)
+        .collect(
+            Collectors.collectingAndThen(
+                Collectors.toList(),
+                ids -> {
+                  if (!ids.isEmpty()) {
+                    operationsRepo.cancel(ids);
+                  }
+                  return null;
+                }));
 
     Optional.ofNullable(registry.get(type))
         .ifPresent(
