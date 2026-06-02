@@ -169,9 +169,8 @@ public class SchedulerRunner {
    */
   @Transactional
   void scheduleBin(Bin bin) {
-    List<BinItem> items = bin.getItems();
-    OperationTypeDto type = bin.getOperationType();
-    List<String> ids = items.stream().map(BinItem::getOperationId).collect(Collectors.toList());
+    List<String> ids =
+        bin.getItems().stream().map(BinItem::getOperationId).collect(Collectors.toList());
 
     Instant claimedAt = Instant.now();
     operationsRepo.updateBatch(
@@ -207,7 +206,7 @@ public class SchedulerRunner {
 
     Set<String> claimedSet = new HashSet<>(claimedIds);
     List<BinItem> claimedItems =
-        items.stream()
+        bin.getItems().stream()
             .filter(item -> claimedSet.contains(item.getOperationId()))
             .collect(Collectors.toList());
     List<String> tableNames =
@@ -215,10 +214,11 @@ public class SchedulerRunner {
     List<String> operationIds =
         claimedItems.stream().map(BinItem::getOperationId).collect(Collectors.toList());
 
-    String jobTypeName = type.name();
-    String jobName = "batched-" + jobTypeName.toLowerCase() + "-" + claimedAt.toEpochMilli();
+    String jobName =
+        "batched-" + bin.getOperationType().name().toLowerCase() + "-" + claimedAt.toEpochMilli();
     Optional<String> jobId =
-        jobsClient.launch(jobName, jobTypeName, tableNames, operationIds, resultsEndpoint);
+        jobsClient.launch(
+            jobName, bin.getOperationType().name(), tableNames, operationIds, resultsEndpoint);
 
     if (jobId.isPresent()) {
       int updated =
