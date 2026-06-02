@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,21 +29,21 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Generic scheduler. For each operation type registered via {@link BinPackerRegistration}:
+ * Generic scheduler. Operation types are registered at startup via {@link #registerOperation}; for
+ * each registered type the runner:
  *
  * <ol>
  *   <li>Reads PENDING rows from MySQL.
  *   <li>Deduplicates duplicate PENDING rows for the same {@code tableUuid}.
  *   <li>Loads the stats row for every survivor.
- *   <li>Projects each (operation, stats) pair into a {@link BinItem} via the registration's
- *       prototype.
- *   <li>Hands the items to the {@link BinPacker} to get bins.
- *   <li>Schedules each bin (claim CAS, narrow to claimed, launch, record).
+ *   <li>Hands the (operations, stats) pair to the {@link BinPacker} and receives one grouping per
+ *       batch.
+ *   <li>Wraps each grouping into a {@link Bin} tagged with the operation type and schedules it
+ *       (claim CAS, narrow to claimed, launch, record).
  * </ol>
  *
- * <p>The runner is operation-agnostic. All IO and the claim/launch/mark lifecycle live here. The
- * only per-operation knowledge in the module is the {@link BinPackerRegistration} bean wired in
- * {@link com.linkedin.openhouse.optimizer.scheduler.config.SchedulerConfig}.
+ * <p>The runner is operation-agnostic. All IO and the claim/launch/mark lifecycle live here; the
+ * only per-operation knowledge in the module is the {@link BinPacker} the caller registers.
  */
 @Slf4j
 @Component
@@ -53,29 +53,34 @@ public class SchedulerRunner {
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
   private final String resultsEndpoint;
-  private final Map<OperationTypeDto, BinPackerRegistration> registry;
+  private final Map<OperationTypeDto, BinPacker> registry = new ConcurrentHashMap<>();
 
   @Autowired
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
-      @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint,
-      List<BinPackerRegistration> registrations) {
+      @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
     this.jobsClient = jobsClient;
     this.resultsEndpoint = resultsEndpoint;
-    this.registry =
-        Map.copyOf(
-            registrations.stream()
-                .collect(
-                    Collectors.toMap(
-                        BinPackerRegistration::getOperationType, Function.identity())));
+  }
+
+  /**
+   * Register a {@link BinPacker} for an operation type. Idempotent on identical re-registration;
+   * conflicting registrations replace the prior entry. Called once per operation type at startup.
+   */
+  public void registerOperation(OperationTypeDto operationType, BinPacker packer) {
+    registry.put(operationType, packer);
+    log.info(
+        "Registered BinPacker {} for operation type {}",
+        packer.getClass().getSimpleName(),
+        operationType);
   }
 
   public Set<OperationTypeDto> getRegisteredOperationTypes() {
-    return registry.keySet();
+    return Set.copyOf(registry.keySet());
   }
 
   public void schedule(OperationTypeDto type) {
@@ -84,7 +89,7 @@ public class SchedulerRunner {
 
   public void schedule(
       OperationTypeDto type, Optional<String> databaseName, Optional<String> tableName) {
-    BinPackerRegistration reg =
+    BinPacker packer =
         Optional.ofNullable(registry.get(type))
             .orElseThrow(
                 () ->
@@ -97,13 +102,11 @@ public class SchedulerRunner {
     }
     Map<String, TableStatsDto> statsByUuid = loadStatsByUuid(pending);
 
-    List<BinItem> items = projectToItems(pending, statsByUuid, reg.getPrototype(), type);
-    if (items.isEmpty()) {
-      return;
-    }
-
-    List<Bin> bins = reg.getPacker().pack(items);
-    log.info("Packed {} PENDING {} operations into {} bins", items.size(), type, bins.size());
+    List<Bin> bins =
+        packer.pack(pending, statsByUuid).stream()
+            .map(grouping -> new Bin(type, grouping))
+            .collect(Collectors.toList());
+    log.info("Packed {} PENDING {} operations into {} bins", pending.size(), type, bins.size());
 
     bins.forEach(this::scheduleBin);
   }
@@ -170,23 +173,6 @@ public class SchedulerRunner {
         ops.stream().map(TableOperationDto::getTableUuid).collect(Collectors.toSet());
     return statsRepo.findAllById(uuids).stream()
         .collect(Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
-  }
-
-  private List<BinItem> projectToItems(
-      List<TableOperationDto> pending,
-      Map<String, TableStatsDto> statsByUuid,
-      BinItem prototype,
-      OperationTypeDto type) {
-    List<BinItem> items =
-        pending.stream()
-            .filter(op -> statsByUuid.containsKey(op.getTableUuid()))
-            .map(op -> prototype.withOpAndStats(op, statsByUuid.get(op.getTableUuid())))
-            .collect(Collectors.toList());
-    int skipped = pending.size() - items.size();
-    if (skipped > 0) {
-      log.warn("Skipped {} {} operations with no table_stats row", skipped, type);
-    }
-    return items;
   }
 
   /**

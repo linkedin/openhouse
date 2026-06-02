@@ -17,8 +17,7 @@ import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.FirstFitBinPacker;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.TotalFilesBinItem;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.TotalFilesFirstFitBinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.List;
@@ -47,14 +46,10 @@ class SchedulerRunnerTest {
 
   @BeforeEach
   void setUp() {
-    // A real packer + real prototype — the runner exercises the full pipeline against actual
-    // bucketing + projection logic, while the IO is mocked.
-    BinPackerRegistration ofdReg =
-        new BinPackerRegistration(
-            OFD, new FirstFitBinPacker(OFD, 1_000_000L, 50), new TotalFilesBinItem());
-    runner =
-        new SchedulerRunner(
-            operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT, List.of(ofdReg));
+    // A real packer — the runner exercises the full pipeline against actual bucketing and the
+    // packer's projection logic, while the IO is mocked.
+    runner = new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT);
+    runner.registerOperation(OFD, new TotalFilesFirstFitBinPacker(1_000_000L, 50));
   }
 
   // ---- Stubbing helpers ----
@@ -113,7 +108,7 @@ class SchedulerRunnerTest {
   @Test
   void schedule_unknownOperationType_throws() {
     SchedulerRunner empty =
-        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT, List.of());
+        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT);
 
     assertThatThrownBy(() -> empty.schedule(OFD))
         .isInstanceOf(IllegalStateException.class)

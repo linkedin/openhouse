@@ -5,9 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Covers the projection that {@link TotalFilesFirstFitBinPacker} applies when constructing {@link
+ * TotalFilesBinItem}s — fully-qualified name, operation id, and weight derived from the snapshot's
+ * current file count, with the null-safety chain that handles missing snapshot fields.
+ */
 class TotalFilesBinItemTest {
 
   private static TableOperationDto op() {
@@ -20,51 +27,50 @@ class TotalFilesBinItemTest {
         .build();
   }
 
-  private static TableStatsDto statsWithFiles(Long fileCount) {
+  private static TableStatsDto statsWithFiles(String uuid, Long fileCount) {
     return TableStatsDto.builder()
+        .tableUuid(uuid)
         .snapshot(TableStatsDto.SnapshotMetrics.builder().numCurrentFiles(fileCount).build())
         .build();
   }
 
+  private static List<BinItem> pack(TableOperationDto op, TableStatsDto stats) {
+    TotalFilesFirstFitBinPacker packer =
+        new TotalFilesFirstFitBinPacker(Long.MAX_VALUE, Integer.MAX_VALUE);
+    List<List<BinItem>> groupings = packer.pack(List.of(op), Map.of(op.getTableUuid(), stats));
+    assertThat(groupings).hasSize(1);
+    return groupings.get(0);
+  }
+
   @Test
-  void withOpAndStats_buildsFullyQualifiedNameAndOperationId() {
+  void projectionBuildsFullyQualifiedNameAndOperationId() {
     TableOperationDto op = op();
-    BinItem item = new TotalFilesBinItem().withOpAndStats(op, statsWithFiles(42L));
+    List<BinItem> items = pack(op, statsWithFiles(op.getTableUuid(), 42L));
 
-    assertThat(item.getFullyQualifiedTableName()).isEqualTo("db1.tbl1");
-    assertThat(item.getOperationId()).isEqualTo(op.getId());
+    assertThat(items).hasSize(1);
+    assertThat(items.get(0).getFullyQualifiedTableName()).isEqualTo("db1.tbl1");
+    assertThat(items.get(0).getOperationId()).isEqualTo(op.getId());
   }
 
   @Test
-  void withOpAndStats_weightIsCurrentFileCount() {
-    BinItem item = new TotalFilesBinItem().withOpAndStats(op(), statsWithFiles(123_456L));
-    assertThat(item.getWeight()).isEqualTo(123_456L);
+  void weightIsCurrentFileCount() {
+    TableOperationDto op = op();
+    List<BinItem> items = pack(op, statsWithFiles(op.getTableUuid(), 123_456L));
+    assertThat(items.get(0).getWeight()).isEqualTo(123_456L);
   }
 
   @Test
-  void withOpAndStats_nullStats_weightIsZero() {
-    BinItem item = new TotalFilesBinItem().withOpAndStats(op(), null);
-    assertThat(item.getWeight()).isEqualTo(0L);
+  void nullSnapshotFields_weightIsZero() {
+    TableOperationDto op = op();
+    TableStatsDto emptySnapshot = TableStatsDto.builder().tableUuid(op.getTableUuid()).build();
+    List<BinItem> items = pack(op, emptySnapshot);
+    assertThat(items.get(0).getWeight()).isEqualTo(0L);
   }
 
   @Test
-  void withOpAndStats_nullSnapshot_weightIsZero() {
-    BinItem item = new TotalFilesBinItem().withOpAndStats(op(), TableStatsDto.builder().build());
-    assertThat(item.getWeight()).isEqualTo(0L);
-  }
-
-  @Test
-  void withOpAndStats_nullFileCount_weightIsZero() {
-    BinItem item = new TotalFilesBinItem().withOpAndStats(op(), statsWithFiles(null));
-    assertThat(item.getWeight()).isEqualTo(0L);
-  }
-
-  @Test
-  void seatPrototype_doesNotShareStateWithPopulated() {
-    TotalFilesBinItem seat = new TotalFilesBinItem();
-    BinItem populated = seat.withOpAndStats(op(), statsWithFiles(7L));
-
-    assertThat(seat.getWeight()).isEqualTo(0L);
-    assertThat(populated.getWeight()).isEqualTo(7L);
+  void nullFileCount_weightIsZero() {
+    TableOperationDto op = op();
+    List<BinItem> items = pack(op, statsWithFiles(op.getTableUuid(), null));
+    assertThat(items.get(0).getWeight()).isEqualTo(0L);
   }
 }

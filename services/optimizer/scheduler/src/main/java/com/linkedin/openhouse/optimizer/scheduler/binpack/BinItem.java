@@ -1,16 +1,10 @@
 package com.linkedin.openhouse.optimizer.scheduler.binpack;
 
-import com.linkedin.openhouse.optimizer.model.TableOperationDto;
-import com.linkedin.openhouse.optimizer.model.TableStatsDto;
-
 /**
  * One packable unit. Exposes the weight a packer keys on, plus the identity the scheduler reads
- * when it launches a Spark job (fully-qualified table name, operation id).
- *
- * <p>{@link #withOpAndStats(TableOperationDto, TableStatsDto)} returns a new populated instance
- * from a (pending operation, current stats) pair. Implementations have a no-arg constructor that
- * makes a "seat" prototype suitable for calling {@code withOpAndStats(...)} on; getters on a seat
- * are not meaningful.
+ * when it launches a Spark job (fully-qualified table name, operation id). Implementations are
+ * immutable data — projection from {@code (operation, stats)} to a concrete {@link BinItem} subtype
+ * is the bin packer's responsibility.
  */
 public interface BinItem {
   long getWeight();
@@ -18,6 +12,4 @@ public interface BinItem {
   String getFullyQualifiedTableName();
 
   String getOperationId();
-
-  BinItem withOpAndStats(TableOperationDto op, TableStatsDto stats);
 }
