@@ -17,6 +17,7 @@ import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
 import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.binpack.FirstFitDecreasingBinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
@@ -91,7 +92,8 @@ class SchedulerRunnerTest {
   private void stubOneBinForAllItems() {
     FirstFitDecreasingBinPacker realPacker =
         FirstFitDecreasingBinPacker.builder().maxWeightPerBin(0L).maxItemsPerBin(0).build();
-    when(binPacker.pack(anyList())).thenAnswer(inv -> realPacker.pack(inv.getArgument(0)));
+    when(binPacker.pack(anyList()))
+        .thenAnswer(inv -> realPacker.pack(inv.<List<BinItem>>getArgument(0)));
   }
 
   private TableOperationsRow pendingRow(String uuid, String db, String table) {

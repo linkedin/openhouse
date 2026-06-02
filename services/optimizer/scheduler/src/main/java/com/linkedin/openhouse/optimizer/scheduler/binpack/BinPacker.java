@@ -7,11 +7,10 @@ import java.util.List;
  * Implementations encode the per-bin caps and the placement algorithm; callers iterate the returned
  * bins and dispatch one batch per bin.
  *
- * <p>The input parameter uses {@code ? extends BinItem} so callers can pass a typed list of a
- * concrete impl (e.g. {@code List<OfdBinItem>}) without fighting Java's invariance. The packer sees
- * the items only as {@link BinItem}s; the per-op-type dispatcher downcasts at access time.
+ * <p>The packer sees items only as {@link BinItem}; per-op-type dispatchers narrow to their
+ * concrete impl at access time.
  */
 public interface BinPacker {
   /** Pack {@code items} into one or more bins. Each returned bin is non-empty. */
-  List<Bin> pack(List<? extends BinItem> items);
+  List<Bin> pack(List<BinItem> items);
 }

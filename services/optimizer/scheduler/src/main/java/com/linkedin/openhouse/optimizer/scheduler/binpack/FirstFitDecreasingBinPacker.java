@@ -14,7 +14,11 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>{@code maxItemsPerBin} — number of items per bin
  * </ul>
  *
- * <p>Pass {@code 0} or a negative value for either cap to disable that dimension.
+ * <p>Both caps are explicit on construction. Neither has a default — "weight" has no domain meaning
+ * at this layer, so picking a constant here would be an arbitrary knob; callers (e.g. {@link
+ * com.linkedin.openhouse.optimizer.scheduler.config.SchedulerConfig}) supply the per-op- type cap
+ * with the unit attached and a justification at the config site. Pass {@code 0} or a negative value
+ * for either cap to disable that dimension.
  *
  * <p>An item that exceeds the weight cap on its own is placed into a bin by itself rather than
  * dropped — the scheduler never silently skips maintenance work for an oversized table.
@@ -27,11 +31,11 @@ import lombok.extern.slf4j.Slf4j;
 @Builder
 public class FirstFitDecreasingBinPacker implements BinPacker {
 
-  @Builder.Default private final long maxWeightPerBin = 1_000_000L;
-  @Builder.Default private final int maxItemsPerBin = 50;
+  private final long maxWeightPerBin;
+  private final int maxItemsPerBin;
 
   @Override
-  public List<Bin> pack(List<? extends BinItem> items) {
+  public List<Bin> pack(List<BinItem> items) {
     if (items == null || items.isEmpty()) {
       return new ArrayList<>();
     }

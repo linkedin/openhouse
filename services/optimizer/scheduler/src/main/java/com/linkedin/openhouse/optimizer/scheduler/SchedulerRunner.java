@@ -154,9 +154,12 @@ public class SchedulerRunner {
   private void scheduleOfd(
       BinPacker packer, List<TableOperationDto> withStats, Map<String, TableStatsDto> statsByUuid) {
 
-    List<OfdBinItem> items =
+    // Type witness on .map widens the stream element to BinItem so the collect yields
+    // List<BinItem> for the packer — Java's invariance forbids passing List<OfdBinItem>
+    // straight in.
+    List<BinItem> items =
         withStats.stream()
-            .map(op -> OfdBinItem.from(op, statsByUuid.get(op.getTableUuid())))
+            .<BinItem>map(op -> OfdBinItem.from(op, statsByUuid.get(op.getTableUuid())))
             .collect(Collectors.toList());
     List<Bin> bins = packer.pack(items);
     log.info("Packed {} PENDING OFD operations into {} bins", items.size(), bins.size());
