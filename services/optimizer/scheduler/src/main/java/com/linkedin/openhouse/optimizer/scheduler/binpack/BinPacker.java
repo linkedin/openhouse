@@ -1,16 +1,16 @@
 package com.linkedin.openhouse.optimizer.scheduler.binpack;
 
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * Strategy interface for grouping a flat list of {@link BinItem}s into one or more {@link Bin}s.
- * Implementations encode the per-bin caps and the placement algorithm; callers iterate the returned
- * bins and dispatch one batch per bin.
- *
- * <p>The packer sees items only as {@link BinItem}; per-op-type dispatchers narrow to their
- * concrete impl at access time.
+ * Per-operation-type orchestrator the scheduler dispatches to. The packer loads its PENDING work,
+ * groups it into batches, and returns a {@link Bin} for each batch. The scheduler then asks each
+ * bin to {@link Bin#schedule() schedule} itself.
  */
 public interface BinPacker {
-  /** Pack {@code items} into one or more bins. Each returned bin is non-empty. */
-  List<Bin> pack(List<BinItem> items);
+  OperationTypeDto getOperationType();
+
+  List<Bin> prepare(Optional<String> databaseName, Optional<String> tableName);
 }

@@ -3,18 +3,19 @@ package com.linkedin.openhouse.optimizer.operations.ofd;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
+import java.util.Optional;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
 
 /**
- * OFD-specific {@link BinItem}: carries only what the downstream Spark dispatch needs (table fqtn,
- * operation id) plus the weight the packer uses (current file count). Self-weights from a paired
+ * OFD-specific {@link BinItem}: carries the table fqtn and operation id the downstream Spark
+ * dispatch needs, plus the weight (current file count) the packer uses. Self-weights from a paired
  * {@link TableOperationDto} and {@link TableStatsDto} via {@link #from(TableOperationDto,
- * TableStatsDto)} so the projection logic lives here rather than in the scheduler.
+ * TableStatsDto)}.
  *
- * <p>The weighting choice — file count, not bytes — reflects what makes OFD expensive: per-file
+ * <p>Weighting choice — file count, not bytes — reflects what makes OFD expensive: per-file
  * listing, manifest joins, and delete calls scale with file count. A 10 GB table with 100k files is
  * more expensive to OFD than a 1 TB table with 2k files.
  */
@@ -35,21 +36,20 @@ public class OfdBinItem implements BinItem {
   private final long weight;
 
   /**
-   * Project a pending operation + its stats row into a packable item. Callers do {@code
-   * pendingOps.stream().map(op -> OfdBinItem.from(op, statsByUuid.get(op.getTableUuid())))} — the
-   * weighting decision lives entirely in this class.
+   * Project a pending operation + its stats row into a packable item. Weighting lives entirely in
+   * this class — callers do {@code pendingOps.stream().map(op -> OfdBinItem.from(op,
+   * statsByUuid.get(op.getTableUuid())))}.
    */
-  public static OfdBinItem from(TableOperationDto op, TableStatsDto stats) {
+  public static OfdBinItem from(@NonNull TableOperationDto op, TableStatsDto stats) {
     return new OfdBinItem(
         op.getDatabaseName() + "." + op.getTableName(), op.getId(), currentFileCount(stats));
   }
 
   private static long currentFileCount(TableStatsDto stats) {
-    if (stats == null || stats.getSnapshot() == null) {
-      return 0L;
-    }
-    Long files = stats.getSnapshot().getNumCurrentFiles();
-    return files != null ? files : 0L;
+    return Optional.ofNullable(stats)
+        .map(TableStatsDto::getSnapshot)
+        .map(TableStatsDto.SnapshotMetrics::getNumCurrentFiles)
+        .orElse(0L);
   }
 
   @Override
