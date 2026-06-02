@@ -14,23 +14,23 @@ import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Generic scheduler. Operation types are registered at startup via {@link #registerOperation}; for
- * each registered type the runner:
+ * Generic scheduler. Operation types are registered at construction via {@link #registerOperation},
+ * which returns a new instance with the additional entry — the registry is immutable, so the bean
+ * Spring publishes is the fully-registered runner produced in {@link
+ * com.linkedin.openhouse.optimizer.scheduler.config.SchedulerConfig}. For each registered type the
+ * runner:
  *
  * <ol>
  *   <li>Reads PENDING rows from MySQL.
@@ -46,41 +46,49 @@ import org.springframework.transaction.annotation.Transactional;
  * only per-operation knowledge in the module is the {@link BinPacker} the caller registers.
  */
 @Slf4j
-@Component
 public class SchedulerRunner {
 
   private final TableOperationsRepository operationsRepo;
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
   private final String resultsEndpoint;
-  private final Map<OperationTypeDto, BinPacker> registry = new ConcurrentHashMap<>();
+  private final Map<OperationTypeDto, BinPacker> registry;
 
-  @Autowired
   public SchedulerRunner(
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
-      @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint) {
+      String resultsEndpoint) {
+    this(operationsRepo, statsRepo, jobsClient, resultsEndpoint, Map.of());
+  }
+
+  private SchedulerRunner(
+      TableOperationsRepository operationsRepo,
+      TableStatsRepository statsRepo,
+      JobsServiceClient jobsClient,
+      String resultsEndpoint,
+      Map<OperationTypeDto, BinPacker> registry) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
     this.jobsClient = jobsClient;
     this.resultsEndpoint = resultsEndpoint;
+    this.registry = registry;
   }
 
   /**
-   * Register a {@link BinPacker} for an operation type. Idempotent on identical re-registration;
-   * conflicting registrations replace the prior entry. Called once per operation type at startup.
+   * Return a new {@link SchedulerRunner} whose registry is this one's plus {@code (type, packer)}.
+   * If {@code type} was already registered, the new entry replaces the prior one. Pure: the
+   * receiver is unchanged.
    */
-  public void registerOperation(OperationTypeDto operationType, BinPacker packer) {
-    registry.put(operationType, packer);
-    log.info(
-        "Registered BinPacker {} for operation type {}",
-        packer.getClass().getSimpleName(),
-        operationType);
+  public SchedulerRunner registerOperation(OperationTypeDto type, BinPacker packer) {
+    HashMap<OperationTypeDto, BinPacker> next = new HashMap<>(registry);
+    next.put(type, packer);
+    return new SchedulerRunner(
+        operationsRepo, statsRepo, jobsClient, resultsEndpoint, Map.copyOf(next));
   }
 
   public Set<OperationTypeDto> getRegisteredOperationTypes() {
-    return Set.copyOf(registry.keySet());
+    return registry.keySet();
   }
 
   public void schedule(OperationTypeDto type) {

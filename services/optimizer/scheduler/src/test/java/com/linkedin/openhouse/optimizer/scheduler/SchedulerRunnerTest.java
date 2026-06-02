@@ -49,8 +49,10 @@ class SchedulerRunnerTest {
   void setUp() {
     // A real packer — the runner exercises the full pipeline against actual bucketing and the
     // packer's projection logic, while the IO is mocked.
-    runner = new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT);
-    runner.registerOperation(OFD, new FirstFitBinPacker<>(TotalFilesBinItem::new, 1_000_000L, 50));
+    runner =
+        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT)
+            .registerOperation(
+                OFD, new FirstFitBinPacker<>(TotalFilesBinItem::new, 1_000_000L, 50));
   }
 
   // ---- Stubbing helpers ----
