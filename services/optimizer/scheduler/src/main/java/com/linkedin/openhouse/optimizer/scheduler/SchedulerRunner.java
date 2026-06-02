@@ -84,10 +84,12 @@ public class SchedulerRunner {
 
   public void schedule(
       OperationTypeDto type, Optional<String> databaseName, Optional<String> tableName) {
-    BinPackerRegistration reg = registry.get(type);
-    if (reg == null) {
-      throw new IllegalStateException("No BinPacker registered for operation type " + type);
-    }
+    BinPackerRegistration reg =
+        Optional.ofNullable(registry.get(type))
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "No BinPacker registered for operation type " + type));
 
     List<TableOperationDto> pending = loadAndDedupPending(type, databaseName, tableName);
     if (pending.isEmpty()) {

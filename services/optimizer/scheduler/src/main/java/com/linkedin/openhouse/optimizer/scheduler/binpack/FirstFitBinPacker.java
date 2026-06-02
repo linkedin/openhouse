@@ -4,6 +4,7 @@ import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -26,19 +27,14 @@ public class FirstFitBinPacker implements BinPacker {
 
   @Override
   public List<Bin> pack(List<BinItem> items) {
-    if (items == null || items.isEmpty()) {
-      return new ArrayList<>();
-    }
-    List<PackingBin> bins =
+    List<PackingBin> packingBins =
         items.stream()
             .sorted(Comparator.comparingLong(BinItem::getWeight).reversed())
             .collect(ArrayList::new, this::placeItem, List::addAll);
-    log.info("Packed {} items into {} bins", items.size(), bins.size());
-    List<Bin> result = new ArrayList<>(bins.size());
-    for (PackingBin pb : bins) {
-      result.add(new Bin(operationType, pb.items));
-    }
-    return result;
+    log.info("Packed {} items into {} bins", items.size(), packingBins.size());
+    return packingBins.stream()
+        .map(pb -> new Bin(operationType, pb.items))
+        .collect(Collectors.toList());
   }
 
   private void placeItem(List<PackingBin> bins, BinItem item) {
