@@ -105,9 +105,6 @@ public class SchedulerRunner {
                     new IllegalStateException(
                         "No BinPacker registered for operation type " + type));
 
-    // Unpaged: correctness requires the full PENDING set in one cycle; the working set is bounded
-    // by count(PENDING for this op type). Single-page truncation would silently drop work past
-    // page 0.
     List<TableOperationsRow> pending =
         operationsRepo.find(
             Optional.of(type.toDb()),
