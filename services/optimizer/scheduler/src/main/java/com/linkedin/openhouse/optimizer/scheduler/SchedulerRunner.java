@@ -133,7 +133,7 @@ public class SchedulerRunner {
                   }
                   return null;
                 }));
-
+    // Read stats, bin pack, and schedule the operations per bin.
     Optional.ofNullable(registry.get(type))
         .ifPresent(
             packer ->
