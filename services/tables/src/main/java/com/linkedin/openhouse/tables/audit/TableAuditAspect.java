@@ -18,6 +18,7 @@ import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.config.InternalCatalogProperties;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -543,24 +544,52 @@ public class TableAuditAspect {
 
   /**
    * Narrows the committed table properties down to the configured allowlist ({@code
-   * cluster.iceberg.tables.audit.table-properties-allowlist}). Returns {@code null} when there is
-   * nothing to emit so downstream audit handlers can skip the field entirely. Iterates the
-   * allowlist rather than the source so cost is O(|allowlist|) regardless of source size.
+   * cluster.iceberg.tables.audit.table-properties-allowlist}) and enforces two byte-size caps to
+   * keep the audit event within the Kafka producer's max.request.size budget: a per-value cap
+   * ({@code table-property-value-max-size}) and a combined-total cap ({@code
+   * table-properties-total-max-size}). Values exceeding either cap are skipped with a warning log.
+   * Returns {@code null} when there is nothing to emit so downstream audit handlers can skip the
+   * field entirely. Iterates the allowlist rather than the source so cost is O(|allowlist|)
+   * regardless of source size.
    */
   private Map<String, String> filterTableProperties(Map<String, String> source) {
     if (source == null || source.isEmpty()) {
       return null;
     }
-    List<String> allowlist = internalCatalogProperties.getAudit().getTablePropertiesAllowlist();
+    InternalCatalogProperties.Audit auditConfig = internalCatalogProperties.getAudit();
+    List<String> allowlist = auditConfig.getTablePropertiesAllowlist();
     if (allowlist == null || allowlist.isEmpty()) {
       return null;
     }
+    long maxValueBytes = auditConfig.getTablePropertyValueMaxSize().toBytes();
+    long maxTotalBytes = auditConfig.getTablePropertiesTotalMaxSize().toBytes();
     Map<String, String> filtered = new HashMap<>();
+    long totalBytes = 0;
     for (String key : allowlist) {
       String value = source.get(key);
-      if (value != null) {
-        filtered.put(key, value);
+      if (value == null) {
+        continue;
       }
+      long valueBytes = value.getBytes(StandardCharsets.UTF_8).length;
+      if (valueBytes > maxValueBytes) {
+        log.warn(
+            "Dropping audited table-property '{}': value size {} bytes exceeds per-value cap {} bytes",
+            key,
+            valueBytes,
+            maxValueBytes);
+        continue;
+      }
+      if (totalBytes + valueBytes > maxTotalBytes) {
+        log.warn(
+            "Dropping audited table-property '{}': including it would exceed total cap {} bytes "
+                + "(already accumulated {} bytes)",
+            key,
+            maxTotalBytes,
+            totalBytes);
+        continue;
+      }
+      filtered.put(key, value);
+      totalBytes += valueBytes;
     }
     return filtered.isEmpty() ? null : filtered;
   }

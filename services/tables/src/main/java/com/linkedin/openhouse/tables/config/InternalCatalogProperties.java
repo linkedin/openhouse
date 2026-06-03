@@ -29,5 +29,17 @@ public class InternalCatalogProperties {
   @Setter
   public static class Audit {
     private List<String> tablePropertiesAllowlist = Collections.emptyList();
+
+    /**
+     * Maximum UTF-8 byte size of a single audited property value. Values larger than this are
+     * skipped.
+     */
+    private DataSize tablePropertyValueMaxSize = DataSize.ofKilobytes(256);
+
+    /**
+     * Maximum combined UTF-8 byte size of all audited property values. Once including the next
+     * property would exceed this, that property and any remaining ones are skipped.
+     */
+    private DataSize tablePropertiesTotalMaxSize = DataSize.ofKilobytes(512);
   }
 }
