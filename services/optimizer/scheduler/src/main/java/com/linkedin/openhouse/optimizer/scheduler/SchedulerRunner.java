@@ -15,7 +15,6 @@ import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -159,17 +158,79 @@ public class SchedulerRunner {
    */
   @Transactional
   void scheduleBin(Bin bin) {
+    Instant claimedAt = Instant.now();
+    List<BinItem> claimedItems = claim(bin, claimedAt);
+
+    if (claimedItems.isEmpty()) {
+      log.info("All rows in bin already claimed by another scheduler instance; skipping");
+      return;
+    }
+    if (claimedItems.size() < bin.getItems().size()) {
+      log.info(
+          "Partial claim: {} of {} ops in bin claimed; launching job for claimed subset only",
+          claimedItems.size(),
+          bin.getItems().size());
+    }
+
+    List<String> claimedIds =
+        claimedItems.stream().map(BinItem::getOperationId).collect(Collectors.toList());
+
+    jobsClient
+        .launch(
+            String.format(
+                "batched-%s-%d",
+                bin.getOperationType().name().toLowerCase(), claimedAt.toEpochMilli()),
+            bin.getOperationType().name(),
+            claimedItems.stream()
+                .map(BinItem::getFullyQualifiedTableName)
+                .collect(Collectors.toList()),
+            claimedIds,
+            resultsEndpoint)
+        .ifPresentOrElse(
+            jobId -> {
+              int updated =
+                  operationsRepo.updateBatch(
+                      claimedIds,
+                      OperationStatus.SCHEDULING,
+                      OperationStatus.SCHEDULED,
+                      Optional.empty(),
+                      Optional.of(jobId));
+              log.info(
+                  "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
+                  jobId,
+                  claimedItems.size(),
+                  updated);
+            },
+            () -> {
+              int reverted =
+                  operationsRepo.updateBatch(
+                      claimedIds,
+                      OperationStatus.SCHEDULING,
+                      OperationStatus.PENDING,
+                      Optional.empty(),
+                      Optional.empty());
+              log.warn(
+                  "Job submission failed; reverted {} claimed rows back to PENDING for retry on the"
+                      + " next pass",
+                  reverted);
+            });
+  }
+
+  /**
+   * CAS-claim every item in the bin from PENDING to SCHEDULING with {@code claimedAt} as the
+   * watermark, then narrow {@link Bin#getItems()} to those rows this caller actually owns. Items
+   * lost to a racing scheduler are dropped. Returns the {@link BinItem}s ready for launch.
+   */
+  private List<BinItem> claim(Bin bin, Instant claimedAt) {
     List<String> ids =
         bin.getItems().stream().map(BinItem::getOperationId).collect(Collectors.toList());
-
-    Instant claimedAt = Instant.now();
     operationsRepo.updateBatch(
         ids,
         OperationStatus.PENDING,
         OperationStatus.SCHEDULING,
         Optional.of(claimedAt),
         Optional.empty());
-    List<String> claimedIds =
+    Set<String> claimedIds =
         operationsRepo
             .find(
                 Optional.empty(),
@@ -182,59 +243,9 @@ public class SchedulerRunner {
                 Pageable.unpaged())
             .stream()
             .map(TableOperationsRow::getId)
-            .collect(Collectors.toList());
-    if (claimedIds.isEmpty()) {
-      log.info("All rows in bin already claimed by another scheduler instance; skipping");
-      return;
-    }
-    if (claimedIds.size() < ids.size()) {
-      log.info(
-          "Partial claim: {} of {} ops in bin claimed; launching job for claimed subset only",
-          claimedIds.size(),
-          ids.size());
-    }
-
-    Set<String> claimedSet = new HashSet<>(claimedIds);
-    List<BinItem> claimedItems =
-        bin.getItems().stream()
-            .filter(item -> claimedSet.contains(item.getOperationId()))
-            .collect(Collectors.toList());
-    List<String> tableNames =
-        claimedItems.stream().map(BinItem::getFullyQualifiedTableName).collect(Collectors.toList());
-    List<String> operationIds =
-        claimedItems.stream().map(BinItem::getOperationId).collect(Collectors.toList());
-
-    String jobName =
-        "batched-" + bin.getOperationType().name().toLowerCase() + "-" + claimedAt.toEpochMilli();
-    Optional<String> jobId =
-        jobsClient.launch(
-            jobName, bin.getOperationType().name(), tableNames, operationIds, resultsEndpoint);
-
-    if (jobId.isPresent()) {
-      int updated =
-          operationsRepo.updateBatch(
-              claimedIds,
-              OperationStatus.SCHEDULING,
-              OperationStatus.SCHEDULED,
-              Optional.empty(),
-              Optional.of(jobId.get()));
-      log.info(
-          "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
-          jobId.get(),
-          claimedItems.size(),
-          updated);
-    } else {
-      int reverted =
-          operationsRepo.updateBatch(
-              claimedIds,
-              OperationStatus.SCHEDULING,
-              OperationStatus.PENDING,
-              Optional.empty(),
-              Optional.empty());
-      log.warn(
-          "Job submission failed; reverted {} claimed rows back to PENDING for retry on the next"
-              + " pass",
-          reverted);
-    }
+            .collect(Collectors.toSet());
+    return bin.getItems().stream()
+        .filter(item -> claimedIds.contains(item.getOperationId()))
+        .collect(Collectors.toList());
   }
 }
