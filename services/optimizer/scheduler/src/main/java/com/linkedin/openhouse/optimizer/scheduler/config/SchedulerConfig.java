@@ -1,11 +1,11 @@
 package com.linkedin.openhouse.optimizer.scheduler.config;
 
+import com.linkedin.openhouse.optimizer.binpack.FirstFitBinPacker;
+import com.linkedin.openhouse.optimizer.binpack.TotalFilesBinItem;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.optimizer.scheduler.SchedulerRunner;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.FirstFitBinPacker;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.TotalFilesBinItem;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;

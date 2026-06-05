@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.optimizer.scheduler;
 
+import com.linkedin.openhouse.optimizer.binpack.Bin;
+import com.linkedin.openhouse.optimizer.binpack.BinItem;
+import com.linkedin.openhouse.optimizer.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
@@ -8,9 +11,6 @@ import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.Bin;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.BinItem;
-import com.linkedin.openhouse.optimizer.scheduler.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
 import java.util.Comparator;

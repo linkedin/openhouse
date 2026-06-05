@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.optimizer.scheduler.binpack;
+package com.linkedin.openhouse.optimizer.binpack;
 
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import java.util.List;

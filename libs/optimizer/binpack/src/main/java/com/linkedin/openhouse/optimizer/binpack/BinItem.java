@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.optimizer.scheduler.binpack;
+package com.linkedin.openhouse.optimizer.binpack;
 
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;

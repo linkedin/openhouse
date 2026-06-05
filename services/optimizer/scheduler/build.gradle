@@ -1,5 +1,6 @@
 plugins {
   id 'openhouse.springboot-ext-conventions'
+  id 'openhouse.maven-publish'
   id 'org.springframework.boot' version '2.7.8'
 }
 
@@ -16,9 +17,11 @@ jar {
 }
 
 dependencies {
-  // api: the scheduler's public types (e.g. BinPacker, OperationTypeDto) come from
-  // :services:optimizer, so consumers of this library see them on their compile classpath.
+  // api: the scheduler's public types (e.g. Bin, BinPacker, OperationTypeDto) come from
+  // :services:optimizer and :libs:optimizer:binpack, so consumers of this library see them on
+  // their compile classpath.
   api project(':services:optimizer')
+  api project(':libs:optimizer:binpack')
   implementation 'org.springframework.boot:spring-boot-starter:2.7.8'
   implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
   implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
