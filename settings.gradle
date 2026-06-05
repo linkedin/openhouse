@@ -29,6 +29,7 @@ include ':client:common'
 include ':client:hts'
 include ':client:jobsclient'
 include ':client:tableclient'
+include ':client:optimizerclient'
 include ':client:secureclient'
 
 include ':integrations:java:iceberg-1.2:openhouse-java-runtime'

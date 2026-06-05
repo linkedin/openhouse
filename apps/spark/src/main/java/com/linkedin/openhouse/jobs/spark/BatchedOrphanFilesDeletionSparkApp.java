@@ -4,15 +4,14 @@ import com.google.common.collect.Iterables;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.exception.TableValidationException;
-import com.linkedin.openhouse.jobs.spark.optimizer.OperationUpdateRequest;
 import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.TableStateValidator;
+import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -57,9 +56,6 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 @Slf4j
 public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
 
-  private static final String OPERATION_TYPE = "ORPHAN_FILES_DELETION";
-  private static final String STATUS_SUCCESS = "SUCCESS";
-  private static final String STATUS_FAILED = "FAILED";
   private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
   private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
 
@@ -108,10 +104,8 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       return;
     }
 
-    int successCount;
-    try (OptimizerServiceClient client = newOptimizerClient()) {
-      successCount = runBatch(ops, client);
-    }
+    OptimizerServiceClient client = newOptimizerClient();
+    int successCount = runBatch(ops, client);
 
     int failureCount = entries.size() - successCount;
     log.info(
@@ -187,25 +181,28 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     return new OptimizerServiceClient(resultsEndpoint);
   }
 
-  /** POST the per-operation outcome to the Optimizer Service. Failure here is logged + counted. */
+  /**
+   * POST the per-operation outcome to the Optimizer Service via the generated client. The wrapper
+   * returns {@link java.util.Optional#empty()} when the call exhausts retries — we log + count and
+   * leave the operation row at SCHEDULED so the Analyzer's stale-timeout can re-queue it.
+   */
   private void reportResult(BatchEntry entry, boolean success, OptimizerServiceClient client) {
-    OperationUpdateRequest body =
-        OperationUpdateRequest.builder()
+    UpdateOperationRequest body =
+        new UpdateOperationRequest()
             .operationId(entry.getOperationId())
-            .status(success ? STATUS_SUCCESS : STATUS_FAILED)
+            .status(
+                success
+                    ? UpdateOperationRequest.StatusEnum.SUCCESS
+                    : UpdateOperationRequest.StatusEnum.FAILED)
             .tableUuid(entry.getTableUuid())
             .databaseName(entry.getDatabaseName())
             .tableName(entry.getTableName())
-            .operationType(OPERATION_TYPE)
-            .build();
-    try {
-      client.updateOperation(body);
-    } catch (IOException e) {
+            .operationType(UpdateOperationRequest.OperationTypeEnum.ORPHAN_FILES_DELETION);
+    if (!client.updateOperation(entry.getOperationId(), body).isPresent()) {
       log.error(
-          "Failed to report operation result; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
+          "Failed to report operation result after retries; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
           entry.getOperationId(),
-          entry.getFqtn(),
-          e);
+          entry.getFqtn());
       otelEmitter.count(
           METRICS_SCOPE,
           "optimizer_update_failed",
