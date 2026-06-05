@@ -26,9 +26,20 @@ public class MockIcebergSnapshotApiHandler implements IcebergSnapshotsApiHandler
             .responseBody(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY)
             .build();
       case "d200":
+        // Echo the request's table properties on the response so the audit aspect can read
+        // committed state from result.getResponseBody().getTableProperties().
         return ApiResponse.<GetTableResponseBody>builder()
             .httpStatus(HttpStatus.OK)
-            .responseBody(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY)
+            .responseBody(
+                RequestConstants.TEST_GET_TABLE_RESPONSE_BODY
+                    .toBuilder()
+                    .tableProperties(
+                        icebergSnapshotRequestBody.getCreateUpdateTableRequestBody() == null
+                            ? null
+                            : icebergSnapshotRequestBody
+                                .getCreateUpdateTableRequestBody()
+                                .getTableProperties())
+                    .build())
             .build();
       case "d400":
         throw new RequestValidationFailureException();
