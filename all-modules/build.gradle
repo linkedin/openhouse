@@ -1,0 +1,14 @@
+plugins {
+  id 'openhouse.java-conventions'
+  id 'openhouse.maven-publish'
+}
+
+// This module depends on all other OpenHouse modules. Its primary purpose is to allow downstream
+// consumers to track a single artifact in ELR instead of enumerating every module individually.
+dependencies {
+  rootProject.subprojects.each { subproject ->
+    if (subproject.path != project.path && subproject.subprojects.isEmpty()) {
+      implementation project(subproject.path)
+    }
+  }
+}

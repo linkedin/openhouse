@@ -1,0 +1,15 @@
+plugins {
+  id 'openhouse.java-conventions'
+  id 'openhouse.maven-publish'
+}
+
+dependencies {
+  // api: bin-packing types reference TableOperationDto / TableStatsDto, which consumers need on
+  // their compile classpath.
+  api project(':services:optimizer')
+  api 'org.slf4j:slf4j-api:1.7.36'
+}
+
+test {
+  useJUnitPlatform()
+}

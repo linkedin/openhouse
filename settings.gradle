@@ -45,11 +45,16 @@ include ':iceberg:openhouse:internalcatalog'
 include ':iceberg:azure'
 
 include ':libs:datalayout'
+include ':libs:optimizer:binpack'
 
 include ':services:common'
 include ':services:housetables'
 include ':services:jobs'
 include ':services:optimizer'
+include ':services:optimizer:analyzer'
+include ':apps:optimizer:analyzerapp'
+include ':services:optimizer:scheduler'
+include ':apps:optimizer:schedulerapp'
 include ':services:tables'
 include ':tables-test-fixtures:tables-test-fixtures-iceberg-1.2'
 include ':tables-test-fixtures:tables-test-fixtures-iceberg-1.5'
@@ -59,6 +64,8 @@ include ':cluster:storage'
 include ':cluster:metrics'
 
 include ':scripts:java:tools:dummytokens'
+
+include ':all-modules'
 
 project(':integrations:spark:spark-3.1:openhouse-spark-runtime').name = 'openhouse-spark-runtime_2.12'
 project(':apps:spark').name = 'openhouse-spark-apps_2.12'

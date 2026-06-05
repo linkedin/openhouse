@@ -169,6 +169,31 @@ def test_comparison_types():
         assert plan.row_filter == expected_filter, f"row_filter mismatch for: {where_clause}"
 
 
+def test_datetime_string_literals_pushed_as_strings():
+    """`filters._literal_to_sql()` emits plain string literals for datetime/date/time
+    (see PR #569 + follow-up). The scan optimizer treats them as ordinary string
+    literals; PyIceberg promotes them to typed literals during expression binding
+    against the table schema, restoring partition pruning.
+    """
+    cases = [
+        (
+            "\"x\" >= '2026-05-02T00:00:00+00:00'",
+            GreaterThanOrEqual("x", "2026-05-02T00:00:00+00:00"),
+        ),
+        (
+            "\"x\" < '2026-05-04T00:00:00'",
+            LessThan("x", "2026-05-04T00:00:00"),
+        ),
+        (
+            "\"x\" = '2026-05-02'",
+            EqualTo("x", "2026-05-02"),
+        ),
+    ]
+    for where_clause, expected_filter in cases:
+        plan = optimize_scan(f'SELECT "a" FROM "db"."tbl" WHERE {where_clause}')
+        assert plan.row_filter == expected_filter, f"row_filter mismatch for: {where_clause}; got {plan.row_filter!r}"
+
+
 def test_non_convertible_predicates_not_pushed():
     """Predicates with functions or column-vs-column are not pushed."""
     cases = [

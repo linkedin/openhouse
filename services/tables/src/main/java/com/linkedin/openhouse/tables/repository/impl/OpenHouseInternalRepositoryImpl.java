@@ -36,11 +36,9 @@ import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -680,6 +678,25 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper));
   }
 
+  @Override
+  public Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey) {
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "findTableRefById is not supported for catalog type: " + catalog.getClass().getName());
+    }
+    return ((OpenHouseInternalCatalog) catalog)
+        .findHouseTable(
+            TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()))
+        .map(
+            houseTable ->
+                TableDto.builder()
+                    .databaseId(houseTable.getDatabaseId())
+                    .tableId(houseTable.getTableId())
+                    .tableUUID(houseTable.getTableUUID())
+                    .tableLocation(houseTable.getTableLocation())
+                    .build());
+  }
+
   // FIXME: Likely need a cache layer to avoid expensive tableScan.
   @Timed(metricKey = MetricsConstant.REPO_TABLE_EXISTS_TIME)
   @Override
@@ -714,22 +731,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return ((OpenHouseInternalCatalog) catalog)
         .listTables(Namespace.of(databaseId), pageable)
         .map(tablesIdentifier -> mapper.toTableDto(tablesIdentifier));
-  }
-
-  @Timed(metricKey = MetricsConstant.REPO_TABLES_SEARCH_BY_DATABASE_PAGINATED_TIME)
-  @Override
-  public Page<TableDto> searchTables(String databaseId, Pageable pageable, List<String> fields) {
-    if (CollectionUtils.isEmpty(fields)) {
-      return searchTables(databaseId, pageable);
-    }
-    if (!(catalog instanceof OpenHouseInternalCatalog)) {
-      throw new UnsupportedOperationException(
-          "Does not support paginated search for getting all tables in a database");
-    }
-    Set<String> fieldSet = new HashSet<>(fields);
-    return ((OpenHouseInternalCatalog) catalog)
-        .listHouseTables(Namespace.of(databaseId), pageable)
-        .map(houseTable -> mapper.toTableDto(houseTable, fieldSet));
   }
 
   @Timed(metricKey = MetricsConstant.REPO_TABLE_IDS_FIND_ALL_TIME)

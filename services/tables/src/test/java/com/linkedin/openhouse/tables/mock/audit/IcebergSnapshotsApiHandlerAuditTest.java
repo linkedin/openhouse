@@ -25,12 +25,25 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @ContextConfiguration
+@TestPropertySource(
+    properties = {
+      "cluster.iceberg.tables.audit.table-properties-allowlist[0]=openhouse.watermark",
+      "cluster.iceberg.tables.audit.table-properties-allowlist[1]=openhouse.tableType",
+      "cluster.iceberg.tables.audit.table-properties-allowlist[2]=openhouse.a",
+      "cluster.iceberg.tables.audit.table-properties-allowlist[3]=openhouse.b",
+      "cluster.iceberg.tables.audit.table-properties-allowlist[4]=openhouse.c",
+      // Small caps (bytes) so the size-limit tests stay readable; production defaults are
+      // 256KB/512KB.
+      "cluster.iceberg.tables.audit.table-property-value-max-size=256B",
+      "cluster.iceberg.tables.audit.table-properties-total-max-size=512B"
+    })
 @WithMockUser(username = "testUser")
 public class IcebergSnapshotsApiHandlerAuditTest {
   @Autowired private MockMvc mvc;
@@ -182,6 +195,95 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertEquals(100L, actualEvent.getCurrentSnapshotId().longValue());
     assertEquals(1000L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsFiltersTablePropertiesToAllowlist() throws Exception {
+    Map<String, String> requestProperties = new HashMap<>();
+    requestProperties.put("openhouse.watermark", "100");
+    requestProperties.put("openhouse.tableType", "PRIMARY_TABLE");
+    requestProperties.put("user.custom.key", "v");
+    IcebergSnapshotsRequestBody base = RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(base.getBaseTableVersion())
+            .jsonSnapshots(base.getJsonSnapshots())
+            .snapshotRefs(base.getSnapshotRefs())
+            .createUpdateTableRequestBody(
+                base.getCreateUpdateTableRequestBody()
+                    .toBuilder()
+                    .tableProperties(requestProperties)
+                    .build())
+            .build();
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    Map<String, String> expected = new HashMap<>();
+    expected.put("openhouse.watermark", "100");
+    expected.put("openhouse.tableType", "PRIMARY_TABLE");
+    assertEquals(expected, actualEvent.getAuditedTableProperties());
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsSkipsPropertyExceedingPerValueCap() throws Exception {
+    // Per-value cap is 256B (class-level). A 300-byte value is skipped; the small one survives.
+    Map<String, String> requestProperties = new HashMap<>();
+    requestProperties.put("openhouse.watermark", "100");
+    requestProperties.put("openhouse.a", "x".repeat(300));
+    TableAuditEvent actualEvent = putSnapshotsAndCapture(requestProperties);
+    assertEquals(
+        Collections.singletonMap("openhouse.watermark", "100"),
+        actualEvent.getAuditedTableProperties());
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsSkipsPropertiesExceedingTotalCap() throws Exception {
+    // Each value passes the 256B per-value cap, but the 512B total cap admits only the first two
+    // (allowlist order: openhouse.a, openhouse.b, openhouse.c). 200 + 200 = 400 <= 512; adding the
+    // third (600) exceeds, so openhouse.c is skipped.
+    Map<String, String> requestProperties = new HashMap<>();
+    requestProperties.put("openhouse.a", "x".repeat(200));
+    requestProperties.put("openhouse.b", "y".repeat(200));
+    requestProperties.put("openhouse.c", "z".repeat(200));
+    TableAuditEvent actualEvent = putSnapshotsAndCapture(requestProperties);
+    Map<String, String> emitted = actualEvent.getAuditedTableProperties();
+    assertEquals(2, emitted.size());
+    assertEquals("x".repeat(200), emitted.get("openhouse.a"));
+    assertEquals("y".repeat(200), emitted.get("openhouse.b"));
+    assertNull(emitted.get("openhouse.c"));
+  }
+
+  private TableAuditEvent putSnapshotsAndCapture(Map<String, String> tableProperties)
+      throws Exception {
+    IcebergSnapshotsRequestBody base = RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(base.getBaseTableVersion())
+            .jsonSnapshots(base.getJsonSnapshots())
+            .snapshotRefs(base.getSnapshotRefs())
+            .createUpdateTableRequestBody(
+                base.getCreateUpdateTableRequestBody()
+                    .toBuilder()
+                    .tableProperties(tableProperties)
+                    .build())
+            .build();
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    return argCaptor.getValue();
   }
 
   @Test
