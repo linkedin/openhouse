@@ -1,0 +1,344 @@
+package com.linkedin.openhouse.optimizer.scheduler;
+
+import static com.linkedin.openhouse.optimizer.model.OperationTypeDto.ORPHAN_FILES_DELETION;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.linkedin.openhouse.optimizer.binpack.FirstFitBinPacker;
+import com.linkedin.openhouse.optimizer.binpack.TotalFilesBinItem;
+import com.linkedin.openhouse.optimizer.db.OperationStatus;
+import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.db.TableStatsRow;
+import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
+import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class SchedulerRunnerTest {
+
+  private static final String RESULTS_ENDPOINT = "http://localhost:8080/v1/optimizer/operations";
+
+  @Mock private TableOperationsRepository operationsRepo;
+  @Mock private TableStatsRepository statsRepo;
+  @Mock private JobsServiceClient jobsClient;
+
+  private SchedulerRunner runner;
+
+  @BeforeEach
+  void setUp() {
+    // A real packer — the runner exercises the full pipeline against actual bucketing and the
+    // packer's projection logic, while the IO is mocked.
+    runner =
+        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT)
+            .registerOperation(
+                ORPHAN_FILES_DELETION,
+                new FirstFitBinPacker<>(TotalFilesBinItem::new, 1_000_000L, 50));
+  }
+
+  // ---- Stubbing helpers ----
+
+  private void stubFindPending(List<TableOperationsRow> rows) {
+    when(operationsRepo.find(
+            eq(Optional.of(ORPHAN_FILES_DELETION.toDb())),
+            eq(Optional.of(OperationStatus.PENDING)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(rows);
+  }
+
+  private void stubFindClaimed(List<TableOperationsRow> rows) {
+    when(operationsRepo.find(
+            eq(Optional.empty()),
+            eq(Optional.of(OperationStatus.SCHEDULING)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any(),
+            any(),
+            any()))
+        .thenReturn(rows);
+  }
+
+  private TableOperationsRow pendingRow(String uuid, String db, String table) {
+    return TableOperationsRow.builder()
+        .id(UUID.randomUUID().toString())
+        .tableUuid(uuid)
+        .databaseName(db)
+        .tableName(table)
+        .operationType(ORPHAN_FILES_DELETION.toDb())
+        .status(OperationStatus.PENDING)
+        .createdAt(Instant.now())
+        .build();
+  }
+
+  private TableOperationsRow schedulingRow(TableOperationsRow source) {
+    return source.toBuilder().status(OperationStatus.SCHEDULING).build();
+  }
+
+  private TableStatsRow statsRow(String uuid, long numCurrentFiles) {
+    return TableStatsRow.builder()
+        .tableUuid(uuid)
+        .snapshot(SnapshotMetrics.builder().numCurrentFiles(numCurrentFiles).build())
+        .build();
+  }
+
+  // ---- Tests ----
+
+  @Test
+  void schedule_unknownOperationType_doesNotLaunch() {
+    SchedulerRunner empty =
+        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT);
+    stubFindPending(List.of(pendingRow(UUID.randomUUID().toString(), "db1", "tbl1")));
+
+    empty.schedule(ORPHAN_FILES_DELETION);
+
+    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+  }
+
+  @Test
+  void getRegisteredOperationTypes_returnsRegisteredSet() {
+    assertThat(runner.getRegisteredOperationTypes()).containsExactly(ORPHAN_FILES_DELETION);
+  }
+
+  @Test
+  void schedule_noPendingOps_noJobSubmitted() {
+    stubFindPending(List.of());
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+  }
+
+  @Test
+  void schedule_allOpsWithoutStats_noJobSubmitted() {
+    TableOperationsRow row = pendingRow(UUID.randomUUID().toString(), "db1", "tbl1");
+    stubFindPending(List.of(row));
+    when(statsRepo.findAllById(any())).thenReturn(List.of());
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+  }
+
+  @Test
+  void schedule_singleBin_claimsAndMarksScheduled() {
+    String uuid = UUID.randomUUID().toString();
+    TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
+
+    stubFindPending(List.of(row));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+        .thenReturn(1);
+    stubFindClaimed(List.of(schedulingRow(row)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+        .thenReturn(1);
+    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.of("job-123"));
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verify(operationsRepo)
+        .updateBatch(
+            eq(List.of(row.getId())),
+            eq(OperationStatus.SCHEDULING),
+            eq(OperationStatus.SCHEDULED),
+            eq(Optional.empty()),
+            eq(Optional.of("job-123")));
+    verify(operationsRepo, never())
+        .updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any());
+
+    ArgumentCaptor<List<String>> tableNames = ArgumentCaptor.forClass(List.class);
+    verify(jobsClient)
+        .launch(
+            anyString(),
+            eq(ORPHAN_FILES_DELETION.name()),
+            tableNames.capture(),
+            anyList(),
+            anyString());
+    assertThat(tableNames.getValue()).containsExactly("db1.tbl1");
+  }
+
+  @Test
+  void schedule_jobLaunchFails_marksPendingForRetry() {
+    String uuid = UUID.randomUUID().toString();
+    TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
+
+    stubFindPending(List.of(row));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+        .thenReturn(1);
+    stubFindClaimed(List.of(schedulingRow(row)));
+    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.empty());
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any()))
+        .thenReturn(1);
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verify(operationsRepo)
+        .updateBatch(
+            eq(List.of(row.getId())),
+            eq(OperationStatus.SCHEDULING),
+            eq(OperationStatus.PENDING),
+            eq(Optional.empty()),
+            eq(Optional.empty()));
+    verify(operationsRepo, never())
+        .updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any());
+  }
+
+  @Test
+  void schedule_rowsAlreadyClaimed_skipsSubmit() {
+    String uuid = UUID.randomUUID().toString();
+    TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
+
+    stubFindPending(List.of(row));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+        .thenReturn(0);
+    stubFindClaimed(List.of());
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+    verify(operationsRepo, never())
+        .updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any());
+    verify(operationsRepo, never())
+        .updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any());
+  }
+
+  @Test
+  void schedule_cancelsDuplicatePendingPerCycle() {
+    String uuid = UUID.randomUUID().toString();
+    TableOperationsRow row1 = pendingRow(uuid, "db1", "tbl1");
+    TableOperationsRow row2 = pendingRow(uuid, "db1", "tbl1");
+
+    stubFindPending(List.of(row1, row2));
+    when(operationsRepo.cancel(anyList())).thenReturn(1);
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+        .thenReturn(1);
+    TableOperationsRow survivor = row1.getCreatedAt().isBefore(row2.getCreatedAt()) ? row1 : row2;
+    if (row1.getCreatedAt().equals(row2.getCreatedAt())) {
+      survivor = row1.getId().compareTo(row2.getId()) <= 0 ? row1 : row2;
+    }
+    stubFindClaimed(List.of(schedulingRow(survivor)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+        .thenReturn(1);
+    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.of("job-dedup"));
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    ArgumentCaptor<List<String>> cancelled = ArgumentCaptor.forClass(List.class);
+    verify(operationsRepo).cancel(cancelled.capture());
+    assertThat(cancelled.getValue()).hasSize(1);
+  }
+
+  @Test
+  void schedule_partialClaim_launchesAndMarksOnlyClaimedSubset() {
+    String uuidA = UUID.randomUUID().toString();
+    String uuidB = UUID.randomUUID().toString();
+    TableOperationsRow rowA = pendingRow(uuidA, "db1", "tblA");
+    TableOperationsRow rowB = pendingRow(uuidB, "db1", "tblB");
+
+    stubFindPending(List.of(rowA, rowB));
+    when(statsRepo.findAllById(any()))
+        .thenReturn(List.of(statsRow(uuidA, 100L), statsRow(uuidB, 100L)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+        .thenReturn(1);
+    // Only A actually claimed.
+    stubFindClaimed(List.of(schedulingRow(rowA)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+        .thenReturn(1);
+    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.of("job-partial"));
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    ArgumentCaptor<List<String>> launchedTableNames = ArgumentCaptor.forClass(List.class);
+    ArgumentCaptor<List<String>> launchedOpIds = ArgumentCaptor.forClass(List.class);
+    verify(jobsClient)
+        .launch(
+            anyString(),
+            anyString(),
+            launchedTableNames.capture(),
+            launchedOpIds.capture(),
+            anyString());
+    assertThat(launchedTableNames.getValue()).containsExactly("db1.tblA");
+    assertThat(launchedOpIds.getValue()).containsExactly(rowA.getId());
+
+    verify(operationsRepo)
+        .updateBatch(
+            eq(List.of(rowA.getId())),
+            eq(OperationStatus.SCHEDULING),
+            eq(OperationStatus.SCHEDULED),
+            eq(Optional.empty()),
+            eq(Optional.of("job-partial")));
+  }
+
+  @Test
+  void schedule_opsWithoutStats_skipped() {
+    String withStats = UUID.randomUUID().toString();
+    String missing = UUID.randomUUID().toString();
+    TableOperationsRow withStatsRow = pendingRow(withStats, "db1", "tblA");
+    TableOperationsRow missingRow = pendingRow(missing, "db1", "tblB");
+
+    stubFindPending(List.of(withStatsRow, missingRow));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(withStats, 50L)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+        .thenReturn(1);
+    stubFindClaimed(List.of(schedulingRow(withStatsRow)));
+    when(operationsRepo.updateBatch(
+            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+        .thenReturn(1);
+    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.of("job-skip"));
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    ArgumentCaptor<List<String>> ids = ArgumentCaptor.forClass(List.class);
+    verify(operationsRepo)
+        .updateBatch(
+            ids.capture(),
+            eq(OperationStatus.PENDING),
+            eq(OperationStatus.SCHEDULING),
+            any(),
+            any());
+    assertThat(ids.getValue()).containsExactly(withStatsRow.getId());
+  }
+}
