@@ -28,6 +28,11 @@ public class InternalCatalogProperties {
   @Getter
   @Setter
   public static class Audit {
+    /**
+     * Allowlist of property-key regular expressions. A committed table property is included on the
+     * TableAuditEvent if its key fully matches at least one pattern (Java regex semantics, {@link
+     * java.util.regex.Pattern#matches}). Default empty = nothing emitted.
+     */
     private List<String> tablePropertiesAllowlist = Collections.emptyList();
 
     /**
@@ -37,8 +42,9 @@ public class InternalCatalogProperties {
     private DataSize tablePropertyValueMaxSize = DataSize.ofKilobytes(256);
 
     /**
-     * Maximum combined UTF-8 byte size of all audited property values. Once including the next
-     * property would exceed this, that property and any remaining ones are skipped.
+     * Maximum combined UTF-8 byte size of all audited property values. Properties are visited in
+     * sorted key order; a property whose value would push the running total past this cap is
+     * skipped, but smaller later values that still fit are kept.
      */
     private DataSize tablePropertiesTotalMaxSize = DataSize.ofKilobytes(512);
   }
