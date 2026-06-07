@@ -39,6 +39,16 @@ public class HdfsStorageClient extends BaseStorageClient<FileSystem> {
         storageProperties.getTypes().get(HDFS_TYPE.getValue());
     org.apache.hadoop.conf.Configuration configuration = new org.apache.hadoop.conf.Configuration();
     configuration.set("fs.defaultFS", hdfsStorageProperties.getEndpoint());
+
+    // Connection timeout configuration - fail fast on unreachable nodes
+    configuration.set("ipc.client.connect.timeout", "10000"); // default: 20000ms, override to 10s
+    configuration.set(
+        "ipc.client.connect.max.retries", "3"); // default: 10, override to 3 per address
+
+    // Socket timeout configuration - fail fast per datanode attempt
+    configuration.set(
+        "dfs.client.socket-timeout", "30000"); // default: 60000ms, override to 30s per node
+
     fs = FileSystem.get(configuration);
   }
 
