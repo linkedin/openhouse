@@ -24,7 +24,7 @@ from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 logger = logging.getLogger(__name__)
 
 # DataFusion's default execution batch size (8192); the floor for the transform session's
-# execution.batch_size. See _resolve_execution_batch_size.
+# execution.batch_size. See _create_transform_session.
 _DATAFUSION_DEFAULT_BATCH_SIZE = int(Config().get("datafusion.execution.batch_size"))
 
 
@@ -33,25 +33,10 @@ def to_sql_identifier(table_id: TableIdentifier) -> str:
     return f"{_quote_identifier(table_id.database)}.{_quote_identifier(table_id.table)}"
 
 
-def _resolve_execution_batch_size(batch_size: int | None, transform_batch_size: int | None) -> int | None:
-    """Return the rows-per-batch value for ``datafusion.execution.batch_size`` on the
-    transform session, or None to leave DataFusion at its default.
-
-    An explicit ``transform_batch_size`` is returned as-is. Otherwise the result is
-    ``batch_size`` when it exceeds DataFusion's default, else None.
-    """
-    if transform_batch_size is not None:
-        return transform_batch_size
-    if batch_size is not None and batch_size > _DATAFUSION_DEFAULT_BATCH_SIZE:
-        return batch_size
-    return None
-
-
 def _create_transform_session(
     table_id: TableIdentifier,
     udf_registry: UDFRegistry,
     batch_size: int | None = None,
-    transform_batch_size: int | None = None,
 ) -> SessionContext:
     """Create a DataFusion SessionContext for running split-level transforms.
 
@@ -59,9 +44,11 @@ def _create_transform_session(
     target schema exists.
     """
     config = SessionConfig()
-    execution_batch_size = _resolve_execution_batch_size(batch_size, transform_batch_size)
-    if execution_batch_size is not None:
-        config = config.set("datafusion.execution.batch_size", str(execution_batch_size))
+    # Only raise datafusion.execution.batch_size to honor a read batch_size larger than
+    # DataFusion's default. A smaller batch_size must not lower it below the default, which
+    # would fragment the transform into tiny batches and collapse throughput.
+    if batch_size is not None and batch_size > _DATAFUSION_DEFAULT_BATCH_SIZE:
+        config = config.set("datafusion.execution.batch_size", str(batch_size))
     session = SessionContext(config)
     udf_registry.register_udfs(session)
 
@@ -126,7 +113,6 @@ class DataLoaderSplit:
         transform_sql: str | None = None,
         udf_registry: UDFRegistry | None = None,
         batch_size: int | None = None,
-        transform_batch_size: int | None = None,
     ):
         self._file_scan_tasks = list(file_scan_tasks)
         if not self._file_scan_tasks:
@@ -135,7 +121,6 @@ class DataLoaderSplit:
         self._transform_sql = transform_sql
         self._udf_registry = udf_registry or NoOpRegistry()
         self._batch_size = batch_size
-        self._transform_batch_size = transform_batch_size
 
     @cached_property
     def id(self) -> str:
@@ -192,7 +177,6 @@ class DataLoaderSplit:
                 self._scan_context.table_id,
                 self._udf_registry,
                 self._batch_size,
-                self._transform_batch_size,
             )
             yield from _timed_transform(chain([first], timed), split_id, session, self._apply_transform)
 

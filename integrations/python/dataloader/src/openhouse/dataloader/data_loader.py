@@ -128,7 +128,6 @@ class OpenHouseDataLoader:
         context: DataLoaderContext | None = None,
         max_attempts: int = 3,
         batch_size: int | None = None,
-        transform_batch_size: int | None = None,
         files_per_split: int = 1,
     ):
         """
@@ -146,10 +145,6 @@ class OpenHouseDataLoader:
                 Passed to PyArrow's Scanner which produces batches of at most this many
                 rows. Smaller values reduce peak memory but increase per-batch overhead.
                 None uses the PyArrow default (~131K rows).
-            transform_batch_size: Rows per RecordBatch DataFusion targets while executing a
-                table transform (sets ``datafusion.execution.batch_size``). Only applies when
-                a transform is active. None (default) uses DataFusion's default (8192), raised
-                to ``batch_size`` when that is larger. An explicit value is used as-is.
             files_per_split: Number of files each split reads concurrently.
                 Default is 1 (one file per split).
         """
@@ -167,7 +162,6 @@ class OpenHouseDataLoader:
         self._context = context or DataLoaderContext()
         self._max_attempts = max_attempts
         self._batch_size = batch_size
-        self._transform_batch_size = transform_batch_size
         self._files_per_split = files_per_split
 
         if self._context.jvm_config is not None and self._context.jvm_config.planner_args is not None:
@@ -297,5 +291,4 @@ class OpenHouseDataLoader:
                 transform_sql=optimized_sql,
                 udf_registry=self._context.udf_registry,
                 batch_size=self._batch_size,
-                transform_batch_size=self._transform_batch_size,
             )
