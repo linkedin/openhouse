@@ -10,7 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.optimizer.binpack.FirstFitBinPacker;
+import com.linkedin.openhouse.optimizer.binpack.FirstFitDecreasingBinPacker;
 import com.linkedin.openhouse.optimizer.binpack.TotalFilesBinItem;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
@@ -49,7 +49,11 @@ class SchedulerRunnerTest {
         new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT)
             .registerOperation(
                 ORPHAN_FILES_DELETION,
-                new FirstFitBinPacker<>(TotalFilesBinItem::new, 1_000_000L, 50));
+                FirstFitDecreasingBinPacker.<TotalFilesBinItem>builder()
+                    .binItemSupplier(TotalFilesBinItem::new)
+                    .maxWeightPerBin(1_000_000L)
+                    .maxItemsPerBin(50)
+                    .build());
   }
 
   // ---- Stubbing helpers ----

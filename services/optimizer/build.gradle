@@ -2,6 +2,27 @@ plugins {
   id 'openhouse.springboot-ext-conventions'
   id 'openhouse.maven-publish'
   id 'org.springframework.boot' version '2.7.8'
+  // OpenAPI spec generation for :client:optimizerclient.
+  id 'com.github.johnrengelman.processes' version '0.5.0'
+  id 'org.springdoc.openapi-gradle-plugin' version '1.6.0'
+  id 'openhouse.service-specgen-convention'
+}
+
+// Port allocation: tables 8000, housetables 8001, jobs 8002, optimizer 8003.
+// H2 overrides let the Spring context finish startup so springdoc can extract the spec.
+openApi {
+  customBootRun {
+    args = [
+      "--server.port=8003",
+      "--spring.datasource.url=jdbc:h2:mem:codegen;MODE=MYSQL;DB_CLOSE_DELAY=-1",
+      "--spring.datasource.driver-class-name=org.h2.Driver",
+      "--spring.datasource.username=sa",
+      "--spring.datasource.password=",
+      "--spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
+      "--spring.sql.init.mode=never"
+    ]
+  }
+  apiDocsUrl.set("http://localhost:8003/v3/api-docs")
 }
 
 dependencies {
@@ -9,7 +30,10 @@ dependencies {
   implementation 'com.vladmihalcea:hibernate-types-55:2.21.1'
   implementation 'org.springframework.boot:spring-boot-starter-web:2.7.8'
   implementation 'mysql:mysql-connector-java:8.+'
-  testImplementation 'com.h2database:h2:2.2.224'
+  // H2 only for spec-gen bootRun; excluded from bootJar. Pinned to 2.1.210 (matches
+  // :iceberg:openhouse:htscatalog) — 2.2.x switches to slf4j-api 2.x and breaks downstream bridges.
+  developmentOnly 'com.h2database:h2:2.1.210'
+  testImplementation 'com.h2database:h2:2.1.210'
   testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
 }
 

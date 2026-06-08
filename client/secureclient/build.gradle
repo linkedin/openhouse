@@ -8,6 +8,7 @@ plugins {
 dependencies {
     api project(':client:tableclient')
     api project(':client:jobsclient')
+    api project(':client:optimizerclient')
     api project(':client:hts')
     api 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
     testImplementation 'io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64'

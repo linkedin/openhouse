@@ -12,8 +12,8 @@ import lombok.ToString;
  * implementation knows nothing about which operation type it is wired up to.
  *
  * <p>Construction: callers pass {@code TotalFilesBinItem::new} as the {@code Supplier<T>} to {@link
- * FirstFitBinPacker}; the packer calls the supplier per operation to get an empty instance, then
- * {@link #fromOpAndStats} on it to get a populated copy.
+ * FirstFitDecreasingBinPacker}; the packer calls the supplier per operation to get an empty
+ * instance, then {@link #fromOpAndStats} on it to get a populated copy.
  */
 @Getter
 @ToString
