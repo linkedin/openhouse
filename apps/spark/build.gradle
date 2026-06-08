@@ -25,10 +25,7 @@ dependencies {
 
     implementation "org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}"
     implementation project(':libs:datalayout')
-    // libs:optimizer:binpack transitively pulls services:optimizer which depends on
-    // log4j-slf4j2-impl (the slf4j-2.x bridge). Apps:spark already ships log4j-slf4j-impl (1.x);
-    // having both bridges loaded crashes at runtime with NoSuchMethodError on Log4jLoggerFactory
-    // because each bridge ships its own copy of that class with a different signature.
+    // Exclude log4j-slf4j2-impl: incompatible with the log4j-slf4j-impl (1.x) bridge this app ships.
     implementation(project(':libs:optimizer:binpack')) {
         exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j2-impl'
     }

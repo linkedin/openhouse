@@ -1,26 +1,14 @@
 plugins {
   id 'openhouse.springboot-ext-conventions'
   id 'org.springframework.boot' version '2.7.8'
-
-  /**
-   * Dependencies that turn the running Spring Boot app into an OpenAPI spec at build time, then
-   * hand the spec off to the codegen task in {@code :client:optimizerclient}. Mirrors the setup
-   * used by {@code :services:housetables}, {@code :services:jobs}, and {@code :services:tables}.
-   */
+  // OpenAPI spec generation for :client:optimizerclient.
   id 'com.github.johnrengelman.processes' version '0.5.0'
   id 'org.springdoc.openapi-gradle-plugin' version '1.6.0'
   id 'openhouse.service-specgen-convention'
 }
 
-// Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds.
-// Ports allocated so far: tables 8000, housetables 8001, jobs 8002, optimizer 8003.
-//
-// Overrides below swap the production MySQL DataSource for an in-memory H2 so the Spring context
-// can finish startup at build time — springdoc needs a fully booted app to extract the OpenAPI
-// spec, but never executes SQL. Keeping these in build.gradle (rather than an
-// application-codegen.properties file) makes them visible to anyone reading this task and avoids
-// shipping a build-only profile inside the production fat jar. The production application.properties
-// keeps its MySQL defaults intact, so a misconfigured deploy still fails loudly.
+// Port allocation: tables 8000, housetables 8001, jobs 8002, optimizer 8003.
+// H2 overrides let the Spring context finish startup so springdoc can extract the spec.
 openApi {
   customBootRun {
     args = [
@@ -41,14 +29,8 @@ dependencies {
   implementation 'com.vladmihalcea:hibernate-types-55:2.21.1'
   implementation 'org.springframework.boot:spring-boot-starter-web:2.7.8'
   implementation 'mysql:mysql-connector-java:8.+'
-  // {@code developmentOnly} (a Spring Boot Gradle plugin configuration) makes H2 available to
-  // {@code bootRun} — which springdoc uses to extract the OpenAPI spec under the {@code codegen}
-  // profile — without including it in {@code bootJar} or propagating it via {@code api}/{@code
-  // implementation} to downstream modules. Production deployments use MySQL via env vars.
-  //
-  // Version pinned to 2.1.210 to match the H2 :iceberg:openhouse:htscatalog already pulls in
-  // transitively repo-wide; H2 2.2.x switched to slf4j-api 2.0.x and would conflict with the
-  // log4j-slf4j-impl 1.x bridge used by downstream Spark apps.
+  // H2 only for spec-gen bootRun; excluded from bootJar. Pinned to 2.1.210 (matches
+  // :iceberg:openhouse:htscatalog) — 2.2.x switches to slf4j-api 2.x and breaks downstream bridges.
   developmentOnly 'com.h2database:h2:2.1.210'
   testImplementation 'com.h2database:h2:2.1.210'
   testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'

@@ -29,7 +29,7 @@ import org.springframework.retry.support.RetryTemplate;
 @Slf4j
 public class OptimizerServiceClient {
 
-  private static final int REQUEST_TIMEOUT_SECONDS = 20;
+  private static final int REQUEST_TIMEOUT_SECONDS = 5;
 
   private final RetryTemplate retryTemplate;
   private final TableOperationsControllerApi api;

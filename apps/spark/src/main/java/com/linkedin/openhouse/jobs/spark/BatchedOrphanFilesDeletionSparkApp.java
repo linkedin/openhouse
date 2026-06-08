@@ -15,6 +15,7 @@ import io.opentelemetry.api.common.Attributes;
 import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -145,7 +146,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       return Boolean.TRUE.equals(future.get()) ? 1 : 0;
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      log.error("Worker interrupted (likely job cancellation): fqtn={}", entry.getFqtn(), e);
+      log.error("Worker interrupted: fqtn={}", entry.getFqtn(), e);
       otelEmitter.count(
           METRICS_SCOPE,
           "optimizer_batch_interrupted",
@@ -160,7 +161,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
           "Worker threw outside its own catch for fqtn={} — reporting FAILED",
           entry.getFqtn(),
           e.getCause());
-      reportResult(entry, false, client);
+      reportResult(entry, UpdateOperationRequest.StatusEnum.FAILED, client);
       return 0;
     }
   }
@@ -185,15 +186,17 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
    * POST the per-operation outcome to the Optimizer Service via the generated client. The wrapper
    * returns {@link java.util.Optional#empty()} when the call exhausts retries — we log + count and
    * leave the operation row at SCHEDULED so the Analyzer's stale-timeout can re-queue it.
+   *
+   * <p>{@code status} is passed in as a {@link UpdateOperationRequest.StatusEnum} rather than a
+   * boolean so the caller's intent is unambiguous and new terminal states (e.g. CANCELED) can be
+   * plumbed in without changing the signature.
    */
-  private void reportResult(BatchEntry entry, boolean success, OptimizerServiceClient client) {
+  private void reportResult(
+      BatchEntry entry, UpdateOperationRequest.StatusEnum status, OptimizerServiceClient client) {
     UpdateOperationRequest body =
         new UpdateOperationRequest()
             .operationId(entry.getOperationId())
-            .status(
-                success
-                    ? UpdateOperationRequest.StatusEnum.SUCCESS
-                    : UpdateOperationRequest.StatusEnum.FAILED)
+            .status(status)
             .tableUuid(entry.getTableUuid())
             .databaseName(entry.getDatabaseName())
             .tableName(entry.getTableName())
@@ -252,14 +255,23 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
             orphanCount,
             Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
         validate(fqtn);
-        success = true;
+        status = UpdateOperationRequest.StatusEnum.SUCCESS;
         log.info("OFD success: fqtn={} orphansDetected={}", fqtn, orphanCount);
       } catch (Throwable t) {
         log.error("OFD failed: fqtn={} operationId={}", fqtn, entry.getOperationId(), t);
       } finally {
-        reportResult(entry, success, client);
+        // Defensive: reportResult must not throw out of the finally block, since that would mask
+        // the original failure and propagate up to awaitOne, which would then report FAILED again.
+        try {
+          reportResult(entry, status, client);
+        } catch (Throwable t) {
+          log.error(
+              "reportResult itself threw; operation row will stay SCHEDULED until stale-timeout: fqtn={}",
+              fqtn,
+              t);
+        }
       }
-      return success;
+      return status == UpdateOperationRequest.StatusEnum.SUCCESS;
     }
 
     /**
@@ -296,11 +308,9 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
           table
               .properties()
               .getOrDefault(AppConstants.OPENHOUSE_TABLE_TYPE_KEY, AppConstants.TABLE_TYPE_PRIMARY);
-      if (AppConstants.TABLE_TYPE_REPLICA.equals(tableType)) {
-        long days = Duration.ofSeconds(resolved).toDays();
-        if (days < DEFAULT_MIN_OFD_TTL_IN_DAYS) {
-          resolved = TimeUnit.DAYS.toSeconds(DEFAULT_MIN_OFD_TTL_IN_DAYS);
-        }
+      if (AppConstants.TABLE_TYPE_REPLICA.equals(tableType)
+          && Duration.ofSeconds(resolved).toDays() < DEFAULT_MIN_OFD_TTL_IN_DAYS) {
+        resolved = TimeUnit.DAYS.toSeconds(DEFAULT_MIN_OFD_TTL_IN_DAYS);
       }
       return resolved;
     }
@@ -327,36 +337,22 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
 
   public static BatchedOrphanFilesDeletionSparkApp createApp(
       String[] args, OtelEmitter otelEmitter) {
-    List<Option> extraOptions = new ArrayList<>();
-    extraOptions.add(
-        new Option(
-            null, "tableNames", true, "Comma-separated list of fully-qualified table names"));
-    extraOptions.add(
-        new Option(
-            null, "operationIds", true, "Comma-separated operation UUIDs, parallel to tableNames"));
-    extraOptions.add(
-        new Option(
-            null, "tableUuids", true, "Comma-separated table UUIDs, parallel to tableNames"));
-    extraOptions.add(
-        new Option(null, "resultsEndpoint", true, "Base URL of the Optimizer Service"));
-    extraOptions.add(
-        new Option(null, "driverParallelism", true, "Worker threads in this batch (default 1)"));
-    extraOptions.add(
-        new Option("tr", "trashDir", true, "Orphan files staging dir before deletion"));
-    extraOptions.add(
-        new Option(
-            "r",
-            "ttl",
-            true,
-            "How old files should be to be considered orphaned in seconds, minimum 1d is enforced"));
-    extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
-    extraOptions.add(
-        new Option("c", "concurrentDeletes", true, "Number of concurrent deletes per table"));
-    extraOptions.add(
-        new Option(
-            null, "streamResults", false, "Stream orphan file deletions instead of collecting"));
-    extraOptions.add(
-        new Option(null, "maxOrphanFileSampleSize", true, "Max orphan file sample paths returned"));
+    List<Option> extraOptions =
+        Arrays.asList(
+            valueOpt("tableNames", "Comma-separated list of fully-qualified table names"),
+            valueOpt("operationIds", "Comma-separated operation UUIDs, parallel to tableNames"),
+            valueOpt("tableUuids", "Comma-separated table UUIDs, parallel to tableNames"),
+            valueOpt("resultsEndpoint", "Base URL of the Optimizer Service"),
+            valueOpt("driverParallelism", "Worker threads in this batch (default 1)"),
+            valueOpt("trashDir", "tr", "Orphan files staging dir before deletion"),
+            valueOpt(
+                "ttl",
+                "r",
+                "How old files should be to be considered orphaned in seconds, minimum 1d is enforced"),
+            valueOpt("backupDir", "b", "Backup directory for deleted data"),
+            valueOpt("concurrentDeletes", "c", "Number of concurrent deletes per table"),
+            flagOpt("streamResults", "Stream orphan file deletions instead of collecting"),
+            valueOpt("maxOrphanFileSampleSize", "Max orphan file sample paths returned"));
 
     CommandLine cmdLine = createCommandLine(args, extraOptions);
 
@@ -429,6 +425,21 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       throw new IllegalArgumentException("--" + name + " is required");
     }
     return value;
+  }
+
+  /** Long-only CLI option carrying a value (read with {@code cmdLine.getOptionValue(name)}). */
+  private static Option valueOpt(String name, String description) {
+    return new Option(null, name, true, description);
+  }
+
+  /** Aliased CLI option carrying a value. {@code shortOpt} is the legacy single-letter alias. */
+  private static Option valueOpt(String name, String shortOpt, String description) {
+    return new Option(shortOpt, name, true, description);
+  }
+
+  /** Long-only boolean CLI flag (read with {@code cmdLine.hasOption(name)}). */
+  private static Option flagOpt(String name, String description) {
+    return new Option(null, name, false, description);
   }
 
   /** Visible for tests. */
