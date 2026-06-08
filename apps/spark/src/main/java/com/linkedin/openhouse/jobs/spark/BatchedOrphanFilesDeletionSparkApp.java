@@ -229,7 +229,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     @Override
     public Boolean call() {
       String fqtn = entry.getFqtn();
-      boolean success = false;
+      UpdateOperationRequest.StatusEnum status = UpdateOperationRequest.StatusEnum.FAILED;
       try {
         log.info("OFD start: fqtn={} operationId={}", fqtn, entry.getOperationId());
         Table table = ops.getTable(fqtn);
