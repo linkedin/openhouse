@@ -8,7 +8,7 @@ from functools import cached_property
 from itertools import chain
 from types import MappingProxyType
 
-from datafusion import SessionConfig
+from datafusion import Config, SessionConfig
 from datafusion.context import SessionContext
 from opentelemetry.metrics import get_meter
 from pyarrow import RecordBatch
@@ -24,6 +24,10 @@ from openhouse.dataloader.table_identifier import TableIdentifier
 from openhouse.dataloader.udf_registry import NoOpRegistry, UDFRegistry
 
 logger = logging.getLogger(__name__)
+
+# DataFusion's default execution batch size (8192); the floor for the transform session's
+# execution.batch_size. See _create_transform_session.
+_DATAFUSION_DEFAULT_BATCH_SIZE = int(Config().get("datafusion.execution.batch_size"))
 
 _meter = get_meter(METER_NAME)
 
@@ -100,7 +104,10 @@ def _create_transform_session(
     target schema exists.
     """
     config = SessionConfig()
-    if batch_size is not None:
+    # Only raise datafusion.execution.batch_size to honor a read batch_size larger than
+    # DataFusion's default. A smaller batch_size must not lower it below the default, which
+    # would fragment the transform into tiny batches and collapse throughput.
+    if batch_size is not None and batch_size > _DATAFUSION_DEFAULT_BATCH_SIZE:
         config = config.set("datafusion.execution.batch_size", str(batch_size))
     session = SessionContext(config)
     udf_registry.register_udfs(session)
