@@ -19,7 +19,10 @@ public final class InternalCatalogMetricsConstant {
   static final String METADATA_UPDATE_LATENCY = "metadata_update_latency";
   static final String METADATA_RETRIEVAL_LATENCY = "metadata_retrieval_latency";
 
+  public static final String METADATA_CACHE_REMOVAL_CTR = "metadata_cache_removal";
+
   // Tag constants for metric dimensions
   static final String DATABASE_TAG = "database";
   static final String TABLE_TAG = "table";
+  public static final String CACHE_REMOVAL_CAUSE_TAG = "cause";
 }

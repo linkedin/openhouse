@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.repository.impl;
 
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.*;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.*;
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 import static com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils.*;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -156,8 +157,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
-      String tableLocation =
-          tableDto.getTableVersion().substring(0, tableDto.getTableVersion().lastIndexOf("/"));
+      String metadataLocation = tableProps.get(getCanonicalFieldName("tableLocation"));
+      String tableLocation = metadataLocation.substring(0, metadataLocation.lastIndexOf("/"));
       table =
           replaceTable(
               tableIdentifier, writeSchema, partitionSpec, tableLocation, tableProps, sortOrder);
@@ -675,6 +676,25 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return Optional.of(
         convertToTableDto(
             table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper));
+  }
+
+  @Override
+  public Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey) {
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "findTableRefById is not supported for catalog type: " + catalog.getClass().getName());
+    }
+    return ((OpenHouseInternalCatalog) catalog)
+        .findHouseTable(
+            TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()))
+        .map(
+            houseTable ->
+                TableDto.builder()
+                    .databaseId(houseTable.getDatabaseId())
+                    .tableId(houseTable.getTableId())
+                    .tableUUID(houseTable.getTableUUID())
+                    .tableLocation(houseTable.getTableLocation())
+                    .build());
   }
 
   // FIXME: Likely need a cache layer to avoid expensive tableScan.

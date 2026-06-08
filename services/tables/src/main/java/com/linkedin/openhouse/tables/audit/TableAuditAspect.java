@@ -17,7 +17,10 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
+import com.linkedin.openhouse.tables.config.InternalCatalogProperties;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +46,8 @@ public class TableAuditAspect {
   @Autowired private ClusterProperties clusterProperties;
 
   @Autowired private AuditHandler<TableAuditEvent> tableAuditHandler;
+
+  @Autowired private InternalCatalogProperties internalCatalogProperties;
 
   /**
    * Install the Around advice for getTable() method in OpenHouseTablesApiHandler.
@@ -378,13 +383,21 @@ public class TableAuditAspect {
             .tableName(tableId)
             .operationType(operationType);
     extractSnapshotInfo(icebergSnapshotRequestBody, eventBuilder);
-    TableAuditEvent event = eventBuilder.build();
     try {
       result = (ApiResponse<GetTableResponseBody>) point.proceed();
+      // Read tableProperties from the response, not the request body: OpenHouse mutates
+      // properties server-side during commit (e.g. openhouse.tableVersion,
+      // openhouse.lastModifiedTime), and the audit event should reflect the committed state.
+      TableAuditEvent event =
+          eventBuilder
+              .auditedTableProperties(
+                  filterTableProperties(result.getResponseBody().getTableProperties()))
+              .build();
       buildAndSendEvent(
           event, OperationStatus.SUCCESS, result.getResponseBody().getTableLocation());
     } catch (Throwable t) {
-      buildAndSendEvent(event, OperationStatus.FAILED, null);
+      // On failure there is no committed state to read from, so tableProperties stays null.
+      buildAndSendEvent(eventBuilder.build(), OperationStatus.FAILED, null);
       throw t;
     }
     return result;
@@ -527,6 +540,58 @@ public class TableAuditAspect {
       throw t;
     }
     return result;
+  }
+
+  /**
+   * Narrows the committed table properties down to the configured allowlist ({@code
+   * cluster.iceberg.tables.audit.table-properties-allowlist}) and enforces two byte-size caps to
+   * keep the audit event within the Kafka producer's max.request.size budget: a per-value cap
+   * ({@code table-property-value-max-size}) and a combined-total cap ({@code
+   * table-properties-total-max-size}). Values exceeding either cap are skipped with a warning log.
+   * Returns {@code null} when there is nothing to emit so downstream audit handlers can skip the
+   * field entirely. Iterates the allowlist rather than the source so cost is O(|allowlist|)
+   * regardless of source size.
+   */
+  private Map<String, String> filterTableProperties(Map<String, String> source) {
+    if (source == null || source.isEmpty()) {
+      return null;
+    }
+    InternalCatalogProperties.Audit auditConfig = internalCatalogProperties.getAudit();
+    List<String> allowlist = auditConfig.getTablePropertiesAllowlist();
+    if (allowlist == null || allowlist.isEmpty()) {
+      return null;
+    }
+    long maxValueBytes = auditConfig.getTablePropertyValueMaxSize().toBytes();
+    long maxTotalBytes = auditConfig.getTablePropertiesTotalMaxSize().toBytes();
+    Map<String, String> filtered = new HashMap<>();
+    long totalBytes = 0;
+    for (String key : allowlist) {
+      String value = source.get(key);
+      if (value == null) {
+        continue;
+      }
+      long valueBytes = value.getBytes(StandardCharsets.UTF_8).length;
+      if (valueBytes > maxValueBytes) {
+        log.warn(
+            "Dropping audited table-property '{}': value size {} bytes exceeds per-value cap {} bytes",
+            key,
+            valueBytes,
+            maxValueBytes);
+        continue;
+      }
+      if (totalBytes + valueBytes > maxTotalBytes) {
+        log.warn(
+            "Dropping audited table-property '{}': including it would exceed total cap {} bytes "
+                + "(already accumulated {} bytes)",
+            key,
+            maxTotalBytes,
+            totalBytes);
+        continue;
+      }
+      filtered.put(key, value);
+      totalBytes += valueBytes;
+    }
+    return filtered.isEmpty() ? null : filtered;
   }
 
   private void buildAndSendEvent(

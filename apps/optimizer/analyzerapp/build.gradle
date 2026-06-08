@@ -1,0 +1,15 @@
+plugins {
+  id 'openhouse.springboot-ext-conventions'
+  id 'openhouse.maven-publish'
+  id 'org.springframework.boot' version '2.7.8'
+}
+
+// Deployable Spring Boot wrapper around the analyzer library. Holds AnalyzerApplication (the
+// @SpringBootApplication entry point) and application.properties; the analysis logic lives in
+// :services:optimizer:analyzer.
+dependencies {
+  implementation project(':services:optimizer:analyzer')
+  implementation 'org.springframework.boot:spring-boot-starter:2.7.8'
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
+  runtimeOnly 'mysql:mysql-connector-java:8.0.33'
+}
