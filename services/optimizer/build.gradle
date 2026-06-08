@@ -1,5 +1,6 @@
 plugins {
   id 'openhouse.springboot-ext-conventions'
+  id 'openhouse.maven-publish'
   id 'org.springframework.boot' version '2.7.8'
 }
 
