@@ -75,10 +75,14 @@ Exported in `__init__.py`:
 - `OpenHouseCatalogError` — Error raised when catalog fails to load a table
 - `col()` — Column reference for building filter expressions
 - `always_true()` — Filter that matches all rows
+- `to_sql()` — Render a filter as a SQL boolean expression (WHERE-clause predicate) for a target
+- `SqlTarget` — Enum naming the SQL target for `to_sql()` (currently `SPARK`)
 
 ### Filter DSL (`filters.py`)
 
 Build row filters using `col()` with comparison operators (`==`, `!=`, `>`, `>=`, `<`, `<=`) and predicates (`is_null()`, `is_not_null()`, `is_nan()`, `is_not_nan()`, `is_in()`, `is_not_in()`, `starts_with()`, `not_starts_with()`, `between()`). Combine with `&` (AND), `|` (OR), `~` (NOT). Filters are converted to PyIceberg expressions internally for partition pruning and file-level filtering.
+
+`to_sql(filter, target=SqlTarget.SPARK)` renders a filter as a SQL boolean expression for the given target (e.g. Spark SQL). Internally, `_filter_to_expr()` builds a single dialect-agnostic sqlglot AST that is rendered per target with `.sql(dialect=...)`; `_to_datafusion_sql()` uses the same AST with the default dialect. The underlying sqlglot dialect is an internal detail — callers select a `SqlTarget`, never a dialect string.
 
 ### Internal modules (not in `__init__.py`)
 
