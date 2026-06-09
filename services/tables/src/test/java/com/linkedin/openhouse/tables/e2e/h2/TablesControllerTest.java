@@ -1027,6 +1027,48 @@ public class TablesControllerTest {
   }
 
   @Test
+  public void testSearchTablesPaginatedWithTableLocationField() throws Exception {
+    List<GetTableResponseBody> tables = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      GetTableResponseBody table = buildGetTableResponseBodyWithDbTbl("d1", "tloc" + i);
+      tables.add(table);
+      RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    }
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
+                .param("page", "0")
+                .param("size", "10")
+                .param("fields", "tableLocation")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", notNullValue()))
+        .andExpect(jsonPath("$.pageResults.content[0].databaseId", is("d1")))
+        .andExpect(jsonPath("$.pageResults.content[0].tableLocation", notNullValue()))
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[0].tableLocation",
+                org.hamcrest.Matchers.endsWith(".metadata.json")));
+
+    for (GetTableResponseBody t : tables) {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, t);
+    }
+  }
+
+  @Test
+  public void testSearchTablesPaginatedRejectsUnknownField() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
+                .param("fields", "schema")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("schema")))
+        .andExpect(jsonPath("$.message", containsString("tableLocation")));
+  }
+
+  @Test
   public void testUpdateSucceedsForColumnTags() throws Exception {
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
