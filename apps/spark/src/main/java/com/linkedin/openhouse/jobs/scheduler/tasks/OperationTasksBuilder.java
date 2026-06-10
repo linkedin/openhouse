@@ -18,9 +18,10 @@ import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadataBatch;
-import com.linkedin.openhouse.jobs.util.binpack.Bin;
-import com.linkedin.openhouse.jobs.util.binpack.BinItem;
-import com.linkedin.openhouse.jobs.util.binpack.FirstFitDecreasingBinPacker;
+import com.linkedin.openhouse.optimizer.binpack.BinItem;
+import com.linkedin.openhouse.optimizer.binpack.FirstFitDecreasingBinPacker;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
@@ -102,13 +103,10 @@ public class OperationTasksBuilder {
         eligible.size(),
         maxItemsPerBin);
 
-    FirstFitDecreasingBinPacker packer =
-        FirstFitDecreasingBinPacker.builder()
-            .maxItemsPerBin(maxItemsPerBin)
-            // Item-count cap only; weight/size dimensions disabled until table_stats is wired in.
-            .maxWeightPerBin(0)
-            .maxSizeBytesPerBin(0)
-            .build();
+    // Item-count cap only; the libs default maxWeightPerBin (1_000_000) is effectively unbounded
+    // for weight=1 items, so item-count is the active constraint until table_stats is wired in.
+    FirstFitDecreasingBinPacker<BinItem> packer =
+        FirstFitDecreasingBinPacker.<BinItem>builder().maxItemsPerBin(maxItemsPerBin).build();
 
     Map<String, List<TableMetadata>> byDb =
         eligible.stream().collect(Collectors.groupingBy(TableMetadata::getDbName));
@@ -118,25 +116,15 @@ public class OperationTasksBuilder {
       String dbName = dbGroup.getKey();
       List<BinItem> items =
           dbGroup.getValue().stream()
-              .map(
-                  t ->
-                      BinItem.builder()
-                          .fqtn(t.fqtn())
-                          .operationId("")
-                          .tableUuid("")
-                          .databaseName(t.getDbName())
-                          .tableName(t.getTableName())
-                          .weight(1L)
-                          .sizeBytes(0L)
-                          .build())
+              .map(t -> (BinItem) new FqtnBinItem(t.fqtn()))
               .collect(Collectors.toList());
-      for (Bin bin : packer.pack(items)) {
+      for (List<BinItem> group : packer.pack(items)) {
         List<TableMetadata> tablesForBin =
-            bin.items().stream()
+            group.stream()
                 .map(
                     item ->
                         dbGroup.getValue().stream()
-                            .filter(t -> t.fqtn().equals(item.getFqtn()))
+                            .filter(t -> t.fqtn().equals(item.getFullyQualifiedTableName()))
                             .findFirst()
                             .orElseThrow(() -> new IllegalStateException("missing table for bin")))
                 .collect(Collectors.toList());
@@ -538,5 +526,38 @@ public class OperationTasksBuilder {
                   jobType);
             })
         .subscribe();
+  }
+
+  /**
+   * Minimal {@link BinItem} for the legacy scheduler path: every item has weight 1, so packing is
+   * driven purely by {@code maxItemsPerBin}. {@code fromOpAndStats} is unreachable here because we
+   * call {@code packer.pack(List<BinItem>)} (the pre-projected overload), not the projection path.
+   */
+  private static final class FqtnBinItem implements BinItem {
+    private final String fqtn;
+
+    FqtnBinItem(String fqtn) {
+      this.fqtn = fqtn;
+    }
+
+    @Override
+    public long getWeight() {
+      return 1L;
+    }
+
+    @Override
+    public String getFullyQualifiedTableName() {
+      return fqtn;
+    }
+
+    @Override
+    public String getOperationId() {
+      return "";
+    }
+
+    @Override
+    public BinItem fromOpAndStats(TableOperationDto op, TableStatsDto stats) {
+      return this;
+    }
   }
 }

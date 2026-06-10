@@ -14,7 +14,7 @@ import lombok.experimental.SuperBuilder;
  *
  * <p>By design the scheduler never crosses database boundaries when bin-packing — every table in
  * {@link #tables} has the same {@link #dbName}. The {@link
- * com.linkedin.openhouse.jobs.util.binpack.FirstFitDecreasingBinPacker} is invoked per-database;
+ * com.linkedin.openhouse.optimizer.binpack.FirstFitDecreasingBinPacker} is invoked per-database;
  * each emitted bin becomes one {@code TableMetadataBatch}.
  */
 @Getter
