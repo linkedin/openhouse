@@ -171,15 +171,6 @@ public class OperationTasksBuilder {
       if (optionalOperationTask.isPresent()) {
         taskList.add(optionalOperationTask.get());
       }
-
-      // Publish entity metrics for triggered tasks
-      Attributes taskAttributes =
-          Attributes.of(
-              AttributeKey.stringKey(AppConstants.ENTITY_NAME), metadata.getEntityName(),
-              AttributeKey.stringKey(AppConstants.ENTITY_TYPE),
-                  metadata.getClass().getSimpleName().replace("Metadata", ""),
-              AttributeKey.stringKey(AppConstants.JOB_TYPE), jobType.getValue());
-      otelEmitter.count(METRICS_SCOPE, "maintenance_job_triggered", 1, taskAttributes);
     }
     return taskList;
   }
@@ -193,16 +184,22 @@ public class OperationTasksBuilder {
     try {
       OperationTask<?> task = taskFactory.create(metadata);
       task.setOtelEmitter(otelEmitter);
+
+      // Publish entity metrics for triggered tasks
+      Attributes taskAttributes =
+          Attributes.of(
+              AttributeKey.stringKey(AppConstants.ENTITY_NAME),
+              metadata.getEntityName(),
+              AttributeKey.stringKey(AppConstants.ENTITY_TYPE),
+              metadata.getClass().getSimpleName().replace("Metadata", ""),
+              AttributeKey.stringKey(AppConstants.JOB_TYPE),
+              jobType.getValue());
+      otelEmitter.count(METRICS_SCOPE, "maintenance_job_triggered", 1, taskAttributes);
+
       if (!task.shouldRun()) {
         log.info("Skipping task {}", task);
 
         // Publish entity metrics for skipped tasks
-        Attributes taskAttributes =
-            Attributes.of(
-                AttributeKey.stringKey(AppConstants.ENTITY_NAME), metadata.getEntityName(),
-                AttributeKey.stringKey(AppConstants.ENTITY_TYPE),
-                    metadata.getClass().getSimpleName().replace("Metadata", ""),
-                AttributeKey.stringKey(AppConstants.JOB_TYPE), task.getType().getValue());
         otelEmitter.count(METRICS_SCOPE, "maintenance_job_skipped", 1, taskAttributes);
         return Optional.empty();
       } else {
