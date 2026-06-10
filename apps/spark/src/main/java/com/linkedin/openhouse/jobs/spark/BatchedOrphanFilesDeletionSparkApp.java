@@ -57,9 +57,6 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 @Slf4j
 public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
 
-  private static final String OPERATION_TYPE = "ORPHAN_FILES_DELETION";
-  private static final String STATUS_SUCCESS = "SUCCESS";
-  private static final String STATUS_FAILED = "FAILED";
   private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
   private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
 
