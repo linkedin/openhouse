@@ -618,6 +618,40 @@ docker compose --profile with_jobs_scheduler run openhouse-jobs-scheduler - \
 > Try HTTP plugin in IntelliJ to trigger /jobs service local endpoint in local mode by running HTTP scripts in
 services/jobs/src/test/http/.
 
+### Test batched orphan file deletion through job-scheduler
+
+The batched OFD scheduler runs orphan-files-deletion across multiple tables in a single Spark job, bin-packed per database. Builds on top of the table you created in [Test through Spark-shell](#test-through-spark-shell).
+
+1. **Manufacture an orphan file** that's older than the default OFD TTL (7 days). From the spark-shell session:
+   ```scala
+   scala> val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+   scala> val orphan = new org.apache.hadoop.fs.Path("/data/openhouse/db/tb/data/test_orphan.orc")
+   scala> fs.createNewFile(orphan)
+   scala> fs.setTimes(orphan, System.currentTimeMillis() - 8L*24L*3600L*1000L, -1)  // 8 days old
+   ```
+
+2. **Build and run the batched scheduler.**
+   ```
+   docker compose --profile with_jobs_scheduler build
+   docker compose --profile with_jobs_scheduler run openhouse-jobs-scheduler - \
+       --type ORPHAN_FILES_DELETION_BATCH --cluster local \
+       --tablesURL http://openhouse-tables:8080 --jobsURL http://openhouse-jobs:8080 \
+       --batchMaxItems 5 \
+       --tableMinAgeThresholdHours 0 --taskPollIntervalMs 5000
+   ```
+
+> [!NOTE]
+> The orphan file at `/data/openhouse/db/tb/data/test_orphan.orc` should be gone after the job completes. Check the scheduler logs for `Packed N eligible tables into M batches` and the Spark app logs for `OFD success: fqtn=db.tb orphansDetected=1`.
+
+> [!NOTE]
+> The scheduler groups tables by database before bin-packing — no batch ever crosses a database. `--batchMaxItems` caps tables per batch (default 25; the Spark app enforces a hard ceiling of `MAX_BATCH_SIZE=200`).
+
+> [!NOTE]
+> To list files under the table from the HDFS namenode container:
+> ```
+> docker exec -it local.namenode hdfs dfs -ls -R /data/openhouse/db/tb
+> ```
+
 ## FAQs
 
 ### Q. My docker setup fails to create LLB definition.
