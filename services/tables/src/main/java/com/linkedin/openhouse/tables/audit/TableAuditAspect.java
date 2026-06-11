@@ -20,9 +20,13 @@ import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.config.InternalCatalogProperties;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
@@ -48,6 +52,13 @@ public class TableAuditAspect {
   @Autowired private AuditHandler<TableAuditEvent> tableAuditHandler;
 
   @Autowired private InternalCatalogProperties internalCatalogProperties;
+
+  /**
+   * Cached compiled allowlist patterns. Built lazily on first use from {@code
+   * cluster.iceberg.tables.audit.table-properties-allowlist}. The aspect is a singleton and the
+   * config is bound once at startup, so a one-shot lazy init is sufficient.
+   */
+  private volatile List<Pattern> allowlistPatterns;
 
   /**
    * Install the Around advice for getTable() method in OpenHouseTablesApiHandler.
@@ -549,23 +560,35 @@ public class TableAuditAspect {
    * ({@code table-property-value-max-size}) and a combined-total cap ({@code
    * table-properties-total-max-size}). Values exceeding either cap are skipped with a warning log.
    * Returns {@code null} when there is nothing to emit so downstream audit handlers can skip the
-   * field entirely. Iterates the allowlist rather than the source so cost is O(|allowlist|)
-   * regardless of source size.
+   * field entirely.
+   *
+   * <p>Allowlist entries are Java regular expressions matched against the property key (full match,
+   * via {@link Pattern#matches}); a key is emitted if it matches at least one pattern. Invalid
+   * patterns are logged and skipped — they never block audit emission. Source keys are visited in
+   * sorted order so that the total-cap cutoff is deterministic regardless of the source map's
+   * iteration order.
    */
   private Map<String, String> filterTableProperties(Map<String, String> source) {
     if (source == null || source.isEmpty()) {
       return null;
     }
-    InternalCatalogProperties.Audit auditConfig = internalCatalogProperties.getAudit();
-    List<String> allowlist = auditConfig.getTablePropertiesAllowlist();
-    if (allowlist == null || allowlist.isEmpty()) {
+    List<Pattern> patterns = compiledAllowlistPatterns();
+    if (patterns.isEmpty()) {
       return null;
     }
+    InternalCatalogProperties.Audit auditConfig = internalCatalogProperties.getAudit();
     long maxValueBytes = auditConfig.getTablePropertyValueMaxSize().toBytes();
     long maxTotalBytes = auditConfig.getTablePropertiesTotalMaxSize().toBytes();
+    // Sort keys so the greedy total-byte cap below drops the same properties every run; the source
+    // HashMap has no stable order. Irrelevant when the cap isn't hit.
+    List<String> sortedKeys = new ArrayList<>(source.keySet());
+    Collections.sort(sortedKeys);
     Map<String, String> filtered = new HashMap<>();
     long totalBytes = 0;
-    for (String key : allowlist) {
+    for (String key : sortedKeys) {
+      if (!matchesAnyPattern(key, patterns)) {
+        continue;
+      }
       String value = source.get(key);
       if (value == null) {
         continue;
@@ -592,6 +615,42 @@ public class TableAuditAspect {
       totalBytes += valueBytes;
     }
     return filtered.isEmpty() ? null : filtered;
+  }
+
+  /** Returns {@code true} if {@code key} fully matches at least one allowlist pattern. */
+  private boolean matchesAnyPattern(String key, List<Pattern> patterns) {
+    for (Pattern pattern : patterns) {
+      if (pattern.matcher(key).matches()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Compiles the configured allowlist into {@link Pattern}s once and caches the result. Returns
+   * {@link Collections#emptyList()} when the allowlist is unset or every pattern is invalid.
+   */
+  private List<Pattern> compiledAllowlistPatterns() {
+    List<Pattern> cached = allowlistPatterns;
+    if (cached != null) {
+      return cached;
+    }
+    List<String> allowlist = internalCatalogProperties.getAudit().getTablePropertiesAllowlist();
+    if (allowlist == null || allowlist.isEmpty()) {
+      allowlistPatterns = Collections.emptyList();
+      return allowlistPatterns;
+    }
+    List<Pattern> compiled = new ArrayList<>(allowlist.size());
+    for (String regex : allowlist) {
+      try {
+        compiled.add(Pattern.compile(regex));
+      } catch (PatternSyntaxException e) {
+        log.warn("Skipping invalid table-property allowlist regex '{}': {}", regex, e.getMessage());
+      }
+    }
+    allowlistPatterns = Collections.unmodifiableList(compiled);
+    return allowlistPatterns;
   }
 
   private void buildAndSendEvent(
