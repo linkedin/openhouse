@@ -47,6 +47,15 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
+  public ApiResponse<Void> tableExists(String databaseId, String tableId) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    return ApiResponse.<Void>builder()
+        .httpStatus(
+            tableService.tableExists(databaseId, tableId) ? HttpStatus.OK : HttpStatus.NOT_FOUND)
+        .build();
+  }
+
+  @Override
   public ApiResponse<GetAllTablesResponseBody> searchTables(String databaseId) {
     tablesApiValidator.validateSearchTables(databaseId);
     return ApiResponse.<GetAllTablesResponseBody>builder()

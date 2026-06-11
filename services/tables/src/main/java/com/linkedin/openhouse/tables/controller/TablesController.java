@@ -70,6 +70,38 @@ public class TablesController {
   }
 
   @Operation(
+      summary = "Check if a Table exists in a Database",
+      description =
+          "Returns HTTP 200 if the Table identified by tableId exists in the database identified by "
+              + "databaseId, and HTTP 404 otherwise. Uses a lightweight HouseTable lookup that does "
+              + "not read metadata from storage, making it cheaper than GET Table.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table EXISTS: OK"),
+        @ApiResponse(responseCode = "401", description = "Table EXISTS: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Table EXISTS: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Table EXISTS: NOT_FOUND")
+      })
+  @GetMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/{tableId}/exists",
+        "/v1/databases/{databaseId}/tables/{tableId}/exists"
+      },
+      produces = {"application/json"})
+  @Secured(value = Privileges.Privilege.GET_TABLE_METADATA)
+  public ResponseEntity<Void> tableExists(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.tableExists(databaseId, tableId);
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
       summary = "Search Tables in a Database",
       description =
           "Returns a list of Table resources present in a database. Only filter supported is 'database_id'.",
