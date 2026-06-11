@@ -58,6 +58,14 @@ jobs:
           <<: *spark-defaults
           "spark.driver.memory": "2g"
         << : *livy-engine
+      - type: ORPHAN_FILES_DELETION_BATCH
+        class-name: com.linkedin.openhouse.jobs.spark.BatchedOrphanFilesDeletionSparkApp
+        args: ["--backupDir", ".backup"]
+        <<: *apps-defaults
+        spark-properties:
+          <<: *spark-defaults
+          "spark.driver.memory": "2g"
+        << : *livy-engine
       - type: STAGED_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.StagedFilesDeletionSparkApp
         args: ["--trashDir", ".trash", "--daysOld", "10", "--recursive", "true"]

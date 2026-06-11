@@ -46,23 +46,34 @@ public class BatchedOrphanFilesDeletionSparkAppArgsTest {
   }
 
   @Test
-  public void buildEntriesRejectsNullArguments() {
+  public void buildEntriesRejectsNullOrEmptyTableNames() {
     Assertions.assertThrows(
         IllegalArgumentException.class,
         () -> BatchedOrphanFilesDeletionSparkApp.buildEntries(null, "op-1", "uuid-1"));
     Assertions.assertThrows(
         IllegalArgumentException.class,
-        () -> BatchedOrphanFilesDeletionSparkApp.buildEntries("db.a", null, "uuid-1"));
-    Assertions.assertThrows(
-        IllegalArgumentException.class,
-        () -> BatchedOrphanFilesDeletionSparkApp.buildEntries("db.a", "op-1", null));
+        () -> BatchedOrphanFilesDeletionSparkApp.buildEntries("", "op-1", "uuid-1"));
   }
 
   @Test
-  public void buildEntriesRejectsEmptyStrings() {
-    Assertions.assertThrows(
-        IllegalArgumentException.class,
-        () -> BatchedOrphanFilesDeletionSparkApp.buildEntries("", "op-1", "uuid-1"));
+  public void buildEntriesAllowsAbsentOperationIdsAndTableUuids() {
+    // The legacy JobsScheduler path doesn't know about optimizer-service operationIds or table
+    // UUIDs — it just passes the tables. Both null and empty should produce entries with null
+    // optional fields, no exception.
+    List<BatchedOrphanFilesDeletionSparkApp.BatchEntry> entriesNull =
+        BatchedOrphanFilesDeletionSparkApp.buildEntries("db.a,db.b", null, null);
+    List<BatchedOrphanFilesDeletionSparkApp.BatchEntry> entriesEmpty =
+        BatchedOrphanFilesDeletionSparkApp.buildEntries("db.a,db.b", "", "");
+
+    for (List<BatchedOrphanFilesDeletionSparkApp.BatchEntry> entries :
+        java.util.Arrays.asList(entriesNull, entriesEmpty)) {
+      Assertions.assertEquals(2, entries.size());
+      Assertions.assertEquals("db.a", entries.get(0).getFqtn());
+      Assertions.assertNull(entries.get(0).getOperationId());
+      Assertions.assertNull(entries.get(0).getTableUuid());
+      Assertions.assertEquals("db.b", entries.get(1).getFqtn());
+      Assertions.assertNull(entries.get(1).getOperationId());
+    }
   }
 
   @Test
@@ -70,5 +81,33 @@ public class BatchedOrphanFilesDeletionSparkAppArgsTest {
     Assertions.assertThrows(
         IllegalArgumentException.class,
         () -> BatchedOrphanFilesDeletionSparkApp.buildEntries("just_a_table", "op-1", "uuid-1"));
+  }
+
+  @Test
+  public void buildEntriesAcceptsAtMaxBatchSize() {
+    String tableNames = generateFqtnCsv(BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE);
+    List<BatchedOrphanFilesDeletionSparkApp.BatchEntry> entries =
+        BatchedOrphanFilesDeletionSparkApp.buildEntries(tableNames, null, null);
+    Assertions.assertEquals(BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE, entries.size());
+  }
+
+  @Test
+  public void buildEntriesRejectsAboveMaxBatchSize() {
+    String tableNames = generateFqtnCsv(BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE + 1);
+    IllegalArgumentException ex =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> BatchedOrphanFilesDeletionSparkApp.buildEntries(tableNames, null, null));
+    Assertions.assertTrue(
+        ex.getMessage().contains("MAX_BATCH_SIZE"), "error should reference the constant name");
+  }
+
+  private static String generateFqtnCsv(int n) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < n; i++) {
+      if (i > 0) sb.append(',');
+      sb.append("db.t").append(i);
+    }
+    return sb.toString();
   }
 }

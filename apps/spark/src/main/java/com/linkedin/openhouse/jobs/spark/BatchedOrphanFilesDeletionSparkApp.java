@@ -60,6 +60,17 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
   private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
   private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
 
+  /**
+   * Hard ceiling on the number of tables a single batched job can carry. The wire path is parallel
+   * CSV CLI args (see {@link #buildEntries}); at ~120 chars per entry (36-char UUID × 3 lists) this
+   * gives ~24 KB on the command line, well under the typical Linux {@code ARG_MAX} of 128 KB but
+   * leaves headroom for the {@code spark-submit} envelope and JVM flags. The scheduler-driven path
+   * uses a smaller per-entry footprint but inherits the same cap for defense in depth. Operators
+   * tune the per-job batch size with {@code --batchMaxItems} (default {@code 25}); this constant is
+   * a footgun stop, not the operating point.
+   */
+  public static final int MAX_BATCH_SIZE = 200;
+
   private final List<BatchEntry> entries;
   private final String resultsEndpoint;
   private final int driverParallelism;
@@ -178,8 +189,14 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     }
   }
 
+  /**
+   * Returns a client bound to {@link #resultsEndpoint}, or {@code null} when the endpoint was not
+   * configured — in that case the legacy {@link
+   * com.linkedin.openhouse.jobs.scheduler.JobsScheduler} is the caller and reports lifecycle via
+   * HTS; the per-operation optimizer callback is skipped.
+   */
   protected OptimizerServiceClient newOptimizerClient() {
-    return new OptimizerServiceClient(resultsEndpoint);
+    return resultsEndpoint == null ? null : new OptimizerServiceClient(resultsEndpoint);
   }
 
   /**
@@ -381,23 +398,29 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
   }
 
   static List<BatchEntry> buildEntries(String tableNames, String operationIds, String tableUuids) {
-    if (tableNames == null
-        || operationIds == null
-        || tableUuids == null
-        || tableNames.isEmpty()
-        || operationIds.isEmpty()
-        || tableUuids.isEmpty()) {
-      throw new IllegalArgumentException(
-          "--tableNames, --operationIds, and --tableUuids are all required and must be non-empty");
+    if (tableNames == null || tableNames.isEmpty()) {
+      throw new IllegalArgumentException("--tableNames is required and must be non-empty");
     }
     String[] tables = tableNames.split(",");
-    String[] ops = operationIds.split(",");
-    String[] uuids = tableUuids.split(",");
-    if (tables.length != ops.length || tables.length != uuids.length) {
+    if (tables.length > MAX_BATCH_SIZE) {
       throw new IllegalArgumentException(
           String.format(
-              "Parallel-list length mismatch: tableNames=%d operationIds=%d tableUuids=%d",
-              tables.length, ops.length, uuids.length));
+              "Batch size %d exceeds MAX_BATCH_SIZE=%d; reduce --batchMaxItems on the scheduler",
+              tables.length, MAX_BATCH_SIZE));
+    }
+    String[] ops = isBlank(operationIds) ? null : operationIds.split(",");
+    String[] uuids = isBlank(tableUuids) ? null : tableUuids.split(",");
+    if (ops != null && ops.length != tables.length) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Parallel-list length mismatch: tableNames=%d operationIds=%d",
+              tables.length, ops.length));
+    }
+    if (uuids != null && uuids.length != tables.length) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Parallel-list length mismatch: tableNames=%d tableUuids=%d",
+              tables.length, uuids.length));
     }
     List<BatchEntry> entries = new ArrayList<>(tables.length);
     for (int i = 0; i < tables.length; i++) {
@@ -410,13 +433,17 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       entries.add(
           BatchEntry.builder()
               .fqtn(fqtn)
-              .operationId(ops[i].trim())
-              .tableUuid(uuids[i].trim())
+              .operationId(ops == null ? null : ops[i].trim())
+              .tableUuid(uuids == null ? null : uuids[i].trim())
               .databaseName(dbAndTable[0])
               .tableName(dbAndTable[1])
               .build());
     }
     return entries;
+  }
+
+  private static boolean isBlank(String s) {
+    return s == null || s.isEmpty();
   }
 
   private static String requireOption(CommandLine cmdLine, String name) {
