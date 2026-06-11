@@ -28,6 +28,16 @@ public interface TablesApiHandler {
       String databaseId, String tableId, String actingPrincipal);
 
   /**
+   * Function to check whether a table exists for the given databaseId and tableId. Uses a
+   * lightweight HouseTable reference lookup (no metadata.json/HDFS read).
+   *
+   * @param databaseId
+   * @param tableId
+   * @return an empty-bodied response with HTTP 200 if the table exists, HTTP 404 otherwise.
+   */
+  ApiResponse<Void> tableExists(String databaseId, String tableId);
+
+  /**
    * Function to Get all Table Resources in a given databaseId by filters and return requested
    * columns. If no columns are specified only identifier columns are returned.
    *
