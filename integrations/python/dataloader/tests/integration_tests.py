@@ -21,7 +21,7 @@ from pyiceberg.exceptions import NoSuchTableError
 from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.data_loader_split import to_sql_identifier
-from openhouse.dataloader.filters import col
+from openhouse.dataloader.filters import SqlTarget, col
 from openhouse.dataloader.table_transformer import TableTransformer
 
 BASE_URL = "http://openhouse-tables:8080"
@@ -345,10 +345,10 @@ if __name__ == "__main__":
             # SQL roundtrip path (filters -> DataFusion SQL -> sqlglot -> scan_optimizer ->
             # PyIceberg expression). Without a transformer, _build_query() returns None
             # and the loader skips that path entirely, which would mean a CAST(literal,
-            # TIMESTAMP) regression in _literal_to_sql / scan_optimizer would go unnoticed.
+            # TIMESTAMP) regression in _literal_to_expr / scan_optimizer would go unnoticed.
             class _PartPassthroughTransformer(TableTransformer):
                 def __init__(self):
-                    super().__init__(dialect="datafusion")
+                    super().__init__(dialect=SqlTarget.DATA_FUSION)
 
                 def transform(self, table, context):
                     return f'SELECT "id", "ts" FROM {to_sql_identifier(table)}'

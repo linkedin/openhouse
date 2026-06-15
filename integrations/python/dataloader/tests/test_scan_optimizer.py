@@ -17,7 +17,8 @@ from openhouse.dataloader.filters import (
     LessThanOrEqual,
     NotEqualTo,
     Or,
-    _to_datafusion_sql,
+    SqlTarget,
+    to_sql,
 )
 from openhouse.dataloader.scan_optimizer import optimize_scan as _optimize_scan
 
@@ -170,7 +171,7 @@ def test_comparison_types():
 
 
 def test_datetime_string_literals_pushed_as_strings():
-    """`filters._literal_to_sql()` emits plain string literals for datetime/date/time
+    """`filters._literal_to_expr()` emits plain string literals for datetime/date/time
     (see PR #569 + follow-up). The scan optimizer treats them as ordinary string
     literals; PyIceberg promotes them to typed literals during expression binding
     against the table schema, restoring partition pruning.
@@ -206,7 +207,7 @@ def test_non_convertible_predicates_not_pushed():
 
 
 def test_filter_dsl_to_sql_round_trip():
-    """Each Filter type survives _to_datafusion_sql → optimize_scan round trip."""
+    """Each Filter type survives to_sql(..., DATA_FUSION) → optimize_scan round trip."""
     cases = [
         EqualTo("x", 1),
         NotEqualTo("x", 1),
@@ -223,7 +224,7 @@ def test_filter_dsl_to_sql_round_trip():
         Or(EqualTo("x", 1), EqualTo("x", 2)),
     ]
     for filter_dsl in cases:
-        sql = f'SELECT "a" FROM "db"."tbl" WHERE {_to_datafusion_sql(filter_dsl)}'
+        sql = f'SELECT "a" FROM "db"."tbl" WHERE {to_sql(filter_dsl, SqlTarget.DATA_FUSION)}'
         plan = optimize_scan(sql)
         assert plan.row_filter == filter_dsl, f"Round trip failed for {filter_dsl!r}: got {plan.row_filter!r}"
 

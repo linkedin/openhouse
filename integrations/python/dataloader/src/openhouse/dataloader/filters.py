@@ -379,6 +379,20 @@ def _literal_to_expr(value: object) -> exp.Expression:
     raise TypeError(f"Unsupported literal type: {type(value).__name__}")
 
 
+class SqlTarget(Enum):
+    """A SQL flavor used by this library.
+
+    Used both to render filters (:func:`to_sql`) and to declare the SQL a
+    ``TableTransformer`` emits. Members name a concrete SQL flavor; the backing
+    sqlglot dialect string is an internal detail — callers use the member, not
+    the string.
+    """
+
+    SPARK = "spark"
+    TRINO = "trino"
+    DATA_FUSION = "datafusion"
+
+
 def _column_expr(name: str) -> exp.Column:
     """Build a quoted sqlglot column reference."""
     return exp.column(exp.to_identifier(name, quoted=True))
@@ -391,12 +405,23 @@ def _like_prefix(column: str, prefix: str) -> exp.Expression:
     return exp.Escape(this=like, expression=exp.Literal.string("\\"))
 
 
-def _filter_to_expr(filter_expr: Filter) -> exp.Expression:
-    """Build a dialect-agnostic sqlglot expression tree for a Filter.
+def _isnan(column: str, target: SqlTarget) -> exp.Anonymous:
+    """Build the dialect-appropriate NaN-check function call.
 
-    Render it for a target by calling ``.sql(dialect=...)``; see :func:`to_sql`
-    and :func:`_to_datafusion_sql`. The tree is built once and sqlglot handles
-    per-dialect identifier quoting, operators, and literal formatting.
+    Trino spells it ``is_nan``; Spark and DataFusion use ``isnan``. (sqlglot's
+    built-in IsNan node renders ``IS_NAN(...)``, which none of these accept, so we
+    emit an Anonymous function with the correct name for the target.)
+    """
+    name = "is_nan" if target is SqlTarget.TRINO else "isnan"
+    return exp.Anonymous(this=name, expressions=[_column_expr(column)])
+
+
+def _filter_to_expr(filter_expr: Filter, target: SqlTarget) -> exp.Expression:
+    """Build a sqlglot expression tree for a Filter, ready to render for *target*.
+
+    The tree is dialect-agnostic except where SQL genuinely diverges (NaN checks);
+    sqlglot handles per-dialect identifier quoting, operators, and literal
+    formatting at render time. See :func:`to_sql`.
     """
     match filter_expr:
         case AlwaysTrue():
@@ -416,17 +441,15 @@ def _filter_to_expr(filter_expr: Filter) -> exp.Expression:
         case LessThanOrEqual(column, value):
             return exp.LTE(this=_column_expr(column), expression=_literal_to_expr(value))
 
-        # Null / NaN. NaN uses the isnan() function (an Anonymous node, not sqlglot's
-        # built-in IsNan which renders the unsupported `IS_NAN(...)`); isnan() is
-        # accepted by both DataFusion and Spark.
+        # Null / NaN
         case IsNull(column):
             return exp.Is(this=_column_expr(column), expression=exp.Null())
         case IsNotNull(column):
             return exp.not_(exp.Is(this=_column_expr(column), expression=exp.Null()))
         case IsNaN(column):
-            return exp.Anonymous(this="isnan", expressions=[_column_expr(column)])
+            return _isnan(column, target)
         case IsNotNaN(column):
-            return exp.not_(exp.Anonymous(this="isnan", expressions=[_column_expr(column)]))
+            return exp.not_(_isnan(column, target))
 
         # Set membership
         case In(column, values):
@@ -450,24 +473,14 @@ def _filter_to_expr(filter_expr: Filter) -> exp.Expression:
 
         # Logical combinators
         case And(left, right):
-            return exp.and_(_filter_to_expr(left), _filter_to_expr(right))
+            return exp.and_(_filter_to_expr(left, target), _filter_to_expr(right, target))
         case Or(left, right):
-            return exp.or_(_filter_to_expr(left), _filter_to_expr(right))
+            return exp.or_(_filter_to_expr(left, target), _filter_to_expr(right, target))
         case Not(operand):
-            return exp.not_(_filter_to_expr(operand))
+            return exp.not_(_filter_to_expr(operand, target))
 
         case _:
             raise TypeError(f"Unsupported filter type: {type(filter_expr).__name__}")
-
-
-class SqlTarget(Enum):
-    """Target for :func:`to_sql`.
-
-    Members name a concrete SQL flavor; the underlying SQL dialect is an internal
-    implementation detail and is not part of the public contract.
-    """
-
-    SPARK = "spark"
 
 
 def to_sql(filter_expr: Filter, target: SqlTarget = SqlTarget.SPARK) -> str:
@@ -484,12 +497,7 @@ def to_sql(filter_expr: Filter, target: SqlTarget = SqlTarget.SPARK) -> str:
         filter_expr: The filter expression to render.
         target: The SQL flavor to render for. Defaults to Spark.
     """
-    return _filter_to_expr(filter_expr).sql(dialect=target.value)
-
-
-def _to_datafusion_sql(expr: Filter) -> str:
-    """Render a Filter as a DataFusion SQL boolean expression string (default dialect)."""
-    return _filter_to_expr(expr).sql()
+    return _filter_to_expr(filter_expr, target).sql(dialect=target.value)
 
 
 def _to_pyiceberg(expr: Filter) -> ice.BooleanExpression:

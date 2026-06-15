@@ -31,11 +31,15 @@ from openhouse.dataloader.filters import (
     Or,
     SqlTarget,
     StartsWith,
-    _to_datafusion_sql,
     _to_pyiceberg,
     always_true,
     to_sql,
 )
+
+
+def _to_datafusion_sql(expr: Filter) -> str:
+    """Test helper: render a filter to DataFusion SQL through the public ``to_sql``."""
+    return to_sql(expr, SqlTarget.DATA_FUSION)
 
 
 class TestColumnCreation:
@@ -775,6 +779,40 @@ class TestSparkSqlConversion:
 
         with pytest.raises(TypeError, match="Unsupported filter type"):
             to_sql(CustomFilter(), SqlTarget.SPARK)
+
+
+class TestTrinoSqlConversion:
+    """Render filters to Trino SQL (double-quoted identifiers, is_nan())."""
+
+    def test_uses_double_quoted_identifiers(self):
+        assert to_sql(col("x") == 5, SqlTarget.TRINO) == '"x" = 5'
+
+    def test_is_nan_uses_trino_function(self):
+        # Trino's NaN function is is_nan (underscore), unlike Spark/DataFusion's isnan.
+        assert to_sql(col("x").is_nan(), SqlTarget.TRINO) == 'IS_NAN("x")'
+        assert to_sql(col("x").is_not_nan(), SqlTarget.TRINO) == 'NOT IS_NAN("x")'
+
+    def test_in_and_between(self):
+        assert to_sql(col("x").is_in([1, 2]), SqlTarget.TRINO) == '"x" IN (1, 2)'
+        assert to_sql(col("x").between(1, 10), SqlTarget.TRINO) == '"x" BETWEEN 1 AND 10'
+
+    @pytest.mark.parametrize(
+        "expr",
+        [
+            col("x") == 5,
+            col("name") == "alice",
+            col("x").is_null(),
+            col("x").is_not_null(),
+            col("x").is_nan(),
+            col("x").is_not_nan(),
+            col("x").is_in([1, 2, 3]),
+            col("name").starts_with("a%b_c"),
+            col("x").between(1, 10),
+            (col("x") > 5) & (col("y") == "a") | ~col("z").is_null(),
+        ],
+    )
+    def test_output_is_valid_trino_sql(self, expr):
+        sqlglot.parse_one(to_sql(expr, SqlTarget.TRINO), dialect="trino")
 
 
 class TestPyIcebergUnsupportedType:

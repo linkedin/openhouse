@@ -55,7 +55,7 @@ filters = (col("age") >= 18) & (col("country").is_in(["US", "CA"])) & ~col("emai
 ### Rendering a filter as SQL
 
 Use `to_sql()` to render a filter as a SQL boolean expression (a `WHERE`-clause
-predicate) for a given target. Spark is currently the supported target:
+predicate) for a given `SqlTarget` (`SPARK`, `TRINO`, or `DATA_FUSION`):
 
 ```python
 from openhouse.dataloader import SqlTarget, col, to_sql

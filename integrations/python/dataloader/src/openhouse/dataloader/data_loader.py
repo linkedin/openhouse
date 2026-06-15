@@ -25,10 +25,11 @@ from openhouse.dataloader.datafusion_sql import DataFusion, to_datafusion_sql
 from openhouse.dataloader.filters import (
     AlwaysTrue,
     Filter,
+    SqlTarget,
     _quote_identifier,
-    _to_datafusion_sql,
     _to_pyiceberg,
     always_true,
+    to_sql,
 )
 from openhouse.dataloader.metrics import METER_NAME
 from openhouse.dataloader.scan_optimizer import optimize_scan
@@ -298,11 +299,11 @@ class OpenHouseDataLoader:
         sql = transformer.transform(self._table_id, execution_context)
         if sql is None:
             return None
-        sql = to_datafusion_sql(sql, transformer.dialect, table=self._table_id)
+        sql = to_datafusion_sql(sql, transformer.dialect.value, table=self._table_id)
         outer_cols = ", ".join(_quote_identifier(c) for c in self._columns) if self._columns else "*"
         combined = f"SELECT {outer_cols} FROM ({sql}) AS _t"
         if self._filters and not isinstance(self._filters, AlwaysTrue):
-            combined += f" WHERE {_to_datafusion_sql(self._filters)}"
+            combined += f" WHERE {to_sql(self._filters, SqlTarget.DATA_FUSION)}"
         return combined
 
     def __iter__(self) -> Iterator[DataLoaderSplit]:
