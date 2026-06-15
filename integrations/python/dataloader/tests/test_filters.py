@@ -37,11 +37,6 @@ from openhouse.dataloader.filters import (
 )
 
 
-def _to_datafusion_sql(expr: Filter) -> str:
-    """Test helper: render a filter to DataFusion SQL through the public ``to_sql``."""
-    return to_sql(expr, SqlTarget.DATA_FUSION)
-
-
 class TestColumnCreation:
     def test_col_returns_column(self):
         c = col("x")
@@ -362,69 +357,69 @@ class TestNamespacedImport:
 class TestDataFusionLiteralConversion:
     def test_datetime_greater_than_or_equal(self):
         dt = datetime(2026, 4, 27, tzinfo=UTC)
-        result = _to_datafusion_sql(col("datepartition") >= dt)
+        result = to_sql(col("datepartition") >= dt, SqlTarget.DATA_FUSION)
         assert result == "\"datepartition\" >= '2026-04-27T00:00:00+00:00'"
 
     def test_datetime_equal(self):
         dt = datetime(2026, 4, 27, 12, 30, 45, tzinfo=UTC)
-        result = _to_datafusion_sql(col("ts") == dt)
+        result = to_sql(col("ts") == dt, SqlTarget.DATA_FUSION)
         assert result == "\"ts\" = '2026-04-27T12:30:45+00:00'"
 
     def test_datetime_with_microseconds(self):
         dt = datetime(2026, 4, 27, 12, 30, 45, 123456, tzinfo=UTC)
-        result = _to_datafusion_sql(col("ts") == dt)
+        result = to_sql(col("ts") == dt, SqlTarget.DATA_FUSION)
         assert result == "\"ts\" = '2026-04-27T12:30:45.123456+00:00'"
 
     def test_datetime_non_utc_timezone_preserved(self):
         dt = datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone(timedelta(hours=5)))
-        result = _to_datafusion_sql(col("ts") >= dt)
+        result = to_sql(col("ts") >= dt, SqlTarget.DATA_FUSION)
         assert result == "\"ts\" >= '2026-04-27T12:00:00+05:00'"
 
     def test_datetime_naive_no_offset(self):
         dt = datetime(2026, 4, 27, 12, 0, 0)
-        result = _to_datafusion_sql(col("ts") >= dt)
+        result = to_sql(col("ts") >= dt, SqlTarget.DATA_FUSION)
         assert result == "\"ts\" >= '2026-04-27T12:00:00'"
 
     def test_date_greater_than_or_equal(self):
         d = date(2026, 4, 27)
-        result = _to_datafusion_sql(col("datepartition") >= d)
+        result = to_sql(col("datepartition") >= d, SqlTarget.DATA_FUSION)
         assert result == "\"datepartition\" >= '2026-04-27'"
 
     def test_datetime_between(self):
         dt1 = datetime(2026, 4, 27, tzinfo=UTC)
         dt2 = datetime(2026, 5, 1, tzinfo=UTC)
-        result = _to_datafusion_sql(col("ts").between(dt1, dt2))
+        result = to_sql(col("ts").between(dt1, dt2), SqlTarget.DATA_FUSION)
         assert result == "\"ts\" BETWEEN '2026-04-27T00:00:00+00:00' AND '2026-05-01T00:00:00+00:00'"
 
     def test_datetime_in_compound_filter(self):
         dt = datetime(2026, 4, 27, tzinfo=UTC)
         f = (col("datepartition") >= dt) & (col("status") == "active")
-        result = _to_datafusion_sql(f)
+        result = to_sql(f, SqlTarget.DATA_FUSION)
         assert "'2026-04-27T00:00:00+00:00'" in result
         assert "\"status\" = 'active'" in result
 
     def test_time_equal(self):
         t = time(14, 30, 0)
-        result = _to_datafusion_sql(col("event_time") == t)
+        result = to_sql(col("event_time") == t, SqlTarget.DATA_FUSION)
         assert result == "\"event_time\" = '14:30:00'"
 
     def test_time_with_microseconds(self):
         t = time(14, 30, 0, 500000)
-        result = _to_datafusion_sql(col("event_time") == t)
+        result = to_sql(col("event_time") == t, SqlTarget.DATA_FUSION)
         assert result == "\"event_time\" = '14:30:00.500000'"
 
     def test_time_with_timezone_rejected(self):
         t = time(14, 30, 0, tzinfo=timezone(timedelta(hours=5)))
         with pytest.raises(TypeError, match="does not support timezones for time"):
-            _to_datafusion_sql(col("event_time") == t)
+            to_sql(col("event_time") == t, SqlTarget.DATA_FUSION)
 
     def test_decimal_greater_than(self):
         d = Decimal("99.95")
-        result = _to_datafusion_sql(col("price") > d)
+        result = to_sql(col("price") > d, SqlTarget.DATA_FUSION)
         assert result == '"price" > 99.95'
 
     def test_decimal_between(self):
-        result = _to_datafusion_sql(col("price").between(Decimal("10.00"), Decimal("50.00")))
+        result = to_sql(col("price").between(Decimal("10.00"), Decimal("50.00")), SqlTarget.DATA_FUSION)
         assert result == '"price" BETWEEN 10.00 AND 50.00'
 
     @pytest.mark.parametrize(
@@ -436,7 +431,7 @@ class TestDataFusionLiteralConversion:
         ],
     )
     def test_non_finite_float(self, value, expected):
-        result = _to_datafusion_sql(col("x") == value)
+        result = to_sql(col("x") == value, SqlTarget.DATA_FUSION)
         assert result == f'"x" = {expected}'
 
     @pytest.mark.parametrize(
@@ -448,12 +443,12 @@ class TestDataFusionLiteralConversion:
         ],
     )
     def test_non_finite_decimal(self, value, expected):
-        result = _to_datafusion_sql(col("x") == value)
+        result = to_sql(col("x") == value, SqlTarget.DATA_FUSION)
         assert result == f'"x" = {expected}'
 
     def test_uuid_equal(self):
         u = UUID("12345678-1234-5678-1234-567812345678")
-        result = _to_datafusion_sql(col("id") == u)
+        result = to_sql(col("id") == u, SqlTarget.DATA_FUSION)
         assert result == "\"id\" = '12345678-1234-5678-1234-567812345678'"
 
 
@@ -498,14 +493,14 @@ class TestDataFusionFilterExecution:
         return pa.Table.from_batches(batches)
 
     def test_datetime_filter(self, ctx):
-        where = _to_datafusion_sql(col("ts") >= datetime(2026, 4, 27, tzinfo=UTC))
+        where = to_sql(col("ts") >= datetime(2026, 4, 27, tzinfo=UTC), SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 2
         ts_values = [v.as_py() for v in table.column("ts")]
         assert ts_values == [datetime(2026, 4, 27, tzinfo=UTC), datetime(2026, 4, 29, tzinfo=UTC)]
 
     def test_datetime_less_than(self, ctx):
-        where = _to_datafusion_sql(col("ts") < datetime(2026, 4, 27, tzinfo=UTC))
+        where = to_sql(col("ts") < datetime(2026, 4, 27, tzinfo=UTC), SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 1
         assert table.column("ts")[0].as_py() == datetime(2026, 4, 25, tzinfo=UTC)
@@ -513,27 +508,27 @@ class TestDataFusionFilterExecution:
     def test_datetime_non_utc_timezone(self, ctx):
         # 2026-04-27 05:00:00+05:00 == 2026-04-27 00:00:00 UTC, same as row 2
         dt = datetime(2026, 4, 27, 5, 0, 0, tzinfo=timezone(timedelta(hours=5)))
-        where = _to_datafusion_sql(col("ts") >= dt)
+        where = to_sql(col("ts") >= dt, SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 2
         ts_values = [v.as_py() for v in table.column("ts")]
         assert ts_values == [datetime(2026, 4, 27, tzinfo=UTC), datetime(2026, 4, 29, tzinfo=UTC)]
 
     def test_date_filter(self, ctx):
-        where = _to_datafusion_sql(col("dt") >= date(2026, 4, 27))
+        where = to_sql(col("dt") >= date(2026, 4, 27), SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 2
         dt_values = [v.as_py() for v in table.column("dt")]
         assert dt_values == [date(2026, 4, 27), date(2026, 4, 29)]
 
     def test_time_filter(self, ctx):
-        where = _to_datafusion_sql(col("t") == time(14, 30, 0))
+        where = to_sql(col("t") == time(14, 30, 0), SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 1
         assert table.column("t")[0].as_py() == time(14, 30, 0)
 
     def test_decimal_filter(self, ctx):
-        where = _to_datafusion_sql(col("price") > Decimal("10.00"))
+        where = to_sql(col("price") > Decimal("10.00"), SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 2
         price_values = [v.as_py() for v in table.column("price")]
@@ -558,27 +553,28 @@ class TestDataFusionFilterExecution:
         batch = pa.record_batch({"x": pa.array([1.0, float("nan"), float("inf"), float("-inf"), 5.0])})
         ctx.register_record_batches("t", [[batch]])
 
-        where = _to_datafusion_sql(col("x") == value)
+        where = to_sql(col("x") == value, SqlTarget.DATA_FUSION)
         batches = ctx.sql(f'SELECT * FROM "t" WHERE {where}').collect()
         table = pa.Table.from_batches(batches)
         assert table.num_rows == expected_count
         assert check(table.column("x")[0].as_py())
 
     def test_high_precision_decimal_filter(self, ctx):
-        where = _to_datafusion_sql(col("price") > Decimal("49.9899999999999999"))
+        where = to_sql(col("price") > Decimal("49.9899999999999999"), SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 1
         assert table.column("price")[0].as_py() == Decimal("99.99")
 
     def test_uuid_filter(self, ctx):
-        where = _to_datafusion_sql(col("id") == UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+        where = to_sql(col("id") == UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 1
         assert table.column("id")[0].as_py() == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
     def test_datetime_between_filter(self, ctx):
-        where = _to_datafusion_sql(
-            col("ts").between(datetime(2026, 4, 26, tzinfo=UTC), datetime(2026, 4, 28, tzinfo=UTC))
+        where = to_sql(
+            col("ts").between(datetime(2026, 4, 26, tzinfo=UTC), datetime(2026, 4, 28, tzinfo=UTC)),
+            SqlTarget.DATA_FUSION,
         )
         table = self._query(ctx, where)
         assert table.num_rows == 1
@@ -586,7 +582,7 @@ class TestDataFusionFilterExecution:
 
     def test_compound_filter(self, ctx):
         f = (col("ts") >= datetime(2026, 4, 27, tzinfo=UTC)) & (col("price") > Decimal("50.00"))
-        where = _to_datafusion_sql(f)
+        where = to_sql(f, SqlTarget.DATA_FUSION)
         table = self._query(ctx, where)
         assert table.num_rows == 1
         assert table.column("ts")[0].as_py() == datetime(2026, 4, 29, tzinfo=UTC)
@@ -605,12 +601,12 @@ class TestDataFusionFilterExecution:
             }
         )
         ctx2.register_record_batches("t2", [[batch]])
-        where = _to_datafusion_sql(col("ts") == datetime(2026, 4, 27, 12, 0, 0, 500000, tzinfo=UTC))
+        where = to_sql(col("ts") == datetime(2026, 4, 27, 12, 0, 0, 500000, tzinfo=UTC), SqlTarget.DATA_FUSION)
         table = ctx2.sql(f'SELECT * FROM "t2" WHERE {where}').collect()
         assert len(table[0]) == 1
         assert table[0].column("ts")[0].as_py() == datetime(2026, 4, 27, 12, 0, 0, 500000, tzinfo=UTC)
 
-        where_no_match = _to_datafusion_sql(col("ts") == datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC))
+        where_no_match = to_sql(col("ts") == datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC), SqlTarget.DATA_FUSION)
         table2 = ctx2.sql(f'SELECT * FROM "t2" WHERE {where_no_match}').collect()
         assert sum(len(b) for b in table2) == 0
 
@@ -770,7 +766,7 @@ class TestSparkSqlConversion:
         # For filters without string-literal escaping, Spark vs DataFusion output
         # differs only in identifier quoting (backtick vs double-quote).
         spark = to_sql(expr, SqlTarget.SPARK)
-        assert spark.replace("`", '"') == _to_datafusion_sql(expr)
+        assert spark.replace("`", '"') == to_sql(expr, SqlTarget.DATA_FUSION)
 
     def test_raises_on_unknown_filter(self):
         class CustomFilter(Filter):
@@ -830,4 +826,4 @@ class TestPyIcebergUnsupportedType:
                 return "custom"
 
         with pytest.raises(TypeError, match="Unsupported filter type"):
-            _to_datafusion_sql(CustomFilter())
+            to_sql(CustomFilter(), SqlTarget.DATA_FUSION)
