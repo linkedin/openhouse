@@ -90,7 +90,7 @@ Build row filters using `col()` with comparison operators (`==`, `!=`, `>`, `>=`
 - `UDFRegistry` / `NoOpRegistry` — ABC for registering DataFusion UDFs; `NoOpRegistry` is the default no-op
 - `TableScanContext` — Frozen dataclass holding table metadata, FileIO, projected schema, row filter, and table ID; pickle-safe for distributed execution
 - `DataFusion` dialect in `datafusion_sql.py` — Custom SQLGlot dialect for transpiling SQL from other dialects (e.g. Spark) to DataFusion
-- `to_datafusion_sql()` — Transpiles a SQL statement from a source dialect to DataFusion using SQLGlot
+- `to_datafusion_sql()` — Transpiles a SQL statement from a source `SqlTarget` to DataFusion using SQLGlot
 
 ## Key Dependencies
 
