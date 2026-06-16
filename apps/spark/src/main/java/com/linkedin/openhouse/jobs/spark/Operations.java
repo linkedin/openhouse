@@ -14,7 +14,6 @@ import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
@@ -356,7 +355,7 @@ public final class Operations implements AutoCloseable {
               Collectors.groupingBy(
                   task -> {
                     String path = task.file().path().toString();
-                    return Paths.get(path).getParent().toString();
+                    return dataFileParent(path);
                   },
                   Collectors.mapping(task -> task.file().path().toString(), Collectors.toList())));
     } catch (IOException e) {
@@ -403,7 +402,20 @@ public final class Operations implements AutoCloseable {
             table.name(), AppConstants.BACKUP_DIR_KEY, fullyQualifiedBackupDir));
   }
 
-  private Path getTrashPath(String path, String filePath, String trashDir) {
+  /**
+   * Return the parent directory of a data file path. Uses Hadoop {@link Path} (not {@link
+   * java.nio.file.Paths}, which is not URI-aware) so that the scheme and authority of a
+   * fully-qualified path such as {@code hdfs://cluster/a/b/f.orc} are preserved. Dropping the
+   * authority here would later resolve the backup manifest against the default filesystem root and
+   * fail with a permission error.
+   */
+  @VisibleForTesting
+  static String dataFileParent(String dataFilePath) {
+    return new Path(dataFilePath).getParent().toString();
+  }
+
+  @VisibleForTesting
+  static Path getTrashPath(String path, String filePath, String trashDir) {
     return new Path(filePath.replace(path, new Path(path, trashDir).toString()));
   }
 
