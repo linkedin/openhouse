@@ -11,11 +11,14 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapperImpl;
+import com.linkedin.openhouse.tables.model.CurrentSnapshotInfo;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.IcebergSnapshotsService;
+import com.linkedin.openhouse.tables.services.postcommit.PostCommitDispatcher;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.UUID;
 import org.apache.iceberg.exceptions.BadRequestException;
@@ -44,6 +47,13 @@ public class IcebergSnapshotsServiceTest {
   @Autowired private TablesMapper tablesMapper;
 
   @MockBean private TableUUIDGenerator tableUUIDGenerator;
+
+  /**
+   * Forces the optional post-commit dispatcher into the service so that we can verify it is invoked
+   * after a successful save. Production wiring is conditional on {@code
+   * tables.postcommit.enabled=true}; this {@code @MockBean} bypasses that condition.
+   */
+  @MockBean private PostCommitDispatcher postCommitDispatcher;
 
   private OpenHouseInternalRepository mockRepository;
 
@@ -88,6 +98,32 @@ public class IcebergSnapshotsServiceTest {
     Assertions.assertTrue(result.getSecond(), "Table must be created");
 
     verifyCalls(key, TEST_TABLE_CREATOR, requestBody.getCreateUpdateTableRequestBody());
+  }
+
+  @Test
+  public void testPostCommitDispatcherInvokedAfterSuccessfulCommit() {
+    final IcebergSnapshotsRequestBody requestBody =
+        TEST_ICEBERG_SNAPSHOTS_INITIAL_VERSION_REQUEST_BODY;
+    final String dbId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
+    final String tableId = requestBody.getCreateUpdateTableRequestBody().getTableId();
+    final TableDtoPrimaryKey key =
+        TableDtoPrimaryKey.builder().databaseId(dbId).tableId(tableId).build();
+    final CurrentSnapshotInfo snapshot =
+        CurrentSnapshotInfo.builder()
+            .snapshotId(42L)
+            .summary(Collections.singletonMap("total-data-files", "7"))
+            .build();
+    final TableDto savedDto =
+        TableDto.builder().databaseId(dbId).tableId(tableId).currentSnapshot(snapshot).build();
+
+    Mockito.when(tableUUIDGenerator.generateUUID(Mockito.any(IcebergSnapshotsRequestBody.class)))
+        .thenReturn(UUID.randomUUID());
+    Mockito.when(mockRepository.findById(key)).thenReturn(Optional.empty());
+    Mockito.when(mockRepository.save(Mockito.any(TableDto.class))).thenReturn(savedDto);
+
+    service.putIcebergSnapshots(dbId, tableId, requestBody, TEST_TABLE_CREATOR);
+
+    Mockito.verify(postCommitDispatcher, Mockito.times(1)).dispatch(savedDto);
   }
 
   @Test

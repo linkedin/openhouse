@@ -73,6 +73,7 @@ public interface TablesMapper {
     @Mapping(source = "requestBody.sortOrder", target = "sortOrder"),
     @Mapping(target = "lastModifiedTime", ignore = true),
     @Mapping(target = "creationTime", ignore = true),
+    @Mapping(target = "currentSnapshot", ignore = true)
   })
   TableDto toTableDto(TableDto tableDto, CreateUpdateTableRequestBody requestBody);
 
@@ -120,7 +121,8 @@ public interface TablesMapper {
         defaultExpression = "java(TableType.PRIMARY_TABLE)"),
     @Mapping(source = "requestBody.createUpdateTableRequestBody.sortOrder", target = "sortOrder"),
     @Mapping(target = "lastModifiedTime", ignore = true),
-    @Mapping(target = "creationTime", ignore = true)
+    @Mapping(target = "creationTime", ignore = true),
+    @Mapping(target = "currentSnapshot", ignore = true)
   })
   TableDto toTableDto(TableDto tableDto, IcebergSnapshotsRequestBody requestBody);
 
