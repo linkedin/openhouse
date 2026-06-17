@@ -327,21 +327,22 @@ def _escape_like(value: str) -> str:
 
 
 def _non_finite_double(value: float | Decimal) -> exp.Cast:
-    """Build ``CAST('<canonical>' AS DOUBLE)`` for a non-finite float/decimal.
+    """Build ``CAST('<spelling>' AS DOUBLE)`` for a non-finite float/decimal.
 
-    Uses the canonical ``NaN``/``Infinity``/``-Infinity`` spellings, which both
-    DataFusion and Spark parse. The lowercase forms from ``str(float(...))``
-    (e.g. ``'inf'``) are not reliably cast by Spark.
+    Spark and DataFusion both parse the IEEE special-value spellings ``NaN`` /
+    ``Infinity`` / ``-Infinity`` (the lowercase ``str(float(...))`` forms like
+    ``'inf'`` are not reliably cast by Spark).
     """
-    if isinstance(value, Decimal):
-        text = str(value)  # 'NaN' / 'Infinity' / '-Infinity'
-    elif math.isnan(value):
-        text = "NaN"
-    elif value > 0:
-        text = "Infinity"
+    number = float(value)
+    if math.isnan(number):
+        spelling = "NaN"
+    elif number == math.inf:
+        spelling = "Infinity"
+    elif number == -math.inf:
+        spelling = "-Infinity"
     else:
-        text = "-Infinity"
-    return exp.Cast(this=exp.Literal.string(text), to=exp.DataType.build("DOUBLE"))
+        raise ValueError(f"_non_finite_double expects a non-finite value, got {value!r}")
+    return exp.Cast(this=exp.Literal.string(spelling), to=exp.DataType.build("DOUBLE"))
 
 
 def _literal_to_expr(value: object) -> exp.Expression:
