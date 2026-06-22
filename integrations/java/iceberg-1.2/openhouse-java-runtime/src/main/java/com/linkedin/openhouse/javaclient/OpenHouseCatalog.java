@@ -102,6 +102,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   public static final String CLIENT_NAME = "client-name";
 
+  public static final String CLIENT_VERSION = "client-version";
+
   @Override
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
@@ -113,10 +115,12 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String token = properties.getOrDefault(AUTH_TOKEN, null);
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
     String clientName = properties.getOrDefault(CLIENT_NAME, null);
+    String clientVersion = properties.getOrDefault(CLIENT_VERSION, null);
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
       tablesApiClientFactory.setClientName(clientName);
+      tablesApiClientFactory.setClientVersion(clientVersion);
       if (properties.containsKey(CatalogProperties.APP_ID)) {
         tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
       }

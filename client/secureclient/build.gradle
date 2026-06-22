@@ -17,6 +17,14 @@ dependencies {
 
 }
 
+// Stamp the project version into the jar manifest so WebClientFactory can advertise the client
+// version in the User-Agent header by reading Implementation-Version at runtime.
+jar {
+    manifest {
+        attributes('Implementation-Version': project.version)
+    }
+}
+
 test {
     useJUnitPlatform()
 }

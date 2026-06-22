@@ -12,6 +12,7 @@ import javax.net.ssl.SSLException;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
@@ -26,6 +27,12 @@ public abstract class WebClientFactory {
   private static final String SESSION_ID = "session-id";
 
   public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
+  // Product token advertised in the User-Agent header so the server can observe the client version.
+  // The resulting header looks like "openhouse-java-client/1.5.2".
+  public static final String USER_AGENT_CLIENT_PRODUCT = "openhouse-java-client";
+  // Fallback when the client jar manifest carries no Implementation-Version (e.g. running from
+  // classes during local/dev/tests) and no explicit version was set.
+  private static final String CLIENT_VERSION_UNKNOWN = "unknown";
   private static final int IN_MEMORY_BUFFER_SIZE = 20 * 1024 * 1024;
   // The maximum number of connections per connection pool
   private static final int MAX_CONNECTION_POOL_SIZE = 500;
@@ -44,6 +51,10 @@ public abstract class WebClientFactory {
   @Setter private String sessionId = null;
 
   @Setter private String clientName = null;
+
+  // When null, the version is resolved from the client jar manifest's Implementation-Version,
+  // falling back to {@link #CLIENT_VERSION_UNKNOWN}. Callers may set an explicit value to override.
+  @Setter private String clientVersion = null;
 
   protected WebClientFactory() {
     setStrategy();
@@ -159,6 +170,7 @@ public abstract class WebClientFactory {
     WebClient.Builder webClientBuilder = createWebClientBuilder();
     setSessionIdInWebClientHeader(webClientBuilder);
     setClientNameInWebClientHeader(webClientBuilder);
+    setUserAgentInWebClientHeader(webClientBuilder);
     return webClientBuilder
         .baseUrl(baseUrl)
         .clientConnector(new ReactorClientHttpConnector(httpClient))
@@ -207,6 +219,37 @@ public abstract class WebClientFactory {
       webClientBuilder.defaultHeaders(h -> h.add(HTTP_HEADER_CLIENT_NAME, clientName));
     }
     log.info("Client name: {}", clientName);
+  }
+
+  /**
+   * Set the User-Agent header on the webClient so the server can observe the client version on
+   * every request, e.g. "openhouse-java-client/1.5.2". The version is resolved via {@link
+   * #resolveClientVersion()}. Setting our own default User-Agent replaces the transport's default
+   * (e.g. "ReactorNetty/x.y.z").
+   *
+   * @param webClientBuilder
+   */
+  private void setUserAgentInWebClientHeader(WebClient.Builder webClientBuilder) {
+    String userAgent = USER_AGENT_CLIENT_PRODUCT + "/" + resolveClientVersion();
+    webClientBuilder.defaultHeaders(h -> h.set(HttpHeaders.USER_AGENT, userAgent));
+    log.info("Client User-Agent: {}", userAgent);
+  }
+
+  /**
+   * Resolve the client version to advertise: an explicitly set {@link #clientVersion} takes
+   * precedence, otherwise the Implementation-Version stamped into this jar's manifest, otherwise
+   * {@link #CLIENT_VERSION_UNKNOWN}.
+   *
+   * @return the resolved client version, never null
+   */
+  private String resolveClientVersion() {
+    if (!StringUtil.isNullOrEmpty(clientVersion)) {
+      return clientVersion;
+    }
+    String implementationVersion = WebClientFactory.class.getPackage().getImplementationVersion();
+    return StringUtil.isNullOrEmpty(implementationVersion)
+        ? CLIENT_VERSION_UNKNOWN
+        : implementationVersion;
   }
 
   /**
