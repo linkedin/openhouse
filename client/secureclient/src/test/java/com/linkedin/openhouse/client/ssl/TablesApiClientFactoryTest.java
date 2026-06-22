@@ -99,4 +99,16 @@ public class TablesApiClientFactoryTest {
         .setClientName(clientNameCapture.capture());
     assertEquals("trino", clientNameCapture.getValue());
   }
+
+  @Test
+  public void testSetClientVersionCalled() throws Exception {
+    ArgumentCaptor<String> clientVersionCapture = ArgumentCaptor.forClass(String.class);
+
+    tablesApiClientFactorySpy.setClientVersion("1.2.3");
+    tablesApiClientFactorySpy.createApiClient(
+        "https://test.openhouse.com", "", tmpCert.getAbsolutePath());
+    Mockito.verify(tablesApiClientFactorySpy, Mockito.times(1))
+        .setClientVersion(clientVersionCapture.capture());
+    assertEquals("1.2.3", clientVersionCapture.getValue());
+  }
 }
