@@ -3,12 +3,30 @@ plugins {
   id 'openhouse.maven-publish'
 }
 
-// This module depends on all other OpenHouse modules. Its primary purpose is to allow downstream
-// consumers to track a single artifact in ELR instead of enumerating every module individually.
-dependencies {
-  rootProject.subprojects.each { subproject ->
-    if (subproject.path != project.path && subproject.subprojects.isEmpty()) {
-      implementation project(subproject.path)
+// `all-modules` aggregates every PUBLISHED OpenHouse module as a real (compile/runtime) dependency, so
+// its published POM lists every OpenHouse coordinate under <dependencies>. Downstream ELR tooling reads
+// this single coordinate's POM, walks those dependencies transitively, and mirrors the full artifact
+// set into the internal artifactory — instead of enumerating every module by hand.
+//
+// This MUST stay a real-dependency aggregate, NOT a BOM. A BOM publishes only lazy
+// <dependencyManagement> constraints, which ELR has nothing to walk, so the mirror would come up empty.
+//
+// Only leaf modules that actually apply maven-publish are included. Referencing an unpublished module
+// (e.g. the codegen-only client:common, which is consumed at build time via `apply from:` and never
+// published) would point the aggregate POM at a coordinate ELR cannot resolve and break the mirror.
+// Each candidate leaf is evaluated first so its plugin state is known before we decide to depend on it.
+def publishedMembers = []
+rootProject.subprojects.each { subproject ->
+  if (subproject.path != project.path && subproject.subprojects.isEmpty()) {
+    evaluationDependsOn(subproject.path)
+    if (subproject.pluginManager.hasPlugin('maven-publish')) {
+      publishedMembers << subproject
     }
+  }
+}
+
+dependencies {
+  publishedMembers.each { member ->
+    implementation project(member.path)
   }
 }
