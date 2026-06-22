@@ -21,7 +21,7 @@ from pyiceberg.exceptions import NoSuchTableError
 from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader
 from openhouse.dataloader.catalog import OpenHouseCatalog
 from openhouse.dataloader.data_loader_split import to_sql_identifier
-from openhouse.dataloader.filters import col
+from openhouse.dataloader.filters import SqlTarget, col, to_sql
 from openhouse.dataloader.table_transformer import TableTransformer
 
 BASE_URL = "http://openhouse-tables:8080"
@@ -85,6 +85,15 @@ class LivySession:
 
     def execute(self, sql: str) -> None:
         """Submit a SQL statement and wait for completion. Raises on error."""
+        self._run(sql)
+
+    def query(self, sql: str) -> list[list]:
+        """Submit a SELECT, wait for completion, and return its result rows."""
+        output = self._run(sql)
+        return output["data"]["application/json"]["data"]
+
+    def _run(self, sql: str) -> dict:
+        """Submit a SQL statement, wait for completion, and return its output. Raises on error."""
         print(f"  SQL: {sql}")
         resp = requests.post(
             f"{self._session_url}/statements", json={"code": sql}, headers=HEADERS, timeout=REQUEST_TIMEOUT
@@ -103,7 +112,7 @@ class LivySession:
                 output = resp.json()["output"]
                 if output["status"] == "error":
                     raise RuntimeError(f"SQL failed: {output.get('evalue', output)}")
-                return
+                return output
             if state in ("error", "cancelled"):
                 raise RuntimeError(f"Statement entered state: {state}")
             time.sleep(1)
@@ -284,6 +293,37 @@ if __name__ == "__main__":
             assert result.column(COL_SCORE).to_pylist() == [1.1, 2.2, 3.3, 4.4]
             print(f"PASS: after second insert, read all {result.num_rows} rows")
 
+            # 6b. Spark-SQL filter parity: read rows with DataLoader filters, then read the
+            #     same rows from Spark using to_sql(filters, SqlTarget.SPARK), and verify the
+            #     two row sets are identical. diana (score > 2.0 but excluded by the name IN)
+            #     proves the predicate is actually applied on both sides, not ignored.
+            parity_filter = (col(COL_SCORE) > 2.0) & col(COL_NAME).is_in(["alice", "bob", "charlie"])
+            parity_loader = OpenHouseDataLoader(
+                catalog=catalog, database=DATABASE_ID, table=TABLE_ID, filters=parity_filter
+            )
+            dl_result = _read_all(parity_loader)
+            dl_rows = list(
+                zip(
+                    dl_result.column(COL_ID).to_pylist(),
+                    dl_result.column(COL_NAME).to_pylist(),
+                    dl_result.column(COL_SCORE).to_pylist(),
+                    strict=True,
+                )
+            )
+
+            spark_where = to_sql(parity_filter, SqlTarget.SPARK)
+            spark_rows = [
+                tuple(row)
+                for row in livy.query(
+                    f"SELECT {COL_ID}, {COL_NAME}, {COL_SCORE} FROM {FQTN} WHERE {spark_where} ORDER BY {COL_ID}"
+                )
+            ]
+            assert dl_rows, "Expected the parity filter to match at least one row"
+            assert dl_rows == spark_rows, (
+                f"DataLoader rows {dl_rows} != Spark rows {spark_rows} (Spark WHERE: {spark_where})"
+            )
+            print(f"PASS: DataLoader and Spark agree on {len(dl_rows)} rows for WHERE {spark_where}")
+
             # 7. Pin to the old snapshot and verify only the original data is returned
             loader = OpenHouseDataLoader(catalog=catalog, database=DATABASE_ID, table=TABLE_ID, snapshot_id=snap1)
             result = _read_all(loader)
@@ -345,10 +385,10 @@ if __name__ == "__main__":
             # SQL roundtrip path (filters -> DataFusion SQL -> sqlglot -> scan_optimizer ->
             # PyIceberg expression). Without a transformer, _build_query() returns None
             # and the loader skips that path entirely, which would mean a CAST(literal,
-            # TIMESTAMP) regression in _literal_to_sql / scan_optimizer would go unnoticed.
+            # TIMESTAMP) regression in _literal_to_expr / scan_optimizer would go unnoticed.
             class _PartPassthroughTransformer(TableTransformer):
                 def __init__(self):
-                    super().__init__(dialect="datafusion")
+                    super().__init__(dialect=SqlTarget.DATA_FUSION)
 
                 def transform(self, table, context):
                     return f'SELECT "id", "ts" FROM {to_sql_identifier(table)}'

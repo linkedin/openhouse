@@ -75,18 +75,22 @@ Exported in `__init__.py`:
 - `OpenHouseCatalogError` — Error raised when catalog fails to load a table
 - `col()` — Column reference for building filter expressions
 - `always_true()` — Filter that matches all rows
+- `to_sql()` — Render a filter as a SQL boolean expression (WHERE-clause predicate) for a target
+- `SqlTarget` — Enum of supported SQL flavors (`SPARK`, `TRINO`, `DATA_FUSION`); used by `to_sql()` and `TableTransformer`
 
 ### Filter DSL (`filters.py`)
 
 Build row filters using `col()` with comparison operators (`==`, `!=`, `>`, `>=`, `<`, `<=`) and predicates (`is_null()`, `is_not_null()`, `is_nan()`, `is_not_nan()`, `is_in()`, `is_not_in()`, `starts_with()`, `not_starts_with()`, `between()`). Combine with `&` (AND), `|` (OR), `~` (NOT). Filters are converted to PyIceberg expressions internally for partition pruning and file-level filtering.
 
+`to_sql(filter, target=SqlTarget.SPARK)` renders a filter as a SQL boolean expression for the given target. Internally, `_filter_to_expr()` builds a single dialect-agnostic sqlglot AST that is rendered per target with `.sql(dialect=target.value)` — the same path the loader uses for its internal DataFusion query via `to_sql(filters, SqlTarget.DATA_FUSION)`. The backing sqlglot dialect string is an internal detail — callers select a `SqlTarget`, never a dialect string.
+
 ### Internal modules (not in `__init__.py`)
 
-- `TableTransformer` — ABC for SQL-based table transforms; subclass must provide a `dialect` (e.g. `"spark"`) and implement `transform()` returning SQL or `None`
+- `TableTransformer` — ABC for SQL-based table transforms; subclass must provide a `dialect` (a `SqlTarget`, e.g. `SqlTarget.SPARK`) and implement `transform()` returning SQL or `None`
 - `UDFRegistry` / `NoOpRegistry` — ABC for registering DataFusion UDFs; `NoOpRegistry` is the default no-op
 - `TableScanContext` — Frozen dataclass holding table metadata, FileIO, projected schema, row filter, and table ID; pickle-safe for distributed execution
 - `DataFusion` dialect in `datafusion_sql.py` — Custom SQLGlot dialect for transpiling SQL from other dialects (e.g. Spark) to DataFusion
-- `to_datafusion_sql()` — Transpiles a SQL statement from a source dialect to DataFusion using SQLGlot
+- `to_datafusion_sql()` — Transpiles a SQL statement from a source `SqlTarget` to DataFusion using SQLGlot
 
 ## Key Dependencies
 
