@@ -120,8 +120,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       boolean isReplicaCommit =
           getTableType(base, metadata) == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE;
       if (metadataUpdated && snapshotsUpdated && base != null && !isReplicaCommit) {
-        // Only CTAS and RTAS can update both metadata and snapshots at the same time.
-        // When the table exists, it will be a replace commit operation.
+        // Among PRIMARY-table commits, only CTAS and RTAS update both metadata and snapshots at
+        // the same time; when the table already exists this is an RTAS (replace) commit. REPLICA
+        // commits also touch both, but are excluded above via isReplicaCommit and handled by the
+        // regular putSnapshots path so the server preserves newIntermediateSchemas — the replace
+        // path would treat them as a fresh creation and drop the multi-schema deltas.
         putSnapshotsForReplace(base, metadata);
       } else if (snapshotsUpdated) {
         putSnapshots(base, metadata);
@@ -225,10 +228,13 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
 
   /**
    * If request is coming from replication process, createUpdateTableRequestBody.tableType should be
-   * REPLICA_TABLE. Replication process requests are identified based on difference between table
-   * types and cluster_id between base, metadata. Returns {@code null} when either side lacks the
-   * {@code openhouse.tableType} property — this matters for {@link #doCommit}'s dispatch which may
-   * be invoked very early (e.g. by replace transactions) before properties are populated.
+   * REPLICA_TABLE Replication process requests are identified based on difference between table
+   * types and cluster_id between base, metadata.
+   *
+   * <p>Returns {@code null} when the {@code openhouse.tableType} property is absent. Legacy tables
+   * created before the property existed don't carry it (the server back-fills them to PRIMARY_TABLE
+   * on write — see OpenHouseInternalRepositoryImpl#checkIfTableTypeAdded), so callers must tolerate
+   * a null result rather than assuming the property is always present.
    */
   @VisibleForTesting
   CreateUpdateTableRequestBody.TableTypeEnum getTableType(
