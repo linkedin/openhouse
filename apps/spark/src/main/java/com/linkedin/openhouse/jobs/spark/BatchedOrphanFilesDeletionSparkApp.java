@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
@@ -427,8 +428,8 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
               "Batch size %d exceeds MAX_BATCH_SIZE=%d; reduce --batchMaxItems on the scheduler",
               tables.length, MAX_BATCH_SIZE));
     }
-    String[] ops = isBlank(operationIds) ? null : operationIds.split(",");
-    String[] uuids = isBlank(tableUuids) ? null : tableUuids.split(",");
+    String[] ops = StringUtils.isBlank(operationIds) ? null : operationIds.split(",");
+    String[] uuids = StringUtils.isBlank(tableUuids) ? null : tableUuids.split(",");
     if (ops != null && ops.length != tables.length) {
       throw new IllegalArgumentException(
           String.format(
@@ -459,10 +460,6 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
               .build());
     }
     return entries;
-  }
-
-  private static boolean isBlank(String s) {
-    return s == null || s.isEmpty();
   }
 
   private static String requireOption(CommandLine cmdLine, String name) {
