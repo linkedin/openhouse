@@ -30,14 +30,15 @@ public final class DataLayoutUtil {
             // or discounted to 0, e.g. frequently overwritten un-partitioned tables
             .filter(
                 m ->
-                    m.getDataLayoutStrategy().getGain()
-                            * (1.0 - m.getDataLayoutStrategy().getFileCountReductionPenalty())
+                    m.getDataLayoutStrategies().get(0).getGain()
+                            * (1.0
+                                - m.getDataLayoutStrategies().get(0).getFileCountReductionPenalty())
                         >= 1.0)
             .collect(Collectors.toList());
     log.info("Filtered metadata for {} data layout strategies", tableDataLayoutMetadataList.size());
     List<DataLayoutStrategy> strategies =
         tableDataLayoutMetadataList.stream()
-            .map(TableDataLayoutMetadata::getDataLayoutStrategy)
+            .map(m -> m.getDataLayoutStrategies().get(0))
             .collect(Collectors.toList());
     List<ScoredDataLayoutStrategy> scoredStrategies = scorer.scoreDataLayoutStrategies(strategies);
     List<Integer> selectedStrategyIndices = selector.select(scoredStrategies);

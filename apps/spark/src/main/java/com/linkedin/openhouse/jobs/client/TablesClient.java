@@ -441,7 +441,11 @@ public class TablesClient {
             .creationTimeMs(Objects.requireNonNull(tableResponseBody.getCreationTime()));
     List<TableDataLayoutMetadata> result = new ArrayList<>();
     for (DataLayoutStrategy strategy : getDataLayoutStrategies(tableResponseBody)) {
-      result.add(builder.dataLayoutStrategy(strategy).build());
+      result.add(
+          builder
+              .dataLayoutStrategies(Collections.singletonList(strategy))
+              .isPartitionScope(false)
+              .build());
     }
     return result;
   }
@@ -458,6 +462,22 @@ public class TablesClient {
                 new AbstractMap.SimpleEntry<>(
                     e.getKey().substring(MAINTENANCE_PROPERTY_PREFIX.length()), e.getValue()))
         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
+  /**
+   * Returns whether the given table is opted into partition-scope data layout compaction via the
+   * {@link StrategiesDaoTableProps#DATA_LAYOUT_PARTITION_SCOPE_ENABLED_KEY} table property.
+   */
+  public boolean isPartitionScopeEnabled(String dbName, String tableName) {
+    GetTableResponseBody response = getTable(dbName, tableName);
+    if (response == null || response.getTableProperties() == null) {
+      return false;
+    }
+    return Boolean.parseBoolean(
+        response
+            .getTableProperties()
+            .getOrDefault(
+                StrategiesDaoTableProps.DATA_LAYOUT_PARTITION_SCOPE_ENABLED_KEY, "false"));
   }
 
   private List<DataLayoutStrategy> getDataLayoutStrategies(GetTableResponseBody tableResponseBody) {

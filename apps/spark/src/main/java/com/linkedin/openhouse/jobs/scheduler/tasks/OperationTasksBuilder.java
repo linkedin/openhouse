@@ -6,10 +6,15 @@ import com.linkedin.openhouse.datalayout.ranker.DataLayoutCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.DataLayoutStrategyScorer;
 import com.linkedin.openhouse.datalayout.ranker.GreedyMaxBudgetCandidateSelector;
 import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrategyScorer;
+import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.jobs.client.DloPartitionStrategiesReader;
 import com.linkedin.openhouse.jobs.client.TablesClient;
+import com.linkedin.openhouse.jobs.client.TrinoClient;
+import com.linkedin.openhouse.jobs.client.TrinoClientFactory;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.DataLayoutPartitionUtil;
 import com.linkedin.openhouse.jobs.util.DataLayoutUtil;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
@@ -20,6 +25,7 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.stream.Collectors;
@@ -27,6 +33,7 @@ import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
@@ -40,10 +47,23 @@ import reactor.core.scheduler.Schedulers;
 public class OperationTasksBuilder {
   public static final String MAX_COST_BUDGET_GB_HRS = "maxCostBudgetGbHrs";
   public static final String MAX_STRATEGIES_COUNT = "maxStrategiesCount";
+  // Properties driving partition-level DLO execution (read from Trino).
+  public static final String DLO_PARTITION_STRATEGIES_TABLE = "dloPartitionStrategiesTable";
+  public static final String TRINO_JDBC_URL = "trinoJdbcUrl";
+  public static final String TRINO_USER = "trinoUser";
+  public static final String TRINO_PASSWORD = "trinoPassword";
+  public static final String MAX_EXECUTION_HOURS_PER_TABLE = "maxExecutionHoursPerTable";
+  public static final String EXECUTOR_MEMORY_GB = "executorMemoryGb";
+  public static final String MAX_PARTITIONS_PER_TABLE = "maxPartitionsPerTable";
   private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.3;
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+  private static final String DLO_PARTITION_STRATEGIES_TABLE_DEFAULT =
+      "u_openhouse.dlo_partition_strategies";
+  private static final double MAX_EXECUTION_HOURS_PER_TABLE_DEFAULT = 24.0;
+  private static final double EXECUTOR_MEMORY_GB_DEFAULT = 20.0;
+  private static final int MAX_PARTITIONS_PER_TABLE_DEFAULT = 1000;
   private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
@@ -101,6 +121,76 @@ public class OperationTasksBuilder {
         selectedTableDataLayoutMetadataList, jobType, operationMode, otelEmitter);
   }
 
+  private List<OperationTask<?>> prepareDataLayoutPartitionOperationTaskList(
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
+    return processMetadataList(
+        buildPartitionTableDataLayoutMetadataList(properties), jobType, operationMode, otelEmitter);
+  }
+
+  /**
+   * Reads per-partition data layout strategies from Trino, ranks them per table, and packs them
+   * into one partition-scope {@link TableDataLayoutMetadata} per opted-in table under the estimated
+   * execution-time cap.
+   */
+  @VisibleForTesting
+  List<TableDataLayoutMetadata> buildPartitionTableDataLayoutMetadataList(Properties properties) {
+    // Ranking and the per-table execution-time cap are pushed into Trino; only the selected
+    // partitions are returned, so the scheduler never sorts the full strategy set in memory.
+    Map<String, List<DataLayoutStrategy>> selectedStrategiesByTable =
+        getDloPartitionStrategiesReader(properties).readSelectedGroupedByTable();
+    List<TableDataLayoutMetadata> selected =
+        DataLayoutPartitionUtil.toPartitionTableDataLayoutMetadata(
+            selectedStrategiesByTable, tablesClient);
+    log.info("Selected partition-scope data layout metadata for {} tables", selected.size());
+    return selected;
+  }
+
+  @VisibleForTesting
+  protected DloPartitionStrategiesReader getDloPartitionStrategiesReader(Properties properties) {
+    String jdbcUrl = properties.getProperty(TRINO_JDBC_URL);
+    if (StringUtils.isBlank(jdbcUrl)) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Trino JDBC URL (%s) is required for partition-level DLO execution", TRINO_JDBC_URL));
+    }
+    String strategiesTable =
+        properties.getProperty(
+            DLO_PARTITION_STRATEGIES_TABLE, DLO_PARTITION_STRATEGIES_TABLE_DEFAULT);
+    // Global cost budget across all selected partitions (reuses the table-level DLO budget
+    // property).
+    double globalMaxCost =
+        NumberUtils.toDouble(
+            properties.getProperty(MAX_COST_BUDGET_GB_HRS), MAX_COST_BUDGET_GB_HRS_DEFAULT);
+    // Per-table 24h compute-time guardrail expressed as a cost budget (cost / executorMemoryGb =
+    // hours).
+    double maxExecutionHours =
+        NumberUtils.toDouble(
+            properties.getProperty(MAX_EXECUTION_HOURS_PER_TABLE),
+            MAX_EXECUTION_HOURS_PER_TABLE_DEFAULT);
+    double executorMemoryGb =
+        NumberUtils.toDouble(
+            properties.getProperty(EXECUTOR_MEMORY_GB), EXECUTOR_MEMORY_GB_DEFAULT);
+    int maxPartitionsPerTable =
+        NumberUtils.toInt(
+            properties.getProperty(MAX_PARTITIONS_PER_TABLE), MAX_PARTITIONS_PER_TABLE_DEFAULT);
+    TrinoClient trinoClient =
+        TrinoClientFactory.builder()
+            .jdbcUrl(jdbcUrl)
+            .username(properties.getProperty(TRINO_USER))
+            .password(properties.getProperty(TRINO_PASSWORD))
+            .build()
+            .create();
+    return new DloPartitionStrategiesReader(
+        trinoClient,
+        strategiesTable,
+        globalMaxCost,
+        maxExecutionHours * executorMemoryGb,
+        maxPartitionsPerTable);
+  }
+
   private List<TableDataLayoutMetadata> rankAndSelectFromTableDataLayoutMetadataList(
       List<TableDataLayoutMetadata> tableDataLayoutMetadataList,
       Properties properties,
@@ -128,11 +218,11 @@ public class OperationTasksBuilder {
     }
     double totalComputeCost =
         selectedTableDataLayoutMetadataList.stream()
-            .map(m -> m.getDataLayoutStrategy().getCost())
+            .map(m -> m.getDataLayoutStrategies().get(0).getCost())
             .reduce(0.0, Double::sum);
     double totalReducedFileCount =
         selectedTableDataLayoutMetadataList.stream()
-            .map(m -> m.getDataLayoutStrategy().getGain())
+            .map(m -> m.getDataLayoutStrategies().get(0).getGain())
             .reduce(0.0, Double::sum);
     log.info(
         "Total estimated compute cost: {}, total estimated reduced file count: {}",
@@ -276,6 +366,9 @@ public class OperationTasksBuilder {
         return prepareReplicationOperationTaskList(jobType, operationMode, otelEmitter);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
         return prepareDataLayoutOperationTaskList(jobType, properties, operationMode, otelEmitter);
+      case DATA_LAYOUT_STRATEGY_PARTITION_EXECUTION:
+        return prepareDataLayoutPartitionOperationTaskList(
+            jobType, properties, operationMode, otelEmitter);
       case ORPHAN_DIRECTORY_DELETION:
         return prepareTableDirectoryOperationTaskList(jobType, operationMode, otelEmitter);
       case TABLE_DIRECTORY_DELETION:
@@ -298,6 +391,9 @@ public class OperationTasksBuilder {
     if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION) {
       // DLO execution job needs to fetch all table metadata before submission
       buildDataLayoutOperationTaskListInParallel(jobType, properties, operationMode, otelEmitter);
+    } else if (jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_PARTITION_EXECUTION) {
+      buildDataLayoutPartitionOperationTaskListInParallel(
+          jobType, properties, operationMode, otelEmitter);
     } else if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
       buildDatabaseLevelOperationTasksInParallel(jobType, operationMode, otelEmitter);
     } else {
@@ -386,7 +482,45 @@ public class OperationTasksBuilder {
               try {
                 log.debug(
                     "Got table data layout metadata {} ",
-                    tableDataLayoutMetadata.getDataLayoutStrategy());
+                    tableDataLayoutMetadata.getDataLayoutStrategies());
+                Optional<OperationTask<?>> optionalOperationTask =
+                    processMetadata(tableDataLayoutMetadata, jobType, operationMode, otelEmitter);
+                if (optionalOperationTask.isPresent()) {
+                  operationTaskManager.addData(optionalOperationTask.get());
+                }
+              } catch (InterruptedException e) {
+                log.warn("Interrupted while waiting for table metadata to be processed", e);
+              }
+            })
+        .sequential()
+        .doAfterTerminate(
+            () -> {
+              operationTaskManager.updateDataGenerationCompletion();
+              log.info(
+                  "The metadata fetched count: {} for the job type: {}",
+                  operationTaskManager.getTotalDataCount(),
+                  jobType);
+            })
+        .subscribe();
+  }
+
+  /**
+   * Reads and ranks partition strategies from Trino first, then creates a task per selected
+   * partition-scope table metadata and adds them to the queue in parallel.
+   */
+  private void buildDataLayoutPartitionOperationTaskListInParallel(
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
+    List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
+        buildPartitionTableDataLayoutMetadataList(properties);
+    Flux.fromIterable(selectedTableDataLayoutMetadataList)
+        .parallel(numParallelMetadataFetch)
+        .runOn(Schedulers.boundedElastic())
+        .doOnNext(
+            tableDataLayoutMetadata -> {
+              try {
                 Optional<OperationTask<?>> optionalOperationTask =
                     processMetadata(tableDataLayoutMetadata, jobType, operationMode, otelEmitter);
                 if (optionalOperationTask.isPresent()) {

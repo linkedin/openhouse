@@ -587,6 +587,55 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
+            .longOpt(OperationTasksBuilder.DLO_PARTITION_STRATEGIES_TABLE)
+            .desc("Trino table holding partition-level DLO strategies")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.TRINO_JDBC_URL)
+            .desc("Trino JDBC URL used to read partition-level DLO strategies")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.TRINO_USER)
+            .desc("Trino username")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.TRINO_PASSWORD)
+            .desc("Trino password")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.MAX_EXECUTION_HOURS_PER_TABLE)
+            .desc("Per-table estimated execution time cap in hours for partition-level compaction")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.EXECUTOR_MEMORY_GB)
+            .desc("Assumed executor memory in GB to convert estimated compute cost to hours")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
+            .longOpt(OperationTasksBuilder.MAX_PARTITIONS_PER_TABLE)
+            .desc("Maximum number of partitions to compact per table per run")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
             .longOpt("parallelMetadataFetchMode")
             .desc("Turn on/off parallel metadata fetch mode")
             .build());
@@ -743,6 +792,21 @@ public class JobsScheduler {
       result.setProperty(
           OperationTasksBuilder.MAX_STRATEGIES_COUNT,
           cmdLine.getOptionValue(OperationTasksBuilder.MAX_STRATEGIES_COUNT));
+    }
+    for (String partitionExecutionOption :
+        new String[] {
+          OperationTasksBuilder.DLO_PARTITION_STRATEGIES_TABLE,
+          OperationTasksBuilder.TRINO_JDBC_URL,
+          OperationTasksBuilder.TRINO_USER,
+          OperationTasksBuilder.TRINO_PASSWORD,
+          OperationTasksBuilder.MAX_EXECUTION_HOURS_PER_TABLE,
+          OperationTasksBuilder.EXECUTOR_MEMORY_GB,
+          OperationTasksBuilder.MAX_PARTITIONS_PER_TABLE
+        }) {
+      if (cmdLine.hasOption(partitionExecutionOption)) {
+        result.setProperty(
+            partitionExecutionOption, cmdLine.getOptionValue(partitionExecutionOption));
+      }
     }
     return result;
   }

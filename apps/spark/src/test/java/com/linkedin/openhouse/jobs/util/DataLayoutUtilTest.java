@@ -6,6 +6,7 @@ import com.linkedin.openhouse.datalayout.ranker.GreedyMaxBudgetCandidateSelector
 import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrategyScorer;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -14,58 +15,57 @@ public class DataLayoutUtilTest {
   private static final double GAIN_WEIGHT = 0.7;
   private static final double COST_WEIGHT = 0.3;
 
+  private static TableDataLayoutMetadata metadata(
+      DataLayoutStrategy strategy, String tableName, boolean isPrimary) {
+    return TableDataLayoutMetadata.builder()
+        .dataLayoutStrategies(Collections.singletonList(strategy))
+        .isPartitionScope(false)
+        .dbName("db")
+        .tableName(tableName)
+        .isPrimary(isPrimary)
+        .build();
+  }
+
   @Test
   void testSelectStrategies() {
     List<TableDataLayoutMetadata> tableDataLayoutMetadataList =
         Arrays.asList(
-            TableDataLayoutMetadata.builder()
-                .dataLayoutStrategy(
-                    // large gain, but all discounted to 0 due to penalty, should be filtered out
-                    DataLayoutStrategy.builder()
-                        .gain(10000)
-                        .cost(10)
-                        .fileCountReductionPenalty(1.0)
-                        .build())
-                .dbName("db")
-                .tableName("table1")
-                .isPrimary(true)
-                .build(),
-            TableDataLayoutMetadata.builder()
-                .dataLayoutStrategy(
-                    DataLayoutStrategy.builder()
-                        .gain(1000)
-                        .cost(100)
-                        .fileCountReductionPenalty(0.0)
-                        .build())
-                .dbName("db")
-                .tableName("table2")
-                // not primary, should be filtered out
-                .isPrimary(false)
-                .build(),
-            TableDataLayoutMetadata.builder()
-                .dataLayoutStrategy(
-                    // small gain, but not discounted to 0, should be selected
-                    DataLayoutStrategy.builder()
-                        .gain(10)
-                        .cost(10)
-                        .fileCountReductionPenalty(0.0)
-                        .build())
-                .dbName("db")
-                .tableName("table3")
-                .isPrimary(true)
-                .build(),
-            TableDataLayoutMetadata.builder()
-                .dataLayoutStrategy(
-                    // medium gain and cost, should be selected
-                    DataLayoutStrategy.builder()
-                        .gain(1000)
-                        .cost(100)
-                        .fileCountReductionPenalty(0.0)
-                        .build())
-                .dbName("db")
-                .tableName("table4")
-                .isPrimary(true)
-                .build());
+            // large gain, but all discounted to 0 due to penalty, should be filtered out
+            metadata(
+                DataLayoutStrategy.builder()
+                    .gain(10000)
+                    .cost(10)
+                    .fileCountReductionPenalty(1.0)
+                    .build(),
+                "table1",
+                true),
+            // not primary, should be filtered out
+            metadata(
+                DataLayoutStrategy.builder()
+                    .gain(1000)
+                    .cost(100)
+                    .fileCountReductionPenalty(0.0)
+                    .build(),
+                "table2",
+                false),
+            // small gain, but not discounted to 0, should be selected
+            metadata(
+                DataLayoutStrategy.builder()
+                    .gain(10)
+                    .cost(10)
+                    .fileCountReductionPenalty(0.0)
+                    .build(),
+                "table3",
+                true),
+            // medium gain and cost, should be selected
+            metadata(
+                DataLayoutStrategy.builder()
+                    .gain(1000)
+                    .cost(100)
+                    .fileCountReductionPenalty(0.0)
+                    .build(),
+                "table4",
+                true));
     DataLayoutStrategyScorer scorer =
         new SimpleWeightedSumDataLayoutStrategyScorer(GAIN_WEIGHT, COST_WEIGHT);
     double maxComputeCost = 1e6; // infinite

@@ -477,9 +477,40 @@ public final class Operations implements AutoCloseable {
       boolean partialProgressEnabled,
       int partialProgressMaxCommits,
       int deleteFileThreshold) {
-    return SparkActions.get(spark)
-        .rewriteDataFiles(table)
-        .binPack()
+    return rewriteDataFiles(
+        table,
+        targetByteSize,
+        minByteSize,
+        maxByteSize,
+        minInputFiles,
+        maxConcurrentFileGroupRewrites,
+        partialProgressEnabled,
+        partialProgressMaxCommits,
+        deleteFileThreshold,
+        null);
+  }
+
+  /**
+   * Run RewriteDataFiles operation scoped to the rows matching the given Iceberg {@code filter}
+   * expression (e.g. a partition predicate). When {@code filter} is null the whole table is
+   * rewritten, identical to the unfiltered overload.
+   */
+  public RewriteDataFiles.Result rewriteDataFiles(
+      Table table,
+      long targetByteSize,
+      long minByteSize,
+      long maxByteSize,
+      int minInputFiles,
+      int maxConcurrentFileGroupRewrites,
+      boolean partialProgressEnabled,
+      int partialProgressMaxCommits,
+      int deleteFileThreshold,
+      Expression filter) {
+    RewriteDataFiles action = SparkActions.get(spark).rewriteDataFiles(table).binPack();
+    if (filter != null) {
+      action = action.filter(filter);
+    }
+    return action
         // maximum number of file groups to be simultaneously rewritten
         .option(
             "max-concurrent-file-group-rewrites", Integer.toString(maxConcurrentFileGroupRewrites))
@@ -501,6 +532,25 @@ public final class Operations implements AutoCloseable {
         .option("max-file-size-bytes", Long.toString(maxByteSize))
         .option("delete-file-threshold", Integer.toString(deleteFileThreshold))
         .execute();
+  }
+
+  /**
+   * Resolves a SQL {@code WHERE} clause against the given table and converts it into an Iceberg
+   * {@link Expression} that can be passed to {@link #rewriteDataFiles}. This mirrors how Iceberg's
+   * {@code rewrite_data_files} procedure parses its {@code where} option, so column types are
+   * resolved against the table schema.
+   */
+  public Expression toIcebergExpression(String fqtn, String whereClause) {
+    try {
+      org.apache.spark.sql.catalyst.expressions.Expression resolved =
+          org.apache.spark.sql.execution.datasources.SparkExpressionConverter$.MODULE$
+              .collectResolvedSparkExpression(spark, fqtn, whereClause);
+      return org.apache.spark.sql.execution.datasources.SparkExpressionConverter$.MODULE$
+          .convertToIcebergExpression(resolved);
+    } catch (org.apache.spark.sql.AnalysisException e) {
+      throw new RuntimeException(
+          String.format("Failed to resolve where clause [%s] for table %s", whereClause, fqtn), e);
+    }
   }
 
   public void rename(final Path src, final Path dest) throws IOException {

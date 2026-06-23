@@ -281,8 +281,9 @@ public class OperationTasksBuilderTest {
             .dbName("db" + dbIndex)
             .tableName("test_table" + tableIndex)
             .isPrimary(true)
-            .dataLayoutStrategy(
-                DataLayoutStrategy.builder().gain(dbIndex + tableIndex * 0.1 + 1).build())
+            .dataLayoutStrategies(
+                java.util.Collections.singletonList(
+                    DataLayoutStrategy.builder().gain(dbIndex + tableIndex * 0.1 + 1).build()))
             .build());
   }
 

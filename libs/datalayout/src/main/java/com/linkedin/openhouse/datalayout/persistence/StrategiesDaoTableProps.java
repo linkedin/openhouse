@@ -22,6 +22,10 @@ public class StrategiesDaoTableProps implements StrategiesDao {
   public static final String DATA_LAYOUT_STRATEGIES_PROPERTY_KEY = "write.data-layout.strategies";
   public static final String DATA_LAYOUT_STRATEGIES_PARTITION_PROPERTY_KEY =
       "write.data-layout.partition-strategies";
+  // When set to "true" on a table, the table is compacted at partition scope (per-partition
+  // strategies) rather than at table scope.
+  public static final String DATA_LAYOUT_PARTITION_SCOPE_ENABLED_KEY =
+      "write.data-layout.partition-scope.enabled";
 
   private final SparkSession spark;
 
