@@ -26,7 +26,6 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.stream.Collectors;
@@ -52,7 +51,14 @@ public class OperationTasksBuilder {
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
-  private static final int BATCH_MAX_ITEMS_DEFAULT = 25;
+  /**
+   * Default value for the {@code --batchMaxItems} CLI option (operator-tunable). Not a hard limit:
+   * the Spark-app side enforces the actual ceiling via {@link
+   * BatchedOrphanFilesDeletionSparkApp#MAX_BATCH_SIZE}, and {@link
+   * #prepareBatchedOrphanFilesDeletionTaskList} rejects any operator-supplied value above it.
+   */
+  private static final int DEFAULT_BATCH_MAX_ITEMS = 25;
+
   private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
@@ -78,7 +84,7 @@ public class OperationTasksBuilder {
    * Builds one {@link BatchedTableOrphanFilesDeletionTask} per database-scoped bin. Groups eligible
    * tables by database (batches never cross databases), then applies the first-fit-decreasing bin
    * packer with a per-bin item cap from {@code properties} (defaults to {@value
-   * #BATCH_MAX_ITEMS_DEFAULT}). Tables with the maintenance op disabled are filtered out before
+   * #DEFAULT_BATCH_MAX_ITEMS}). Tables with the maintenance op disabled are filtered out before
    * grouping.
    */
   private List<OperationTask<?>> prepareBatchedOrphanFilesDeletionTaskList(
@@ -87,51 +93,47 @@ public class OperationTasksBuilder {
       OperationMode operationMode,
       OtelEmitter otelEmitter) {
     int maxItemsPerBin =
-        NumberUtils.toInt(properties.getProperty(BATCH_MAX_ITEMS), BATCH_MAX_ITEMS_DEFAULT);
+        NumberUtils.toInt(properties.getProperty(BATCH_MAX_ITEMS), DEFAULT_BATCH_MAX_ITEMS);
     if (maxItemsPerBin > BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE) {
       throw new IllegalArgumentException(
           String.format(
               "--%s=%d exceeds Spark-app ceiling MAX_BATCH_SIZE=%d",
               BATCH_MAX_ITEMS, maxItemsPerBin, BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE));
     }
-    List<TableMetadata> eligible =
-        tablesClient.getTableMetadataList().stream()
-            .filter(t -> !t.isMaintenanceJobDisabled(jobType))
-            .collect(Collectors.toList());
-    log.info(
-        "Fetched metadata for {} batched-OFD-eligible tables; binMaxItems={}",
-        eligible.size(),
-        maxItemsPerBin);
-
     // Item-count cap only; the libs default maxWeightPerBin (1_000_000) is effectively unbounded
     // for weight=1 items, so item-count is the active constraint until table_stats is wired in.
     FirstFitDecreasingBinPacker<BinItem> packer =
         FirstFitDecreasingBinPacker.<BinItem>builder().maxItemsPerBin(maxItemsPerBin).build();
 
-    Map<String, List<TableMetadata>> byDb =
-        eligible.stream().collect(Collectors.groupingBy(TableMetadata::getDbName));
-
-    List<TableMetadataBatch> batches = new ArrayList<>();
-    for (Map.Entry<String, List<TableMetadata>> dbGroup : byDb.entrySet()) {
-      String dbName = dbGroup.getKey();
-      List<BinItem> items =
-          dbGroup.getValue().stream()
-              .map(t -> (BinItem) new FqtnBinItem(t.fqtn()))
-              .collect(Collectors.toList());
-      for (List<BinItem> group : packer.pack(items)) {
-        List<TableMetadata> tablesForBin =
-            group.stream()
-                .map(
-                    item ->
-                        dbGroup.getValue().stream()
-                            .filter(t -> t.fqtn().equals(item.getFullyQualifiedTableName()))
-                            .findFirst()
-                            .orElseThrow(() -> new IllegalStateException("missing table for bin")))
-                .collect(Collectors.toList());
-        batches.add(TableMetadataBatch.builder().dbName(dbName).tables(tablesForBin).build());
-      }
-    }
-    log.info("Packed {} eligible tables into {} batches", eligible.size(), batches.size());
+    // Note: groupingBy materializes the full eligible-table list in driver memory and serializes
+    // the pipeline at that point — acceptable for the O(thousands) tables we expect, but worth
+    // revisiting if the bound grows.
+    List<TableMetadataBatch> batches =
+        tablesClient.getTableMetadataList().stream()
+            .filter(t -> !t.isMaintenanceJobDisabled(jobType))
+            .collect(Collectors.groupingBy(TableMetadata::getDbName))
+            .entrySet()
+            .stream()
+            .flatMap(
+                dbGroup -> {
+                  List<BinItem> items =
+                      dbGroup.getValue().stream()
+                          .map(t -> (BinItem) new TableMetadataBinItem(t))
+                          .collect(Collectors.toList());
+                  return packer.pack(items).stream()
+                      .map(
+                          group ->
+                              TableMetadataBatch.builder()
+                                  .dbName(dbGroup.getKey())
+                                  .tables(
+                                      group.stream()
+                                          .map(item -> ((TableMetadataBinItem) item).getMetadata())
+                                          .collect(Collectors.toList()))
+                                  .build());
+                })
+            .collect(Collectors.toList());
+    log.info(
+        "Packed eligible tables into {} batches; binMaxItems={}", batches.size(), maxItemsPerBin);
     return processMetadataList(batches, jobType, operationMode, otelEmitter);
   }
 
@@ -529,15 +531,17 @@ public class OperationTasksBuilder {
   }
 
   /**
-   * Minimal {@link BinItem} for the legacy scheduler path: every item has weight 1, so packing is
-   * driven purely by {@code maxItemsPerBin}. {@code fromOpAndStats} is unreachable here because we
-   * call {@code packer.pack(List<BinItem>)} (the pre-projected overload), not the projection path.
+   * Minimal {@link BinItem} for the legacy scheduler path. Carries the full {@link TableMetadata}
+   * so the caller can reconstruct each bin's table list directly from the packer's output without a
+   * fqtn → metadata lookup. Every item has weight 1, so packing is driven purely by {@code
+   * maxItemsPerBin}. {@code fromOpAndStats} is unreachable here because we call {@code
+   * packer.pack(List<BinItem>)} (the pre-projected overload), not the projection path.
    */
-  private static final class FqtnBinItem implements BinItem {
-    private final String fqtn;
+  private static final class TableMetadataBinItem implements BinItem {
+    @Getter private final TableMetadata metadata;
 
-    FqtnBinItem(String fqtn) {
-      this.fqtn = fqtn;
+    TableMetadataBinItem(TableMetadata metadata) {
+      this.metadata = metadata;
     }
 
     @Override
@@ -547,9 +551,13 @@ public class OperationTasksBuilder {
 
     @Override
     public String getFullyQualifiedTableName() {
-      return fqtn;
+      return metadata.fqtn();
     }
 
+    /**
+     * Legacy scheduler has no optimizer-side operation ID. The libs {@link BinItem} interface
+     * requires {@code String} (not {@code Optional}) so we return empty to satisfy the contract.
+     */
     @Override
     public String getOperationId() {
       return "";

@@ -66,6 +66,9 @@ public class BatchedTableOrphanFilesDeletionTask extends OperationTask<TableMeta
 
   @Override
   protected boolean launchJob() {
+    // Job name format: <JOB_TYPE>_<dbName>_<tableCount>
+    // e.g. ORPHAN_FILES_DELETION_BATCH_warehouse_25 for a 25-table batch in the "warehouse" db.
+    // dbName is shared across all entries in the batch (the scheduler never crosses db boundaries).
     String jobName =
         String.format("%s_%s_%d", getType(), metadata.getDbName(), metadata.getTables().size());
     Map<String, String> executionProperties = Collections.emptyMap();

@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.spark;
 
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -20,10 +21,10 @@ public class BatchedOrphanFilesDeletionSparkAppArgsTest {
     Assertions.assertEquals("db1.t1", entries.get(0).getFqtn());
     Assertions.assertEquals("db1", entries.get(0).getDatabaseName());
     Assertions.assertEquals("t1", entries.get(0).getTableName());
-    Assertions.assertEquals("op-1", entries.get(0).getOperationId());
-    Assertions.assertEquals("uuid-1", entries.get(0).getTableUuid());
+    Assertions.assertEquals(Optional.of("op-1"), entries.get(0).getOperationId());
+    Assertions.assertEquals(Optional.of("uuid-1"), entries.get(0).getTableUuid());
     Assertions.assertEquals("db2.t2", entries.get(1).getFqtn());
-    Assertions.assertEquals("op-2", entries.get(1).getOperationId());
+    Assertions.assertEquals(Optional.of("op-2"), entries.get(1).getOperationId());
   }
 
   @Test
@@ -33,8 +34,8 @@ public class BatchedOrphanFilesDeletionSparkAppArgsTest {
             " db1.t1 , db2.t2 ", " op-1 , op-2 ", " uuid-1 , uuid-2 ");
 
     Assertions.assertEquals("db1.t1", entries.get(0).getFqtn());
-    Assertions.assertEquals("op-1", entries.get(0).getOperationId());
-    Assertions.assertEquals("uuid-1", entries.get(0).getTableUuid());
+    Assertions.assertEquals(Optional.of("op-1"), entries.get(0).getOperationId());
+    Assertions.assertEquals(Optional.of("uuid-1"), entries.get(0).getTableUuid());
   }
 
   @Test
@@ -69,10 +70,10 @@ public class BatchedOrphanFilesDeletionSparkAppArgsTest {
         java.util.Arrays.asList(entriesNull, entriesEmpty)) {
       Assertions.assertEquals(2, entries.size());
       Assertions.assertEquals("db.a", entries.get(0).getFqtn());
-      Assertions.assertNull(entries.get(0).getOperationId());
-      Assertions.assertNull(entries.get(0).getTableUuid());
+      Assertions.assertFalse(entries.get(0).getOperationId().isPresent());
+      Assertions.assertFalse(entries.get(0).getTableUuid().isPresent());
       Assertions.assertEquals("db.b", entries.get(1).getFqtn());
-      Assertions.assertNull(entries.get(1).getOperationId());
+      Assertions.assertFalse(entries.get(1).getOperationId().isPresent());
     }
   }
 
