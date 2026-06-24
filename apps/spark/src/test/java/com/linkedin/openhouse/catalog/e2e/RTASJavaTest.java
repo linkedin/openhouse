@@ -65,6 +65,9 @@ public class RTASJavaTest extends OpenHouseSparkITest {
       Table table = catalog.buildTable(TABLE_IDENT, SCHEMA).withPartitionSpec(SPEC).create();
       table.newAppend().appendFile(FILE_A).commit();
 
+      // RTAS is disabled by default; opt the table in before replacing it.
+      table.updateProperties().set("replace.enabled", "true").commit();
+
       String originalLocation = table.location();
       String originalMetadataLocation = getMetadataLocation(table);
       long originalSnapshotId = table.currentSnapshot().snapshotId();
@@ -119,6 +122,9 @@ public class RTASJavaTest extends OpenHouseSparkITest {
 
       // verify that the table was created with one snapshot
       assertEquals(1, Iterables.size(table.snapshots()), "Should have one snapshot after create");
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      table.updateProperties().set("replace.enabled", "true").commit();
 
       // create or replace on existing table should replace it
       Transaction replaceTxn =

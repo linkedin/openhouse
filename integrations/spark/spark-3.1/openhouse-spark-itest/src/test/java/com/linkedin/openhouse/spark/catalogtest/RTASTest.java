@@ -10,6 +10,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
@@ -59,6 +60,10 @@ public class RTASTest extends OpenHouseSparkITest {
               tableName, sourceName));
 
       spark.sql(String.format("ALTER TABLE %s SET POLICY (HISTORY MAX_AGE=24H)", tableName));
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
 
@@ -112,6 +117,29 @@ public class RTASTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testRTASFailsWhenReplaceDisabled() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // create the table without opting into RTAS; replace is disabled by default
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      // REPLACE TABLE should be rejected because 'replace.enabled' is not set on the table
+      BadRequestException exception =
+          assertThrows(
+              BadRequestException.class,
+              () ->
+                  spark.sql(
+                      String.format(
+                          "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s",
+                          tableName, sourceName)));
+      assertTrue(
+          exception.getMessage().contains("REPLACE TABLE AS SELECT is not enabled"),
+          "Expected an RTAS-disabled error but got: " + exception.getMessage());
+    }
+  }
+
+  @Test
   public void testCreateRTAS() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       Catalog catalog = getOpenHouseCatalog(spark);
@@ -124,6 +152,10 @@ public class RTASTest extends OpenHouseSparkITest {
               tableName, sourceName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
 
       // create or replace table should replace the table
       spark.sql(
@@ -168,6 +200,10 @@ public class RTASTest extends OpenHouseSparkITest {
       Catalog catalog = getOpenHouseCatalog(spark);
 
       spark.table(sourceName).writeTo(tableName).using("iceberg").create();
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
 
@@ -225,6 +261,10 @@ public class RTASTest extends OpenHouseSparkITest {
           .partitionedBy(col("part"))
           .using("iceberg")
           .createOrReplace();
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
 

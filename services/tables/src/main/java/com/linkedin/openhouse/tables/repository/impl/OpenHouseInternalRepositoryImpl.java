@@ -36,6 +36,7 @@ import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +151,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           System.currentTimeMillis() - startTime);
     } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
+      validateReplaceTable(tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -311,6 +313,50 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
     versionCheck(null, tableDto);
+  }
+
+  /**
+   * RTAS is only permitted when the {@value CatalogConstants#RTAS_ENABLED_TABLE_PROP} table
+   * property is set. And it is not allowed on table where WAP or replication is enabled.
+   *
+   * @param tableDto the table being persisted
+   */
+  protected void validateReplaceTable(TableDto tableDto) {
+    Map<String, String> tableProperties = tableDto.getTableProperties();
+
+    // A replace is only permitted when RTAS is enabled on the table.
+    if (!Boolean.parseBoolean(tableProperties.get(RTAS_ENABLED_TABLE_PROP))) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.RTAS_DISABLED,
+          String.format(
+              "REPLACE TABLE AS SELECT is not enabled for table openhouse.%s.%s. You can enable this feature with 'ALTER TABLE openhouse.%s.%s SET TBLPROPERTIES ('%s'='true')'",
+              tableDto.getDatabaseId(),
+              tableDto.getTableId(),
+              tableDto.getDatabaseId(),
+              tableDto.getTableId(),
+              RTAS_ENABLED_TABLE_PROP));
+    }
+
+    // RTAS is incompatible with WAP or replication.
+    boolean wapEnabled = Boolean.parseBoolean(tableProperties.get(WAP_ENABLED_TABLE_PROP));
+    boolean replicationEnabled =
+        tableDto.getPolicies() != null && tableDto.getPolicies().getReplication() != null;
+    if (wapEnabled || replicationEnabled) {
+      List<String> conflictingFeatures = new ArrayList<>();
+      if (wapEnabled) {
+        conflictingFeatures.add(String.format("WAP ('%s=true')", WAP_ENABLED_TABLE_PROP));
+      }
+      if (replicationEnabled) {
+        conflictingFeatures.add("replication");
+      }
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.RTAS_DISABLED,
+          String.format(
+              "REPLACE TABLE AS SELECT cannot be performed on table %s.%s while %s is enabled.",
+              tableDto.getDatabaseId(),
+              tableDto.getTableId(),
+              String.join(" and ", conflictingFeatures)));
+    }
   }
 
   /**

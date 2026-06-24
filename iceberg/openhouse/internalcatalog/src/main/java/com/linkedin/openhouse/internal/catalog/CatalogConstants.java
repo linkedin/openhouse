@@ -30,6 +30,10 @@ public final class CatalogConstants {
 
   public static final String EVOLVED_SCHEMA_KEY = "evolved.table.schema";
 
+  public static final String RTAS_ENABLED_TABLE_PROP = "replace.enabled";
+
+  public static final String WAP_ENABLED_TABLE_PROP = "write.wap.enabled";
+
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
   static final String CLIENT_TABLE_SCHEMA = "client.table.schema";

@@ -51,6 +51,7 @@ import io.micrometer.core.instrument.search.MeterNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -829,8 +830,13 @@ public class TablesControllerTest {
   @SneakyThrows
   @Test
   public void testStagedReplace() {
-    GetTableResponseBody stageReplaceTable =
+    // Enable RTAS and remove policy
+    GetTableResponseBody baseTable =
         TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
+    Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    GetTableResponseBody stageReplaceTable =
+        baseTable.toBuilder().tableProperties(propsWithRtas).policies(null).build();
 
     // Create a real table first
     MvcResult createResult =
@@ -902,6 +908,130 @@ public class TablesControllerTest {
     Assertions.assertEquals(originalSchema, currentSchema);
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, stageReplaceTable);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testStagedReplaceFailsWhenRtasDisabled() {
+    // Table created without enabling RTAS; replace is disabled by default.
+    GetTableResponseBody table =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr_dis", "t_sr_dis");
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace against a table without replaceEnabled should be rejected.
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .baseTableVersion(originalTableLocation)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("REPLACE TABLE AS SELECT is not enabled")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testReplaceWithWapEnabledIsRejected() {
+    // Enable RTAS and remove policy
+    GetTableResponseBody baseTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
+    Map<String, String> props = new HashMap<>(baseTable.getTableProperties());
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    props.put(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true");
+    GetTableResponseBody table =
+        baseTable.toBuilder().tableProperties(props).policies(null).build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace whose resulting table enables WAP must be rejected.
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .tableProperties(props)
+                        .baseTableVersion(originalTableLocation)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message", containsString("REPLACE TABLE AS SELECT cannot be performed")))
+        .andExpect(jsonPath("$.message", containsString("WAP")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testReplaceWithReplicationEnabledIsRejected() {
+    // Enable RTAS
+    GetTableResponseBody baseTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
+    Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    GetTableResponseBody table = baseTable.toBuilder().tableProperties(propsWithRtas).build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace whose resulting table enables replication must be rejected.
+    Policies policiesWithReplication =
+        table
+            .getPolicies()
+            .toBuilder()
+            .replication(
+                Replication.builder()
+                    .config(
+                        Collections.singletonList(
+                            ReplicationConfig.builder()
+                                .destination("CLUSTER1")
+                                .interval("12H")
+                                .build()))
+                    .build())
+            .build();
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .policies(policiesWithReplication)
+                        .baseTableVersion(originalTableLocation)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message", containsString("REPLACE TABLE AS SELECT cannot be performed")))
+        .andExpect(jsonPath("$.message", containsString("replication")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
   }
 
   @SneakyThrows
