@@ -4,11 +4,16 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +41,10 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
       CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
     Retention retention = createUpdateTableRequestBody.getPolicies().getRetention();
     TimePartitionSpec timePartitioning = createUpdateTableRequestBody.getTimePartitioning();
+    List<ClusteringColumn> clustering =
+        createUpdateTableRequestBody.getClustering() == null
+            ? Collections.emptyList()
+            : createUpdateTableRequestBody.getClustering();
     String schema = createUpdateTableRequestBody.getSchema();
 
     if (retention != null) {
@@ -82,9 +91,37 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
                 tableUri);
         return false;
       }
+      // Retention DELETE must be satisfiable by partition pruning. When the table is not
+      // time-partitioned, the retention column must be one of the clustering columns;
+      // otherwise the retention job would degrade into a row-level rewrite (or fail outright
+      // when backup is enabled).
+      if (timePartitioning == null
+          && retention.getColumnPattern() != null
+          && !isClusteringColumn(retention.getColumnPattern().getColumnName(), clustering)) {
+        failureMessage =
+            String.format(
+                "Retention column[%s] for table %s must be one of the clustering columns %s; "
+                    + "retention on non-partitioned columns is not supported because it cannot be executed as a metadata-only delete.",
+                retention.getColumnPattern().getColumnName(),
+                tableUri,
+                clustering.stream()
+                    .map(ClusteringColumn::getColumnName)
+                    .collect(Collectors.toList()));
+        return false;
+      }
     }
 
     return true;
+  }
+
+  /** Returns true iff {@code columnName} matches one of the table's clustering columns. */
+  private boolean isClusteringColumn(String columnName, List<ClusteringColumn> clustering) {
+    if (columnName == null) {
+      return false;
+    }
+    return clustering.stream()
+        .map(ClusteringColumn::getColumnName)
+        .anyMatch(name -> Objects.equals(name, columnName));
   }
 
   /**
