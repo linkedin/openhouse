@@ -16,6 +16,11 @@ import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import com.linkedin.openhouse.jobs.util.TableMetadataBatch;
+import com.linkedin.openhouse.optimizer.binpack.BinItem;
+import com.linkedin.openhouse.optimizer.binpack.FirstFitDecreasingBinPacker;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
@@ -40,10 +45,18 @@ import reactor.core.scheduler.Schedulers;
 public class OperationTasksBuilder {
   public static final String MAX_COST_BUDGET_GB_HRS = "maxCostBudgetGbHrs";
   public static final String MAX_STRATEGIES_COUNT = "maxStrategiesCount";
+  public static final String BATCH_MAX_ITEMS = "batchMaxItems";
   private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.3;
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
+  /**
+   * Default value for the {@code --batchMaxItems} CLI option (operator-tunable). Not a hard limit:
+   * the Spark-app side enforces the actual ceiling via {@link AppConstants#OFD_MAX_BATCH_SIZE}, and
+   * {@link JobsScheduler#getAdditionalProperties} rejects any operator-supplied value above it.
+   */
+  private static final int DEFAULT_BATCH_MAX_ITEMS = 25;
+
   private static final String METRICS_SCOPE = JobsScheduler.class.getName();
 
   private final OperationTaskFactory<? extends OperationTask<?>> taskFactory;
@@ -63,6 +76,59 @@ public class OperationTasksBuilder {
     List<TableMetadata> tableMetadataList = tablesClient.getTableMetadataList();
     log.info("Fetched metadata for {} tables", tableMetadataList.size());
     return processMetadataList(tableMetadataList, jobType, operationMode, otelEmitter);
+  }
+
+  /**
+   * Builds one {@link BatchedTableOrphanFilesDeletionTask} per database-scoped bin. Groups eligible
+   * tables by database (batches never cross databases), then applies the first-fit-decreasing bin
+   * packer with a per-bin item cap from {@code properties} (defaults to {@value
+   * #DEFAULT_BATCH_MAX_ITEMS}). Tables with the maintenance op disabled are filtered out before
+   * grouping.
+   */
+  private List<OperationTask<?>> prepareBatchedOrphanFilesDeletionTaskList(
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
+    // Bounds (maxItemsPerBin <= AppConstants.OFD_MAX_BATCH_SIZE) are enforced at the CLI parsing
+    // boundary in JobsScheduler.getAdditionalProperties; this method assumes validated input.
+    int maxItemsPerBin =
+        NumberUtils.toInt(properties.getProperty(BATCH_MAX_ITEMS), DEFAULT_BATCH_MAX_ITEMS);
+    // Item-count cap only; the libs default maxWeightPerBin (1_000_000) is effectively unbounded
+    // for weight=1 items, so item-count is the active constraint until table_stats is wired in.
+    FirstFitDecreasingBinPacker<BinItem> packer =
+        FirstFitDecreasingBinPacker.<BinItem>builder().maxItemsPerBin(maxItemsPerBin).build();
+
+    // Note: groupingBy materializes the full eligible-table list in driver memory and serializes
+    // the pipeline at that point — acceptable for the O(thousands) tables we expect, but worth
+    // revisiting if the bound grows.
+    List<TableMetadataBatch> batches =
+        tablesClient.getTableMetadataList().stream()
+            .filter(t -> !t.isMaintenanceJobDisabled(jobType))
+            .collect(Collectors.groupingBy(TableMetadata::getDbName))
+            .entrySet()
+            .stream()
+            .flatMap(
+                dbGroup ->
+                    packer
+                        .pack(
+                            dbGroup.getValue().stream()
+                                .map(TableMetadataBinItem::new)
+                                .collect(Collectors.toList()))
+                        .stream()
+                        .map(
+                            group ->
+                                TableMetadataBatch.builder()
+                                    .dbName(dbGroup.getKey())
+                                    .tables(
+                                        group.stream()
+                                            .map(TableMetadataBinItem::getMetadata)
+                                            .collect(Collectors.toList()))
+                                    .build()))
+            .collect(Collectors.toList());
+    log.info(
+        "Packed eligible tables into {} batches; binMaxItems={}", batches.size(), maxItemsPerBin);
+    return processMetadataList(batches, jobType, operationMode, otelEmitter);
   }
 
   private List<OperationTask<?>> prepareReplicationOperationTaskList(
@@ -272,6 +338,9 @@ public class OperationTasksBuilder {
       case DATA_LAYOUT_STRATEGY_GENERATION:
       case SORT_STATS_COLLECTION:
         return prepareTableOperationTaskList(jobType, operationMode, otelEmitter);
+      case ORPHAN_FILES_DELETION_BATCH:
+        return prepareBatchedOrphanFilesDeletionTaskList(
+            jobType, properties, operationMode, otelEmitter);
       case REPLICATION:
         return prepareReplicationOperationTaskList(jobType, operationMode, otelEmitter);
       case DATA_LAYOUT_STRATEGY_EXECUTION:
@@ -300,6 +369,22 @@ public class OperationTasksBuilder {
       buildDataLayoutOperationTaskListInParallel(jobType, properties, operationMode, otelEmitter);
     } else if (jobType == JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION) {
       buildDatabaseLevelOperationTasksInParallel(jobType, operationMode, otelEmitter);
+    } else if (jobType == JobConf.JobTypeEnum.ORPHAN_FILES_DELETION_BATCH) {
+      // Batched OFD needs the full table set in hand before it can group-by-db and bin-pack,
+      // so we use the synchronous fetch path then enqueue the tasks in bulk.
+      List<OperationTask<?>> tasks =
+          prepareBatchedOrphanFilesDeletionTaskList(
+              jobType, properties, operationMode, otelEmitter);
+      for (OperationTask<?> task : tasks) {
+        try {
+          operationTaskManager.addData(task);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          log.warn("Interrupted while enqueueing batched OFD task", e);
+        }
+      }
+      operationTaskManager.updateDataGenerationCompletion();
+      log.info("Enqueued {} batched OFD tasks for job type: {}", tasks.size(), jobType);
     } else {
       buildOperationTaskListInParallelInternal(jobType, operationMode, otelEmitter);
     }
@@ -437,5 +522,44 @@ public class OperationTasksBuilder {
                   jobType);
             })
         .subscribe();
+  }
+
+  /**
+   * Minimal {@link BinItem} for the legacy scheduler path. Carries the full {@link TableMetadata}
+   * so the caller can reconstruct each bin's table list directly from the packer's output without a
+   * fqtn → metadata lookup. Every item has weight 1, so packing is driven purely by {@code
+   * maxItemsPerBin}. {@code fromOpAndStats} is unreachable here because we call {@code
+   * packer.pack(List<BinItem>)} (the pre-projected overload), not the projection path.
+   */
+  private static final class TableMetadataBinItem implements BinItem {
+    @Getter private final TableMetadata metadata;
+
+    TableMetadataBinItem(TableMetadata metadata) {
+      this.metadata = metadata;
+    }
+
+    @Override
+    public long getWeight() {
+      return 1L;
+    }
+
+    @Override
+    public String getFullyQualifiedTableName() {
+      return metadata.fqtn();
+    }
+
+    /**
+     * Legacy scheduler has no optimizer-side operation ID. The libs {@link BinItem} interface
+     * requires {@code String} (not {@code Optional}) so we return empty to satisfy the contract.
+     */
+    @Override
+    public String getOperationId() {
+      return "";
+    }
+
+    @Override
+    public BinItem fromOpAndStats(TableOperationDto op, TableStatsDto stats) {
+      return this;
+    }
   }
 }

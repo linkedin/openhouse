@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
@@ -105,7 +107,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       return;
     }
 
-    OptimizerServiceClient client = newOptimizerClient();
+    Optional<OptimizerServiceClient> client = newOptimizerClient();
     int successCount = runBatch(ops, client);
 
     int failureCount = entries.size() - successCount;
@@ -121,7 +123,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     }
   }
 
-  private int runBatch(Operations ops, OptimizerServiceClient client) {
+  private int runBatch(Operations ops, Optional<OptimizerServiceClient> client) {
     ExecutorService pool = Executors.newFixedThreadPool(driverParallelism);
     try {
       // Two-phase pipeline: submit every worker first (so they run concurrently), then await each.
@@ -141,7 +143,8 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     }
   }
 
-  private int awaitOne(BatchEntry entry, Future<Boolean> future, OptimizerServiceClient client) {
+  private int awaitOne(
+      BatchEntry entry, Future<Boolean> future, Optional<OptimizerServiceClient> client) {
     try {
       return Boolean.TRUE.equals(future.get()) ? 1 : 0;
     } catch (InterruptedException e) {
@@ -178,33 +181,45 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     }
   }
 
-  protected OptimizerServiceClient newOptimizerClient() {
-    return new OptimizerServiceClient(resultsEndpoint);
+  /**
+   * Returns a client bound to {@link #resultsEndpoint}, or empty when the endpoint was not
+   * configured — in that case the legacy {@link
+   * com.linkedin.openhouse.jobs.scheduler.JobsScheduler} is the caller and reports lifecycle via
+   * HTS; the per-operation optimizer callback is skipped.
+   */
+  protected Optional<OptimizerServiceClient> newOptimizerClient() {
+    return Optional.ofNullable(resultsEndpoint).map(OptimizerServiceClient::new);
   }
 
   /**
-   * POST the per-operation outcome to the Optimizer Service via the generated client. The wrapper
-   * returns {@link java.util.Optional#empty()} when the call exhausts retries — we log + count and
-   * leave the operation row at SCHEDULED so the Analyzer's stale-timeout can re-queue it.
+   * POST the per-operation outcome to the Optimizer Service via the generated client. No-op when
+   * {@code client} is empty (the legacy scheduler-driven path; lifecycle is already tracked via
+   * HTS). When the call exhausts retries we log + count and leave the operation row at SCHEDULED so
+   * the Analyzer's stale-timeout can re-queue it.
    *
    * <p>{@code status} is passed in as a {@link UpdateOperationRequest.StatusEnum} rather than a
    * boolean so the caller's intent is unambiguous and new terminal states (e.g. CANCELED) can be
    * plumbed in without changing the signature.
    */
   private void reportResult(
-      BatchEntry entry, UpdateOperationRequest.StatusEnum status, OptimizerServiceClient client) {
+      BatchEntry entry,
+      UpdateOperationRequest.StatusEnum status,
+      Optional<OptimizerServiceClient> client) {
+    if (!client.isPresent()) {
+      return;
+    }
     UpdateOperationRequest body =
         new UpdateOperationRequest()
-            .operationId(entry.getOperationId())
+            .operationId(entry.getOperationId().orElse(null))
             .status(status)
-            .tableUuid(entry.getTableUuid())
+            .tableUuid(entry.getTableUuid().orElse(null))
             .databaseName(entry.getDatabaseName())
             .tableName(entry.getTableName())
             .operationType(UpdateOperationRequest.OperationTypeEnum.ORPHAN_FILES_DELETION);
-    if (!client.updateOperation(entry.getOperationId(), body).isPresent()) {
+    if (!client.get().updateOperation(entry.getOperationId().orElse(null), body).isPresent()) {
       log.error(
           "Failed to report operation result after retries; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
-          entry.getOperationId(),
+          entry.getOperationId().orElse(null),
           entry.getFqtn());
       otelEmitter.count(
           METRICS_SCOPE,
@@ -218,9 +233,9 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
   private final class TableWorker implements Callable<Boolean> {
     private final Operations ops;
     private final BatchEntry entry;
-    private final OptimizerServiceClient client;
+    private final Optional<OptimizerServiceClient> client;
 
-    TableWorker(Operations ops, BatchEntry entry, OptimizerServiceClient client) {
+    TableWorker(Operations ops, BatchEntry entry, Optional<OptimizerServiceClient> client) {
       this.ops = ops;
       this.entry = entry;
       this.client = client;
@@ -231,7 +246,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       String fqtn = entry.getFqtn();
       UpdateOperationRequest.StatusEnum status = UpdateOperationRequest.StatusEnum.FAILED;
       try {
-        log.info("OFD start: fqtn={} operationId={}", fqtn, entry.getOperationId());
+        log.info("OFD start: fqtn={} operationId={}", fqtn, entry.getOperationId().orElse(""));
         Table table = ops.getTable(fqtn);
         long olderThanTimestampMillis =
             System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(resolveTtlSeconds(table));
@@ -258,7 +273,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
         status = UpdateOperationRequest.StatusEnum.SUCCESS;
         log.info("OFD success: fqtn={} orphansDetected={}", fqtn, orphanCount);
       } catch (Throwable t) {
-        log.error("OFD failed: fqtn={} operationId={}", fqtn, entry.getOperationId(), t);
+        log.error("OFD failed: fqtn={} operationId={}", fqtn, entry.getOperationId().orElse(""), t);
       } finally {
         // Defensive: reportResult must not throw out of the finally block, since that would mask
         // the original failure and propagate up to awaitOne, which would then report FAILED again.
@@ -316,17 +331,28 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     }
   }
 
-  /** Per-table inputs for one operation row inside a bin. */
+  /**
+   * Per-table inputs for one operation row inside a bin. {@code operationId} and {@code tableUuid}
+   * are exposed as {@link Optional} because the legacy scheduler path leaves them unset (no
+   * optimizer-service context); the optimizer-service path always populates them.
+   */
   @lombok.AllArgsConstructor
   @lombok.Builder
-  @lombok.Getter
   @lombok.ToString
   public static class BatchEntry {
-    private final String fqtn;
+    @lombok.Getter private final String fqtn;
     private final String operationId;
     private final String tableUuid;
-    private final String databaseName;
-    private final String tableName;
+    @lombok.Getter private final String databaseName;
+    @lombok.Getter private final String tableName;
+
+    public Optional<String> getOperationId() {
+      return Optional.ofNullable(operationId);
+    }
+
+    public Optional<String> getTableUuid() {
+      return Optional.ofNullable(tableUuid);
+    }
   }
 
   public static void main(String[] args) {
@@ -381,23 +407,29 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
   }
 
   static List<BatchEntry> buildEntries(String tableNames, String operationIds, String tableUuids) {
-    if (tableNames == null
-        || operationIds == null
-        || tableUuids == null
-        || tableNames.isEmpty()
-        || operationIds.isEmpty()
-        || tableUuids.isEmpty()) {
-      throw new IllegalArgumentException(
-          "--tableNames, --operationIds, and --tableUuids are all required and must be non-empty");
+    if (tableNames == null || tableNames.isEmpty()) {
+      throw new IllegalArgumentException("--tableNames is required and must be non-empty");
     }
     String[] tables = tableNames.split(",");
-    String[] ops = operationIds.split(",");
-    String[] uuids = tableUuids.split(",");
-    if (tables.length != ops.length || tables.length != uuids.length) {
+    if (tables.length > AppConstants.OFD_MAX_BATCH_SIZE) {
       throw new IllegalArgumentException(
           String.format(
-              "Parallel-list length mismatch: tableNames=%d operationIds=%d tableUuids=%d",
-              tables.length, ops.length, uuids.length));
+              "Batch size %d exceeds OFD_MAX_BATCH_SIZE=%d; reduce --batchMaxItems on the scheduler",
+              tables.length, AppConstants.OFD_MAX_BATCH_SIZE));
+    }
+    String[] ops = StringUtils.isBlank(operationIds) ? null : operationIds.split(",");
+    String[] uuids = StringUtils.isBlank(tableUuids) ? null : tableUuids.split(",");
+    if (ops != null && ops.length != tables.length) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Parallel-list length mismatch: tableNames=%d operationIds=%d",
+              tables.length, ops.length));
+    }
+    if (uuids != null && uuids.length != tables.length) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Parallel-list length mismatch: tableNames=%d tableUuids=%d",
+              tables.length, uuids.length));
     }
     List<BatchEntry> entries = new ArrayList<>(tables.length);
     for (int i = 0; i < tables.length; i++) {
@@ -410,8 +442,8 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
       entries.add(
           BatchEntry.builder()
               .fqtn(fqtn)
-              .operationId(ops[i].trim())
-              .tableUuid(uuids[i].trim())
+              .operationId(ops == null ? null : ops[i].trim())
+              .tableUuid(uuids == null ? null : uuids[i].trim())
               .databaseName(dbAndTable[0])
               .tableName(dbAndTable[1])
               .build());
