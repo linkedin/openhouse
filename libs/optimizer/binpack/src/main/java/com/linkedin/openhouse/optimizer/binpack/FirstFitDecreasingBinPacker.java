@@ -30,7 +30,8 @@ import lombok.extern.slf4j.Slf4j;
  *       row, returns the resulting groupings. Operations whose {@code tableUuid} has no entry in
  *       {@code statsByTableUuid} are dropped. Requires {@code binItemSupplier}.
  *   <li><b>Pre-projected raw groupings</b> ({@link #pack(List)}) — caller has already projected
- *       items; packer returns {@code List<List<BinItem>>}.
+ *       items; packer returns {@code List<List<U>>} preserving the caller's concrete item type so
+ *       no downcast is needed at the call site.
  *   <li><b>Pre-projected tagged bins</b> ({@link #pack(List, OperationTypeDto)}) — caller has
  *       already projected items; packer wraps each grouping in a {@link Bin} tagged with the
  *       supplied operation type. Use this when the bins flow directly to a scheduler that expects
@@ -75,9 +76,14 @@ public class FirstFitDecreasingBinPacker<T extends BinItem> implements BinPacker
     return groupings;
   }
 
-  /** Pre-projected items; returns raw groupings. */
-  public List<List<BinItem>> pack(List<BinItem> items) {
-    List<List<BinItem>> groupings = packCore(items);
+  /**
+   * Pre-projected items; returns raw groupings preserving the caller's concrete item type. The type
+   * parameter {@code U} is independent of the class-level {@code T} (which is bound to {@code
+   * binItemSupplier} for the projection path), so pre-projected callers can pack any concrete
+   * {@link BinItem} subtype without configuring the class's {@code T}.
+   */
+  public <U extends BinItem> List<List<U>> pack(List<U> items) {
+    List<List<U>> groupings = packCore(items);
     log.info(
         "Packed {} pre-projected items into {} groupings",
         items == null ? 0 : items.size(),
@@ -86,46 +92,46 @@ public class FirstFitDecreasingBinPacker<T extends BinItem> implements BinPacker
   }
 
   /** Pre-projected items; returns {@link Bin}s each tagged with {@code operationType}. */
-  public List<Bin> pack(List<BinItem> items, OperationTypeDto operationType) {
-    return pack(items).stream()
-        .map(group -> new Bin(operationType, group))
+  public <U extends BinItem> List<Bin> pack(List<U> items, OperationTypeDto operationType) {
+    return packCore(items).stream()
+        .map(group -> new Bin(operationType, new ArrayList<>(group)))
         .collect(Collectors.toList());
   }
 
-  private List<List<BinItem>> packCore(List<BinItem> items) {
+  private <U extends BinItem> List<List<U>> packCore(List<U> items) {
     if (items == null || items.isEmpty()) {
       return new ArrayList<>();
     }
-    List<PackingBin> packingBins =
+    List<PackingBin<U>> packingBins =
         items.stream()
             .sorted(Comparator.comparingLong(BinItem::getWeight).reversed())
             .collect(ArrayList::new, this::placeItem, List::addAll);
     return packingBins.stream().map(pb -> pb.items).collect(Collectors.toList());
   }
 
-  private void placeItem(List<PackingBin> bins, BinItem item) {
+  private <U extends BinItem> void placeItem(List<PackingBin<U>> bins, U item) {
     bins.stream()
         .filter(b -> b.fits(item, maxWeightPerBin, maxItemsPerBin))
         .findFirst()
         .ifPresentOrElse(
             b -> b.add(item),
             () -> {
-              PackingBin fresh = new PackingBin();
+              PackingBin<U> fresh = new PackingBin<>();
               fresh.add(item);
               bins.add(fresh);
             });
   }
 
   /** Running-totals helper used during the fold. */
-  private static class PackingBin {
-    final List<BinItem> items = new ArrayList<>();
+  private static class PackingBin<U extends BinItem> {
+    final List<U> items = new ArrayList<>();
     long totalWeight;
 
     boolean fits(BinItem item, long maxWeight, int maxItems) {
       return items.size() < maxItems && totalWeight + item.getWeight() <= maxWeight;
     }
 
-    void add(BinItem item) {
+    void add(U item) {
       items.add(item);
       totalWeight += item.getWeight();
     }

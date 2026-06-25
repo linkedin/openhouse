@@ -113,7 +113,7 @@ public class OperationTasksBuilder {
                     packer
                         .pack(
                             dbGroup.getValue().stream()
-                                .<BinItem>map(TableMetadataBinItem::new)
+                                .map(TableMetadataBinItem::new)
                                 .collect(Collectors.toList()))
                         .stream()
                         .map(
@@ -122,7 +122,7 @@ public class OperationTasksBuilder {
                                     .dbName(dbGroup.getKey())
                                     .tables(
                                         group.stream()
-                                            .map(TableMetadataBinItem::extract)
+                                            .map(TableMetadataBinItem::getMetadata)
                                             .collect(Collectors.toList()))
                                     .build()))
             .collect(Collectors.toList());
@@ -536,15 +536,6 @@ public class OperationTasksBuilder {
 
     TableMetadataBinItem(TableMetadata metadata) {
       this.metadata = metadata;
-    }
-
-    /**
-     * Named cast helper so call sites can use {@code TableMetadataBinItem::extract} as a method
-     * reference and the unchecked downcast lives in one place. Throws {@link ClassCastException} if
-     * a foreign {@link BinItem} ever leaks through — which would be a packer/caller bug.
-     */
-    static TableMetadata extract(BinItem item) {
-      return ((TableMetadataBinItem) item).metadata;
     }
 
     @Override
