@@ -61,5 +61,16 @@ public final class AppConstants {
   public static final String TABLE_TYPE_REPLICA = "REPLICA_TABLE";
   public static final String OFD_ONE_DAY_TTL_ENABLED_KEY = "ofd.one_day_ttl.enabled";
 
+  /**
+   * Hard ceiling on the number of tables a single batched OFD job can carry. Wire path is parallel
+   * CSV CLI args (see {@code BatchedOrphanFilesDeletionSparkApp#buildEntries}); at ~120 chars per
+   * entry (36-char UUID × 3 lists) this gives ~24 KB on the command line, well under the typical
+   * Linux {@code ARG_MAX} of 128 KB but leaves headroom for the {@code spark-submit} envelope and
+   * JVM flags. The scheduler-driven path uses a smaller per-entry footprint but inherits the same
+   * cap for defense in depth. Operators tune the per-job batch size with {@code --batchMaxItems}
+   * (default {@code 25}); this constant is a footgun stop, not the operating point.
+   */
+  public static final int OFD_MAX_BATCH_SIZE = 200;
+
   private AppConstants() {}
 }

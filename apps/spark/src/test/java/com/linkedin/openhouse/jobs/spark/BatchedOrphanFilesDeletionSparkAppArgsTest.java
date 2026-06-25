@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
@@ -86,21 +87,21 @@ public class BatchedOrphanFilesDeletionSparkAppArgsTest {
 
   @Test
   public void buildEntriesAcceptsAtMaxBatchSize() {
-    String tableNames = generateFqtnCsv(BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE);
+    String tableNames = generateFqtnCsv(AppConstants.OFD_MAX_BATCH_SIZE);
     List<BatchedOrphanFilesDeletionSparkApp.BatchEntry> entries =
         BatchedOrphanFilesDeletionSparkApp.buildEntries(tableNames, null, null);
-    Assertions.assertEquals(BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE, entries.size());
+    Assertions.assertEquals(AppConstants.OFD_MAX_BATCH_SIZE, entries.size());
   }
 
   @Test
   public void buildEntriesRejectsAboveMaxBatchSize() {
-    String tableNames = generateFqtnCsv(BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE + 1);
+    String tableNames = generateFqtnCsv(AppConstants.OFD_MAX_BATCH_SIZE + 1);
     IllegalArgumentException ex =
         Assertions.assertThrows(
             IllegalArgumentException.class,
             () -> BatchedOrphanFilesDeletionSparkApp.buildEntries(tableNames, null, null));
     Assertions.assertTrue(
-        ex.getMessage().contains("MAX_BATCH_SIZE"), "error should reference the constant name");
+        ex.getMessage().contains("OFD_MAX_BATCH_SIZE"), "error should reference the constant name");
   }
 
   private static String generateFqtnCsv(int n) {

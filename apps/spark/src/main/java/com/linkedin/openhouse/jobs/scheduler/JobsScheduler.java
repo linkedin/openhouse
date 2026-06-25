@@ -752,9 +752,15 @@ public class JobsScheduler {
           cmdLine.getOptionValue(OperationTasksBuilder.MAX_STRATEGIES_COUNT));
     }
     if (cmdLine.hasOption(OperationTasksBuilder.BATCH_MAX_ITEMS)) {
-      result.setProperty(
-          OperationTasksBuilder.BATCH_MAX_ITEMS,
-          cmdLine.getOptionValue(OperationTasksBuilder.BATCH_MAX_ITEMS));
+      String raw = cmdLine.getOptionValue(OperationTasksBuilder.BATCH_MAX_ITEMS);
+      int parsed = Integer.parseInt(raw);
+      if (parsed > AppConstants.OFD_MAX_BATCH_SIZE) {
+        throw new IllegalArgumentException(
+            String.format(
+                "--%s=%d exceeds Spark-app ceiling OFD_MAX_BATCH_SIZE=%d",
+                OperationTasksBuilder.BATCH_MAX_ITEMS, parsed, AppConstants.OFD_MAX_BATCH_SIZE));
+      }
+      result.setProperty(OperationTasksBuilder.BATCH_MAX_ITEMS, raw);
     }
     return result;
   }

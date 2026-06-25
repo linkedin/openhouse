@@ -9,7 +9,6 @@ import com.linkedin.openhouse.datalayout.ranker.SimpleWeightedSumDataLayoutStrat
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.JobsScheduler;
-import com.linkedin.openhouse.jobs.spark.BatchedOrphanFilesDeletionSparkApp;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.DataLayoutUtil;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
@@ -53,9 +52,8 @@ public class OperationTasksBuilder {
   private static final int MAX_STRATEGIES_COUNT_DEFAULT = 10;
   /**
    * Default value for the {@code --batchMaxItems} CLI option (operator-tunable). Not a hard limit:
-   * the Spark-app side enforces the actual ceiling via {@link
-   * BatchedOrphanFilesDeletionSparkApp#MAX_BATCH_SIZE}, and {@link
-   * #prepareBatchedOrphanFilesDeletionTaskList} rejects any operator-supplied value above it.
+   * the Spark-app side enforces the actual ceiling via {@link AppConstants#OFD_MAX_BATCH_SIZE}, and
+   * {@link JobsScheduler#getAdditionalProperties} rejects any operator-supplied value above it.
    */
   private static final int DEFAULT_BATCH_MAX_ITEMS = 25;
 
@@ -92,14 +90,10 @@ public class OperationTasksBuilder {
       Properties properties,
       OperationMode operationMode,
       OtelEmitter otelEmitter) {
+    // Bounds (maxItemsPerBin <= AppConstants.OFD_MAX_BATCH_SIZE) are enforced at the CLI parsing
+    // boundary in JobsScheduler.getAdditionalProperties; this method assumes validated input.
     int maxItemsPerBin =
         NumberUtils.toInt(properties.getProperty(BATCH_MAX_ITEMS), DEFAULT_BATCH_MAX_ITEMS);
-    if (maxItemsPerBin > BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE) {
-      throw new IllegalArgumentException(
-          String.format(
-              "--%s=%d exceeds Spark-app ceiling MAX_BATCH_SIZE=%d",
-              BATCH_MAX_ITEMS, maxItemsPerBin, BatchedOrphanFilesDeletionSparkApp.MAX_BATCH_SIZE));
-    }
     // Item-count cap only; the libs default maxWeightPerBin (1_000_000) is effectively unbounded
     // for weight=1 items, so item-count is the active constraint until table_stats is wired in.
     FirstFitDecreasingBinPacker<BinItem> packer =
@@ -115,22 +109,22 @@ public class OperationTasksBuilder {
             .entrySet()
             .stream()
             .flatMap(
-                dbGroup -> {
-                  List<BinItem> items =
-                      dbGroup.getValue().stream()
-                          .map(t -> (BinItem) new TableMetadataBinItem(t))
-                          .collect(Collectors.toList());
-                  return packer.pack(items).stream()
-                      .map(
-                          group ->
-                              TableMetadataBatch.builder()
-                                  .dbName(dbGroup.getKey())
-                                  .tables(
-                                      group.stream()
-                                          .map(item -> ((TableMetadataBinItem) item).getMetadata())
-                                          .collect(Collectors.toList()))
-                                  .build());
-                })
+                dbGroup ->
+                    packer
+                        .pack(
+                            dbGroup.getValue().stream()
+                                .<BinItem>map(TableMetadataBinItem::new)
+                                .collect(Collectors.toList()))
+                        .stream()
+                        .map(
+                            group ->
+                                TableMetadataBatch.builder()
+                                    .dbName(dbGroup.getKey())
+                                    .tables(
+                                        group.stream()
+                                            .map(TableMetadataBinItem::extract)
+                                            .collect(Collectors.toList()))
+                                    .build()))
             .collect(Collectors.toList());
     log.info(
         "Packed eligible tables into {} batches; binMaxItems={}", batches.size(), maxItemsPerBin);
@@ -542,6 +536,15 @@ public class OperationTasksBuilder {
 
     TableMetadataBinItem(TableMetadata metadata) {
       this.metadata = metadata;
+    }
+
+    /**
+     * Named cast helper so call sites can use {@code TableMetadataBinItem::extract} as a method
+     * reference and the unchecked downcast lives in one place. Throws {@link ClassCastException} if
+     * a foreign {@link BinItem} ever leaks through — which would be a packer/caller bug.
+     */
+    static TableMetadata extract(BinItem item) {
+      return ((TableMetadataBinItem) item).metadata;
     }
 
     @Override
