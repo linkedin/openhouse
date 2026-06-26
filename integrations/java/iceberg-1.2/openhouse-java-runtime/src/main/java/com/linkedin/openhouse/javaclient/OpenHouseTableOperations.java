@@ -30,6 +30,7 @@ import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRefParser;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -101,8 +102,18 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
-    super.refreshFromMetadataLocation(tableLocation.orElse(null));
+    // Read through loadMetadata() so subclasses can transform metadata as it loads. The 4-arg call
+    // with (null, 20) is the stock 1-arg behavior, with the parse step made overridable.
+    super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
     log.debug("Calling doRefresh succeeded");
+  }
+
+  /**
+   * Loads the table metadata at the given location. Defaults to the stock parser; subclasses may
+   * override to transform the metadata (e.g. attach column defaults) as it loads.
+   */
+  protected TableMetadata loadMetadata(String metadataLocation) {
+    return TableMetadataParser.read(io(), metadataLocation);
   }
 
   @Override
