@@ -343,7 +343,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Policies existingPolicies =
         policiesMapper.toPoliciesObject(existingProperties.get(POLICIES_KEY));
     boolean replicationEnabled =
-        existingPolicies != null && existingPolicies.getReplication() != null;
+        existingPolicies != null
+            && existingPolicies.getReplication() != null
+            && existingPolicies.getReplication().getConfig() != null
+            && !existingPolicies.getReplication().getConfig().isEmpty();
     if (wapEnabled || replicationEnabled) {
       List<String> conflictingFeatures = new ArrayList<>();
       if (wapEnabled) {
