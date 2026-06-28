@@ -133,9 +133,9 @@ public interface TablesMapper {
    *     com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody} to be forwarded to
    *     the client.
    */
-  // runtimePolicy is not sourced from TableDto; it is stamped onto the response separately (server
+  // featureFlags is not sourced from TableDto; it is stamped onto the response separately (server
   // PolicyEngine, follow-up), so the mapper leaves it null.
-  @Mapping(target = "runtimePolicy", ignore = true)
+  @Mapping(target = "featureFlags", ignore = true)
   GetTableResponseBody toGetTableResponseBody(TableDto tableDto);
 
   @Mappings({

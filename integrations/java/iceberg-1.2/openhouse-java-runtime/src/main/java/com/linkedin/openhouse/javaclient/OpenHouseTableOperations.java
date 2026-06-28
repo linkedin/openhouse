@@ -11,10 +11,10 @@ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageE
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.client.model.FeatureFlags;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
-import com.linkedin.openhouse.tables.client.model.RuntimePolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -64,18 +64,18 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
-   * The runtime policy the OH server stamped onto the most recent table-load response (or {@code
+   * The feature flags the OH server stamped onto the most recent table-load response (or {@code
    * null} if none / not yet refreshed). Refresh-time state, not a constructor arg — a final holder
-   * keeps Lombok's all-args constructor unchanged. See {@link #currentRuntimePolicy()}.
+   * keeps Lombok's all-args constructor unchanged. See {@link #currentFeatureFlags()}.
    */
-  private final AtomicReference<RuntimePolicy> runtimePolicy = new AtomicReference<>();
+  private final AtomicReference<FeatureFlags> featureFlags = new AtomicReference<>();
 
   /**
-   * The server-stamped runtime policy from the last {@code doRefresh}, or {@code null} when absent.
+   * The server-stamped feature flags from the last {@code doRefresh}, or {@code null} when absent.
    * Subclasses use it to gate read-time behavior; {@code null} is the safe default (do nothing).
    */
-  protected RuntimePolicy currentRuntimePolicy() {
-    return runtimePolicy.get();
+  protected FeatureFlags currentFeatureFlags() {
+    return featureFlags.get();
   }
 
   @Override
@@ -114,11 +114,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
-    // Capture the server-stamped runtime policy so subclasses can act on it (e.g. gate a read-time
-    // overlay) via currentRuntimePolicy(). It rides on every table-load response; absent => null,
+    // Capture the server-stamped feature flags so subclasses can act on them (e.g. gate a read-time
+    // overlay) via currentFeatureFlags(). They ride on every table-load response; absent => null,
     // which every consumer treats as its safe default. Side-channel only: never sent back on
     // writes.
-    this.runtimePolicy.set(tableResponse.map(GetTableResponseBody::getRuntimePolicy).orElse(null));
+    this.featureFlags.set(tableResponse.map(GetTableResponseBody::getFeatureFlags).orElse(null));
     Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(

@@ -7,24 +7,24 @@ import lombok.Builder;
 import lombok.Value;
 
 /**
- * A single, feature-namespaced directive carried by {@link RuntimePolicy}.
+ * A single, server-controlled feature flag carried by {@link FeatureFlags}.
  *
  * <p>The fields here are a small, typed, feature-agnostic envelope shared across all features; the
  * per-feature semantics live entirely inside the opaque {@link #payload} JSON. Keeping the payload
- * opaque is what lets a new feature ride this channel as a new {@code directives} map entry rather
- * than an API/schema change.
+ * opaque is what lets a new feature ride this channel as a new {@code flags} map entry rather than
+ * an API/schema change.
  *
- * <p>READ_ONLY and advisory by default. A client that does not recognize a directive MUST ignore it
- * — it cannot honor what it does not understand, so {@code REQUIRED} only binds clients new enough
- * to know the directive. Directives whose correctness must be guaranteed are additionally enforced
- * server-side; the client-visible copy is then a hint, not the authority.
+ * <p>READ_ONLY and advisory by default. A client that does not recognize a flag MUST ignore it — it
+ * cannot honor what it does not understand, so {@code REQUIRED} only binds clients new enough to
+ * know the flag. Flags whose correctness must be guaranteed are additionally enforced server-side;
+ * the client-visible copy is then a hint, not the authority.
  */
 @Builder
 @Value
-public class PolicyDirective {
+public class FeatureFlag {
   @Schema(
       description =
-          "Whether the client must honor this directive when it understands it. "
+          "Whether the client must honor this flag when it understands it. "
               + "ADVISORY: client MAY honor; ignoring it is safe. "
               + "REQUIRED: client SHOULD honor; correctness is additionally enforced server-side. "
               + "Unknown values MUST be treated as ADVISORY.",
@@ -35,7 +35,7 @@ public class PolicyDirective {
 
   @Schema(
       description =
-          "Minimum client version that should act on this directive; the reader gates it out for "
+          "Minimum client version that should act on this flag; the reader gates it out for "
               + "older clients. Absent means no lower bound.",
       example = "1.2.1")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
@@ -43,7 +43,7 @@ public class PolicyDirective {
   private String minClientVersion;
 
   @Schema(
-      description = "Human-readable reason for this directive; for observability only.",
+      description = "Human-readable reason for this flag; for observability only.",
       example = "canary")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   @Nullable
