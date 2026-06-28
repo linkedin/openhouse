@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.api.spec.v0.response.components.RuntimePolicy;
 import com.linkedin.openhouse.tables.common.TableType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
@@ -105,6 +106,15 @@ public class GetTableResponseBody {
           "\"sortOrder\":{\"order-id\":1,\"fields\":[{\"transform\":\"identity\",\"source-id\":1,\"direction\":\"asc\",\"null-order\":\"nulls-first\"}]}")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String sortOrder;
+
+  @Schema(
+      nullable = true,
+      description =
+          "Generic, server-stamped runtime policy: per-table client directives the server controls at "
+              + "runtime without a client re-roll. READ_ONLY and advisory — absent means today's "
+              + "behavior. Distinct from the table-governance `policies` object.")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private RuntimePolicy runtimePolicy;
 
   public String toJson() {
     return new Gson().toJson(this);
