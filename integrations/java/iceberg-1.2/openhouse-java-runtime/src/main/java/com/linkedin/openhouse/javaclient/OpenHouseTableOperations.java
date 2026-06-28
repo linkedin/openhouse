@@ -14,10 +14,12 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
+import com.linkedin.openhouse.tables.client.model.RuntimePolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -61,6 +63,21 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   @Getter(AccessLevel.PROTECTED)
   private String cluster;
 
+  /**
+   * The runtime policy the OH server stamped onto the most recent table-load response (or {@code
+   * null} if none / not yet refreshed). Refresh-time state, not a constructor arg — a final holder
+   * keeps Lombok's all-args constructor unchanged. See {@link #currentRuntimePolicy()}.
+   */
+  private final AtomicReference<RuntimePolicy> runtimePolicy = new AtomicReference<>();
+
+  /**
+   * The server-stamped runtime policy from the last {@code doRefresh}, or {@code null} when absent.
+   * Subclasses use it to gate read-time behavior; {@code null} is the safe default (do nothing).
+   */
+  protected RuntimePolicy currentRuntimePolicy() {
+    return runtimePolicy.get();
+  }
+
   @Override
   protected String tableName() {
     return tableIdentifier.toString();
@@ -81,10 +98,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   @Override
   public void doRefresh() {
     log.info("Calling doRefresh for table: {}", tableName());
-    Optional<String> tableLocation =
+    Optional<GetTableResponseBody> tableResponse =
         tableApi
             .getTableV1(tableIdentifier.namespace().toString(), tableIdentifier.name())
-            .mapNotNull(GetTableResponseBody::getTableLocation)
             /*
              on 404 from table service, resume the stream as empty response.
              for any other error, surface it!
@@ -98,6 +114,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
+    // Capture the server-stamped runtime policy so subclasses can act on it (e.g. gate a read-time
+    // overlay) via currentRuntimePolicy(). It rides on every table-load response; absent => null,
+    // which every consumer treats as its safe default. Side-channel only: never sent back on
+    // writes.
+    this.runtimePolicy.set(tableResponse.map(GetTableResponseBody::getRuntimePolicy).orElse(null));
+    Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
