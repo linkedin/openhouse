@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -61,6 +62,21 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   @Getter(AccessLevel.PROTECTED)
   private String cluster;
 
+  /**
+   * The per-table client {@code config} (Iceberg REST {@code LoadTableResponse.config} convention)
+   * the OH server stamped onto the most recent table-load response (or {@code null} if none / not
+   * yet refreshed). A final holder keeps Lombok's all-args constructor unchanged.
+   */
+  private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
+
+  /**
+   * The server-stamped per-table client config from the last {@code doRefresh}, or {@code null}
+   * when absent. Subclasses read it to gate read-time behavior.
+   */
+  protected Map<String, String> currentConfig() {
+    return config.get();
+  }
+
   @Override
   protected String tableName() {
     return tableIdentifier.toString();
@@ -81,10 +97,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   @Override
   public void doRefresh() {
     log.info("Calling doRefresh for table: {}", tableName());
-    Optional<String> tableLocation =
+    Optional<GetTableResponseBody> tableResponse =
         tableApi
             .getTableV1(tableIdentifier.namespace().toString(), tableIdentifier.name())
-            .mapNotNull(GetTableResponseBody::getTableLocation)
             /*
              on 404 from table service, resume the stream as empty response.
              for any other error, surface it!
@@ -98,12 +113,16 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
+    // Capture the server-stamped per-table config so subclasses can gate read-time behavior via
+    // currentConfig(); absent => null. Side-channel only: never sent back on writes.
+    this.config.set(tableResponse.map(GetTableResponseBody::getConfig).orElse(null));
+    Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
-    // Read through loadMetadata() so subclasses can transform metadata as it loads. The 4-arg call
-    // with (null, 20) is the stock 1-arg behavior, with the parse step made overridable.
+    // Route the parse through loadMetadata() so subclasses can transform metadata as it loads;
+    // (null, 20) preserves the stock refresh behavior.
     super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
     log.debug("Calling doRefresh succeeded");
   }

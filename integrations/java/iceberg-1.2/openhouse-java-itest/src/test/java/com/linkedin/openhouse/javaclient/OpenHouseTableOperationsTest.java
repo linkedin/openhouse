@@ -4,12 +4,15 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
+import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.gen.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.gen.tables.client.model.History;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -478,5 +481,122 @@ public class OpenHouseTableOperationsTest {
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
     Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
     Assertions.assertEquals(true, updatedPolicies.getSharingEnabled());
+  }
+
+  private OpenHouseTableOperations refreshableOps(TableApi tableApi) {
+    return OpenHouseTableOperations.builder()
+        .tableIdentifier(TableIdentifier.of("db", "tbl"))
+        .fileIO(mock(FileIO.class))
+        .tableApi(tableApi)
+        .snapshotApi(mock(SnapshotApi.class))
+        .cluster("cluster")
+        .build();
+  }
+
+  /** Before any refresh, there is no server-stamped config, so the safe default is null. */
+  @Test
+  public void testCurrentConfigNullBeforeRefresh() {
+    Assertions.assertNull(refreshableOps(mock(TableApi.class)).currentConfig());
+  }
+
+  /** doRefresh stashes the server-stamped config so subclasses can read it back. */
+  @Test
+  public void testDoRefreshCapturesConfig() {
+    TableApi mockTableApi = mock(TableApi.class);
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+    GetTableResponseBody body = mock(GetTableResponseBody.class);
+    when(body.getTableLocation()).thenReturn(null);
+    when(body.getConfig()).thenReturn(stamped);
+    when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    ops.doRefresh();
+
+    Assertions.assertSame(stamped, ops.currentConfig());
+  }
+
+  /** Absent config on the response => null, the consumer's safe default. */
+  @Test
+  public void testDoRefreshNullConfigWhenAbsent() {
+    TableApi mockTableApi = mock(TableApi.class);
+    GetTableResponseBody body = mock(GetTableResponseBody.class);
+    when(body.getTableLocation()).thenReturn(null);
+    when(body.getConfig()).thenReturn(null);
+    when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    ops.doRefresh();
+
+    Assertions.assertNull(ops.currentConfig());
+  }
+
+  /**
+   * The held config is a snapshot of the latest refresh, never sticky: once the server stops
+   * stamping config, a subsequent refresh must clear the previously-captured value back to null.
+   * Guards against a stale directive lingering after the server turns it off.
+   */
+  @Test
+  public void testDoRefreshClearsStaleConfig() {
+    TableApi mockTableApi = mock(TableApi.class);
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(null);
+    when(withConfig.getConfig()).thenReturn(stamped);
+
+    GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
+    when(withoutConfig.getTableLocation()).thenReturn(null);
+    when(withoutConfig.getConfig()).thenReturn(null);
+
+    // First refresh stamps config, second refresh stops stamping it.
+    when(mockTableApi.getTableV1(anyString(), anyString()))
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(withoutConfig));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+
+    ops.doRefresh();
+    Assertions.assertNull(ops.currentConfig());
+  }
+
+  /**
+   * Wire contract: a server-stamped config map deserializes on the client (the Iceberg REST {@code
+   * LoadTableResponse.config} convention — a string map). This is how the value actually arrives on
+   * a real table-load response.
+   */
+  @Test
+  public void testConfigDeserializeFromResponse() throws Exception {
+    ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);
+    String json =
+        "{\"tableId\":\"tbl\",\"databaseId\":\"db\",\"config\":{"
+            + "\"openhouse.read-bridge\":\"{\\\"read\\\":\\\"ON\\\"}\"}}";
+
+    GetTableResponseBody body = mapper.readValue(json, GetTableResponseBody.class);
+    Map<String, String> config = body.getConfig();
+    Assertions.assertNotNull(config);
+    // value stays an opaque JSON string; the channel never parses it.
+    Assertions.assertEquals("{\"read\":\"ON\"}", config.get("openhouse.read-bridge"));
+  }
+
+  /**
+   * Unknown future fields must not break deserialization — older clients ignore what they do not
+   * understand (FAIL_ON_UNKNOWN_PROPERTIES=false), and unknown config keys are simply carried.
+   */
+  @Test
+  public void testConfigToleratesUnknownFields() throws Exception {
+    ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);
+    String json =
+        "{\"tableId\":\"tbl\",\"databaseId\":\"db\",\"someFutureField\":\"x\",\"config\":{"
+            + "\"openhouse.unknown-feature\":\"whatever\"}}";
+
+    GetTableResponseBody body = mapper.readValue(json, GetTableResponseBody.class);
+    Map<String, String> config = body.getConfig();
+    Assertions.assertNotNull(config);
+    Assertions.assertEquals("whatever", config.get("openhouse.unknown-feature"));
   }
 }

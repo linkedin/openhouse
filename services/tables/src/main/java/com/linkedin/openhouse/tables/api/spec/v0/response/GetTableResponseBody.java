@@ -106,6 +106,17 @@ public class GetTableResponseBody {
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String sortOrder;
 
+  @Schema(
+      nullable = true,
+      description =
+          "Server-stamped, per-table client configuration overrides, following the Iceberg REST "
+              + "`LoadTableResponse.config` convention: a string map the server controls at runtime "
+              + "without a client re-roll. READ_ONLY and advisory — absent/empty means today's "
+              + "behavior; clients ignore keys they do not understand. Keys are vendor-namespaced "
+              + "(e.g. `openhouse.read-bridge`). Distinct from the table-governance `policies` object.")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private Map<String, String> config;
+
   public String toJson() {
     return new Gson().toJson(this);
   }
