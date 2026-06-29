@@ -565,9 +565,9 @@ public class OpenHouseTableOperationsTest {
   }
 
   /**
-   * Wire contract: a server-stamped config map deserializes on the client (the Iceberg REST {@code
-   * LoadTableResponse.config} convention — a string map). This is how the value actually arrives on
-   * a real table-load response.
+   * Wire contract: a server-stamped config map deserializes on the client (the Iceberg REST
+   * {@code LoadTableResponse.config} convention — a string map). This is how the value actually
+   * arrives on a real table-load response.
    */
   @Test
   public void testConfigDeserializeFromResponse() throws Exception {
