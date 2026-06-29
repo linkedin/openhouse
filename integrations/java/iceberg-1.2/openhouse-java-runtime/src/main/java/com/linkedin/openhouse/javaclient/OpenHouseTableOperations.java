@@ -11,7 +11,6 @@ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageE
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
-import com.linkedin.openhouse.tables.client.model.FeatureFlags;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
@@ -64,18 +63,18 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
-   * The feature flags the OH server stamped onto the most recent table-load response (or {@code
-   * null} if none / not yet refreshed). Refresh-time state, not a constructor arg — a final holder
-   * keeps Lombok's all-args constructor unchanged. See {@link #currentFeatureFlags()}.
+   * The per-table client {@code config} (Iceberg REST {@code LoadTableResponse.config} convention)
+   * the OH server stamped onto the most recent table-load response (or {@code null} if none / not
+   * yet refreshed). A final holder keeps Lombok's all-args constructor unchanged.
    */
-  private final AtomicReference<FeatureFlags> featureFlags = new AtomicReference<>();
+  private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
   /**
-   * The server-stamped feature flags from the last {@code doRefresh}, or {@code null} when absent.
-   * Subclasses use it to gate read-time behavior; {@code null} is the safe default (do nothing).
+   * The server-stamped per-table client config from the last {@code doRefresh}, or {@code null}
+   * when absent. Subclasses read it to gate read-time behavior.
    */
-  protected FeatureFlags currentFeatureFlags() {
-    return featureFlags.get();
+  protected Map<String, String> currentConfig() {
+    return config.get();
   }
 
   @Override
@@ -114,18 +113,16 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
-    // Capture the server-stamped feature flags so subclasses can act on them (e.g. gate a read-time
-    // overlay) via currentFeatureFlags(). They ride on every table-load response; absent => null,
-    // which every consumer treats as its safe default. Side-channel only: never sent back on
-    // writes.
-    this.featureFlags.set(tableResponse.map(GetTableResponseBody::getFeatureFlags).orElse(null));
+    // Capture the server-stamped per-table config so subclasses can gate read-time behavior via
+    // currentConfig(); absent => null. Side-channel only: never sent back on writes.
+    this.config.set(tableResponse.map(GetTableResponseBody::getConfig).orElse(null));
     Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
-    // Read through loadMetadata() so subclasses can transform metadata as it loads. The 4-arg call
-    // with (null, 20) is the stock 1-arg behavior, with the parse step made overridable.
+    // Route the parse through loadMetadata() so subclasses can transform metadata as it loads;
+    // (null, 20) preserves the stock refresh behavior.
     super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
     log.debug("Calling doRefresh succeeded");
   }

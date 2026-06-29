@@ -6,8 +6,6 @@ import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBody;
-import com.linkedin.openhouse.gen.tables.client.model.FeatureFlag;
-import com.linkedin.openhouse.gen.tables.client.model.FeatureFlags;
 import com.linkedin.openhouse.gen.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.gen.tables.client.model.History;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
@@ -495,120 +493,110 @@ public class OpenHouseTableOperationsTest {
         .build();
   }
 
-  /** Before any refresh, there is no server-stamped policy, so the safe default is null. */
+  /** Before any refresh, there is no server-stamped config, so the safe default is null. */
   @Test
-  public void testCurrentFeatureFlagsNullBeforeRefresh() {
-    Assertions.assertNull(refreshableOps(mock(TableApi.class)).currentFeatureFlags());
+  public void testCurrentConfigNullBeforeRefresh() {
+    Assertions.assertNull(refreshableOps(mock(TableApi.class)).currentConfig());
   }
 
-  /** doRefresh stashes the server-stamped featureFlags so subclasses can read it back. */
+  /** doRefresh stashes the server-stamped config so subclasses can read it back. */
   @Test
-  public void testDoRefreshCapturesFeatureFlags() {
+  public void testDoRefreshCapturesConfig() {
     TableApi mockTableApi = mock(TableApi.class);
-    FeatureFlags stamped = mock(FeatureFlags.class);
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
     GetTableResponseBody body = mock(GetTableResponseBody.class);
     when(body.getTableLocation()).thenReturn(null);
-    when(body.getFeatureFlags()).thenReturn(stamped);
+    when(body.getConfig()).thenReturn(stamped);
     when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
 
     OpenHouseTableOperations ops = refreshableOps(mockTableApi);
     ops.doRefresh();
 
-    Assertions.assertSame(stamped, ops.currentFeatureFlags());
+    Assertions.assertSame(stamped, ops.currentConfig());
   }
 
-  /** Absent featureFlags on the response => null, the consumer's safe default. */
+  /** Absent config on the response => null, the consumer's safe default. */
   @Test
-  public void testDoRefreshNullFeatureFlagsWhenAbsent() {
+  public void testDoRefreshNullConfigWhenAbsent() {
     TableApi mockTableApi = mock(TableApi.class);
     GetTableResponseBody body = mock(GetTableResponseBody.class);
     when(body.getTableLocation()).thenReturn(null);
-    when(body.getFeatureFlags()).thenReturn(null);
+    when(body.getConfig()).thenReturn(null);
     when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
 
     OpenHouseTableOperations ops = refreshableOps(mockTableApi);
     ops.doRefresh();
 
-    Assertions.assertNull(ops.currentFeatureFlags());
+    Assertions.assertNull(ops.currentConfig());
   }
 
   /**
-   * The held policy is a snapshot of the latest refresh, never sticky: once the server stops
-   * stamping featureFlags, a subsequent refresh must clear the previously-captured value back to
-   * null. Guards against a stale directive lingering after the server turns it off.
+   * The held config is a snapshot of the latest refresh, never sticky: once the server stops
+   * stamping config, a subsequent refresh must clear the previously-captured value back to null.
+   * Guards against a stale directive lingering after the server turns it off.
    */
   @Test
-  public void testDoRefreshClearsStaleFeatureFlags() {
+  public void testDoRefreshClearsStaleConfig() {
     TableApi mockTableApi = mock(TableApi.class);
-    FeatureFlags stamped = mock(FeatureFlags.class);
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
 
-    GetTableResponseBody withFlags = mock(GetTableResponseBody.class);
-    when(withFlags.getTableLocation()).thenReturn(null);
-    when(withFlags.getFeatureFlags()).thenReturn(stamped);
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(null);
+    when(withConfig.getConfig()).thenReturn(stamped);
 
-    GetTableResponseBody withoutFlags = mock(GetTableResponseBody.class);
-    when(withoutFlags.getTableLocation()).thenReturn(null);
-    when(withoutFlags.getFeatureFlags()).thenReturn(null);
+    GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
+    when(withoutConfig.getTableLocation()).thenReturn(null);
+    when(withoutConfig.getConfig()).thenReturn(null);
 
-    // First refresh stamps flags, second refresh stops stamping them.
+    // First refresh stamps config, second refresh stops stamping it.
     when(mockTableApi.getTableV1(anyString(), anyString()))
-        .thenReturn(Mono.just(withFlags))
-        .thenReturn(Mono.just(withoutFlags));
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(withoutConfig));
 
     OpenHouseTableOperations ops = refreshableOps(mockTableApi);
 
     ops.doRefresh();
-    Assertions.assertSame(stamped, ops.currentFeatureFlags());
+    Assertions.assertSame(stamped, ops.currentConfig());
 
     ops.doRefresh();
-    Assertions.assertNull(ops.currentFeatureFlags());
+    Assertions.assertNull(ops.currentConfig());
   }
 
   /**
-   * Wire contract: a server-stamped featureFlags envelope deserializes into the generated READ_ONLY
-   * components on the client (the typed envelope + opaque per-feature payload). This is how the
-   * value actually arrives on a real table-load response.
+   * Wire contract: a server-stamped config map deserializes on the client (the Iceberg REST {@code
+   * LoadTableResponse.config} convention — a string map). This is how the value actually arrives on
+   * a real table-load response.
    */
   @Test
-  public void testFeatureFlagsDeserializeFromResponse() throws Exception {
+  public void testConfigDeserializeFromResponse() throws Exception {
     ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);
     String json =
-        "{\"tableId\":\"tbl\",\"databaseId\":\"db\",\"featureFlags\":{"
-            + "\"version\":1,\"serverTimeMs\":1718900000000,\"flags\":{"
-            + "\"read-bridge\":{\"enforcement\":\"REQUIRED\",\"minClientVersion\":\"1.2.1\","
-            + "\"reason\":\"canary\",\"payload\":\"{\\\"read\\\":\\\"ON\\\"}\"}}}}";
+        "{\"tableId\":\"tbl\",\"databaseId\":\"db\",\"config\":{"
+            + "\"openhouse.read-bridge\":\"{\\\"read\\\":\\\"ON\\\"}\"}}";
 
     GetTableResponseBody body = mapper.readValue(json, GetTableResponseBody.class);
-    FeatureFlags flags = body.getFeatureFlags();
-    Assertions.assertNotNull(flags);
-    Assertions.assertEquals(1, flags.getVersion());
-    Assertions.assertEquals(1718900000000L, flags.getServerTimeMs());
-
-    FeatureFlag readBridge = flags.getFlags().get("read-bridge");
-    Assertions.assertNotNull(readBridge);
-    Assertions.assertEquals("REQUIRED", readBridge.getEnforcement());
-    Assertions.assertEquals("1.2.1", readBridge.getMinClientVersion());
-    Assertions.assertEquals("canary", readBridge.getReason());
-    // payload stays an opaque JSON string; the envelope never parses it.
-    Assertions.assertEquals("{\"read\":\"ON\"}", readBridge.getPayload());
+    Map<String, String> config = body.getConfig();
+    Assertions.assertNotNull(config);
+    // value stays an opaque JSON string; the channel never parses it.
+    Assertions.assertEquals("{\"read\":\"ON\"}", config.get("openhouse.read-bridge"));
   }
 
   /**
-   * Unknown directive keys and unknown future fields must not break deserialization — older clients
-   * ignore what they do not understand (FAIL_ON_UNKNOWN_PROPERTIES=false).
+   * Unknown future fields must not break deserialization — older clients ignore what they do not
+   * understand (FAIL_ON_UNKNOWN_PROPERTIES=false), and unknown config keys are simply carried.
    */
   @Test
-  public void testFeatureFlagsToleratesUnknownFields() throws Exception {
+  public void testConfigToleratesUnknownFields() throws Exception {
     ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);
     String json =
-        "{\"tableId\":\"tbl\",\"databaseId\":\"db\",\"someFutureField\":\"x\",\"featureFlags\":{"
-            + "\"version\":2,\"someFutureEnvelopeField\":true,\"flags\":{"
-            + "\"unknown-feature\":{\"enforcement\":\"ADVISORY\",\"futureKnob\":42}}}}";
+        "{\"tableId\":\"tbl\",\"databaseId\":\"db\",\"someFutureField\":\"x\",\"config\":{"
+            + "\"openhouse.unknown-feature\":\"whatever\"}}";
 
     GetTableResponseBody body = mapper.readValue(json, GetTableResponseBody.class);
-    FeatureFlags flags = body.getFeatureFlags();
-    Assertions.assertNotNull(flags);
-    Assertions.assertEquals(2, flags.getVersion());
-    Assertions.assertEquals("ADVISORY", flags.getFlags().get("unknown-feature").getEnforcement());
+    Map<String, String> config = body.getConfig();
+    Assertions.assertNotNull(config);
+    Assertions.assertEquals("whatever", config.get("openhouse.unknown-feature"));
   }
 }
