@@ -13,6 +13,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -312,6 +313,12 @@ public class SnapshotsControllerTest {
   @MethodSource("responseBodyFeeder")
   public void testPutSnapshotsReplaceCommit(GetTableResponseBody getTableResponseBody)
       throws Exception {
+    // Enable RTAS and remove policy
+    Map<String, String> propsWithRtas = new HashMap<>(getTableResponseBody.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    getTableResponseBody =
+        getTableResponseBody.toBuilder().tableProperties(propsWithRtas).policies(null).build();
+
     // Step 1: Create a table
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(

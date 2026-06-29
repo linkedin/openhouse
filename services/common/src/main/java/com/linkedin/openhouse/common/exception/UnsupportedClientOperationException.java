@@ -20,6 +20,7 @@ public class UnsupportedClientOperationException extends RuntimeException {
     GRANT_ON_UNSHARED_TABLES,
     ALTER_TABLE_TYPE,
     GRANT_ON_LOCKED_TABLES,
-    LOCKED_TABLE_OPERATION
+    LOCKED_TABLE_OPERATION,
+    RTAS_DISABLED,
   }
 }

@@ -24,6 +24,7 @@ import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -36,6 +37,7 @@ import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +152,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           System.currentTimeMillis() - startTime);
     } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
+      validateReplaceTable(tableIdentifier);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -311,6 +314,55 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
     versionCheck(null, tableDto);
+  }
+
+  /**
+   * RTAS is only permitted when the {@value CatalogConstants#RTAS_ENABLED_TABLE_PROP} table
+   * property is set. And it is not allowed on table where WAP or replication is enabled.
+   *
+   * @param tableIdentifier identifier for the table
+   */
+  protected void validateReplaceTable(TableIdentifier tableIdentifier) {
+    // A replace is only permitted when RTAS is enabled on the table.
+    Table table = catalog.loadTable(tableIdentifier);
+    Map<String, String> existingProperties = table.properties();
+    if (!Boolean.parseBoolean(existingProperties.get(RTAS_ENABLED_TABLE_PROP))) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.RTAS_DISABLED,
+          String.format(
+              "REPLACE TABLE AS SELECT is not enabled for table openhouse.%s.%s. You can enable this feature with 'ALTER TABLE openhouse.%s.%s SET TBLPROPERTIES ('%s'='true')'",
+              tableIdentifier.namespace(),
+              tableIdentifier.name(),
+              tableIdentifier.namespace(),
+              tableIdentifier.name(),
+              RTAS_ENABLED_TABLE_PROP));
+    }
+
+    // RTAS is incompatible with WAP or replication.
+    boolean wapEnabled = Boolean.parseBoolean(existingProperties.get(WAP_ENABLED_TABLE_PROP));
+    Policies existingPolicies =
+        policiesMapper.toPoliciesObject(existingProperties.get(POLICIES_KEY));
+    boolean replicationEnabled =
+        existingPolicies != null
+            && existingPolicies.getReplication() != null
+            && existingPolicies.getReplication().getConfig() != null
+            && !existingPolicies.getReplication().getConfig().isEmpty();
+    if (wapEnabled || replicationEnabled) {
+      List<String> conflictingFeatures = new ArrayList<>();
+      if (wapEnabled) {
+        conflictingFeatures.add(String.format("WAP ('%s=true')", WAP_ENABLED_TABLE_PROP));
+      }
+      if (replicationEnabled) {
+        conflictingFeatures.add("replication");
+      }
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.RTAS_DISABLED,
+          String.format(
+              "REPLACE TABLE AS SELECT cannot be performed on table %s.%s while %s is enabled.",
+              tableIdentifier.namespace(),
+              tableIdentifier.name(),
+              String.join(" and ", conflictingFeatures)));
+    }
   }
 
   /**

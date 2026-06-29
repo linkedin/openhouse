@@ -752,6 +752,12 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
 
+      // RTAS is disabled by default; opt the table in before replacing it.
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+
       // replace the table using RTAS
       ops.spark()
           .sql(
