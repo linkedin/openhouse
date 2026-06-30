@@ -25,6 +25,16 @@ public interface TablesService {
   TableDto getTable(String databaseId, String tableId, String actingPrincipal);
 
   /**
+   * Check whether a table identified by databaseId and tableId exists, using a lightweight
+   * HouseTable reference lookup that does not parse metadata.json (i.e. no HDFS read).
+   *
+   * @param databaseId
+   * @param tableId
+   * @return true iff the table exists in the catalog.
+   */
+  boolean tableExists(String databaseId, String tableId);
+
+  /**
    * Given a databaseId, prepare list of {@link TableDto}s.
    *
    * @param databaseId
