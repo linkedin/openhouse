@@ -119,12 +119,15 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       // the metadata being committed is PRIMARY (not a REPLICA_TABLE update).
       boolean isReplicaCommit =
           getTableType(base, metadata) == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE;
-      if (metadataUpdated && snapshotsUpdated && base != null && !isReplicaCommit) {
+      if (isReplicaCommit) {
+        if (snapshotsUpdated) {
+          putSnapshots(base, metadata);
+        } else if (metadataUpdated) {
+          createUpdateTable(base, metadata);
+        }
+      } else if (metadataUpdated && snapshotsUpdated && base != null) {
         // Among PRIMARY-table commits, only CTAS and RTAS update both metadata and snapshots at
-        // the same time; when the table already exists this is an RTAS (replace) commit. REPLICA
-        // commits also touch both, but are excluded above via isReplicaCommit and handled by the
-        // regular putSnapshots path so the server preserves newIntermediateSchemas — the replace
-        // path would treat them as a fresh creation and drop the multi-schema deltas.
+        // the same time; when the table already exists this is an RTAS (replace) commit.
         putSnapshotsForReplace(base, metadata);
       } else if (snapshotsUpdated) {
         putSnapshots(base, metadata);
