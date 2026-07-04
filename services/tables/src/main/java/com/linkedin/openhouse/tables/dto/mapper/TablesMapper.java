@@ -133,6 +133,9 @@ public interface TablesMapper {
    *     com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody} to be forwarded to
    *     the client.
    */
+  // config is not sourced from TableDto; the API handler stamps the per-table client config onto
+  // the response separately, so the mapper leaves it null.
+  @Mapping(target = "config", ignore = true)
   GetTableResponseBody toGetTableResponseBody(TableDto tableDto);
 
   @Mappings({
