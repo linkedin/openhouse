@@ -265,6 +265,19 @@ public class JobsScheduler {
                   }
                   log.info("Shutdown hook completed.");
                 }));
+    log.info(
+        "OH_SCHED_START job_type={} numParallelJobs={} tasksWaitHours={} numJobsSubmitter={} "
+            + "numJobsPoller={} taskPollIntervalMs={} taskQueuedTimeoutMs={} taskTimeoutMs={} "
+            + "multiOperationMode={}",
+        operationType.getValue(),
+        getNumParallelJobs(cmdLine),
+        getTasksWaitHours(cmdLine),
+        getNumJobsSubmitter(cmdLine),
+        getNumJobsPoller(cmdLine),
+        getTaskPollIntervalMs(cmdLine),
+        getTaskQueuedTimeoutMs(cmdLine),
+        getTaskTimeoutMs(cmdLine),
+        isMultiOperationMode(cmdLine));
     app.run(
         operationType,
         operationTaskCls.toString(),
