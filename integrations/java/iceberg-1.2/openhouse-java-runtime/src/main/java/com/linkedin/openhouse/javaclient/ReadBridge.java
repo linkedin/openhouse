@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.TableMetadata;
 
 /**
@@ -19,11 +18,19 @@ import org.apache.iceberg.TableMetadata;
  * ReadBridgeConfigResolver} (services/tables). The contract is flat, namespaced config keys (no
  * envelope/POJO): {@code openhouse.read-bridge.column-default.<fieldId> = <single-value-json>}.
  *
- * <p>Kept out of {@link OpenHouseTableOperations} so the read path stays slim. Pure and
- * fail-closed: an entry with a non-integer field-id or an unparseable value is skipped, and nothing
- * to apply returns {@code raw} unchanged.
+ * <p>Kept out of {@link OpenHouseTableOperations} so the read path stays slim. A read-bridge entry
+ * is produced by the server encoder ({@code ReadBridgeConfigResolver}) from typed {@code JsonNode}s
+ * keyed by integer field-id, so its value always round-trips through {@code readTree} and its
+ * suffix always parses as an int. A decode failure on a *known* entry is therefore a bug or
+ * transport corruption, not an expected runtime state, and this fails loud rather than silently
+ * degrading to NULL. An *unknown* key (a newer server feature this client doesn't recognize) is
+ * ignored, preserving forward compatibility. With nothing to apply, {@code raw} is returned
+ * unchanged.
+ *
+ * <p>Note this guarantees only that a stamped value is <em>well-formed</em>, not that it is the
+ * <em>correct</em> default for its column — that semantic (default-to-schema) consistency is a
+ * write-time concern owned by whatever server path sources the defaults.
  */
-@Slf4j
 final class ReadBridge {
 
   /** Mirror of {@code ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX}. */
@@ -43,15 +50,19 @@ final class ReadBridge {
       return raw;
     }
     // TODO(read-bridge): overlay columnDefaults onto raw.schemas() via withSchemaOverlay; future V3
-    // features bridged from config are applied here too.
+    // features bridged from config are applied here too. Two failure categories apply there, as
+    // here: a capability gap we don't yet support degrades to NULL, while an invariant violation
+    // (e.g. a default that can't bind to its column) fails loud.
     return raw;
   }
 
   /**
    * Decodes {@code field-id -> initial-default} from the {@code
-   * openhouse.read-bridge.column-default.*} config entries; empty when there are none. Skips any
-   * entry with a non-integer field-id or an unparseable value (fail-closed). Package-visible for
-   * unit testing in isolation.
+   * openhouse.read-bridge.column-default.*} config entries; empty when there are none. On a known
+   * entry, the server encoder guarantees an integer field-id and a value that round-trips through
+   * {@code readTree}, so a non-integer field-id or an unparseable value is an encoder bug or
+   * transport corruption — it throws rather than degrading. Unknown keys are ignored above.
+   * Package-visible for unit testing in isolation.
    */
   static Map<Integer, JsonNode> columnDefaults(Map<String, String> config) {
     if (config == null) {
@@ -66,10 +77,16 @@ final class ReadBridge {
         int fieldId = Integer.parseInt(entry.getKey().substring(COLUMN_DEFAULT_PREFIX.length()));
         byFieldId.put(fieldId, MAPPER.readTree(entry.getValue()));
       } catch (RuntimeException | JsonProcessingException e) {
-        log.warn(
-            "Skipping unparseable read-bridge config entry {}={}",
-            entry.getKey(),
-            entry.getValue(),
+        // The server encoder stamps an int field-id and a JsonNode value that round-trips through
+        // readTree, so reaching here means an encoder bug or transport corruption, not an expected
+        // state. Fail loud so it is caught, rather than silently reading NULL.
+        throw new IllegalStateException(
+            "read-bridge: unusable "
+                + COLUMN_DEFAULT_PREFIX
+                + " entry "
+                + entry.getKey()
+                + "="
+                + entry.getValue(),
             e);
       }
     }

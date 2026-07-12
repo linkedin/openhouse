@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Collections;
@@ -35,11 +36,29 @@ class ReadBridgeTest {
   }
 
   @Test
-  void skipsEntriesWithBadFieldIdOrUnparseableValue() {
+  void failsLoudOnKnownEntryWithBadFieldId() {
+    // A non-integer field-id on a key we own can't come from the server encoder (it stamps int
+    // field-ids and JsonNode values), so it's a bug/corruption and throws rather than degrading.
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
-    config.put(PREFIX + "notAnInt", "\"x\""); // non-integer field-id -> skipped
-    config.put(PREFIX + "7", "{bad json"); // unparseable value -> skipped
+    config.put(PREFIX + "notAnInt", "\"x\"");
+    assertThrows(IllegalStateException.class, () -> ReadBridge.columnDefaults(config));
+  }
+
+  @Test
+  void failsLoudOnKnownEntryWithUnparseableValue() {
+    Map<String, String> config = new HashMap<>();
+    config.put(PREFIX + "7", "{bad json");
+    assertThrows(IllegalStateException.class, () -> ReadBridge.columnDefaults(config));
+  }
+
+  @Test
+  void ignoresUnknownKeysWithoutFailing() {
+    // Forward compatibility: a key outside the column-default prefix (e.g. a newer server feature)
+    // is ignored, never enforced — even if its value would not parse as a default.
+    Map<String, String> config = new HashMap<>();
+    config.put(PREFIX + "5", "\"US\"");
+    config.put("openhouse.read-bridge.some-future-feature.3", "{not a default}");
     assertEquals(1, ReadBridge.columnDefaults(config).size());
     assertEquals("US", ReadBridge.columnDefaults(config).get(5).asText());
   }
