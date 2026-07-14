@@ -67,6 +67,26 @@ task statementTest(type: Test) {
 task catalogTest(type: Test) {
   filter {
     includeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
+    // DeleteFileReplicationTestSpark needs a Hadoop fs.file.impl override
+    // (ReplicationTrackingLocalFileSystem) to actually observe the replication factor Iceberg
+    // requests when creating delete files. That override is fixed at SparkContext-creation
+    // time, so it must run in its own dedicated JVM/task (deleteFileReplicationTest) rather
+    // than sharing the SparkContext with the rest of this suite.
+    excludeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.DeleteFileReplicationTestSpark'
+  }
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    jvmArgs \
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
+  }
+}
+
+// Runs in its own dedicated Test task/JVM so its Hadoop fs.file.impl override
+// (ReplicationTrackingLocalFileSystem) never leaks into the shared SparkContext used by the
+// rest of this module's tests.
+task deleteFileReplicationTest(type: Test) {
+  filter {
+    includeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.DeleteFileReplicationTestSpark'
   }
   if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
     jvmArgs \
@@ -91,3 +111,4 @@ test {
 
 test.dependsOn statementTest
 statementTest.dependsOn catalogTest
+catalogTest.dependsOn deleteFileReplicationTest
