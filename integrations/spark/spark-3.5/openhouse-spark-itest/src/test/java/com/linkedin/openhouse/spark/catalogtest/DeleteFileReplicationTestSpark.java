@@ -3,13 +3,17 @@ package com.linkedin.openhouse.spark.catalogtest;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RawLocalFileSystem;
+import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.util.Progressable;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Test;
@@ -20,16 +24,13 @@ import org.junit.jupiter.api.Test;
  *
  * <p>These tests drive the full OpenHouse stack through SQL: the table property / session conf must
  * round-trip through the OpenHouse tables service, merge-on-read DELETE on an ORC table must
- * produce ORC position delete files, and — critically — the delete files must actually be created
- * with the requested replication factor.
+ * produce ORC position delete files, and the delete files must actually be created with the
+ * requested replication factor.
  *
- * <p>Hadoop's stock local filesystem support silently discards any requested replication factor (a
- * local disk has no concept of block replication), so the SparkSession created by these tests is
- * configured with {@link ReplicationTrackingLocalFileSystem}, a {@code fs.file.impl} override that
- * disables checksums and records the replication factor requested at file-creation time, surfacing
- * it back through the standard HadoopFS {@code getFileStatus(Path)} API. This lets these tests
- * assert on the real replication factor Iceberg's write path requested, not merely that a property
- * round-tripped through table metadata.
+ * <p>A local disk has no concept of block replication, so the SparkSession is configured with
+ * {@link CaptureReplicationFileSystem} as {@code fs.file.impl}: a bare {@link RawLocalFileSystem}
+ * that records the replication factor passed to {@code create(...)} — exactly what HDFS would
+ * receive in production.
  *
  * <p>This only works because these two tests are executed in their own dedicated Gradle test task
  * ({@code deleteFileReplicationTest}), which runs in an isolated JVM/SparkContext: the {@code
@@ -40,9 +41,9 @@ public class DeleteFileReplicationTestSpark extends OpenHouseSparkITest {
 
   private static final String DATABASE = "d1_delete_repl";
 
-  private SparkSession getReplicationTrackingSparkSession() throws Exception {
+  private SparkSession getReplicationCapturingSparkSession() throws Exception {
     Map<String, String> overrides = new HashMap<>();
-    overrides.put("spark.hadoop.fs.file.impl", ReplicationTrackingLocalFileSystem.class.getName());
+    overrides.put("spark.hadoop.fs.file.impl", CaptureReplicationFileSystem.class.getName());
     // Hadoop's FileSystem.get(...) caches instances process-wide, keyed only by URI/UGI, not by
     // the Configuration used to create them. LocalStorageClient's own local filesystem is
     // initialized (and cached) before this SparkSession exists, so without disabling the cache
@@ -55,7 +56,7 @@ public class DeleteFileReplicationTestSpark extends OpenHouseSparkITest {
   @Test
   public void testDeleteFileReplicationFromTableProperty() throws Exception {
     String tableName = "openhouse." + DATABASE + ".orc_tbl_prop";
-    try (SparkSession spark = getReplicationTrackingSparkSession()) {
+    try (SparkSession spark = getReplicationCapturingSparkSession()) {
       spark.sql(
           "CREATE TABLE "
               + tableName
@@ -86,7 +87,7 @@ public class DeleteFileReplicationTestSpark extends OpenHouseSparkITest {
   public void testDeleteFileReplicationFromSessionConf() throws Exception {
     String tableName = "openhouse." + DATABASE + ".orc_tbl_conf";
     String confKey = "spark.sql.iceberg.delete-file-replication";
-    try (SparkSession spark = getReplicationTrackingSparkSession()) {
+    try (SparkSession spark = getReplicationCapturingSparkSession()) {
       spark.sql(
           "CREATE TABLE "
               + tableName
@@ -115,26 +116,16 @@ public class DeleteFileReplicationTestSpark extends OpenHouseSparkITest {
   }
 
   /**
-   * Verifies, via HadoopFS, that every ORC position delete file produced for {@code tableName} was
-   * actually created with {@code expectedReplication}, and that the delete files collectively cover
-   * the two deleted rows.
+   * Verifies that every ORC position delete file produced for {@code tableName} was created with
+   * {@code expectedReplication}, and that the delete files collectively cover the two deleted rows.
    */
   private void assertDeleteFilesHaveReplication(
-      SparkSession spark, String tableName, short expectedReplication) throws Exception {
+      SparkSession spark, String tableName, short expectedReplication) {
     List<Row> deleteFiles =
         spark
             .sql("SELECT file_path, record_count FROM " + tableName + ".delete_files")
             .collectAsList();
     assertFalse(deleteFiles.isEmpty(), "DELETE should produce position delete files");
-
-    Configuration hadoopConf = spark.sparkContext().hadoopConfiguration();
-    FileSystem fs = FileSystem.get(hadoopConf);
-    assertTrue(
-        fs instanceof ReplicationTrackingLocalFileSystem,
-        "Test filesystem override did not apply; expected a fresh SparkContext with "
-            + "fs.file.impl set to ReplicationTrackingLocalFileSystem, got: "
-            + fs.getClass().getName());
-    ReplicationTrackingLocalFileSystem trackingFs = (ReplicationTrackingLocalFileSystem) fs;
 
     long deletedRecords = 0;
     for (Row deleteFile : deleteFiles) {
@@ -142,16 +133,10 @@ public class DeleteFileReplicationTestSpark extends OpenHouseSparkITest {
       assertTrue(filePath.endsWith(".orc"), "Delete file should be ORC: " + filePath);
       deletedRecords += deleteFile.getLong(1);
 
-      short actualReplication = trackingFs.getRequestedReplication(new Path(filePath));
       assertEquals(
           expectedReplication,
-          actualReplication,
-          "Delete file "
-              + filePath
-              + " should have been created with replication factor "
-              + expectedReplication
-              + " but was created with "
-              + actualReplication);
+          CaptureReplicationFileSystem.capturedReplication(filePath),
+          "Delete file " + filePath + " should be created with replication " + expectedReplication);
     }
     assertEquals(2, deletedRecords, "Position delete files should cover the two deleted rows");
   }
@@ -159,5 +144,57 @@ public class DeleteFileReplicationTestSpark extends OpenHouseSparkITest {
   private static Map<String, String> tableProperties(SparkSession spark, String tableName) {
     return spark.sql("SHOW TBLPROPERTIES " + tableName).collectAsList().stream()
         .collect(Collectors.toMap(row -> row.getString(0), (Row row) -> row.getString(1)));
+  }
+
+  /**
+   * Local filesystem that records the replication factor passed to {@code create(...)}. The two
+   * public create overloads below are independent entry points on {@link RawLocalFileSystem}, so
+   * both are overridden; using {@link RawLocalFileSystem} directly keeps {@code ChecksumFileSystem}
+   * out of the path (it would drop the replication argument before it reaches this class).
+   */
+  public static class CaptureReplicationFileSystem extends RawLocalFileSystem {
+    // static because fs.file.impl.disable.cache makes FileSystem.get(...) return a new instance
+    // per call: the instance used by Iceberg's write path and the one visible to assertions differ
+    private static final Map<String, Short> CAPTURED = new ConcurrentHashMap<>();
+
+    static short capturedReplication(String location) {
+      Short replication = CAPTURED.get(new Path(location).getName());
+      assertNotNull(replication, "No file creation was captured for " + location);
+      return replication;
+    }
+
+    @Override
+    public String getScheme() {
+      // RawLocalFileSystem does not implement getScheme(), but Iceberg's locality check calls it
+      return "file";
+    }
+
+    @Override
+    public FSDataOutputStream create(
+        Path path,
+        boolean overwrite,
+        int bufferSize,
+        short replication,
+        long blockSize,
+        Progressable progress)
+        throws IOException {
+      CAPTURED.put(path.getName(), replication);
+      return super.create(path, overwrite, bufferSize, replication, blockSize, progress);
+    }
+
+    @Override
+    public FSDataOutputStream create(
+        Path path,
+        FsPermission permission,
+        boolean overwrite,
+        int bufferSize,
+        short replication,
+        long blockSize,
+        Progressable progress)
+        throws IOException {
+      CAPTURED.put(path.getName(), replication);
+      return super.create(
+          path, permission, overwrite, bufferSize, replication, blockSize, progress);
+    }
   }
 }
