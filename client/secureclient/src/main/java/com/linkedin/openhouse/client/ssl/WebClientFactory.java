@@ -33,7 +33,7 @@ public abstract class WebClientFactory {
   // Fallback when the client jar manifest carries no Implementation-Version (e.g. running from
   // classes during local/dev/tests) and no explicit version was set.
   private static final String CLIENT_VERSION_UNKNOWN = "unknown";
-  private static final int IN_MEMORY_BUFFER_SIZE = 20 * 1024 * 1024;
+  private static final int IN_MEMORY_BUFFER_SIZE = 40 * 1024 * 1024;
   // The maximum number of connections per connection pool
   private static final int MAX_CONNECTION_POOL_SIZE = 500;
   // Max time to keep requests in pending queue before acquiring a connection
