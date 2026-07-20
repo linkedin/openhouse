@@ -5,11 +5,14 @@ import static org.apache.iceberg.types.Types.NestedField.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.List;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -147,15 +150,49 @@ class RetentionPolicySpecValidatorTest {
         validator.validate(
             requestBodyMissingPatternAndTimePartitionSpec, TableUri.builder().build()));
 
-    // Positive: Only have pattern but no timepartitionSpec
+    // Positive: Only have pattern but no timepartitionSpec, and retention column is a
+    // clustering column.
     CreateUpdateTableRequestBody requestBodyNoTimePartitionSpec =
         createRequestBodyWithRetentionPolicy(
-            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").build(),
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").columnName("aa").build(),
             1,
             TimePartitionSpec.Granularity.DAY,
-            null);
+            null,
+            Collections.singletonList(ClusteringColumn.builder().columnName("aa").build()));
     Assertions.assertTrue(
         validator.validate(requestBodyNoTimePartitionSpec, TableUri.builder().build()));
+
+    // Negative: non-time-partitioned table with retention column that is NOT a clustering column.
+    CreateUpdateTableRequestBody requestBodyNonPartitionRetentionColumn =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").columnName("aa").build(),
+            1,
+            TimePartitionSpec.Granularity.DAY,
+            null,
+            Collections.singletonList(ClusteringColumn.builder().columnName("id").build()));
+    Assertions.assertFalse(
+        validator.validate(requestBodyNonPartitionRetentionColumn, TableUri.builder().build()));
+
+    Field failureMessageField =
+        org.springframework.util.ReflectionUtils.findField(
+            RetentionPolicySpecValidator.class, "failureMessage");
+    Assertions.assertNotNull(failureMessageField);
+    org.springframework.util.ReflectionUtils.makeAccessible(failureMessageField);
+    Assertions.assertTrue(
+        ((String) org.springframework.util.ReflectionUtils.getField(failureMessageField, validator))
+            .contains("must be one of the clustering columns"));
+
+    // Negative: non-time-partitioned table with retention column when no clustering is defined
+    // (fully non-partitioned table).
+    CreateUpdateTableRequestBody requestBodyNoPartitioningAtAll =
+        createRequestBodyWithRetentionPolicy(
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").columnName("aa").build(),
+            1,
+            TimePartitionSpec.Granularity.DAY,
+            null,
+            null);
+    Assertions.assertFalse(
+        validator.validate(requestBodyNoPartitioningAtAll, TableUri.builder().build()));
 
     // Negative: Having both timepartitionspec AND pattern
     CreateUpdateTableRequestBody requestBodyBothPatternAndTimePartitionSpec =
@@ -225,6 +262,16 @@ class RetentionPolicySpecValidatorTest {
       int retentionCount,
       TimePartitionSpec.Granularity granularity,
       TimePartitionSpec timePartitioning) {
+    return createRequestBodyWithRetentionPolicy(
+        pattern, retentionCount, granularity, timePartitioning, null);
+  }
+
+  private CreateUpdateTableRequestBody createRequestBodyWithRetentionPolicy(
+      RetentionColumnPattern pattern,
+      int retentionCount,
+      TimePartitionSpec.Granularity granularity,
+      TimePartitionSpec timePartitioning,
+      List<ClusteringColumn> clustering) {
     Retention retention =
         Retention.builder()
             .count(retentionCount)
@@ -236,6 +283,7 @@ class RetentionPolicySpecValidatorTest {
         .policies(policiesInvalidColumnNameCasing)
         .schema(getSchemaJsonFromSchema(dummySchema))
         .timePartitioning(timePartitioning)
+        .clustering(clustering)
         .build();
   }
 }
