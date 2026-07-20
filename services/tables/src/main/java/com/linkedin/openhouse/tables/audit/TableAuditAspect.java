@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import javax.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
@@ -36,7 +37,11 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Aspect class to support table operation auditing for all controllers. It enhances the ability of
@@ -59,6 +64,12 @@ public class TableAuditAspect {
    * config is bound once at startup, so a one-shot lazy init is sufficient.
    */
   private volatile List<Pattern> allowlistPatterns;
+
+  // Iceberg serializes a snapshot's operation as a separate top-level field rather than inside the
+  // summary map (SnapshotParser parses it out into Snapshot#operation), so there is no public
+  // constant for this key. We merge it back into the emitted summary under this name to mirror the
+  // on-disk JSON.
+  private static final String SNAPSHOT_OPERATION_KEY = "operation";
 
   /**
    * Install the Around advice for getTable() method in OpenHouseTablesApiHandler.
@@ -455,6 +466,7 @@ public class TableAuditAspect {
         Snapshot snapshot = SnapshotParser.fromJson(snapshotJson);
         if (snapshot.snapshotId() == mainSnapshotId) {
           eventBuilder.currentSnapshotTimestampMs(snapshot.timestampMillis());
+          eventBuilder.snapshotSummary(buildSnapshotSummary(snapshot));
           return;
         }
       }
@@ -462,6 +474,21 @@ public class TableAuditAspect {
       // Snapshot extraction is best-effort; don't fail the audit event
       log.warn("Failed to extract snapshot info for audit event", e);
     }
+  }
+
+  /**
+   * Builds the emitted snapshot summary: the snapshot's own summary map plus its operation (which
+   * Iceberg parses out of the summary into a separate field), mirroring the on-disk JSON.
+   */
+  private static Map<String, String> buildSnapshotSummary(Snapshot snapshot) {
+    Map<String, String> summary = new HashMap<>();
+    if (snapshot.summary() != null) {
+      summary.putAll(snapshot.summary());
+    }
+    if (snapshot.operation() != null) {
+      summary.put(SNAPSHOT_OPERATION_KEY, snapshot.operation());
+    }
+    return summary;
   }
 
   /** Install the Around advice for getAllDatabases() method in OpenHouseDatabasesApiHandler */
@@ -662,7 +689,28 @@ public class TableAuditAspect {
             .user(extractAuthenticatedUserPrincipal())
             .operationStatus(status)
             .currentTableRoot(currentTableRoot)
+            .clientUserAgent(extractUserAgent())
             .build();
     tableAuditHandler.audit(completeEvent);
+  }
+
+  /**
+   * Reads the raw {@code User-Agent} request header verbatim, or null when no servlet request is
+   * bound to the current thread (e.g. async or test contexts). The value is stored unparsed so the
+   * client runtime version can be extracted at query time. Best-effort: a failure here must never
+   * disrupt the audited operation. Mirrors the request access in {@link
+   * com.linkedin.openhouse.common.audit.ServiceAuditAspect}.
+   */
+  private String extractUserAgent() {
+    try {
+      RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+      if (requestAttributes instanceof ServletRequestAttributes) {
+        HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+        return request.getHeader(HttpHeaders.USER_AGENT);
+      }
+    } catch (Exception e) {
+      log.warn("Failed to read User-Agent header for audit event", e);
+    }
+    return null;
   }
 }

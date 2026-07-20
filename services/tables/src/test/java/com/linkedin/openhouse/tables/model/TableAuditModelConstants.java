@@ -9,7 +9,11 @@ public final class TableAuditModelConstants {
   private static final String USER = "testUser";
   private static final String MOCK_USER = "DUMMY_ANONYMOUS_USER";
 
-  public static final String[] EXCLUDE_FIELDS = new String[] {"eventTimestamp", "currentTableRoot"};
+  // snapshotSummary (the full verbatim Iceberg summary map) is excluded from reflection-based
+  // comparisons; it is asserted explicitly where it matters rather than baked into every expected
+  // constant.
+  public static final String[] EXCLUDE_FIELDS =
+      new String[] {"eventTimestamp", "currentTableRoot", "snapshotSummary"};
 
   public static final TableAuditEvent TABLE_AUDIT_EVENT_CREATE_TABLE_SUCCESS_E2E =
       TableAuditEvent.builder()
