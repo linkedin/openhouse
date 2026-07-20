@@ -141,9 +141,23 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     boolean metadataUpdated = isMetadataUpdated(base, metadata);
     boolean snapshotsUpdated = areSnapshotsUpdated(base, metadata);
     try {
-      if (metadataUpdated && snapshotsUpdated && base != null) {
-        // Only CTAS and RTAS can update both metadata and snapshots at the same time.
-        // When the table exists, it will be a replace commit operation.
+      // REPLICA_TABLE commits from cross-cluster replication can update both
+      // metadata (schema, properties) and snapshots in one commit. They must go through the
+      // regular putSnapshots path so the server's update branch can apply newIntermediateSchemas;
+      // the replace path treats the commit as a fresh table creation and does not preserve
+      // multi-schema delta semantics. Reserve putSnapshotsForReplace for genuine CTAS/RTAS, where
+      // the metadata being committed is PRIMARY (not a REPLICA_TABLE update).
+      boolean isReplicaCommit =
+          getTableType(base, metadata) == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE;
+      if (isReplicaCommit) {
+        if (snapshotsUpdated) {
+          putSnapshots(base, metadata);
+        } else if (metadataUpdated) {
+          createUpdateTable(base, metadata);
+        }
+      } else if (metadataUpdated && snapshotsUpdated && base != null) {
+        // Among PRIMARY-table commits, only CTAS and RTAS update both metadata and snapshots at
+        // the same time; when the table already exists this is an RTAS (replace) commit.
         putSnapshotsForReplace(base, metadata);
       } else if (snapshotsUpdated) {
         putSnapshots(base, metadata);
@@ -248,29 +262,38 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   /**
    * If request is coming from replication process, createUpdateTableRequestBody.tableType should be
    * REPLICA_TABLE Replication process requests are identified based on difference between table
-   * types and cluster_id between base, metadata
+   * types and cluster_id between base, metadata.
+   *
+   * <p>Returns {@code null} when the {@code openhouse.tableType} property is absent. Legacy tables
+   * created before the property existed don't carry it (the server back-fills them to PRIMARY_TABLE
+   * on write — see OpenHouseInternalRepositoryImpl#checkIfTableTypeAdded), so callers must tolerate
+   * a null result rather than assuming the property is always present.
    */
   @VisibleForTesting
   CreateUpdateTableRequestBody.TableTypeEnum getTableType(
       TableMetadata base, TableMetadata metadata) {
+    String metaTypeStr = metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY);
     if (base != null) {
-      CreateUpdateTableRequestBody.TableTypeEnum baseTableType =
-          CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
-              base.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
-      CreateUpdateTableRequestBody.TableTypeEnum metadataTableType =
-          CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
-              metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
-      // check if commit request is from replication case
-      if (baseTableType == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE
-          && metadataTableType == CreateUpdateTableRequestBody.TableTypeEnum.PRIMARY_TABLE
-          && !base.properties()
-              .get(OPENHOUSE_CLUSTER_ID_KEY)
-              .equals(metadata.properties().get(OPENHOUSE_CLUSTER_ID_KEY))) {
-        return baseTableType;
+      String baseTypeStr = base.properties().get(OPENHOUSE_TABLE_TYPE_KEY);
+      if (baseTypeStr != null && metaTypeStr != null) {
+        CreateUpdateTableRequestBody.TableTypeEnum baseTableType =
+            CreateUpdateTableRequestBody.TableTypeEnum.valueOf(baseTypeStr);
+        CreateUpdateTableRequestBody.TableTypeEnum metadataTableType =
+            CreateUpdateTableRequestBody.TableTypeEnum.valueOf(metaTypeStr);
+        String baseCluster = base.properties().get(OPENHOUSE_CLUSTER_ID_KEY);
+        String metaCluster = metadata.properties().get(OPENHOUSE_CLUSTER_ID_KEY);
+        // check if commit request is from replication case
+        if (baseTableType == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE
+            && metadataTableType == CreateUpdateTableRequestBody.TableTypeEnum.PRIMARY_TABLE
+            && baseCluster != null
+            && !baseCluster.equals(metaCluster)) {
+          return baseTableType;
+        }
       }
     }
-    return CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
-        metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
+    return metaTypeStr != null
+        ? CreateUpdateTableRequestBody.TableTypeEnum.valueOf(metaTypeStr)
+        : null;
   }
 
   @VisibleForTesting

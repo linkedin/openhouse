@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
@@ -8,6 +10,7 @@ import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.gen.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.gen.tables.client.model.History;
+import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
@@ -35,6 +38,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 public class OpenHouseTableOperationsTest {
 
@@ -459,6 +463,116 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(
         History.GranularityEnum.DAY, updatedPolicies.getHistory().getGranularity());
     Assertions.assertEquals(2, updatedPolicies.getHistory().getVersions());
+  }
+
+  /**
+   * Replication commits from cross-cluster can update both metadata (schema, properties) and
+   * snapshots in one commit. They must not be routed through the RTAS replace path because the
+   * server's replace branch treats the commit as a fresh table creation and does not preserve the
+   * multi-schema-delta intermediate-schemas plumbing. This test pins the dispatch fix that sends
+   * REPLICA_TABLE commits through {@code putSnapshots} (regular update) instead of {@code
+   * putSnapshotsForReplace} (RTAS).
+   */
+  @Test
+  public void testDoCommitRoutesReplicaTableThroughPutSnapshotsNotReplace() {
+    TableIdentifier id = TableIdentifier.of("a", "b");
+    FileIO mockFileIO = mock(FileIO.class);
+    TableApi mockTableApi = mock(TableApi.class);
+    SnapshotApi mockSnapshotApi = mock(SnapshotApi.class);
+    OpenHouseTableOperationsForTest openHouseTableOperations =
+        new OpenHouseTableOperationsForTest(
+            id, mockFileIO, mockTableApi, mockSnapshotApi, "cluster");
+
+    TableMetadata metadata = mock(TableMetadata.class);
+    TableMetadata base = mock(TableMetadata.class);
+
+    // schemas differ → isMetadataUpdated == true
+    when(metadata.schema()).thenReturn(mock(Schema.class));
+    when(base.schema()).thenReturn(mock(Schema.class));
+
+    // base = REPLICA_TABLE on dest cluster; metadata = PRIMARY_TABLE on src cluster (cross-cluster
+    // replication). This is what getTableType uses to detect a REPLICA commit.
+    Map<String, String> baseProps =
+        ImmutableMap.of(
+            "openhouse.tableType", "REPLICA_TABLE",
+            "openhouse.clusterId", "dest-cluster");
+    Map<String, String> metaProps =
+        ImmutableMap.of(
+            "openhouse.tableType", "PRIMARY_TABLE",
+            "openhouse.clusterId", "src-cluster");
+    when(base.properties()).thenReturn(baseProps);
+    when(metadata.properties()).thenReturn(metaProps);
+
+    // snapshots differ → areSnapshotsUpdated == true (so dispatch sees BOTH updated)
+    when(base.snapshots()).thenReturn(Collections.emptyList());
+    when(metadata.snapshots()).thenReturn(Collections.singletonList(mock(Snapshot.class)));
+    when(base.refs()).thenReturn(Collections.emptyMap());
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any())).thenReturn(Mono.empty());
+
+    openHouseTableOperations.doCommit(base, metadata);
+
+    ArgumentCaptor<IcebergSnapshotsRequestBody> bodyCaptor =
+        ArgumentCaptor.forClass(IcebergSnapshotsRequestBody.class);
+    verify(mockSnapshotApi).putSnapshotsV1(anyString(), anyString(), bodyCaptor.capture());
+    // putSnapshots (regular) sets replaceCommit=null/false; putSnapshotsForReplace would set true.
+    // Pre-fix, this dispatched to putSnapshotsForReplace and the server's replace branch lost the
+    // newIntermediateSchemas; the assertion below fails on the unfixed version.
+    Boolean replaceCommit =
+        bodyCaptor.getValue().getCreateUpdateTableRequestBody().getReplaceCommit();
+    Assertions.assertTrue(
+        replaceCommit == null || !replaceCommit,
+        "REPLICA_TABLE commits must route through putSnapshots, not putSnapshotsForReplace");
+  }
+
+  /**
+   * Companion to {@link #testDoCommitRoutesReplicaTableThroughPutSnapshotsNotReplace} — when the
+   * commit is NOT a replication commit (e.g. genuine RTAS where metadata.tableType is PRIMARY_TABLE
+   * and clusters match), the dispatch should still go through {@code putSnapshotsForReplace}. This
+   * pins the original behavior is preserved for actual RTAS use cases.
+   */
+  @Test
+  public void testDoCommitRoutesPrimaryRtasThroughPutSnapshotsForReplace() {
+    TableIdentifier id = TableIdentifier.of("a", "b");
+    FileIO mockFileIO = mock(FileIO.class);
+    TableApi mockTableApi = mock(TableApi.class);
+    SnapshotApi mockSnapshotApi = mock(SnapshotApi.class);
+    OpenHouseTableOperationsForTest openHouseTableOperations =
+        new OpenHouseTableOperationsForTest(
+            id, mockFileIO, mockTableApi, mockSnapshotApi, "cluster");
+
+    TableMetadata metadata = mock(TableMetadata.class);
+    TableMetadata base = mock(TableMetadata.class);
+
+    when(metadata.schema()).thenReturn(mock(Schema.class));
+    when(base.schema()).thenReturn(mock(Schema.class));
+
+    // RTAS: both base and metadata are PRIMARY_TABLE on the same cluster.
+    Map<String, String> sameClusterPrimary =
+        ImmutableMap.of(
+            "openhouse.tableType", "PRIMARY_TABLE",
+            "openhouse.clusterId", "cluster");
+    when(base.properties()).thenReturn(sameClusterPrimary);
+    when(metadata.properties()).thenReturn(sameClusterPrimary);
+
+    when(base.snapshots()).thenReturn(Collections.emptyList());
+    when(metadata.snapshots()).thenReturn(Collections.singletonList(mock(Snapshot.class)));
+    when(base.refs()).thenReturn(Collections.emptyMap());
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any())).thenReturn(Mono.empty());
+
+    openHouseTableOperations.doCommit(base, metadata);
+
+    ArgumentCaptor<IcebergSnapshotsRequestBody> bodyCaptor =
+        ArgumentCaptor.forClass(IcebergSnapshotsRequestBody.class);
+    verify(mockSnapshotApi).putSnapshotsV1(anyString(), anyString(), bodyCaptor.capture());
+    Boolean replaceCommit =
+        bodyCaptor.getValue().getCreateUpdateTableRequestBody().getReplaceCommit();
+    Assertions.assertTrue(
+        Boolean.TRUE.equals(replaceCommit),
+        "Genuine RTAS commit on a PRIMARY table must still route through putSnapshotsForReplace");
   }
 
   @Test
