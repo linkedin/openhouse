@@ -569,6 +569,45 @@ public class RepositoryTest {
   }
 
   @Test
+  void testColumnRenameIsRejectedNotSilentlyDropped() {
+    // Regression guard: renaming a column (same field id, genuinely different name) must be
+    // rejected loudly through save(), not silently reverted to the old name and dropped as a no-op.
+    // The casing normalizer previously rewrote the new name back to the old one, so the schemas
+    // compared equal and validation was skipped.
+    Schema oldSchema =
+        new Schema(
+            required(1, "id", Types.StringType.get()), required(2, "count", Types.LongType.get()));
+    Schema renamedSchema =
+        new Schema(
+            required(1, "user_id", Types.StringType.get()), // id=1 renamed: id -> user_id
+            required(2, "count", Types.LongType.get()));
+
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .schema(SchemaParser.toJson(oldSchema, false))
+            .timePartitioning(null)
+            .clustering(null)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+
+    TableDto renameDto =
+        createdDto
+            .toBuilder()
+            .schema(SchemaParser.toJson(renamedSchema, false))
+            .tableVersion(createdDto.getTableLocation())
+            .build();
+
+    Assertions.assertThrows(
+        InvalidSchemaEvolutionException.class, () -> openHouseInternalRepository.save(renameDto));
+
+    TableDtoPrimaryKey primaryKey = getPrimaryKey(TABLE_DTO);
+    openHouseInternalRepository.deleteById(primaryKey);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
   void testSchemaEvolutionWithMismatchedFieldId() {
     Schema oldSchema =
         new Schema(
