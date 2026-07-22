@@ -599,8 +599,15 @@ public class RepositoryTest {
             .tableVersion(createdDto.getTableLocation())
             .build();
 
-    Assertions.assertThrows(
-        InvalidSchemaEvolutionException.class, () -> openHouseInternalRepository.save(renameDto));
+    InvalidSchemaEvolutionException thrown =
+        Assertions.assertThrows(
+            InvalidSchemaEvolutionException.class,
+            () -> openHouseInternalRepository.save(renameDto));
+    // Validate the *specific* failure: the rename is detected because the old column "id" is no
+    // longer present in the new schema (it was renamed to "user_id"), not some generic error.
+    Assertions.assertTrue(
+        thrown.getMessage().contains("Column[id] not found in newSchema"),
+        "expected the missing-renamed-column error, got: " + thrown.getMessage());
 
     TableDtoPrimaryKey primaryKey = getPrimaryKey(TABLE_DTO);
     openHouseInternalRepository.deleteById(primaryKey);
