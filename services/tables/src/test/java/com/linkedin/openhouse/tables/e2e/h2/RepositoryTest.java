@@ -14,6 +14,8 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -200,6 +202,61 @@ public class RepositoryTest {
             .build();
     openHouseInternalRepository.deleteById(replacePk);
     Assertions.assertFalse(openHouseInternalRepository.existsById(replacePk));
+  }
+
+  @Test
+  public void testReplaceAppliesRequestedPolicies() {
+    // Create a table with a retention policy (count=3) and RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceAppliesPolicies")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(3)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertEquals(3, createdDto.getPolicies().getRetention().getCount());
+
+    // RTAS that PROVIDES a new retention policy -> the request's policy must be applied.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(8)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    Assertions.assertEquals(
+        8,
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS should apply the retention policy provided on the request");
+
+    // Cleanup
+    TableDtoPrimaryKey appliesPk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceAppliesPolicies")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(appliesPk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(appliesPk));
   }
 
   @Test
