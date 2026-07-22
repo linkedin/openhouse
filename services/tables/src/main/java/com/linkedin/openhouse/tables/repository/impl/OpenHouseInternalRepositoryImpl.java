@@ -155,7 +155,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       validateReplaceTable(tableIdentifier);
       // Policies are governance metadata (retention, sharing, PII column tags, replication,
       // history, lock) that must survive a replace. Merge the existing table's policies with the
-      // request's so RTAS never silently drops the planes the request omits.
+      // request's so RTAS consistently merges properties.
       tableDto = mergePoliciesFromExistingTable(tableIdentifier, tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
