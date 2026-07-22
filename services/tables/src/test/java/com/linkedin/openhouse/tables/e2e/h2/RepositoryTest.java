@@ -9,6 +9,7 @@ import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -153,6 +154,52 @@ public class RepositoryTest {
             .build();
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
+  public void testReplaceMergesExistingPolicies() {
+    // Create a table with a retention policy and RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceMergesPolicies")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(TABLE_POLICIES_COMPLEX)
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertNotNull(createdDto.getPolicies());
+    Assertions.assertNotNull(createdDto.getPolicies().getRetention());
+
+    // CREATE OR REPLACE (RTAS) the table WITHOUT specifying policies.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(null)
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    // Policies must be carried forward (merged), not silently wiped.
+    Assertions.assertNotNull(replacedDto.getPolicies(), "RTAS wiped the policies plane");
+    Assertions.assertNotNull(
+        replacedDto.getPolicies().getRetention(), "RTAS dropped the retention policy");
+    Assertions.assertEquals(
+        createdDto.getPolicies().getRetention().getCount(),
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS changed the retention policy");
+
+    // Cleanup
+    TableDtoPrimaryKey replacePk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceMergesPolicies")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(replacePk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(replacePk));
   }
 
   @Test
