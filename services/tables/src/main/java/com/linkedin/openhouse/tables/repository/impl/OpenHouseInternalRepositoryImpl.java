@@ -117,6 +117,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
     Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
+    validateFeatureCompatibility(tableDto);
     boolean existed =
         existsById(
             TableDtoPrimaryKey.builder()
@@ -314,6 +315,33 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
     versionCheck(null, tableDto);
+  }
+
+  /**
+   * RTAS ({@value CatalogConstants#RTAS_ENABLED_TABLE_PROP}) and WAP ({@value
+   * CatalogConstants#WAP_ENABLED_TABLE_PROP}) are mutually exclusive: a staged WAP write and a
+   * whole-table replace cannot both be enabled on the same table. Reject any create or update whose
+   * resulting properties would enable both.
+   *
+   * @param tableDto container of the requested table metadata
+   */
+  private void validateFeatureCompatibility(TableDto tableDto) {
+    Map<String, String> props = tableDto.getTableProperties();
+    if (props == null) {
+      return;
+    }
+    boolean rtasEnabled = Boolean.parseBoolean(props.get(RTAS_ENABLED_TABLE_PROP));
+    boolean wapEnabled = Boolean.parseBoolean(props.get(WAP_ENABLED_TABLE_PROP));
+    if (rtasEnabled && wapEnabled) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.INCOMPATIBLE_TBLPROPS,
+          String.format(
+              "Table %s.%s cannot enable both RTAS ('%s'='true') and WAP ('%s'='true') at the same time; they are mutually exclusive.",
+              tableDto.getDatabaseId(),
+              tableDto.getTableId(),
+              RTAS_ENABLED_TABLE_PROP,
+              WAP_ENABLED_TABLE_PROP));
+    }
   }
 
   /**
