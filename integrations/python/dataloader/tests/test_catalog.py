@@ -119,21 +119,23 @@ class TestOpenHouseCatalogLoadTable:
     def test_load_table_404_raises_no_such_table_error(self):
         responses.get(TABLE_URL, status=404)
 
-        with (
-            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(NoSuchTableError, match=f"{DATABASE_NAME}.{TABLE_NAME} does not exist"),
-        ):
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog, pytest.raises(NoSuchTableError) as exc_info:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert f"{DATABASE_NAME}.{TABLE_NAME} does not exist" in str(exc_info.value)
+        assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
     @responses.activate
     def test_load_table_500_raises_os_error(self):
         responses.get(TABLE_URL, body="Internal Server Error", status=500)
 
-        with (
-            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OSError, match="HTTP 500"),
-        ):
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog, pytest.raises(OSError) as exc_info:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert "HTTP 500" in str(exc_info.value)
+        assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
     @responses.activate
     def test_load_table_missing_table_location(self):

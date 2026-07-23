@@ -85,10 +85,12 @@ class OpenHouseCatalog(Catalog):
 
         response = self._session.get(url, timeout=self._timeout)
         if not response.ok:
+            request_id = response.request.headers[_REQUEST_ID_HEADER]
             if response.status_code == 404:
-                raise NoSuchTableError(f"Table {database}.{table} does not exist")
+                raise NoSuchTableError(f"Table {database}.{table} does not exist. X-Request-ID: {request_id}")
             raise OSError(
-                f"Failed to load table {database}.{table}: HTTP {response.status_code}. Response: {response.text}"
+                f"Failed to load table {database}.{table}: HTTP {response.status_code}. "
+                f"X-Request-ID: {request_id}. Response: {response.text}"
             )
 
         table_response = response.json()
