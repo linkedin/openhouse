@@ -92,3 +92,10 @@ shadowJar {
 }
 
 jar.enabled=true
+
+publishing.publications.withType(MavenPublication).configureEach {
+  pom {
+    name = '[DEPRECATED] OpenHouse Java Runtime'
+    description = 'Legacy partially shaded runtime. New consumers should use openhouse-java-runtime-v2.'
+  }
+}
