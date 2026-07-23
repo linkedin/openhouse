@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import uuid4
 
 import requests
 from pyiceberg.catalog import Catalog
@@ -15,6 +16,17 @@ from typing_extensions import Self
 logger = logging.getLogger(__name__)
 
 _TABLE_LOCATION = "tableLocation"
+_REQUEST_ID_HEADER = "X-Request-ID"
+
+
+class _RequestIdSession(requests.Session):
+    """HTTP session that assigns a request ID to every outgoing request."""
+
+    def prepare_request(self, request: requests.Request) -> requests.PreparedRequest:
+        if request.headers is None:
+            request.headers = {}
+        request.headers.setdefault(_REQUEST_ID_HEADER, str(uuid4()))
+        return super().prepare_request(request)
 
 
 class OpenHouseCatalogError(Exception):
@@ -49,7 +61,7 @@ class OpenHouseCatalog(Catalog):
         self._uri = uri.rstrip("/")
         self._timeout = timeout_seconds
         logger.info("Initializing OpenHouseCatalog for service at %s", self._uri)
-        self._session = requests.Session()
+        self._session = _RequestIdSession()
         self._session.headers["Content-Type"] = "application/json"
 
         if auth_token is not None:
