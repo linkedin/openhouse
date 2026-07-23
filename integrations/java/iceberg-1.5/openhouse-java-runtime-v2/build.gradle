@@ -1,0 +1,398 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'com.github.johnrengelman.shadow' version '7.1.2'
+  id 'openhouse.maven-publish'
+}
+
+java {
+  sourceCompatibility = JavaVersion.VERSION_11
+  targetCompatibility = JavaVersion.VERSION_11
+}
+
+tasks.withType(JavaCompile).configureEach {
+  options.release.set(11)
+}
+
+def slf4jVersion = '2.0.17'
+def log4jVersion = '2.25.3'
+
+configurations {
+  icebergTestFixtures {
+    transitive = false
+  }
+}
+
+dependencies {
+  implementation project(':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime')
+  implementation project(':client:secureclient')
+  implementation("com.linkedin.iceberg:iceberg-nessie:" + rootProject.ext.iceberg_1_5_version)
+  implementation("com.linkedin.iceberg:iceberg-parquet:" + rootProject.ext.iceberg_1_5_version)
+  implementation("org.slf4j:slf4j-api:${slf4jVersion}")
+  implementation("org.slf4j:log4j-over-slf4j:${slf4jVersion}")
+  implementation("org.slf4j:jcl-over-slf4j:${slf4jVersion}")
+  implementation("org.apache.logging.log4j:log4j-api:${log4jVersion}")
+  implementation("org.apache.logging.log4j:log4j-to-slf4j:${log4jVersion}")
+  icebergTestFixtures("com.linkedin.iceberg:iceberg-core:" + rootProject.ext.iceberg_1_5_version + ":tests")
+}
+
+shadowJar {
+  archiveClassifier.set('')
+  configurations = [project.configurations.runtimeClasspath]
+  mergeServiceFiles()
+  zip64 true
+
+  exclude 'META-INF/*.DSA'
+  exclude 'META-INF/*.RSA'
+  exclude 'META-INF/*.SF'
+  exclude 'META-INF/versions/**/module-info.class'
+  exclude '**/log4j*.properties'
+  exclude '**/log4j*.xml'
+  exclude '**/logback*.groovy'
+  exclude '**/logback*.xml'
+  exclude '**/logging/logback/**'
+  exclude '**/simplelogger.properties'
+  exclude 'Log4j-charsets.properties'
+  exclude 'assets/org/apache/commons/math3/exception/util/LocalizedFormats_fr.properties'
+  exclude 'common-version-info.properties'
+  exclude 'core-default.xml'
+  exclude 'logicalType.avsc'
+  exclude 'module-info.class'
+  exclude 'parquet.thrift'
+  exclude 'stringBehavior.avsc'
+
+  dependencies {
+    exclude(dependency('ch.qos.logback:.*'))
+    exclude(dependency('com.github.luben:zstd-jni'))
+    exclude(dependency('com.h2database:h2'))
+    exclude(dependency('com.jamesmurty.utils:java-xmlbuilder'))
+    exclude(dependency('com.microsoft.sqlserver:mssql-jdbc'))
+    exclude(dependency('io.micrometer:.*'))
+    exclude(dependency('log4j:log4j'))
+    exclude(dependency('org.apache.logging.log4j:log4j-core'))
+    exclude(dependency('org.apache.logging.log4j:log4j-slf4j-impl'))
+    exclude(dependency('org.apache.logging.log4j:log4j-slf4j2-impl'))
+    exclude(dependency('org.mapstruct:.*'))
+    exclude(dependency('org.slf4j:jul-to-slf4j'))
+    exclude(dependency('org.slf4j:slf4j-jdk14'))
+    exclude(dependency('org.slf4j:slf4j-log4j12'))
+    exclude(dependency('org.slf4j:slf4j-nop'))
+    exclude(dependency('org.slf4j:slf4j-reload4j'))
+    exclude(dependency('org.slf4j:slf4j-simple'))
+    exclude(dependency('javax.xml.stream:stax-api'))
+  }
+
+  relocate('antlr', 'com.linkedin.openhouse.relocated.antlr')
+  relocate('ch.qos', 'com.linkedin.openhouse.relocated.ch.qos')
+  relocate('com.amazonaws', 'com.linkedin.openhouse.relocated.com.amazonaws')
+  relocate('com.auth0', 'com.linkedin.openhouse.relocated.com.auth0')
+  relocate('com.azure', 'com.linkedin.openhouse.relocated.com.azure')
+  relocate('com.carrotsearch', 'com.linkedin.openhouse.relocated.com.carrotsearch')
+  relocate('com.clearspring', 'com.linkedin.openhouse.relocated.com.clearspring')
+  relocate('com.codahale', 'com.linkedin.openhouse.relocated.com.codahale')
+  relocate('com.ctc', 'com.linkedin.openhouse.relocated.com.ctc')
+  relocate('com.esotericsoftware', 'com.linkedin.openhouse.relocated.com.esotericsoftware')
+  relocate('com.fasterxml', 'com.linkedin.openhouse.relocated.com.fasterxml')
+  relocate('com.github.benmanes', 'com.linkedin.openhouse.relocated.com.github.benmanes')
+  relocate('com.google', 'com.linkedin.openhouse.relocated.com.google')
+  relocate('com.jayway', 'com.linkedin.openhouse.relocated.com.jayway')
+  relocate('com.jcraft', 'com.linkedin.openhouse.relocated.com.jcraft')
+  relocate('com.nimbusds', 'com.linkedin.openhouse.relocated.com.nimbusds')
+  relocate('com.squareup', 'com.linkedin.openhouse.relocated.com.squareup')
+  relocate('com.sun.activation', 'com.linkedin.openhouse.relocated.com.sun.activation')
+  relocate('com.sun.istack', 'com.linkedin.openhouse.relocated.com.sun.istack')
+  relocate('com.sun.jersey', 'com.linkedin.openhouse.relocated.com.sun.jersey')
+  relocate('com.sun.research', 'com.linkedin.openhouse.relocated.com.sun.research')
+  relocate('com.sun.ws', 'com.linkedin.openhouse.relocated.com.sun.ws')
+  relocate('com.sun.xml', 'com.linkedin.openhouse.relocated.com.sun.xml')
+  relocate('com.zaxxer', 'com.linkedin.openhouse.relocated.com.zaxxer')
+  relocate('contribs', 'com.linkedin.openhouse.relocated.contribs')
+  relocate('edu', 'com.linkedin.openhouse.relocated.edu')
+  relocate('io', 'com.linkedin.openhouse.relocated.io')
+  relocate('javassist', 'com.linkedin.openhouse.relocated.javassist')
+  relocate('jline', 'com.linkedin.openhouse.relocated.jline')
+  relocate('javax.activation', 'com.linkedin.openhouse.relocated.javax.activation')
+  relocate('javax.annotation', 'com.linkedin.openhouse.relocated.javax.annotation')
+  relocate('javax.cache', 'com.linkedin.openhouse.relocated.javax.cache')
+  relocate('javax.el', 'com.linkedin.openhouse.relocated.javax.el')
+  relocate('javax.inject', 'com.linkedin.openhouse.relocated.javax.inject')
+  relocate('javax.servlet', 'com.linkedin.openhouse.relocated.javax.servlet')
+  relocate('javax.validation', 'com.linkedin.openhouse.relocated.javax.validation')
+  relocate('javax.ws', 'com.linkedin.openhouse.relocated.javax.ws')
+  relocate('javax.xml.bind', 'com.linkedin.openhouse.relocated.javax.xml.bind')
+  relocate('kotlin', 'com.linkedin.openhouse.relocated.kotlin')
+  relocate('microsoft', 'com.linkedin.openhouse.relocated.microsoft')
+  relocate('net', 'com.linkedin.openhouse.relocated.net')
+  relocate('okhttp3', 'com.linkedin.openhouse.relocated.okhttp3')
+  relocate('okio', 'com.linkedin.openhouse.relocated.okio')
+  relocate('org', 'com.linkedin.openhouse.relocated.org') {
+    exclude 'org.ietf.**'
+    exclude 'org.w3c.**'
+    exclude 'org.xml.**'
+  }
+  relocate('reactor', 'com.linkedin.openhouse.relocated.reactor')
+  relocate('shaded.parquet', 'com.linkedin.openhouse.relocated.shaded.parquet')
+  relocate('software', 'com.linkedin.openhouse.relocated.software')
+}
+
+jar {
+  enabled = false
+}
+
+test {
+  dependsOn shadowJar
+  doFirst {
+    systemProperty 'vendoredRuntimeJar', shadowJar.archiveFile.get().asFile.absolutePath
+  }
+}
+
+tasks.register('shadowTestJar', ShadowJar) {
+  archiveClassifier.set('tests')
+  configurations = [project.configurations.icebergTestFixtures]
+  zip64 true
+
+  exclude 'META-INF/*.DSA'
+  exclude 'META-INF/*.RSA'
+  exclude 'META-INF/*.SF'
+  exclude 'module-info.class'
+
+  relocate('org.apache.iceberg', 'com.linkedin.openhouse.relocated.org.apache.iceberg')
+}
+
+publishing {
+  publications {
+    shadow(MavenPublication) {
+      artifact(shadowJar) {
+        classifier = null
+      }
+      artifact(tasks.named('shadowTestJar')) {
+        classifier = 'tests'
+      }
+      pom.packaging = 'jar'
+    }
+  }
+}
+
+def classPathWithoutMultiReleasePrefix = { String path ->
+  path.replaceFirst('^META-INF/versions/[0-9]+/', '')
+}
+
+def classUtf8Constants = { java.util.zip.ZipFile archive, java.util.zip.ZipEntry entry ->
+  archive.getInputStream(entry).withCloseable { rawInput ->
+    def input = new DataInputStream(new BufferedInputStream(rawInput))
+    if (input.readUnsignedShort() != 0xCAFE || input.readUnsignedShort() != 0xBABE) {
+      throw new RuntimeException("Invalid class file in vendored runtime: ${entry.name}")
+    }
+    input.skipBytes(4)
+    int constantPoolCount = input.readUnsignedShort()
+    def constants = []
+    for (int index = 1; index < constantPoolCount; index++) {
+      int tag = input.readUnsignedByte()
+      switch (tag) {
+        case 1:
+          constants.add(input.readUTF())
+          break
+        case 3:
+        case 4:
+          input.skipBytes(4)
+          break
+        case 5:
+        case 6:
+          input.skipBytes(8)
+          index++
+          break
+        case 7:
+        case 8:
+        case 16:
+        case 19:
+        case 20:
+          input.skipBytes(2)
+          break
+        case 9:
+        case 10:
+        case 11:
+        case 12:
+        case 17:
+        case 18:
+          input.skipBytes(4)
+          break
+        case 15:
+          input.skipBytes(3)
+          break
+        default:
+          throw new RuntimeException(
+              "Unsupported constant-pool tag ${tag} in vendored class ${entry.name}")
+      }
+    }
+    constants
+  }
+}
+
+tasks.register('verifyShadingPolicy') {
+  dependsOn shadowJar
+
+  doLast {
+    def archive = new java.util.zip.ZipFile(shadowJar.archiveFile.get().asFile)
+    try {
+      def forbiddenClasses = archive.entries().findAll { entry ->
+        if (entry.directory || !entry.name.endsWith('.class') || entry.name.endsWith('module-info.class')) {
+          return false
+        }
+        def classPath = classPathWithoutMultiReleasePrefix(entry.name)
+        !classPath.startsWith('com/linkedin/openhouse/') &&
+            !classPath.startsWith('com/linkedin/openhouse/relocated/')
+      }.collect { it.name }.sort()
+
+      if (!forbiddenClasses.isEmpty()) {
+        throw new RuntimeException(
+            "Unrelocated dependency classes found in ${shadowJar.archiveFile.get().asFile.name}:\n" +
+                forbiddenClasses.take(50).join('\n'))
+      }
+
+      def requiredRelocatedClasses = [
+          'com/linkedin/openhouse/relocated/org/apache/iceberg/Table.class',
+          'com/linkedin/openhouse/relocated/org/apache/iceberg/nessie/NessieCatalog.class',
+          'com/linkedin/openhouse/relocated/org/apache/iceberg/parquet/Parquet.class',
+          'com/linkedin/openhouse/relocated/org/apache/hadoop/conf/Configuration.class',
+          'com/linkedin/openhouse/relocated/com/fasterxml/jackson/databind/ObjectMapper.class',
+          'com/linkedin/openhouse/relocated/com/google/common/collect/ImmutableList.class',
+          'com/linkedin/openhouse/relocated/org/slf4j/LoggerFactory.class',
+          'com/linkedin/openhouse/relocated/org/slf4j/spi/SLF4JServiceProvider.class',
+          'com/linkedin/openhouse/relocated/org/apache/log4j/Logger.class',
+          'com/linkedin/openhouse/relocated/org/apache/commons/logging/LogFactory.class',
+          'com/linkedin/openhouse/relocated/org/apache/logging/log4j/LogManager.class',
+          'com/linkedin/openhouse/logging/SystemLoggerServiceProvider.class'
+      ]
+      def archiveEntries = archive.entries().collect { it.name }.toSet()
+      def missingClasses = requiredRelocatedClasses.findAll { !archiveEntries.contains(it) }
+      if (!missingClasses.isEmpty()) {
+        throw new RuntimeException(
+            "Required relocated classes are missing from ${shadowJar.archiveFile.get().asFile.name}:\n" +
+                missingClasses.join('\n'))
+      }
+
+      def canonicalClasses = [
+          'org/apache/iceberg/Table.class',
+          'org/apache/hadoop/conf/Configuration.class',
+          'com/fasterxml/jackson/databind/ObjectMapper.class',
+          'com/google/common/collect/ImmutableList.class',
+          'org/slf4j/LoggerFactory.class',
+          'org/apache/log4j/Logger.class',
+          'org/apache/commons/logging/LogFactory.class',
+          'org/apache/logging/log4j/LogManager.class'
+      ].findAll { archiveEntries.contains(it) }
+      if (!canonicalClasses.isEmpty()) {
+        throw new RuntimeException(
+            "Canonical dependency classes leaked into ${shadowJar.archiveFile.get().asFile.name}:\n" +
+                canonicalClasses.join('\n'))
+      }
+
+      def conflictingResources = [
+          'assets/org/apache/commons/math3/exception/util/LocalizedFormats_fr.properties',
+          'common-version-info.properties',
+          'core-default.xml',
+          'logicalType.avsc',
+          'parquet.thrift',
+          'stringBehavior.avsc',
+          'META-INF/services/org.slf4j.spi.SLF4JServiceProvider'
+      ].findAll { archiveEntries.contains(it) }
+      conflictingResources.addAll(archiveEntries.findAll { entryName ->
+        entryName ==~ /(?i)(^|.*\/)(log4j[^\/]*\.(properties|xml)|logback[^\/]*\.(groovy|xml)|simplelogger\.properties)/ ||
+            entryName.contains('/logging/logback/')
+      })
+      if (!conflictingResources.isEmpty()) {
+        throw new RuntimeException(
+            "Unisolated resources leaked into ${shadowJar.archiveFile.get().asFile.name}:\n" +
+                conflictingResources.join('\n'))
+      }
+
+      def prohibitedPrivateImplementations = archiveEntries.findAll { entryName ->
+        entryName.startsWith('com/linkedin/openhouse/relocated/ch/qos/logback/') ||
+            entryName.startsWith('com/linkedin/openhouse/relocated/org/apache/logging/log4j/core/') ||
+            entryName == 'com/linkedin/openhouse/relocated/org/slf4j/impl/StaticLoggerBinder.class'
+      }.sort()
+      if (!prohibitedPrivateImplementations.isEmpty()) {
+        throw new RuntimeException(
+            "Competing private logging implementations leaked into " +
+                "${shadowJar.archiveFile.get().asFile.name}:\n" +
+                prohibitedPrivateImplementations.take(50).join('\n'))
+      }
+
+      def providerDescriptor =
+          'META-INF/services/com.linkedin.openhouse.relocated.org.slf4j.spi.SLF4JServiceProvider'
+      def providerEntries = archive.entries().findAll { it.name == providerDescriptor }.toList()
+      if (providerEntries.size() != 1) {
+        throw new RuntimeException(
+            "Expected exactly one relocated SLF4J provider descriptor at ${providerDescriptor}, " +
+                "found ${providerEntries.size()}")
+      }
+      def providerNames = archive.getInputStream(providerEntries[0]).withCloseable { input ->
+        input.getText('UTF-8').readLines()
+            .collect { it.trim() }
+            .findAll { !it.isEmpty() && !it.startsWith('#') }
+      }
+      def expectedProvider = ['com.linkedin.openhouse.logging.SystemLoggerServiceProvider']
+      if (providerNames != expectedProvider) {
+        throw new RuntimeException(
+            "Unexpected relocated SLF4J providers: ${providerNames}; expected ${expectedProvider}")
+      }
+
+      def canonicalLoggingPrefixes = [
+          'org/slf4j/',
+          'org/apache/log4j/',
+          'org/apache/commons/logging/',
+          'org/apache/logging/log4j/'
+      ]
+      def canonicalLoggingDottedPrefixes = [
+          'org.slf4j.',
+          'org.apache.log4j.',
+          'org.apache.commons.logging.',
+          'org.apache.logging.log4j.'
+      ]
+      def classesWithCanonicalLoggingReferences = archive.entries().findAll { entry ->
+        if (entry.directory || !entry.name.endsWith('.class')) {
+          return false
+        }
+        classUtf8Constants(archive, entry).any { constant ->
+          canonicalLoggingPrefixes.any { prefix ->
+            constant.startsWith(prefix) || constant.contains("L${prefix}")
+          } || canonicalLoggingDottedPrefixes.any { constant.startsWith(it) }
+        }
+      }.collect { it.name }.sort()
+      if (!classesWithCanonicalLoggingReferences.isEmpty()) {
+        throw new RuntimeException(
+            "Canonical logging references leaked into vendored bytecode:\n" +
+                classesWithCanonicalLoggingReferences.take(50).join('\n'))
+      }
+
+      def forbiddenJdkRewrites = [
+          'com/linkedin/openhouse/relocated/com/sun/security/',
+          'com/linkedin/openhouse/relocated/com.sun.security.',
+          'com/linkedin/openhouse/relocated/org/ietf/'
+      ]
+      def classesWithRewrittenJdkReferences = archive.entries().findAll { entry ->
+        if (entry.directory || !entry.name.endsWith('.class')) {
+          return false
+        }
+        def bytecode = archive.getInputStream(entry).withCloseable { input ->
+          new String(input.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1)
+        }
+        forbiddenJdkRewrites.any(bytecode::contains)
+      }.collect { it.name }.sort()
+      if (!classesWithRewrittenJdkReferences.isEmpty()) {
+        throw new RuntimeException(
+            "JDK class references were incorrectly relocated:\n" +
+                classesWithRewrittenJdkReferences.take(50).join('\n'))
+      }
+    } finally {
+      archive.close()
+    }
+  }
+}
+
+tasks.check.dependsOn tasks.verifyShadingPolicy
+
+gradle.projectsEvaluated {
+  tasks.check.dependsOn rootProject.tasks.named('verifyLegacyRuntimeClassInventories')
+}
