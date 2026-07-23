@@ -1,5 +1,6 @@
 import json
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 import pytest
 import responses
@@ -74,6 +75,28 @@ class TestOpenHouseCatalogLoadTable:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         assert responses.calls[0].request.headers["Content-Type"] == "application/json"
+
+    @responses.activate
+    def test_load_table_sends_request_id(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert str(UUID(request_id)) == request_id
+
+    @responses.activate
+    def test_load_table_uses_unique_request_id_for_each_request(self, mock_iceberg_io):
+        responses.get(TABLE_URL, body=TABLE_RESPONSE_BODY, status=200)
+
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog:
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_ids = [call.request.headers["X-Request-ID"] for call in responses.calls]
+        assert len(request_ids) == 2
+        assert len(set(request_ids)) == 2
 
     @responses.activate
     def test_load_table_uri_trailing_slash_stripped(self, mock_iceberg_io):
