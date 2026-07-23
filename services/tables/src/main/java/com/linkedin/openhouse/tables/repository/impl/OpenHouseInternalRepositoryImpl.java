@@ -153,6 +153,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           System.currentTimeMillis() - startTime);
     } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
       validateReplaceTable(tableIdentifier);
+      // Policies are governance metadata (retention, sharing, PII column tags, replication,
+      // history, lock) that must survive a replace. Merge the existing table's policies with the
+      // request's so RTAS consistently merges properties.
+      tableDto = mergePoliciesFromExistingTable(tableIdentifier, tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -363,6 +367,53 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               tableIdentifier.name(),
               String.join(" and ", conflictingFeatures)));
     }
+  }
+
+  /**
+   * Returns a copy of {@code requested} whose policies are the existing table's policies merged
+   * with the request's. Policies are table metadata that a CREATE OR REPLACE must not silently
+   * drop: each plane the request provides wins, and every plane it omits is carried forward from
+   * the existing table.
+   */
+  private TableDto mergePoliciesFromExistingTable(
+      TableIdentifier tableIdentifier, TableDto requested) {
+    Policies existingPolicies =
+        policiesMapper.toPoliciesObject(
+            catalog.loadTable(tableIdentifier).properties().get(POLICIES_KEY));
+    return requested
+        .toBuilder()
+        .policies(mergePolicies(existingPolicies, requested.getPolicies()))
+        .build();
+  }
+
+  /**
+   * Per-plane merge of table policies for a replace: a plane set on {@code requested} wins; a plane
+   * absent from {@code requested} is carried forward from {@code existing}. {@code sharingEnabled}
+   * is a primitive boolean with no "unset" state, so the requested value is kept.
+   */
+  static Policies mergePolicies(Policies existing, Policies requested) {
+    if (existing == null) {
+      return requested;
+    }
+    if (requested == null) {
+      return existing;
+    }
+    return requested
+        .toBuilder()
+        .retention(
+            requested.getRetention() != null ? requested.getRetention() : existing.getRetention())
+        .columnTags(
+            MapUtils.isEmpty(requested.getColumnTags())
+                ? existing.getColumnTags()
+                : requested.getColumnTags())
+        .replication(
+            requested.getReplication() != null
+                ? requested.getReplication()
+                : existing.getReplication())
+        .history(requested.getHistory() != null ? requested.getHistory() : existing.getHistory())
+        .lockState(
+            requested.getLockState() != null ? requested.getLockState() : existing.getLockState())
+        .build();
   }
 
   /**

@@ -105,8 +105,11 @@ public class RTASTest extends OpenHouseSparkITest {
       assertEquals(
           "val2", rtasTable.properties().get("prop2"), "Should have preserved table property");
       assertEquals("val3", rtasTable.properties().get("prop3"), "Should have new table property");
-      // verify policies are removed
-      assertEquals("", rtasTable.properties().get("policies"));
+      // verify policies are preserved across the replace (RTAS merges the existing policies plane
+      // rather than wiping it)
+      assertTrue(
+          rtasTable.properties().get("policies").contains("history"),
+          "History policy should be preserved across RTAS");
       // verify data is readable
       List<Row> rows =
           spark
