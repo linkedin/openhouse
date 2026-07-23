@@ -117,6 +117,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
     Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
+    validateFeatureCompatibility(tableDto);
     boolean existed =
         existsById(
             TableDtoPrimaryKey.builder()
@@ -314,6 +315,48 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
     versionCheck(null, tableDto);
+  }
+
+  /**
+   * RTAS ({@value CatalogConstants#RTAS_ENABLED_TABLE_PROP}) cannot coexist with WAP ({@value
+   * CatalogConstants#WAP_ENABLED_TABLE_PROP}) or replication on the same table: a staged WAP write
+   * or a replicated table and a whole-table replace do not compose. Reject any create or update
+   * whose resulting metadata would enable RTAS alongside either.
+   *
+   * @param tableDto container of the requested table metadata
+   */
+  private void validateFeatureCompatibility(TableDto tableDto) {
+    Map<String, String> props = tableDto.getTableProperties();
+    boolean rtasEnabled = props != null && Boolean.parseBoolean(props.get(RTAS_ENABLED_TABLE_PROP));
+    if (!rtasEnabled) {
+      return;
+    }
+    boolean wapEnabled = props != null && Boolean.parseBoolean(props.get(WAP_ENABLED_TABLE_PROP));
+    if (wapEnabled) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.INCOMPATIBLE_TBLPROPS,
+          String.format(
+              "Table %s.%s cannot enable both RTAS ('%s'='true') and WAP ('%s'='true') at the same time; they are mutually exclusive.",
+              tableDto.getDatabaseId(),
+              tableDto.getTableId(),
+              RTAS_ENABLED_TABLE_PROP,
+              WAP_ENABLED_TABLE_PROP));
+    }
+    if (isReplicationConfigured(tableDto.getPolicies())) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.INCOMPATIBLE_TBLPROPS,
+          String.format(
+              "Table %s.%s cannot enable RTAS ('%s'='true') while replication is configured; they are mutually exclusive.",
+              tableDto.getDatabaseId(), tableDto.getTableId(), RTAS_ENABLED_TABLE_PROP));
+    }
+  }
+
+  private boolean isReplicationConfigured(
+      com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies policies) {
+    return policies != null
+        && policies.getReplication() != null
+        && policies.getReplication().getConfig() != null
+        && !policies.getReplication().getConfig().isEmpty();
   }
 
   /**
