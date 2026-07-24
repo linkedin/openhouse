@@ -14,8 +14,25 @@ import org.apache.spark.sql.types.{DataType, StructType}
 
 import java.util.Locale
 
-class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends ParserInterface {
+import org.apache.iceberg.spark.ExtendedParser
+import org.apache.iceberg.spark.ExtendedParser.RawOrderField
+
+class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends ParserInterface
+  with ExtendedParser {
   private lazy val astBuilder = new OpenhouseSqlExtensionsAstBuilder(delegate)
+
+  // Iceberg procedures that take a sort order (e.g. rewrite_data_files with strategy => 'sort')
+  // cast the session's outermost parser to Iceberg's ExtendedParser to parse the order string.
+  // This wrapper is outermost, so it must implement ExtendedParser and delegate to the underlying
+  // Iceberg parser; otherwise those procedures fail with "parser is not an Iceberg ExtendedParser".
+  override def parseSortOrder(sqlText: String): java.util.List[RawOrderField] = {
+    delegate match {
+      case extended: ExtendedParser => extended.parseSortOrder(sqlText)
+      case _ =>
+        throw new UnsupportedOperationException(
+          "Parsing a sort order requires the Iceberg SQL extensions to be enabled")
+    }
+  }
 
   override def parsePlan(sqlText: String): LogicalPlan = {
     if (isOpenhouseCommand(sqlText)) {
@@ -72,7 +89,8 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
         normalized.contains("set tag"))) ||
       normalized.startsWith("grant") ||
       normalized.startsWith("revoke") ||
-      normalized.startsWith("show grants")
+      normalized.startsWith("show grants") ||
+      normalized.startsWith("optimize")
 
   }
 

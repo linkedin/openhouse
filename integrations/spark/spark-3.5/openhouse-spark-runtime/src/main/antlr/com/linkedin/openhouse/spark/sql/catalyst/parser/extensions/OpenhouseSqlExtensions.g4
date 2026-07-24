@@ -32,6 +32,7 @@ statement
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
   | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
+  | OPTIMIZE multipartIdentifier (FULL)? (REWRITE MANIFESTS)?                                           #optimizeTable
   ;
 
 multipartIdentifier
@@ -69,6 +70,7 @@ quotedIdentifier
 nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
+    | OPTIMIZE | FULL | REWRITE | MANIFESTS
     ;
 
 sharingPolicy
@@ -205,6 +207,10 @@ TAG: 'TAG';
 NONE: 'NONE';
 VERSIONS: 'VERSIONS';
 MAX_AGE: 'MAX_AGE';
+OPTIMIZE: 'OPTIMIZE';
+FULL: 'FULL';
+REWRITE: 'REWRITE';
+MANIFESTS: 'MANIFESTS';
 
 POSITIVE_INTEGER
     : DIGIT+
