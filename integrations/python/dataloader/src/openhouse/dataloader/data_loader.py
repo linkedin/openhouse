@@ -22,6 +22,7 @@ from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.data_loader_split import DataLoaderSplit
 from openhouse.dataloader.datafusion_sql import DataFusion, to_datafusion_sql
+from openhouse.dataloader.exceptions import OpenHouseCatalogError
 from openhouse.dataloader.filters import (
     AlwaysTrue,
     Filter,
@@ -75,6 +76,8 @@ _plan_files_failure = _meter.create_counter(
 
 def _is_transient(exc: BaseException) -> bool:
     """Return True if the exception is transient and worth retrying."""
+    if isinstance(exc, OpenHouseCatalogError):
+        return exc.retryable
     if isinstance(exc, HTTPError):
         return exc.response is not None and exc.response.status_code >= 500
     return isinstance(exc, OSError)
