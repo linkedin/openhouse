@@ -33,6 +33,7 @@ statement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
   | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
   | OPTIMIZE multipartIdentifier (FULL)? (REWRITE MANIFESTS)?                                           #optimizeTable
+  | ANALYZE TABLE multipartIdentifier COMPUTE CLUSTERING QUALITY                                        #analyzeClusteringQuality
   ;
 
 multipartIdentifier
@@ -71,6 +72,7 @@ nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
     | OPTIMIZE | FULL | REWRITE | MANIFESTS
+    | ANALYZE | COMPUTE | CLUSTERING | QUALITY
     ;
 
 sharingPolicy
@@ -211,6 +213,10 @@ OPTIMIZE: 'OPTIMIZE';
 FULL: 'FULL';
 REWRITE: 'REWRITE';
 MANIFESTS: 'MANIFESTS';
+ANALYZE: 'ANALYZE';
+COMPUTE: 'COMPUTE';
+CLUSTERING: 'CLUSTERING';
+QUALITY: 'QUALITY';
 
 POSITIVE_INTEGER
     : DIGIT+

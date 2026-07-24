@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, OptimizeTable, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{AnalyzeClusteringQuality, GrantRevokeStatement, OptimizeTable, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
 import org.apache.iceberg.spark.{Spark3Util, SparkCatalog, SparkSessionCatalog}
 import org.apache.spark.sql.{SparkSession, Strategy}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
@@ -34,6 +34,9 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
 
     case r @ OptimizeTable(CatalogAndIdentifierExtractor(catalog, ident), full, rewriteManifests) =>
       OptimizeTableExec(r.output, spark, catalog, ident, full, rewriteManifests) :: Nil
+
+    case r @ AnalyzeClusteringQuality(CatalogAndIdentifierExtractor(catalog, ident)) =>
+      AnalyzeClusteringQualityExec(r.output, spark, catalog, ident) :: Nil
 
     case _ => Nil
   }
