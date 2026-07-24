@@ -65,19 +65,23 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
                         .build()),
             icebergSnapshotRequestBody);
 
-    if (tableDto.isPresent()
-        && icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()) {
-      // Check if table creator has the privilege to replace the table.
-      authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
-    } else if (tableDto.isPresent()) {
+    if (tableDto.isPresent()) {
+      // A locked table must reject every write, including CREATE OR REPLACE (RTAS). The lock is
+      // checked here — before the replace-vs-update split — so the replace path can no longer
+      // bypass it and silently overwrite a locked table.
       if (isTableLocked(tableDto.get())) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
             String.format(
                 "Table %s.%s is in locked state and cannot be written to", databaseId, tableId));
       }
-      authorizationUtils.checkTableWritePathPrivileges(
-          tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+      if (icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()) {
+        // Check if table creator has the privilege to replace the table.
+        authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
+      } else {
+        authorizationUtils.checkTableWritePathPrivileges(
+            tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+      }
     } else {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
