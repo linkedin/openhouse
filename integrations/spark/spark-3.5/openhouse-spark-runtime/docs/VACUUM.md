@@ -1,9 +1,6 @@
 # VACUUM
 
-> **Status: Alpha.** `VACUUM` is opt-in per table. A table must explicitly enable it
-> (see [Enabling VACUUM](#enabling-vacuum)); running `VACUUM` on a table that has not
-> enabled it fails with an `UnsupportedOperationException`. Behavior may change in future
-> releases.
+**Status: Alpha.** `VACUUM` is opt-in per table. Please See [Enabling VACUUM](#enabling-vacuum)).
 
 `VACUUM` is an OpenHouse Spark SQL extension that reclaims storage for an OpenHouse
 Iceberg table by removing files that are no longer needed. It is thin, ergonomic sugar
@@ -20,45 +17,17 @@ VACUUM <table> [REMOVE ORPHAN FILES] [RETAIN <n> HOURS]
 - `RETAIN <n> HOURS` — *(optional)* retention window in whole hours. When omitted, each
   underlying operation uses its own default retention.
 
-The keywords `VACUUM`, `REMOVE`, `ORPHAN`, `FILES`, `RETAIN`, and `HOURS` are
-non-reserved, so existing identifiers with those names continue to parse.
-
 ## Behavior
 
 Running `VACUUM` reclaims files beyond the retention window that are no longer referenced
 by the current version of the table.
 
-1. **Orphan-file deletion** (`REMOVE ORPHAN FILES`, opt-in) runs **first**. Orphan files
-   are files under the table's location that are not referenced by any table metadata —
-   typically left behind by failed or aborted writes. This step only deletes files from
-   storage; it does not commit table metadata, so it succeeds even when the table is out
-   of write quota. Running it before expiration also means it evaluates against the
-   pre-expiration set of referenced files, so it can never delete a file that a still-live
-   snapshot references.
+1. **Orphan-file deletion** (`REMOVE ORPHAN FILES`, opt-in). Orphan files are files under the table's location that are not referenced by any table metadata typically left behind by failed or aborted writes. This step only deletes files from storage; it does not commit table metadata, so it succeeds even when the table is out of write quota. 
 
-2. **Snapshot expiration** always runs, **after** orphan-file deletion. It removes
-   snapshots older than the retention window and deletes the data, delete, manifest, and
-   manifest-list files that those expired snapshots exclusively referenced. Expiration
-   commits table metadata.
+2. **Snapshot expiration** always runs. It removes snapshots older than the retention window and deletes the data, delete, manifest, and manifest-list files that those expired snapshots exclusively referenced. This command adds a commit and can conflict with in-flight transactions.
 
-3. **Retention** (`RETAIN <n> HOURS`) bounds both operations: only files older than
-   `now - n hours` are eligible. The cutoff is resolved to a concrete timestamp in the
-   session time zone at execution time. When `RETAIN` is omitted, snapshot expiration
-   falls back to the table's configured snapshot-age retention and orphan-file deletion
-   falls back to Iceberg's safe default.
+3. **Retention** (`RETAIN <n> HOURS`) bounds both operations: only files older than `now - n hours` are eligible. The cutoff is resolved to a concrete timestamp in the session time zone at execution time. When `RETAIN` is omitted, snapshot expiration falls back to the table's configured snapshot-age retention and orphan-file deletion's configured default.
 
-### Merge-on-read (MoR) delete files
-
-`VACUUM` handles merge-on-read delete files (position and equality deletes) the same way
-it handles data files:
-
-- Delete files referenced only by expired snapshots are removed by **snapshot expiration**.
-- Orphaned delete files are removed by **`REMOVE ORPHAN FILES`**.
-
-Dangling delete files that are still referenced by the current snapshot but no longer
-apply to any live data (for example, because the data files they targeted were compacted
-away) are **not** removed by `VACUUM`. Clearing those is a data-rewrite/compaction concern
-handled by `OPTIMIZE`, not by `VACUUM`.
 
 ## Enabling VACUUM
 
@@ -106,10 +75,8 @@ VACUUM openhouse.db.table REMOVE ORPHAN FILES RETAIN 168 HOURS;
 - **`REMOVE ORPHAN FILES` is expensive.** It performs a recursive listing of the table's
   location to find unreferenced files. On tables with very large file counts this can be
   slow and memory-intensive, and may require a larger Spark driver to avoid running out of
-  memory. Prefer a generous `RETAIN` window and run it less frequently.
-- **Choose the retention window carefully.** Files newer than the retention window are
-  never deleted. Time travel and snapshot rollback are only possible for snapshots that
-  have not been expired, so retain enough history for your recovery needs.
+  memory.
+- **Low Retention causes in-flight operations to fail** A query sees the same snapshot of the table they start with, and expiring a snapshot that is in-use will cause transactions to fail. Deleting orphans of in-flight transactions can cause failure.  24 hours is the suggested minimum but can be lowered to mitigate emergency scenarios. 
 - **Snapshot expiration requires write quota**; orphan-file deletion does not. This is why
   orphan-file deletion runs first — on a table that is out of quota, orphan cleanup still
   proceeds even though expiration cannot commit.
