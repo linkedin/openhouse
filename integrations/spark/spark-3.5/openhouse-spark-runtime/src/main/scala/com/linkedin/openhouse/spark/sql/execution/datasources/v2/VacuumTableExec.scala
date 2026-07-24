@@ -14,8 +14,9 @@ import org.apache.spark.sql.execution.datasources.v2.LeafV2CommandExec
 
 /**
  * Runs Iceberg table maintenance for the VACUUM command as thin sugar over the catalog's stored
- * procedures. Snapshot expiration always runs; when `REMOVE ORPHAN FILES` is given, orphan-file
- * deletion runs afterwards so it cleans up against the settled live-file set. A `RETAIN n HOURS`
+ * procedures. When `REMOVE ORPHAN FILES` is given, orphan-file deletion runs first (it only removes
+ * unreferenced files from storage, so it works even when the table is out of quota, unlike snapshot
+ * expiration which commits metadata); snapshot expiration always runs afterwards. A `RETAIN n HOURS`
  * window bounds both operations via the procedures' `older_than` argument; when omitted, each
  * procedure falls back to its own default retention.
  */
@@ -47,15 +48,19 @@ case class VacuumTableExec(
           s", older_than => TIMESTAMP '$cutoff'"
         }.getOrElse("")
 
-        // Snapshot expiration always runs.
-        spark.sql(
-          s"CALL $quotedCatalog.system.expire_snapshots(table => '$tableArg'$olderThanArg)").collect()
-
         if (removeOrphanFiles) {
-          // Runs after expiration so it deletes against the settled live-file set.
+          // Runs BEFORE expiration. Snapshot expiration commits table metadata, so it cannot run on
+          // a table that is out of quota; orphan-file deletion only removes unreferenced files from
+          // storage and always can, so doing it first ensures it still runs in that case. Running
+          // first also means it scans against the pre-expiration referenced-file set, so it can
+          // never delete a file that a still-live snapshot references.
           spark.sql(
             s"CALL $quotedCatalog.system.remove_orphan_files(table => '$tableArg'$olderThanArg)").collect()
         }
+
+        // Snapshot expiration always runs.
+        spark.sql(
+          s"CALL $quotedCatalog.system.expire_snapshots(table => '$tableArg'$olderThanArg)").collect()
 
       case table =>
         throw new UnsupportedOperationException(s"Cannot vacuum non-Openhouse table: $table")
