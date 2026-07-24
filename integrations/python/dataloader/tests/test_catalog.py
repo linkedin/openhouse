@@ -138,14 +138,30 @@ class TestOpenHouseCatalogLoadTable:
         assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
     @responses.activate
+    def test_load_table_invalid_json_includes_request_id(self):
+        responses.get(TABLE_URL, body="not json", status=200)
+
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseCatalogError, match="not valid JSON") as exc_info,
+        ):
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert f"X-Request-ID: {request_id}" in str(exc_info.value)
+
+    @responses.activate
     def test_load_table_missing_table_location(self):
         responses.get(TABLE_URL, json={"databaseId": DATABASE_NAME, "tableId": TABLE_NAME}, status=200)
 
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"),
+            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'") as exc_info,
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
     @responses.activate
     def test_load_table_empty_table_location(self):
@@ -157,9 +173,12 @@ class TestOpenHouseCatalogLoadTable:
 
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'"),
+            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'") as exc_info,
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
 
 class TestOpenHouseCatalogProperties:
