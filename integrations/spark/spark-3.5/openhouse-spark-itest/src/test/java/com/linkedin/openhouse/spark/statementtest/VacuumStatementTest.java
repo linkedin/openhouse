@@ -66,6 +66,15 @@ public class VacuumStatementTest {
   }
 
   @Test
+  public void testVacuumNotEnabledThrows() {
+    // VACUUM is Alpha and opt-in: an OpenHouse table that has not set openhouse.vacuum.enabled=true
+    // is rejected.
+    Assertions.assertThrows(
+        UnsupportedOperationException.class,
+        () -> spark.sql("VACUUM openhouse.db.not_enabled").collect());
+  }
+
+  @Test
   public void testVacuumInvalidSyntaxThrows() {
     Assertions.assertThrows(
         OpenhouseParseException.class,
@@ -96,11 +105,23 @@ public class VacuumStatementTest {
             "CREATE TABLE openhouse.db.table (id bigint, data string, `openhouse.tableId` string) USING iceberg")
         .show();
     spark
-        .sql("ALTER TABLE openhouse.db.table SET TBLPROPERTIES ('openhouse.tableId' = 'tableid')")
+        .sql(
+            "ALTER TABLE openhouse.db.table SET TBLPROPERTIES ("
+                + "'openhouse.tableId' = 'tableid', 'openhouse.vacuum.enabled' = 'true')")
         .show();
     spark.sql("INSERT INTO openhouse.db.table VALUES (1, 'a', 'tableid')").show();
     spark.sql("INSERT INTO openhouse.db.table VALUES (2, 'b', 'tableid')").show();
     spark.sql("INSERT INTO openhouse.db.table VALUES (3, 'c', 'tableid')").show();
+
+    // OpenHouse table that has NOT opted into the Alpha VACUUM feature.
+    spark
+        .sql(
+            "CREATE TABLE openhouse.db.not_enabled (id bigint, data string, `openhouse.tableId` string) USING iceberg")
+        .show();
+    spark
+        .sql(
+            "ALTER TABLE openhouse.db.not_enabled SET TBLPROPERTIES ('openhouse.tableId' = 'tableid')")
+        .show();
 
     spark
         .sql("CREATE TABLE openhouse.db.not_openhouse (id bigint, data string) USING iceberg")
@@ -110,6 +131,7 @@ public class VacuumStatementTest {
   @AfterEach
   public void tearDown() {
     spark.sql("DROP TABLE IF EXISTS openhouse.db.table").show();
+    spark.sql("DROP TABLE IF EXISTS openhouse.db.not_enabled").show();
     spark.sql("DROP TABLE IF EXISTS openhouse.db.not_openhouse").show();
   }
 

@@ -14,7 +14,10 @@ import org.apache.spark.sql.execution.datasources.v2.LeafV2CommandExec
 
 /**
  * Runs Iceberg table maintenance for the VACUUM command as thin sugar over the catalog's stored
- * procedures. When `REMOVE ORPHAN FILES` is given, orphan-file deletion runs first (it only removes
+ * procedures. VACUUM is an '''Alpha''' feature and is opt-in per table via the
+ * `openhouse.vacuum.enabled` property; it is rejected on tables that have not enabled it.
+ *
+ * When `REMOVE ORPHAN FILES` is given, orphan-file deletion runs first (it only removes
  * unreferenced files from storage, so it works even when the table is out of quota, unlike snapshot
  * expiration which commits metadata); snapshot expiration always runs afterwards. A `RETAIN n HOURS`
  * window bounds both operations via the procedures' `older_than` argument; when omitted, each
@@ -32,6 +35,13 @@ case class VacuumTableExec(
   override protected def run(): Seq[InternalRow] = {
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
+        // VACUUM is an Alpha feature and is opt-in per table: a table must explicitly enable it via
+        // the `openhouse.vacuum.enabled` property, otherwise the command is rejected.
+        if (!"true".equalsIgnoreCase(iceberg.table().properties().get(VacuumTableExec.ENABLED_PROP))) {
+          throw new UnsupportedOperationException(
+            s"VACUUM is an Alpha feature and must be enabled on the table before use. Enable it " +
+              s"with: ALTER TABLE <table> SET TBLPROPERTIES ('${VacuumTableExec.ENABLED_PROP}' = 'true').")
+        }
         val quotedCatalog = quoteIfNeeded(catalog.name())
         val tableArg = (ident.namespace() :+ ident.name()).map(quoteIfNeeded).mkString(".")
 
@@ -73,4 +83,12 @@ case class VacuumTableExec(
     s"VacuumTableExec: ${catalog} ${ident} removeOrphanFiles=${removeOrphanFiles} " +
       s"retainHours=${retainHours.getOrElse("default")}"
   }
+}
+
+object VacuumTableExec {
+  /**
+   * Table property that opts a table into the Alpha VACUUM command. VACUUM throws
+   * [[UnsupportedOperationException]] on tables where this is not set to `true`.
+   */
+  val ENABLED_PROP = "openhouse.vacuum.enabled"
 }
