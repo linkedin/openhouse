@@ -3,10 +3,19 @@ from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import pytest
+import requests
 import responses
 from pyiceberg.exceptions import NoSuchTableError
 
-from openhouse.dataloader.catalog import OpenHouseCatalog, OpenHouseCatalogError
+from openhouse.dataloader.catalog import OpenHouseCatalog
+from openhouse.dataloader.exceptions import (
+    OpenHouseAuthenticationError,
+    OpenHouseAuthorizationError,
+    OpenHouseHTTPError,
+    OpenHouseInvalidResponseError,
+    OpenHouseNoSuchTableError,
+    OpenHouseTransportError,
+)
 
 CATALOG_NAME = "openhouse"
 BASE_URL = "http://localhost:8080"
@@ -123,18 +132,40 @@ class TestOpenHouseCatalogLoadTable:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert isinstance(exc_info.value, OpenHouseNoSuchTableError)
+        assert exc_info.value.request_id == request_id
         assert f"{DATABASE_NAME}.{TABLE_NAME} does not exist" in str(exc_info.value)
         assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        ("status", "error_type"),
+        [(401, OpenHouseAuthenticationError), (403, OpenHouseAuthorizationError), (500, OpenHouseHTTPError)],
+    )
     @responses.activate
-    def test_load_table_500_raises_os_error(self):
-        responses.get(TABLE_URL, body="Internal Server Error", status=500)
+    def test_load_table_raises_typed_http_error(self, status, error_type):
+        responses.get(TABLE_URL, body="Server response", status=status)
 
-        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog, pytest.raises(OSError) as exc_info:
+        with OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog, pytest.raises(error_type) as exc_info:
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         request_id = responses.calls[0].request.headers["X-Request-ID"]
-        assert "HTTP 500" in str(exc_info.value)
+        assert exc_info.value.status_code == status
+        assert exc_info.value.request_id == request_id
+        assert f"HTTP {status}" in str(exc_info.value)
+        assert f"X-Request-ID: {request_id}" in str(exc_info.value)
+
+    @responses.activate
+    def test_load_table_transport_error_includes_request_id(self):
+        responses.get(TABLE_URL, body=requests.ConnectionError("connection refused"))
+
+        with (
+            OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
+            pytest.raises(OpenHouseTransportError) as exc_info,
+        ):
+            catalog.load_table((DATABASE_NAME, TABLE_NAME))
+
+        request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert exc_info.value.request_id == request_id
         assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
     @responses.activate
@@ -143,11 +174,12 @@ class TestOpenHouseCatalogLoadTable:
 
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="not valid JSON") as exc_info,
+            pytest.raises(OpenHouseInvalidResponseError, match="not valid JSON") as exc_info,
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert exc_info.value.request_id == request_id
         assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
     @responses.activate
@@ -156,11 +188,12 @@ class TestOpenHouseCatalogLoadTable:
 
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'") as exc_info,
+            pytest.raises(OpenHouseInvalidResponseError, match="missing 'tableLocation'") as exc_info,
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert exc_info.value.request_id == request_id
         assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
     @responses.activate
@@ -173,11 +206,12 @@ class TestOpenHouseCatalogLoadTable:
 
         with (
             OpenHouseCatalog(CATALOG_NAME, uri=BASE_URL) as catalog,
-            pytest.raises(OpenHouseCatalogError, match="missing 'tableLocation'") as exc_info,
+            pytest.raises(OpenHouseInvalidResponseError, match="missing 'tableLocation'") as exc_info,
         ):
             catalog.load_table((DATABASE_NAME, TABLE_NAME))
 
         request_id = responses.calls[0].request.headers["X-Request-ID"]
+        assert exc_info.value.request_id == request_id
         assert f"X-Request-ID: {request_id}" in str(exc_info.value)
 
 

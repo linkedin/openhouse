@@ -15,7 +15,15 @@ from pyiceberg.types import DoubleType, LongType, NestedField, StringType
 from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
-from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader, __version__
+from openhouse.dataloader import (
+    DataLoaderContext,
+    JvmConfig,
+    OpenHouseAuthenticationError,
+    OpenHouseDataLoader,
+    OpenHouseHTTPError,
+    OpenHouseTransportError,
+    __version__,
+)
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import col
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -198,8 +206,10 @@ def _make_http_error(status_code: int) -> HTTPError:
         RequestsConnectionError("refused"),
         Timeout("timed out"),
         _make_http_error(503),
+        OpenHouseTransportError("connection reset", request_id="request-id"),
+        OpenHouseHTTPError("db", "tbl", status_code=503, response_body="unavailable", request_id="request-id"),
     ],
-    ids=["OSError", "ConnectionError", "Timeout", "5xx"],
+    ids=["OSError", "ConnectionError", "Timeout", "requests-5xx", "OpenHouseTransportError", "OpenHouse-5xx"],
 )
 def test_load_table_retries_on_transient_error(tmp_path, error):
     """load_table retries on transient errors and succeeds on the second attempt."""
@@ -224,6 +234,22 @@ def test_load_table_does_not_retry_on_4xx_http_error():
     with pytest.raises(HTTPError):
         list(loader)
 
+    catalog.load_table.assert_called_once()
+
+
+def test_load_table_does_not_retry_on_authentication_error():
+    """OpenHouse authentication failures are typed and not retried."""
+    catalog = MagicMock()
+    catalog.load_table.side_effect = OpenHouseAuthenticationError(
+        "db", "tbl", status_code=401, response_body="Authentication failed", request_id="request-id"
+    )
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    with pytest.raises(OpenHouseAuthenticationError) as exc_info:
+        list(loader)
+
+    assert exc_info.value.request_id == "request-id"
     catalog.load_table.assert_called_once()
 
 

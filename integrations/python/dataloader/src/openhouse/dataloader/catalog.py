@@ -6,12 +6,17 @@ from uuid import uuid4
 
 import requests
 from pyiceberg.catalog import Catalog
-from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.io import load_file_io
 from pyiceberg.serializers import FromInputFile
 from pyiceberg.table import Table
 from pyiceberg.typedef import Identifier
 from typing_extensions import Self
+
+from openhouse.dataloader.exceptions import (
+    OpenHouseHTTPError,
+    OpenHouseInvalidResponseError,
+    OpenHouseTransportError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +32,6 @@ class _RequestIdSession(requests.Session):
             request.headers = {}
         request.headers.setdefault(_REQUEST_ID_HEADER, str(uuid4()))
         return super().prepare_request(request)
-
-
-class OpenHouseCatalogError(Exception):
-    """Error raised when the OpenHouse catalog fails to load a table."""
 
 
 class OpenHouseCatalog(Catalog):
@@ -83,30 +84,38 @@ class OpenHouseCatalog(Catalog):
         database, table = self.identifier_to_database_and_table(identifier)
         url = f"{self._uri}/v1/databases/{database}/tables/{table}"
 
-        response = self._session.get(url, timeout=self._timeout)
-        if not response.ok:
-            request_id = response.request.headers[_REQUEST_ID_HEADER]
-            if response.status_code == 404:
-                raise NoSuchTableError(f"Table {database}.{table} does not exist. X-Request-ID: {request_id}")
-            raise OSError(
-                f"Failed to load table {database}.{table}: HTTP {response.status_code}. "
-                f"X-Request-ID: {request_id}. Response: {response.text}"
-            )
+        try:
+            response = self._session.get(url, timeout=self._timeout)
+        except requests.RequestException as exc:
+            request_id = exc.request.headers.get(_REQUEST_ID_HEADER) if exc.request is not None else None
+            raise OpenHouseTransportError(
+                f"Failed to load table {database}.{table}: {exc}",
+                request_id=request_id,
+            ) from exc
 
         request_id = response.request.headers[_REQUEST_ID_HEADER]
+        if not response.ok:
+            raise OpenHouseHTTPError.for_response(
+                database,
+                table,
+                status_code=response.status_code,
+                response_body=response.text,
+                request_id=request_id,
+            )
+
         try:
             table_response = response.json()
         except requests.JSONDecodeError as exc:
-            raise OpenHouseCatalogError(
-                f"Response for table {database}.{table} is not valid JSON. "
-                f"X-Request-ID: {request_id}. Response: {response.text}"
+            raise OpenHouseInvalidResponseError(
+                f"Response for table {database}.{table} is not valid JSON. Response: {response.text}",
+                request_id=request_id,
             ) from exc
 
         metadata_location = table_response.get(_TABLE_LOCATION)
         if not metadata_location:
-            raise OpenHouseCatalogError(
-                f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. "
-                f"X-Request-ID: {request_id}. Response: {table_response}"
+            raise OpenHouseInvalidResponseError(
+                f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. Response: {table_response}",
+                request_id=request_id,
             )
 
         file_io = load_file_io(properties=self.properties, location=metadata_location)
