@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
@@ -13,13 +14,21 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 
 public class OpenHouseInternalCatalogTest {
 
@@ -39,6 +48,94 @@ public class OpenHouseInternalCatalogTest {
     Assertions.assertTrue(catalog.isValidBaseIdentifier(TableIdentifier.of("db", "partitions")));
     Assertions.assertFalse(
         catalog.isValidBaseIdentifier(TableIdentifier.of("db", "table", "partitions")));
+  }
+
+  @Test
+  void listTablesForDatabaseAggregatesResultsFromASinglePage() {
+    List<HouseTable> allRows =
+        List.of(houseTableRow(DB, "t0"), houseTableRow(DB, "t1"), houseTableRow(DB, "t2"));
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findAllByDatabaseId(eq(DB), any(Pageable.class)))
+        .thenAnswer(invocation -> slicedPage(allRows, invocation.getArgument(1)));
+    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
+    catalog.houseTableRepository = repo;
+
+    List<TableIdentifier> result = catalog.listTables(Namespace.of(DB));
+
+    Assertions.assertEquals(
+        allRows.stream()
+            .map(row -> TableIdentifier.of(row.getDatabaseId(), row.getTableId()))
+            .collect(Collectors.toList()),
+        result);
+    // All 3 rows fit within a single HTS page (page size 1000), so only one call is expected.
+    verify(repo, times(1)).findAllByDatabaseId(eq(DB), any(Pageable.class));
+  }
+
+  @Test
+  void listTablesForDatabasePaginatesAcrossMultipleHtsPages() {
+    // More rows than fit on a single HTS page (page size 1000) so the fix's pagination loop must
+    // issue more than one call and aggregate every page before returning.
+    List<HouseTable> allRows =
+        IntStream.range(0, 1500)
+            .mapToObj(i -> houseTableRow(DB, "t" + i))
+            .collect(Collectors.toList());
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findAllByDatabaseId(eq(DB), any(Pageable.class)))
+        .thenAnswer(invocation -> slicedPage(allRows, invocation.getArgument(1)));
+    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
+    catalog.houseTableRepository = repo;
+
+    List<TableIdentifier> result = catalog.listTables(Namespace.of(DB));
+
+    Assertions.assertEquals(
+        allRows.stream()
+            .map(row -> TableIdentifier.of(row.getDatabaseId(), row.getTableId()))
+            .collect(Collectors.toList()),
+        result);
+    verify(repo, times(2)).findAllByDatabaseId(eq(DB), any(Pageable.class));
+  }
+
+  @Test
+  void listTablesForDatabaseReturnsEmptyListWhenDatabaseHasNoTables() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findAllByDatabaseId(eq(DB), any(Pageable.class)))
+        .thenAnswer(invocation -> slicedPage(List.of(), invocation.getArgument(1)));
+    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertTrue(catalog.listTables(Namespace.of(DB)).isEmpty());
+    verify(repo, times(1)).findAllByDatabaseId(eq(DB), any(Pageable.class));
+  }
+
+  @Test
+  void listTablesForEmptyNamespacePaginatesThroughFindAll() {
+    List<HouseTable> allRows = List.of(houseTableRow(DB, "t0"), houseTableRow("other_db", "t1"));
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findAll(any(Pageable.class)))
+        .thenAnswer(invocation -> slicedPage(allRows, invocation.getArgument(0)));
+    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
+    catalog.houseTableRepository = repo;
+
+    List<TableIdentifier> result = catalog.listTables(Namespace.empty());
+
+    Assertions.assertEquals(
+        List.of(TableIdentifier.of(DB, "Unused"), TableIdentifier.of("other_db", "Unused")),
+        result);
+  }
+
+  private static HouseTable houseTableRow(String databaseId, String tableId) {
+    return HouseTable.builder().databaseId(databaseId).tableId(tableId).build();
+  }
+
+  /**
+   * Slices {@code allRows} according to {@code pageable}'s offset/page size, mirroring how a real
+   * paginated HTS response would be constructed, so {@link PageImpl#hasNext()} reports correctly
+   * and the catalog's pagination loop can be exercised end-to-end.
+   */
+  private static Page<HouseTable> slicedPage(List<HouseTable> allRows, Pageable pageable) {
+    int start = Math.min((int) pageable.getOffset(), allRows.size());
+    int end = Math.min(start + pageable.getPageSize(), allRows.size());
+    return new PageImpl<>(new ArrayList<>(allRows.subList(start, end)), pageable, allRows.size());
   }
 
   @Test
