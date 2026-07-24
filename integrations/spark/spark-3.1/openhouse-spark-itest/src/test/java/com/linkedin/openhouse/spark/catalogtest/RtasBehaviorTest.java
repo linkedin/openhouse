@@ -41,6 +41,19 @@ public class RtasBehaviorTest extends OpenHouseSparkITest {
         .collect(Collectors.toMap(r -> r.getString(0), r -> r.getString(1)));
   }
 
+  private static List<String> dataFilePaths(SparkSession spark, String table) {
+    return spark.sql("SELECT file_path FROM " + table + ".files").collectAsList().stream()
+        .map(r -> r.getString(0))
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Strips the leading {@code openhouse.} catalog prefix, leaving the {@code db.table} identifier.
+   */
+  private static String tableArg(String fullyQualifiedTable) {
+    return fullyQualifiedTable.substring(fullyQualifiedTable.indexOf('.') + 1);
+  }
+
   @Test
   public void testRtasMayDropColumn() throws Exception {
     try (SparkSession spark = getSparkSession()) {
@@ -183,6 +196,173 @@ public class RtasBehaviorTest extends OpenHouseSparkITest {
           e.getMessage() != null
               && e.getMessage().contains("REPLACE TABLE AS SELECT is not enabled"),
           "expected an RTAS-disabled error but got: " + e.getMessage());
+
+      spark.sql("DROP TABLE IF EXISTS " + table);
+    }
+  }
+
+  @Test
+  public void testRtasMayChangeFileFormatOrcToParquet() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String table = "openhouse.dbRtasBehavior.formatChange";
+      spark.sql("DROP TABLE IF EXISTS " + table);
+      spark.sql(
+          "CREATE TABLE "
+              + table
+              + " (id bigint, data string) USING iceberg TBLPROPERTIES ('write.format.default'='orc')");
+      spark.sql("ALTER TABLE " + table + " SET TBLPROPERTIES ('replace.enabled'='true')");
+      spark.sql("INSERT INTO " + table + " VALUES (1, 'a')");
+      assertTrue(
+          dataFilePaths(spark, table).stream().allMatch(p -> p.endsWith(".orc")),
+          "seed data files should be ORC");
+
+      // Changing the file format is a valid RTAS transform: re-specify parquet as the write
+      // default.
+      spark.sql(
+          "REPLACE TABLE "
+              + table
+              + " USING iceberg TBLPROPERTIES ('write.format.default'='parquet')"
+              + " AS SELECT id, data FROM "
+              + table);
+
+      assertEquals(
+          "parquet",
+          tableProperties(spark, table).get("write.format.default"),
+          "RTAS should have switched the default write format to parquet");
+      List<String> files = dataFilePaths(spark, table);
+      assertFalse(files.isEmpty(), "table should have data files after RTAS");
+      assertTrue(
+          files.stream().allMatch(p -> p.endsWith(".parquet")),
+          "all data files after RTAS should be parquet, got: " + files);
+
+      spark.sql("DROP TABLE IF EXISTS " + table);
+    }
+  }
+
+  @Test
+  public void testRtasMayRemoveEncryption() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String table = "openhouse.dbRtasBehavior.removeEncryption";
+      spark.sql("DROP TABLE IF EXISTS " + table);
+      // OpenHouse OSS has no KMS-backed encryption; the real encrypted->unencrypted transform is
+      // exercised in li-openhouse. Here we pin that RTAS *permits* the transform and lands the
+      // table
+      // in the requested (unencrypted) state, using a table property to stand in for the setting.
+      spark.sql(
+          "CREATE TABLE "
+              + table
+              + " (id bigint, data string) USING iceberg TBLPROPERTIES ('encryption.enabled'='true')");
+      spark.sql("ALTER TABLE " + table + " SET TBLPROPERTIES ('replace.enabled'='true')");
+      spark.sql("INSERT INTO " + table + " VALUES (1, 'a')");
+      assertEquals(
+          "true",
+          tableProperties(spark, table).get("encryption.enabled"),
+          "table should start with encryption enabled");
+
+      spark.sql(
+          "REPLACE TABLE "
+              + table
+              + " USING iceberg TBLPROPERTIES ('encryption.enabled'='false')"
+              + " AS SELECT id, data FROM "
+              + table);
+
+      assertEquals(
+          "false",
+          tableProperties(spark, table).get("encryption.enabled"),
+          "RTAS should be allowed to turn encryption off");
+      assertEquals(
+          1L,
+          spark.sql("SELECT count(*) FROM " + table).collectAsList().get(0).getLong(0),
+          "table must remain readable after the encryption-removing RTAS");
+
+      spark.sql("DROP TABLE IF EXISTS " + table);
+    }
+  }
+
+  @Test
+  public void testRtasLeavesPreReplaceSnapshotReachableOnDisconnectedTimeline() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String table = "openhouse.dbRtasBehavior.timeTravel";
+      createSeededReplaceEnabledTable(spark, table, "(id bigint, data string, extra string)", "");
+      spark.sql("INSERT INTO " + table + " VALUES (1, 'a', 'keep')");
+      long preReplaceSnapshot =
+          spark
+              .sql("SELECT snapshot_id FROM " + table + ".snapshots")
+              .collectAsList()
+              .get(0)
+              .getLong(0);
+
+      // RTAS drops the 'extra' column and rewrites the row body.
+      spark.sql(
+          "REPLACE TABLE " + table + " USING iceberg AS SELECT id, 'b' AS data FROM " + table);
+      assertFalse(columnsOf(spark, table).contains("extra"), "RTAS should have dropped 'extra'");
+
+      // The pre-replace snapshot is retained and still reachable by explicit time travel, but it
+      // sits on a disconnected timeline: it carries the OLD schema and the OLD row body. The spec's
+      // intended end-state is for cross-boundary time travel to error; today it silently returns
+      // the
+      // pre-replace data, which this test pins so a future gate change is caught here.
+      List<Row> old =
+          spark
+              .sql("SELECT * FROM " + table + " VERSION AS OF " + preReplaceSnapshot)
+              .collectAsList();
+      assertEquals(1, old.size(), "pre-replace snapshot should still be readable");
+      assertEquals(
+          3, old.get(0).length(), "pre-replace snapshot should carry the old 3-column schema");
+      assertEquals(
+          "keep", old.get(0).getString(2), "pre-replace snapshot should return the old body");
+
+      assertEquals(
+          "b",
+          spark.sql("SELECT data FROM " + table).collectAsList().get(0).getString(0),
+          "current body should be the replaced one");
+
+      spark.sql("DROP TABLE IF EXISTS " + table);
+    }
+  }
+
+  @Test
+  public void testRtasAllowsRestoringPreReplaceSnapshotWithDataLoss() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String table = "openhouse.dbRtasBehavior.restore";
+      createSeededReplaceEnabledTable(spark, table, "(id bigint, data string)", "");
+      spark.sql("INSERT INTO " + table + " VALUES (1, 'a'), (2, 'b')");
+      long preReplaceSnapshot =
+          spark
+              .sql("SELECT snapshot_id FROM " + table + ".snapshots")
+              .collectAsList()
+              .get(0)
+              .getLong(0);
+
+      spark.sql(
+          "REPLACE TABLE "
+              + table
+              + " USING iceberg AS SELECT CAST(id * 100 AS bigint) AS id, data FROM "
+              + table);
+      assertEquals(
+          1,
+          spark.sql("SELECT id FROM " + table + " WHERE id = 100").collectAsList().size(),
+          "sanity: replaced body should contain id 100");
+
+      // Restore the table to its pre-replace snapshot. Per the RTAS spec this is supported, at the
+      // cost of losing the snapshots created after it (the replaced body).
+      spark.sql(
+          "CALL openhouse.system.set_current_snapshot(table => '"
+              + tableArg(table)
+              + "', snapshot_id => "
+              + preReplaceSnapshot
+              + ")");
+
+      List<Row> restored =
+          spark.sql("SELECT id, data FROM " + table + " ORDER BY id").collectAsList();
+      assertEquals(2, restored.size(), "restore should bring back the pre-replace row count");
+      assertEquals(
+          1L, restored.get(0).getLong(0), "restore should bring back the pre-replace body");
+      assertEquals(
+          2L, restored.get(1).getLong(0), "restore should bring back the pre-replace body");
+      assertTrue(
+          spark.sql("SELECT id FROM " + table + " WHERE id = 100").collectAsList().isEmpty(),
+          "the replaced body should be lost after restoring the earlier snapshot");
 
       spark.sql("DROP TABLE IF EXISTS " + table);
     }
