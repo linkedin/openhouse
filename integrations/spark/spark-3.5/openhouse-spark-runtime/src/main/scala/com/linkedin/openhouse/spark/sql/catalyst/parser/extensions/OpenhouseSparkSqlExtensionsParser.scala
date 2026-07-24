@@ -72,7 +72,8 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
         normalized.contains("set tag"))) ||
       normalized.startsWith("grant") ||
       normalized.startsWith("revoke") ||
-      normalized.startsWith("show grants")
+      normalized.startsWith("show grants") ||
+      normalized.startsWith("vacuum")
 
   }
 
