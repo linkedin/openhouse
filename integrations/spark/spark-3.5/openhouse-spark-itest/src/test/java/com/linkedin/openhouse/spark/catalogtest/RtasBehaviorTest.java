@@ -41,19 +41,6 @@ public class RtasBehaviorTest extends OpenHouseSparkITest {
         .collect(Collectors.toMap(r -> r.getString(0), r -> r.getString(1)));
   }
 
-  private static List<String> dataFilePaths(SparkSession spark, String table) {
-    return spark.sql("SELECT file_path FROM " + table + ".files").collectAsList().stream()
-        .map(r -> r.getString(0))
-        .collect(Collectors.toList());
-  }
-
-  /**
-   * Strips the leading {@code openhouse.} catalog prefix, leaving the {@code db.table} identifier.
-   */
-  private static String tableArg(String fullyQualifiedTable) {
-    return fullyQualifiedTable.substring(fullyQualifiedTable.indexOf('.') + 1);
-  }
-
   @Test
   public void testRtasMayDropColumn() throws Exception {
     try (SparkSession spark = getSparkSession()) {
@@ -212,9 +199,12 @@ public class RtasBehaviorTest extends OpenHouseSparkITest {
               + " (id bigint, data string) USING iceberg TBLPROPERTIES ('write.format.default'='orc')");
       spark.sql("ALTER TABLE " + table + " SET TBLPROPERTIES ('replace.enabled'='true')");
       spark.sql("INSERT INTO " + table + " VALUES (1, 'a')");
+      List<String> seedFiles =
+          spark.sql("SELECT file_path FROM " + table + ".files").collectAsList().stream()
+              .map(r -> r.getString(0))
+              .collect(Collectors.toList());
       assertTrue(
-          dataFilePaths(spark, table).stream().allMatch(p -> p.endsWith(".orc")),
-          "seed data files should be ORC");
+          seedFiles.stream().allMatch(p -> p.endsWith(".orc")), "seed data files should be ORC");
 
       // Changing the file format is a valid RTAS transform: re-specify parquet as the write
       // default.
@@ -229,7 +219,10 @@ public class RtasBehaviorTest extends OpenHouseSparkITest {
           "parquet",
           tableProperties(spark, table).get("write.format.default"),
           "RTAS should have switched the default write format to parquet");
-      List<String> files = dataFilePaths(spark, table);
+      List<String> files =
+          spark.sql("SELECT file_path FROM " + table + ".files").collectAsList().stream()
+              .map(r -> r.getString(0))
+              .collect(Collectors.toList());
       assertFalse(files.isEmpty(), "table should have data files after RTAS");
       assertTrue(
           files.stream().allMatch(p -> p.endsWith(".parquet")),
@@ -345,10 +338,11 @@ public class RtasBehaviorTest extends OpenHouseSparkITest {
           "sanity: replaced body should contain id 100");
 
       // Restore the table to its pre-replace snapshot. Per the RTAS spec this is supported, at the
-      // cost of losing the snapshots created after it (the replaced body).
+      // cost of losing the snapshots created after it (the replaced body). The CALL takes the
+      // db.table identifier, i.e. the name without the leading "openhouse." catalog prefix.
       spark.sql(
           "CALL openhouse.system.set_current_snapshot(table => '"
-              + tableArg(table)
+              + table.substring(table.indexOf('.') + 1)
               + "', snapshot_id => "
               + preReplaceSnapshot
               + ")");
