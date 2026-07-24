@@ -21,10 +21,11 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseMetastoreCatalog;
@@ -40,6 +41,7 @@ import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
@@ -98,19 +100,44 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     throw new UnsupportedOperationException("Location will be provided explicitly");
   }
 
+  // Page size used when internally paginating HTS "list all" queries so that a single HTS
+  // response never grows large enough to exceed the WebClient's in-memory buffer limit
+  // (previously observed as DataBufferLimitException for databases with very many tables).
+  private static final int LIST_TABLES_HTS_PAGE_SIZE = 1000;
+
   @Override
   public List<TableIdentifier> listTables(Namespace namespace) {
     NamespaceUtil.validateOperationNamespace(namespace);
     // TODO: Implement SupportsNamespace interface and listNamespaces() method to remove this
     //  branch. This is anti-pattern and only a temporary solution.
     if (namespace.isEmpty()) {
-      return StreamSupport.stream(houseTableRepository.findAll().spliterator(), false)
+      return fetchAllPages(houseTableRepository::findAll).stream()
           .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"))
           .collect(Collectors.toList());
     }
-    return houseTableRepository.findAllByDatabaseId(namespace.toString()).stream()
+    return fetchAllPages(
+            pageable -> houseTableRepository.findAllByDatabaseId(namespace.toString(), pageable))
+        .stream()
         .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
         .collect(Collectors.toList());
+  }
+
+  /**
+   * Repeatedly issues the given paginated HTS query, accumulating every page in memory, until all
+   * results have been retrieved. Used to service the unbounded "list all" catalog APIs on top of
+   * HTS's paginated endpoints, so that no single underlying HTTP response can grow large enough to
+   * exceed the WebClient in-memory buffer limit.
+   */
+  private List<HouseTable> fetchAllPages(Function<Pageable, Page<HouseTable>> pageFetcher) {
+    List<HouseTable> results = new ArrayList<>();
+    Pageable pageable = PageRequest.of(0, LIST_TABLES_HTS_PAGE_SIZE);
+    Page<HouseTable> page;
+    do {
+      page = pageFetcher.apply(pageable);
+      results.addAll(page.getContent());
+      pageable = pageable.next();
+    } while (page.hasNext());
+    return results;
   }
 
   public Page<TableIdentifier> listTables(Namespace namespace, Pageable pageable) {

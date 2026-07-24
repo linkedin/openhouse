@@ -44,6 +44,21 @@ public class BaseIcebergSchemaValidatorTest {
   }
 
   @Test
+  void normalizeSchemaCasingToTable_preservesGenuineRename_notRevertedToOldName() {
+    // Table has field id=1 named "id"; the writer submits id=1 named "user_id" — a genuine rename,
+    // not merely a case change. The normalizer must NOT rewrite it back to "id" (which would make
+    // the rename a silent no-op); leaving "user_id" lets validateWriteSchema reject it loudly.
+    Schema tableSchema = new Schema(Types.NestedField.required(1, "id", Types.StringType.get()));
+    Schema writeSchema =
+        new Schema(Types.NestedField.required(1, "user_id", Types.StringType.get()));
+
+    Schema normalized =
+        BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(writeSchema, tableSchema);
+
+    assertEquals("user_id", normalized.findField(1).name());
+  }
+
+  @Test
   void normalizeSchemaCasingToTable_preservesNewColumns_unchanged() {
     // Table has id=1, writer adds a new column id=2 with different-cased name
     Schema tableSchema = new Schema(Types.NestedField.required(1, "ID", Types.StringType.get()));
