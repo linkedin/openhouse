@@ -58,7 +58,15 @@ public class BaseIcebergSchemaValidator implements SchemaValidator {
                 for (int i = 0; i < originals.size(); i++) {
                   Types.NestedField original = originals.get(i);
                   Types.NestedField tableField = tableById.get(original.fieldId());
-                  String name = (tableField != null) ? tableField.name() : original.name();
+                  // Only normalize *casing*: adopt the table's spelling when the write name differs
+                  // from it by case alone. A genuinely different name (a real column rename) is
+                  // left
+                  // intact so schema validation rejects it loudly, instead of it being silently
+                  // reverted to the old name and dropped as a no-op.
+                  String name =
+                      (tableField != null && tableField.name().equalsIgnoreCase(original.name()))
+                          ? tableField.name()
+                          : original.name();
                   Type type = fieldTypes.get(i);
                   // Reuse the original if nothing changed (cheap reference-equality short-circuit).
                   if (name.equals(original.name()) && type == original.type()) {
