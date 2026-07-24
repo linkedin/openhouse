@@ -93,11 +93,20 @@ class OpenHouseCatalog(Catalog):
                 f"X-Request-ID: {request_id}. Response: {response.text}"
             )
 
-        table_response = response.json()
+        request_id = response.request.headers[_REQUEST_ID_HEADER]
+        try:
+            table_response = response.json()
+        except requests.JSONDecodeError as exc:
+            raise OpenHouseCatalogError(
+                f"Response for table {database}.{table} is not valid JSON. "
+                f"X-Request-ID: {request_id}. Response: {response.text}"
+            ) from exc
+
         metadata_location = table_response.get(_TABLE_LOCATION)
         if not metadata_location:
             raise OpenHouseCatalogError(
-                f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. Response: {table_response}"
+                f"Response for table {database}.{table} is missing '{_TABLE_LOCATION}'. "
+                f"X-Request-ID: {request_id}. Response: {table_response}"
             )
 
         file_io = load_file_io(properties=self.properties, location=metadata_location)
