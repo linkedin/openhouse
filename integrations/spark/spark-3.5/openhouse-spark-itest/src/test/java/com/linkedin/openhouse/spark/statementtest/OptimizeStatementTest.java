@@ -111,6 +111,30 @@ public class OptimizeStatementTest {
         Exception.class, () -> spark.sql("OPTIMIZE openhouse.db.not_openhouse").collect());
   }
 
+  @Test
+  public void testOptimizeCompactsMergeOnReadDeletesAndKeepsRowsCorrect() {
+    // A merge-on-read table: the DELETE writes position delete files rather than rewriting data.
+    spark
+        .sql(
+            "CREATE TABLE openhouse.db.mor (id bigint, data string, `openhouse.tableId` string) "
+                + "USING iceberg TBLPROPERTIES ("
+                + "'openhouse.tableId' = 'tableid', 'format-version' = '2', "
+                + "'write.delete.mode' = 'merge-on-read')")
+        .show();
+    for (int i = 1; i <= 6; i++) {
+      spark.sql("INSERT INTO openhouse.db.mor VALUES (" + i + ", 'd" + i + "', 'tableid')").show();
+    }
+    spark.sql("DELETE FROM openhouse.db.mor WHERE id = 3").show();
+    Assertions.assertEquals(5, rowCount("openhouse.db.mor"));
+
+    // OPTIMIZE rewrites data and then rewrite_position_delete_files cleans up the deletes made
+    // dangling by that rewrite. The visible rows must be byte-for-byte correct across the rewrite.
+    Map<String, String> m = optimize("OPTIMIZE openhouse.db.mor");
+    Assertions.assertTrue(m.containsKey("files_after"));
+    Assertions.assertEquals(5, rowCount("openhouse.db.mor"));
+    Assertions.assertEquals(0, spark.sql("SELECT * FROM openhouse.db.mor WHERE id = 3").count());
+  }
+
   @SneakyThrows
   @BeforeAll
   public void setupSpark() {
@@ -150,6 +174,7 @@ public class OptimizeStatementTest {
   @AfterEach
   public void tearDown() {
     spark.sql("DROP TABLE IF EXISTS openhouse.db.table").show();
+    spark.sql("DROP TABLE IF EXISTS openhouse.db.mor").show();
     spark.sql("DROP TABLE IF EXISTS openhouse.db.not_openhouse").show();
   }
 

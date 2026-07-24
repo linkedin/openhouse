@@ -22,6 +22,9 @@ import org.apache.spark.unsafe.types.UTF8String
  * incremental by default (only the forward slice of the leading key since the last run, tracked by
  * the `optimize.cluster.hwm-snapshot-id` watermark), with `FULL` reclustering up to the age floor.
  * `REWRITE MANIFESTS` runs afterwards over the post-rewrite layout.
+ *
+ * After the data rewrite, `system.rewrite_position_delete_files` compacts merge-on-read position
+ * delete files and drops dangling deletes; it is a no-op on copy-on-write or delete-free tables.
  */
 case class OptimizeTableExec(
   output: Seq[Attribute],
@@ -59,6 +62,13 @@ case class OptimizeTableExec(
       case _ =>
         cluster(cat, tableArg, qualifiedTableName, config)
     }
+
+    // Compact merge-on-read position delete files and drop dangling deletes (deletes that no longer
+    // apply to any live data, e.g. because the data files they targeted were just rewritten above).
+    // Runs after the data rewrite so it also cleans up deletes that rewrite made dangling, and
+    // before REWRITE MANIFESTS so manifest compaction sees the reduced delete-file set. On
+    // copy-on-write or delete-free tables there is nothing to rewrite, so this is a no-op.
+    spark.sql(s"CALL $cat.system.rewrite_position_delete_files(table => '$tableArg')").collect()
 
     if (rewriteManifests) {
       // Independent manifest compaction; runs after the data rewrite so it sees the new layout.
