@@ -46,6 +46,23 @@ public class VacuumStatementTest {
   }
 
   @Test
+  public void testVacuumHonorsHistoryPolicyVersions() {
+    // The OpenHouse history policy (the `policies` property) sets versions=2. With no RETAIN,
+    // VACUUM must honor that via retain_last, keeping exactly the last 2 of the 3 snapshots.
+    spark
+        .sql(
+            "ALTER TABLE openhouse.db.table SET TBLPROPERTIES ("
+                + "'policies' = '{\"history\":{\"maxAge\":0,\"granularity\":\"DAY\",\"versions\":2}}')")
+        .show();
+    Assertions.assertEquals(3, snapshotCount("openhouse.db.table"));
+
+    spark.sql("VACUUM openhouse.db.table").collect();
+
+    Assertions.assertEquals(2, snapshotCount("openhouse.db.table"));
+    Assertions.assertEquals(3, rowCount("openhouse.db.table"));
+  }
+
+  @Test
   public void testVacuumRemoveOrphanFilesPreservesLiveData() {
     // A 24-hour window is safely above Iceberg's orphan-file removal floor and must not delete any
     // file the table references, so all rows survive.
