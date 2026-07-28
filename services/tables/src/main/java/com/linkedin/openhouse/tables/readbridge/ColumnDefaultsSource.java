@@ -13,8 +13,12 @@ import java.util.Map;
  * overrides this bean (e.g. li-openhouse derives the defaults from the {@code avro.schema.literal}
  * table property).
  *
- * <p>Called on every table-load/commit response, so implementations must be cheap and must never
- * throw — an empty map means "no bridge for this table".
+ * <p>Called on every table-load/commit response, so implementations must be cheap. An empty map
+ * means "nothing to bridge for this table" — no default is declared, or a declared default is of a
+ * kind this source does not support; either way the column keeps reading {@code NULL} as it does
+ * today. Throw instead when a default <em>is</em> declared but cannot be honored (e.g. it does not
+ * bind to its column's type): degrading there would leave the column reading {@code NULL} while the
+ * table claims to be bridged, hiding a real defect.
  */
 public interface ColumnDefaultsSource {
   /**
