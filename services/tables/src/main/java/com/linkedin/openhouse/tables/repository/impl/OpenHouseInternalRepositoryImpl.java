@@ -353,15 +353,28 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableDto -> isReplicationConfigured(Optional.ofNullable(tableDto.getPolicies())));
 
   /**
-   * Pairs of features that cannot be enabled on the same table. Each pair is ordered {@code
-   * (feature, conflictsWith)}: if a request would enable both, it is rejected and the client is
-   * told to disable {@code conflictsWith}. Declaring a new incompatibility is just adding a pair
-   * here.
+   * An ordered pair of features that cannot both be enabled on the same table: enabling {@link
+   * #feature} while {@link #conflictsWith} is enabled is rejected, and the client is told to
+   * disable {@link #conflictsWith}.
    */
-  private static final List<Feature[]> MUTUALLY_EXCLUSIVE_FEATURES =
+  private static final class IncompatibleFeatures {
+    private final Feature feature;
+    private final Feature conflictsWith;
+
+    private IncompatibleFeatures(Feature feature, Feature conflictsWith) {
+      this.feature = feature;
+      this.conflictsWith = conflictsWith;
+    }
+  }
+
+  /**
+   * The declared feature incompatibilities. Adding a new mutually-exclusive relationship is just
+   * adding a tuple here; the validation code below stays generic.
+   */
+  private static final List<IncompatibleFeatures> MUTUALLY_EXCLUSIVE_FEATURES =
       Arrays.asList(
-          new Feature[] {RTAS_FEATURE, WAP_FEATURE},
-          new Feature[] {RTAS_FEATURE, REPLICATION_FEATURE});
+          new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
+          new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE));
 
   /**
    * Rejects any create or update whose resulting metadata would enable two mutually-exclusive
@@ -371,20 +384,18 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * @param tableDto container of the requested table metadata
    */
   private void validateFeatureCompatibility(TableDto tableDto) {
-    for (Feature[] pair : MUTUALLY_EXCLUSIVE_FEATURES) {
-      Feature feature = pair[0];
-      Feature conflictsWith = pair[1];
-      if (feature.isEnabledOn(tableDto) && conflictsWith.isEnabledOn(tableDto)) {
+    for (IncompatibleFeatures pair : MUTUALLY_EXCLUSIVE_FEATURES) {
+      if (pair.feature.isEnabledOn(tableDto) && pair.conflictsWith.isEnabledOn(tableDto)) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.INCOMPATIBLE_FEATURES,
             String.format(
                 "Table %s.%s cannot enable %s while %s is enabled. Disable %s to enable %s.",
                 tableDto.getDatabaseId(),
                 tableDto.getTableId(),
-                feature.label,
-                conflictsWith.label,
-                conflictsWith.label,
-                feature.label));
+                pair.feature.label,
+                pair.conflictsWith.label,
+                pair.conflictsWith.label,
+                pair.feature.label));
       }
     }
   }
