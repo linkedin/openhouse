@@ -386,8 +386,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   private void validateFeatureCompatibility(TableDto tableDto) {
     for (IncompatibleFeatures pair : MUTUALLY_EXCLUSIVE_FEATURES) {
       if (pair.feature.isEnabledOn(tableDto) && pair.conflictsWith.isEnabledOn(tableDto)) {
-        throw new UnsupportedClientOperationException(
-            UnsupportedClientOperationException.Operation.INCOMPATIBLE_FEATURES,
+        throw new RequestValidationFailureException(
             String.format(
                 "Table %s.%s cannot enable %s while %s is enabled. Disable %s to enable %s.",
                 tableDto.getDatabaseId(),
