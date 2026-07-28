@@ -129,8 +129,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
 
   /**
    * Loads the table metadata from storage, then runs the read-time {@link ReadBridge} over it using
-   * the per-table behavior the server stamped onto {@link #currentConfig()}. Fail-closed:
-   * absent/off/unparseable config leaves the raw metadata untouched.
+   * the per-table behavior the server stamped onto {@link #currentConfig()}. Absent config, or
+   * config carrying nothing to bridge, leaves the raw metadata untouched; a malformed known entry
+   * fails loud (see {@link ReadBridge}).
    */
   protected TableMetadata loadMetadata(String metadataLocation) {
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
