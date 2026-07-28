@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -88,37 +90,14 @@ public class RtasDmlMatrixTest extends OpenHouseSparkITest {
   }
 
   /**
-   * How the table under test came to exist, expressed as a composition of preparation steps. Each
-   * constant leaves the table holding exactly the canonical seed rows.
+   * How the table under test came to exist: a plain table, a table replaced via RTAS, or a table
+   * replaced then restored to its pre-replace snapshot. {@link #prepare} composes the preparation
+   * steps for each; every lifecycle leaves the table holding exactly the canonical seed rows.
    */
   enum Lifecycle {
-    /** A plain table, seeded directly. */
-    BASE {
-      @Override
-      void prepare(SparkSession spark, String table, String using, String props) {
-        createSeeded(spark, table, using, props);
-      }
-    },
-    /** Seeded, then replaced via RTAS with the same seed. */
-    RTAS {
-      @Override
-      void prepare(SparkSession spark, String table, String using, String props) {
-        createSeeded(spark, table, using, props);
-        rtas(spark, table, using, props, SEED_VALUES);
-      }
-    },
-    /** Seeded, replaced via RTAS with junk, then restored to the pre-replace (seed) snapshot. */
-    RTAS_RESTORE {
-      @Override
-      void prepare(SparkSession spark, String table, String using, String props) {
-        createSeeded(spark, table, using, props);
-        long seedSnapshot = latestSnapshot(spark, table);
-        rtas(spark, table, using, props, JUNK_VALUES);
-        restore(spark, table, seedSnapshot);
-      }
-    };
-
-    abstract void prepare(SparkSession spark, String table, String using, String props);
+    BASE,
+    RTAS,
+    RTAS_RESTORE
   }
 
   /** Every (write mode, file format, partitioning, lifecycle) preparation. */
@@ -294,14 +273,25 @@ public class RtasDmlMatrixTest extends OpenHouseSparkITest {
       Partitioning partitioning,
       Lifecycle lifecycle) {
     String using = "USING iceberg " + partitioning.clause;
-    String props = "'write.format.default'='" + format.property() + "', 'replace.enabled'='true'";
-    if (writeMode.isMergeOnRead()) {
-      props +=
-          ", 'format-version'='2', 'write.delete.mode'='merge-on-read', "
-              + "'write.update.mode'='merge-on-read', 'write.merge.mode'='merge-on-read'";
-    }
+    String tblProps = tblProperties(tableProps(writeMode, format));
     spark.sql("DROP TABLE IF EXISTS " + table);
-    lifecycle.prepare(spark, table, using, props);
+    switch (lifecycle) {
+      case BASE:
+        createSeeded(table, using, tblProps);
+        break;
+      case RTAS:
+        createSeeded(table, using, tblProps);
+        rtas(table, using, tblProps, SEED_VALUES);
+        break;
+      case RTAS_RESTORE:
+        createSeeded(table, using, tblProps);
+        long seedSnapshot = latestSnapshot(table);
+        rtas(table, using, tblProps, JUNK_VALUES);
+        restore(table, seedSnapshot);
+        break;
+      default:
+        throw new IllegalArgumentException("unhandled lifecycle: " + lifecycle);
+    }
   }
 
   private void runOnPreparedTable(
@@ -319,34 +309,33 @@ public class RtasDmlMatrixTest extends OpenHouseSparkITest {
     }
   }
 
-  private static void createSeeded(SparkSession spark, String table, String using, String props) {
+  private void createSeeded(String table, String using, String tblProps) {
     spark.sql(
         "CREATE TABLE "
             + table
             + " (id int, data string) "
             + using
             + " TBLPROPERTIES ("
-            + props
+            + tblProps
             + ")");
     spark.sql("INSERT INTO " + table + " VALUES " + SEED_VALUES);
   }
 
-  private static void rtas(
-      SparkSession spark, String table, String using, String props, String values) {
+  private void rtas(String table, String using, String tblProps, String values) {
     spark.sql(
         "REPLACE TABLE "
             + table
             + " "
             + using
             + " TBLPROPERTIES ("
-            + props
+            + tblProps
             + ") "
             + "AS SELECT * FROM VALUES "
             + values
             + " AS s(id, data)");
   }
 
-  private static long latestSnapshot(SparkSession spark, String table) {
+  private long latestSnapshot(String table) {
     return spark
         .sql("SELECT snapshot_id FROM " + table + ".snapshots ORDER BY committed_at DESC LIMIT 1")
         .collectAsList()
@@ -354,13 +343,34 @@ public class RtasDmlMatrixTest extends OpenHouseSparkITest {
         .getLong(0);
   }
 
-  private static void restore(SparkSession spark, String table, long snapshotId) {
+  private void restore(String table, long snapshotId) {
     spark.sql(
         "CALL openhouse.system.set_current_snapshot(table => '"
             + table.substring(table.indexOf('.') + 1)
             + "', snapshot_id => "
             + snapshotId
             + ")");
+  }
+
+  /** The table properties for a preparation, as key/value pairs. */
+  private static Map<String, String> tableProps(WriteMode writeMode, FileFormat format) {
+    Map<String, String> props = new LinkedHashMap<>();
+    props.put("write.format.default", format.property());
+    props.put("replace.enabled", "true");
+    if (writeMode.isMergeOnRead()) {
+      props.put("format-version", "2");
+      props.put("write.delete.mode", "merge-on-read");
+      props.put("write.update.mode", "merge-on-read");
+      props.put("write.merge.mode", "merge-on-read");
+    }
+    return props;
+  }
+
+  /** Renders key/value properties into an Iceberg {@code TBLPROPERTIES (...)} body. */
+  private static String tblProperties(Map<String, String> props) {
+    return props.entrySet().stream()
+        .map(entry -> "'" + entry.getKey() + "'='" + entry.getValue() + "'")
+        .collect(Collectors.joining(", "));
   }
 
   private long count(String table) {
